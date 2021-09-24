@@ -14,11 +14,11 @@ use crate::sub_lib::stream_connector::StreamConnectorReal;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use actix::Recipient;
+use crossbeam_channel::Sender;
 use masq_lib::logger::Logger;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use std::sync::mpsc::Sender;
 
 pub struct StreamEstablisher {
     pub cryptde: &'static dyn CryptDE,
@@ -135,18 +135,18 @@ mod tests {
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use actix::System;
+    use crossbeam_channel::unbounded;
     use futures::future::lazy;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::sync::mpsc;
     use std::thread;
     use tokio::prelude::Async;
 
     #[test]
     fn spawn_stream_reader_handles_data() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let (sub_tx, sub_rx) = mpsc::channel();
+        let (sub_tx, sub_rx) = unbounded();
         thread::spawn(move || {
             let system = System::new("spawn_stream_reader_handles_data");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -156,12 +156,12 @@ mod tests {
             system.run();
         });
 
-        let (ibsd_tx, ibsd_rx) = mpsc::channel();
+        let (ibsd_tx, ibsd_rx) = unbounded();
         let test_future = lazy(move || {
             let proxy_client_sub = sub_rx.recv().unwrap();
 
-            let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
-            let (stream_killer_tx, _) = mpsc::channel();
+            let (stream_adder_tx, _stream_adder_rx) = unbounded();
+            let (stream_killer_tx, _) = unbounded();
             let mut read_stream = Box::new(ReadHalfWrapperMock::new());
             let bytes = b"I'm a stream establisher test not a framer test";
             read_stream.poll_read_results = vec![

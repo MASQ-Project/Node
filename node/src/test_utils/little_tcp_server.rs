@@ -1,11 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use masq_lib::utils::localhost;
 use std::io::Read;
 use std::io::Write;
 use std::net::{SocketAddr, TcpListener};
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
@@ -25,8 +24,8 @@ impl LittleTcpServer {
     pub fn start() -> LittleTcpServer {
         let listener = TcpListener::bind(SocketAddr::new(localhost(), 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
-        let (tx, rx) = mpsc::channel();
-        let (count_tx, count_rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
+        let (count_tx, count_rx) = unbounded();
         thread::spawn(move || {
             let mut buf = [0u8; 1024];
             loop {

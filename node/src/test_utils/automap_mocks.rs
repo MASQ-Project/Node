@@ -141,7 +141,7 @@ pub fn make_temporary_automap_control_factory(
 ) -> AutomapControlFactoryMock {
     let public_ip_result = match public_ip_opt {
         Some(ip) => Ok(ip),
-        None => Err(AutomapError::AllProtocolsFailed),
+        None => Err(AutomapError::AllProtocolsFailed(vec![])),
     };
     let automap_control = AutomapControlMock::new()
         .get_public_ip_result(public_ip_result)

@@ -76,11 +76,8 @@ impl SetupReporter for SetupReporterReal {
             .iter()
             .filter(|v| v.value.is_none())
             .for_each(|v| {
-                match existing_setup.remove(&v.name) {
-                    Some(former_value) => {
-                        blanked_out_former_values.insert(v.name.clone(), former_value)
-                    }
-                    None => None,
+                if let Some(former_value) = existing_setup.remove(&v.name) {
+                    blanked_out_former_values.insert(v.name.clone(), former_value);
                 };
             });
         let mut incoming_setup = incoming_setup
@@ -188,9 +185,9 @@ fn eprintln_setup(label: &str, cluster: &SetupCluster) {
 }
 
 impl SetupReporterReal {
-    pub fn new() -> Self {
+    pub fn new(dirs_wrapper: Box<dyn DirsWrapper>) -> Self {
         Self {
-            dirs_wrapper: Box::new(DirsWrapperReal {}),
+            dirs_wrapper,
             logger: Logger::new("SetupReporter"),
         }
     }
@@ -275,7 +272,7 @@ impl SetupReporterReal {
 
     fn calculate_configured_setup(
         &self,
-        dirs_wrapper: &dyn DirsWrapper,
+        dirs_wrapper: &dyn DirsWrapper, // TODO: Do we really need this? There's a self.dirs_wrapper.
         combined_setup: &SetupCluster,
         data_directory: &Path,
         chain_name: &str,
@@ -1080,7 +1077,8 @@ mod tests {
         .into_iter()
         .map(|(name, value)| UiSetupRequestValue::new(name, value))
         .collect_vec();
-        let subject = SetupReporterReal::new();
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
             .get_modified_setup(
@@ -1166,7 +1164,8 @@ mod tests {
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
         ]);
-        let subject = SetupReporterReal::new();
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
             .get_modified_setup(
@@ -1233,7 +1232,8 @@ mod tests {
         ].into_iter()
             .map (|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let subject = SetupReporterReal::new();
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
             .get_modified_setup(
@@ -1300,8 +1300,9 @@ mod tests {
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
+        let dirs_wrapper = Box::new(DirsWrapperReal);
         let params = vec![];
-        let subject = SetupReporterReal::new();
+        let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
             .get_modified_setup(
@@ -1402,7 +1403,8 @@ mod tests {
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
         }
-        let mut subject = SetupReporterReal::new();
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let mut subject = SetupReporterReal::new(dirs_wrapper);
         subject.dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .home_dir_result(Some(home_dir.clone()))
@@ -1562,7 +1564,8 @@ mod tests {
             #[cfg(not(target_os = "windows"))]
             ("real-user", "6666:6666:agoob", Set),
         ]);
-        let subject = SetupReporterReal::new();
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
             .get_modified_setup(
@@ -1614,18 +1617,17 @@ mod tests {
     #[test]
     fn get_modified_setup_data_directory_depends_on_new_chain_on_success() {
         let _guard = EnvironmentGuard::new();
-        let wrapper = DirsWrapperReal {};
-        let data_directory = wrapper
-            .data_dir()
-            .unwrap()
-            .join("MASQ")
-            .join(DEFAULT_CHAIN_NAME);
+        let base_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_setup_data_directory_depends_on_new_chain_on_success",
+        );
+        let current_data_dir = base_dir.join("MASQ").join(DEFAULT_CHAIN_NAME);
         let existing_setup = setup_cluster_from(vec![
             ("neighborhood-mode", "zero-hop", Set),
             ("chain", DEFAULT_CHAIN_NAME, Default),
             (
                 "data-directory",
-                &data_directory.to_string_lossy().to_string(),
+                &current_data_dir.to_string_lossy().to_string(),
                 Default,
             ),
             (
@@ -1640,12 +1642,14 @@ mod tests {
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let expected_data_directory = wrapper
-            .data_dir()
-            .unwrap()
-            .join("MASQ")
-            .join(TEST_DEFAULT_CHAIN_NAME);
-        let subject = SetupReporterReal::new();
+        let base_data_dir = base_dir.join("data_dir");
+        let expected_data_directory = base_data_dir.join("MASQ").join(TEST_DEFAULT_CHAIN_NAME);
+        let dirs_wrapper = Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(base_data_dir))
+                .home_dir_result(Some(base_dir)),
+        );
+        let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
             .get_modified_setup(
@@ -1662,12 +1666,11 @@ mod tests {
     #[test]
     fn get_modified_setup_data_directory_depends_on_new_chain_on_error() {
         let _guard = EnvironmentGuard::new();
-        let wrapper = DirsWrapperReal {};
-        let data_directory = wrapper
-            .data_dir()
-            .unwrap()
-            .join("MASQ")
-            .join(DEFAULT_CHAIN_NAME);
+        let base_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_setup_data_directory_depends_on_new_chain_on_error",
+        );
+        let current_data_dir = base_dir.join("MASQ").join(DEFAULT_CHAIN_NAME);
         let existing_setup = setup_cluster_from(vec![
             ("blockchain-service-url", "", Required),
             ("chain", DEFAULT_CHAIN_NAME, Default),
@@ -1676,7 +1679,7 @@ mod tests {
             ("consuming-private-key", "", Blank),
             (
                 "data-directory",
-                &data_directory.to_string_lossy().to_string(),
+                &current_data_dir.to_string_lossy().to_string(),
                 Default,
             ),
             ("db-password", "", Required),
@@ -1703,12 +1706,14 @@ mod tests {
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let expected_data_directory = wrapper
-            .data_dir()
-            .unwrap()
-            .join("MASQ")
-            .join(TEST_DEFAULT_CHAIN_NAME);
-        let subject = SetupReporterReal::new();
+        let base_data_dir = base_dir.join("data_dir");
+        let expected_data_directory = base_data_dir.join("MASQ").join(TEST_DEFAULT_CHAIN_NAME);
+        let dirs_wrapper = Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(base_data_dir))
+                .home_dir_result(Some(base_dir)),
+        );
+        let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
             .get_modified_setup(
@@ -1727,12 +1732,18 @@ mod tests {
     #[test]
     fn get_modified_blanking_something_that_shouldnt_be_blanked_fails_properly() {
         let _guard = EnvironmentGuard::new();
+        let home_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_blanking_something_that_shouldnt_be_blanked_fails_properly",
+        );
         let existing_setup = setup_cluster_from(vec![
+            ("data-directory", home_dir.to_str().unwrap(), Set),
             ("neighborhood-mode", "standard", Set),
             ("ip", "1.2.3.4", Set),
         ]);
         let incoming_setup = vec![UiSetupRequestValue::clear("ip")];
-        let subject = SetupReporterReal::new();
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
             .get_modified_setup(
@@ -1893,7 +1904,8 @@ mod tests {
             "setup_reporter",
             "blanking_a_parameter_with_a_default_produces_that_default",
         );
-        let subject = SetupReporterReal::new();
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
             .get_modified_setup(
@@ -1966,7 +1978,7 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::new()
+        let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
                 &DirsWrapperReal {},
                 &setup,
@@ -2013,7 +2025,7 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::new()
+        let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
                 &DirsWrapperReal {},
                 &setup,
@@ -2053,7 +2065,7 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::new()
+        let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
                 &DirsWrapperReal {},
                 &setup,
@@ -2086,7 +2098,7 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::new()
+        let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
                 &DirsWrapperReal,
                 &setup,
@@ -2103,23 +2115,19 @@ mod tests {
 
     #[test]
     fn config_file_has_absolute_path_to_file_that_exists() {
-        let config_file_dir = ensure_node_home_directory_exists(
+        let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_has_absolute_path_to_file_that_exists",
         )
         .canonicalize()
         .unwrap();
+        let config_file_dir = data_dir.join("data_dir").join("my_config_file");
+        std::fs::create_dir_all(&config_file_dir).unwrap();
         let config_file_path = config_file_dir.join("special.toml");
         {
             let mut config_file = File::create(config_file_path.clone()).unwrap();
             config_file.write_all(b"gas-price = \"10\"\n").unwrap();
         }
-        let wrapper = DirsWrapperReal {};
-        let data_directory = wrapper
-            .data_dir()
-            .unwrap()
-            .join("MASQ")
-            .join(DEFAULT_CHAIN_NAME);
         let setup = vec![
             // no config-file setting
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
@@ -2133,11 +2141,11 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::new()
+        let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
                 &DirsWrapperReal {},
                 &setup,
-                &data_directory,
+                &data_dir,
                 "irrelevant",
                 &make_temporary_automap_control_factory(None, None),
             )
@@ -2173,7 +2181,7 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::new()
+        let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
                 &DirsWrapperReal {},
                 &setup,

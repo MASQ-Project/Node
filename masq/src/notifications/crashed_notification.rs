@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::short_writeln;
 #[cfg(target_os = "windows")]
@@ -28,7 +28,6 @@ impl CrashNotifier {
             #[cfg(not(target_os = "windows"))]
             exit_process_with_sigterm("\nThe Daemon is no longer running; masq is terminating.\n")
         }
-
         short_writeln!(
             stdout,
             "\nThe Node running as process {} terminated{}\nThe Daemon is once more accepting setup changes.\n",
@@ -66,6 +65,7 @@ mod tests {
     use crate::test_utils::mocks::TerminalPassiveMock;
     use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::utils::running_test;
+    use std::sync::Arc;
 
     #[test]
     pub fn handles_child_wait_failure() {
@@ -76,7 +76,7 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::ChildWaitFailure("Couldn't wait".to_string()),
         };
-        let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, &term_interface);
 
@@ -93,7 +93,7 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::Unrecognized("Just...failed!\n\n".to_string()),
         };
-        let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, &term_interface);
 
@@ -110,7 +110,7 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::NoInformation,
         };
-        let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, &term_interface);
 
@@ -127,7 +127,7 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::DaemonCrashed,
         };
-        let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, &term_interface);
     }

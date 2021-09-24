@@ -46,13 +46,12 @@ use automap_lib::comm_layer::AutomapError;
 use automap_lib::control_layer::automap_control::{
     AutomapChange, AutomapControl, AutomapControlReal, ChangeHandler,
 };
+use crossbeam_channel::{unbounded, Sender};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
-use std::sync::mpsc;
-use std::sync::mpsc::Sender;
 use web3::transports::Http;
 
 pub trait ActorSystemFactory: Send {
@@ -75,7 +74,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
     ) -> StreamHandlerPoolSubs {
         let main_cryptde = bootstrapper::main_cryptde_ref();
         let alias_cryptde = bootstrapper::alias_cryptde_ref();
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
 
         self.prepare_initial_messages(main_cryptde, alias_cryptde, config, actor_factory, tx);
 
@@ -599,8 +598,7 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
     use std::str::FromStr;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
 
@@ -1071,7 +1069,7 @@ mod tests {
                 ),
             },
         };
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         let system = System::new("MASQNode");
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ActorSystemFactoryReal::new();
@@ -1211,7 +1209,7 @@ mod tests {
             alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
-            mpsc::channel().0,
+            unbounded().0,
         );
 
         System::current().stop();
@@ -1268,7 +1266,7 @@ mod tests {
                 ),
             },
         };
-        let (tx, _) = mpsc::channel();
+        let (tx, _) = unbounded();
         let system = System::new("MASQNode");
         let mut subject = ActorSystemFactoryReal::new();
         let make_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1393,7 +1391,9 @@ mod tests {
         assert_eq!(make_params[0].0, None);
         let system = System::new("test");
         let change_handler = &make_params[0].1;
-        change_handler(AutomapChange::Error(AutomapError::AllProtocolsFailed));
+        change_handler(AutomapChange::Error(AutomapError::AllProtocolsFailed(
+            vec![],
+        )));
         System::current().stop();
         system.run();
     }
@@ -1403,8 +1403,8 @@ mod tests {
     fn start_automap_change_handler_handles_get_public_ip_errors_properly() {
         running_test();
         let mut subject = ActorSystemFactoryReal::new();
-        let automap_control =
-            AutomapControlMock::new().get_public_ip_result(Err(AutomapError::AllProtocolsFailed));
+        let automap_control = AutomapControlMock::new()
+            .get_public_ip_result(Err(AutomapError::AllProtocolsFailed(vec![])));
         subject.automap_control_factory =
             Box::new(AutomapControlFactoryMock::new().make_result(automap_control));
         let mut config = BootstrapperConfig::default();
@@ -1431,7 +1431,7 @@ mod tests {
         let mut subject = ActorSystemFactoryReal::new();
         let automap_control = AutomapControlMock::new()
             .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
-            .add_mapping_result(Err(AutomapError::AllProtocolsFailed));
+            .add_mapping_result(Err(AutomapError::AllProtocolsFailed(vec![])));
         subject.automap_control_factory =
             Box::new(AutomapControlFactoryMock::new().make_result(automap_control));
         let mut config = BootstrapperConfig::default();

@@ -2,17 +2,19 @@
 
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
-use crate::communications::handle_node_not_running_for_fire_and_forget_on_the_way;
+use crate::communications::{
+    handle_node_is_dead_while_f_f_on_the_way_broadcast, handle_unrecognized_broadcast,
+};
 use crate::notifications::crashed_notification::CrashNotifier;
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
     FromMessageBody, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
     UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
+use masq_lib::utils::ExpectValue;
 use masq_lib::{as_any_dcl, as_any_impl};
-
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
@@ -25,19 +27,12 @@ pub trait BroadcastHandle: Send {
     as_any_dcl!();
 }
 
-pub struct BroadcastHandleInactive {}
+pub struct BroadcastHandleInactive;
 
 impl BroadcastHandle for BroadcastHandleInactive {
     //simply dropped (unless we find a better use for such a message)
     fn send(&self, _message_body: MessageBody) {}
     as_any_impl!();
-}
-
-#[allow(clippy::new_without_default)]
-impl BroadcastHandleInactive {
-    pub fn new() -> Self {
-        Self {}
-    }
 }
 
 pub struct BroadcastHandleGeneric {
@@ -68,7 +63,7 @@ impl BroadcastHandler for BroadcastHandlerReal {
             let terminal_interface = self
                 .terminal_interface
                 .take()
-                .expect("BroadcastHandlerReal: start: some was expected");
+                .expect_v("Some(TerminalWrapper)");
             //release the loop if masq has died (testing concerns)
             let mut flag = true;
             while flag {
@@ -106,18 +101,13 @@ impl BroadcastHandlerReal {
                     ChangePasswordCommand::handle_broadcast(body, stdout, terminal_interface);
                 } else if let Ok((body, _)) = UiUndeliveredFireAndForget::fmb(message_body.clone())
                 {
-                    handle_node_not_running_for_fire_and_forget_on_the_way(
+                    handle_node_is_dead_while_f_f_on_the_way_broadcast(
                         body,
                         stdout,
                         terminal_interface,
                     );
                 } else {
-                    write!(
-                        stderr,
-                        "Discarding unrecognized broadcast with opcode '{}'\n\nmasq> ",
-                        message_body.opcode
-                    )
-                    .expect("write! failed");
+                    handle_unrecognized_broadcast(message_body, stderr, terminal_interface)
                 }
                 true
             }
@@ -157,16 +147,17 @@ mod tests {
         make_tools_for_test_streams_with_thread_life_checker, StdoutBlender, TerminalActiveMock,
         TerminalPassiveMock, TestStreamFactory,
     };
-    use crossbeam_channel::{bounded, Receiver};
+    use crossbeam_channel::{bounded, unbounded, Receiver};
     use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
+    use std::sync::Arc;
     use std::time::Duration;
 
     #[test]
     fn broadcast_of_setup_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
             TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
@@ -198,7 +189,7 @@ mod tests {
     #[test]
     fn broadcast_of_crashed_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
             TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
@@ -228,7 +219,7 @@ mod tests {
     #[test]
     fn broadcast_of_new_password_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
             TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
@@ -252,7 +243,7 @@ mod tests {
     #[test]
     fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
             TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
@@ -279,7 +270,7 @@ mod tests {
     #[test]
     fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
             TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
@@ -300,7 +291,7 @@ mod tests {
         assert_eq!(handle.stdout_so_far(), String::new());
         assert_eq!(
             handle.stderr_so_far(),
-            ("Discarding unrecognized broadcast with opcode 'unrecognized'\n\nmasq> ")
+            ("Discarding unrecognized broadcast with opcode 'unrecognized'\n\n")
         );
 
         subject.send(good_message);
@@ -320,7 +311,7 @@ mod tests {
         let (life_checker_handle, stream_factory, stream_handle) =
             make_tools_for_test_streams_with_thread_life_checker();
         let broadcast_handler_real = BroadcastHandlerReal::new(Some(TerminalWrapper::new(
-            Box::new(TerminalPassiveMock::new()),
+            Arc::new(TerminalPassiveMock::new()),
         )));
         let broadcast_handle = broadcast_handler_real.start(Box::new(stream_factory));
         let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
@@ -383,11 +374,7 @@ log-level              error                                                    
 neighborhood-mode      standard                                                         Default
 ";
 
-        test_generic_for_handle_broadcast(
-            SetupCommand::handle_broadcast,
-            setup_body,
-            broadcast_output,
-        )
+        assertion_for_handle_broadcast(SetupCommand::handle_broadcast, setup_body, broadcast_output)
     }
 
     #[test]
@@ -403,7 +390,7 @@ The Daemon is once more accepting setup changes.
 
 ";
 
-        test_generic_for_handle_broadcast(
+        assertion_for_handle_broadcast(
             CrashNotifier::handle_broadcast,
             crash_notifier_body,
             broadcast_output,
@@ -419,7 +406,7 @@ The Node's database password has changed.
 
 ";
 
-        test_generic_for_handle_broadcast(
+        assertion_for_handle_broadcast(
             ChangePasswordCommand::handle_broadcast,
             change_password_body,
             broadcast_output,
@@ -427,8 +414,7 @@ The Node's database password has changed.
     }
 
     #[test]
-    fn ffm_undelivered_as_node_not_running_handle_broadcast_has_a_synchronizer_correctly_implemented(
-    ) {
+    fn ffm_undelivered_since_node_not_running_has_a_synchronizer_correctly_implemented() {
         let ffm_undelivered_body = UiUndeliveredFireAndForget {
             opcode: "crash".to_string(),
         };
@@ -438,14 +424,31 @@ Cannot handle crash request: Node is not running.
 
 ";
 
-        test_generic_for_handle_broadcast(
-            handle_node_not_running_for_fire_and_forget_on_the_way,
+        assertion_for_handle_broadcast(
+            handle_node_is_dead_while_f_f_on_the_way_broadcast,
             ffm_undelivered_body,
             broadcast_output,
         )
     }
 
-    fn test_generic_for_handle_broadcast<F, U>(
+    #[test]
+    fn unrecognized_broadcast_handle_has_a_synchronizer_correctly_implemented() {
+        let unrecognizable_broadcast = MessageBody {
+            opcode: "messageFromMars".to_string(),
+            path: MessagePath::FireAndForget,
+            payload: (Ok("".to_string())),
+        };
+
+        let broadcast_output = "Discarding unrecognized broadcast with opcode 'messageFromMars'\n";
+
+        assertion_for_handle_broadcast(
+            handle_unrecognized_broadcast,
+            unrecognizable_broadcast,
+            broadcast_output,
+        )
+    }
+
+    fn assertion_for_handle_broadcast<F, U>(
         broadcast_handler: F,
         broadcast_message_body: U,
         broadcast_desired_output: &str,
@@ -457,7 +460,7 @@ Cannot handle crash request: Node is not running.
         let mut stdout = StdoutBlender::new(tx);
         let stdout_clone = stdout.clone();
         let stdout_second_clone = stdout.clone();
-        let synchronizer = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
+        let synchronizer = TerminalWrapper::new(Arc::new(TerminalActiveMock::new()));
         let synchronizer_clone_idle = synchronizer.clone();
 
         //synchronized part proving that the broadcast print is synchronized

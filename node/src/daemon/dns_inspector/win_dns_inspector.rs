@@ -240,8 +240,7 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io::Error;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn get_default_gateway_sees_dhcp_if_both_are_specified() {

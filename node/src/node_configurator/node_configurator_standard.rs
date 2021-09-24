@@ -1255,7 +1255,7 @@ pub mod standard {
             )
             .unwrap();
             let temporary_automap_control = AutomapControlMock::new()
-                .get_public_ip_result(Err(AutomapError::AllProtocolsFailed));
+                .get_public_ip_result(Err(AutomapError::AllProtocolsFailed(vec![])));
             let temporary_automap_control_factory =
                 AutomapControlFactoryMock::new().make_result(temporary_automap_control);
             let mut config = BootstrapperConfig::default();

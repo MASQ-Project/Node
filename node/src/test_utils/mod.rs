@@ -16,34 +16,6 @@ pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
 
-use std::collections::btree_set::BTreeSet;
-use std::collections::HashSet;
-use std::convert::From;
-use std::fmt::Debug;
-use std::hash::Hash;
-use std::io::ErrorKind;
-use std::io::Read;
-use std::iter::repeat;
-use std::net::SocketAddr;
-use std::net::{Shutdown, TcpStream};
-use std::str::FromStr;
-use std::sync::mpsc;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::Sender;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::thread;
-use std::time::Duration;
-use std::time::Instant;
-
-use ethsign_crypto::Keccak256;
-use lazy_static::lazy_static;
-use regex::Regex;
-use rustc_hex::ToHex;
-
-use masq_lib::constants::HTTP_PORT;
-use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
-
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::blockchain_interface::contract_address;
 use crate::blockchain::payer::Payer;
@@ -66,6 +38,28 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+use crossbeam_channel::{unbounded, Receiver, Sender};
+use ethsign_crypto::Keccak256;
+use lazy_static::lazy_static;
+use masq_lib::constants::HTTP_PORT;
+use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+use regex::Regex;
+use rustc_hex::ToHex;
+use std::collections::btree_set::BTreeSet;
+use std::collections::HashSet;
+use std::convert::From;
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::io::ErrorKind;
+use std::io::Read;
+use std::iter::repeat;
+use std::net::SocketAddr;
+use std::net::{Shutdown, TcpStream};
+use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+use std::time::Instant;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
@@ -145,7 +139,7 @@ pub fn to_millis(dur: &Duration) -> u64 {
 }
 
 pub fn signal() -> (Signaler, Waiter) {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     (Signaler { tx }, Waiter { rx })
 }
 
@@ -588,8 +582,7 @@ pub mod pure_test_utils {
 mod tests {
     use std::borrow::BorrowMut;
     use std::iter;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
 

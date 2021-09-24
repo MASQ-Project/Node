@@ -411,8 +411,7 @@ pub mod tests {
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::cell::RefCell;
     use std::ops::{Deref, Not};
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     impl<C: Send + 'static> ConfiguredByPrivilege for CrashTestDummy<C> {
         fn initialize_as_privileged(

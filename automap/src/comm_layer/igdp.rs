@@ -275,7 +275,8 @@ impl Transactor for IgdpTransactor {
         self.join_handle_opt = Some(thread::spawn(move || {
             Self::thread_guts(public_ip_poll_delay_ms, change_handler, inner_inner, rx)
         }));
-eprintln!("end of start_housekeeping_thread:\nhousekeeping_commander_opt populated: {}",
+        eprintln!(
+            "end of start_housekeeping_thread:\nhousekeeping_commander_opt populated: {}",
             self.inner_arc
                 .lock()
                 .unwrap()
@@ -288,7 +289,7 @@ eprintln!("end of start_housekeeping_thread:\nhousekeeping_commander_opt populat
     fn stop_housekeeping_thread(&mut self) -> ChangeHandler {
         let stopper = {
             let inner = self.inner_arc.lock().expect("Change handler is dead");
-eprintln!(
+            eprintln!(
                 "beginning of stop_housekeeping_thread:\nhousekeeping_commander_opt populated: {}",
                 inner.housekeeping_commander_opt.is_some()
             );
@@ -427,9 +428,9 @@ impl IgdpTransactor {
         last_remapped: &mut Instant,
         mapping_config_opt: &Option<MappingConfig>,
     ) -> bool {
-eprintln!("thread_guts_iteration waiting for inner_arc");
+        eprintln!("thread_guts_iteration waiting for inner_arc");
         let mut inner = inner_arc.lock().expect("IgdpTransactor died");
-eprintln!("thread_guts_iteration locked inner_arc");
+        eprintln!("thread_guts_iteration locked inner_arc");
         debug!(
             inner.logger,
             "Polling router to see if public IP has changed"
