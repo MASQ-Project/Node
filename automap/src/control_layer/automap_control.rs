@@ -796,7 +796,7 @@ mod tests {
     #[test]
     fn get_public_ip_passes_on_error_from_failing_to_start_housekeeping_thread() {
         let subject = make_null_subject();
-        let mut subject = replace_transactor(
+        let subject = replace_transactor(
             subject,
             Box::new(
                 TransactorMock::new(AutomapProtocol::Pcp)
@@ -805,7 +805,7 @@ mod tests {
                     .stop_housekeeping_thread_result(Box::new (|_| ())),
             ),
         );
-        let mut subject = replace_transactor(
+        let subject = replace_transactor(
             subject,
             Box::new(
                 TransactorMock::new(AutomapProtocol::Pmp)
@@ -835,7 +835,7 @@ mod tests {
     fn get_public_ip_does_not_start_housekeeping_thread_but_delegates_to_transactor() {
         let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
         let (tx, rx) = unbounded();
-        let mut subject = make_null_subject();
+        let subject = make_null_subject();
         let mut transactor = TransactorMock::new(AutomapProtocol::Pcp)
             .get_public_ip_params(&get_public_ip_params_arc)
             .get_public_ip_result(Ok(*PUBLIC_IP));
@@ -933,7 +933,7 @@ mod tests {
     #[test]
     fn add_mapping_passes_on_error_from_failing_to_start_housekeeping_thread() {
         let subject = make_null_subject();
-        let mut subject = replace_transactor(
+        let subject = replace_transactor(
             subject,
             Box::new(
                 TransactorMock::new(AutomapProtocol::Pcp)
@@ -942,7 +942,7 @@ mod tests {
                     .stop_housekeeping_thread_result(Box::new (|_| ())),
             ),
         );
-        let mut subject = replace_transactor(
+        let subject = replace_transactor(
             subject,
             Box::new(
                 TransactorMock::new(AutomapProtocol::Pmp)
@@ -972,7 +972,7 @@ mod tests {
     fn add_mapping_timed_does_not_start_housekeeping_thread_but_delegates_to_transactor() {
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let (tx, rx) = unbounded();
-        let mut subject = make_null_subject();
+        let subject = make_null_subject();
         let mut transactor = TransactorMock::new(AutomapProtocol::Pcp)
             .add_mapping_params(&add_mapping_params_arc)
             .add_mapping_result(Ok(1000));
@@ -1269,7 +1269,7 @@ mod tests {
 
     #[test]
     fn calculate_protocol_info_chooses_protocol_when_necessary() {
-        let (tx, rx) = unbounded();
+        let (tx, _) = unbounded();
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
             &Arc::new (Mutex::new (vec![])),
@@ -1277,7 +1277,7 @@ mod tests {
             &Arc::new (Mutex::new (vec![])),
             tx,
         );
-        let experiment: TransactorExperiment<String> = Box::new (|transactor, router_ip| Ok ("Booga!".to_string()));
+        let experiment: TransactorExperiment<String> = Box::new (|_, _| Ok ("Booga!".to_string()));
 
         let result = subject.calculate_protocol_info(experiment);
 
@@ -1286,7 +1286,7 @@ mod tests {
 
     #[test]
     fn calculate_protocol_info_uses_existing_protocol_when_necessary() {
-        let (tx, rx) = unbounded();
+        let (tx, _) = unbounded();
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
             &Arc::new (Mutex::new (vec![])),
@@ -1302,7 +1302,7 @@ mod tests {
             router_ip: *ROUTER_IP,
             transactor_idx: 1
         });
-        let experiment: TransactorExperiment<String> = Box::new (|transactor, router_ip| Ok ("Booga!".to_string()));
+        let experiment: TransactorExperiment<String> = Box::new (|_, _| Ok ("Booga!".to_string()));
 
         let result = subject.calculate_protocol_info(experiment);
 
