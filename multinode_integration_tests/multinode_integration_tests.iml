@@ -8,6 +8,8 @@
       <sourceFolder url="file://$MODULE_DIR$/../node/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/../node/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/../node/target" />
+      <excludeFolder url="file://$MODULE_DIR$/docker/generated" />
+      <excludeFolder url="file://$MODULE_DIR$/generated" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
