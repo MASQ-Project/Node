@@ -8,7 +8,7 @@ use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
 use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{
-    data_directory_from_context, real_user_data_directory_opt_and_chain_name, DirsWrapper,
+    data_directory_from_context, real_user__data_directory_opt__chain_name, DirsWrapper,
 };
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::run_modes_factories::DumpConfigRunner;
@@ -133,7 +133,7 @@ fn distill_args(
     ];
     let multi_config = make_new_multi_config(&app, vcls)?;
     let (real_user, data_directory_opt, chain_name) =
-        real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
+        real_user__data_directory_opt__chain_name(dirs_wrapper, &multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
     let password_opt = value_m!(multi_config, "db-password", String);

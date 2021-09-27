@@ -142,7 +142,7 @@ pub fn determine_config_file_path(
     let config_file_path = value_m!(multi_config, "config-file", PathBuf).expect_v("config-file");
     let user_specified = multi_config.occurrences_of("config-file") > 0;
     let (real_user, data_directory_opt, chain_name) =
-        real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
+        real_user__data_directory_opt__chain_name(dirs_wrapper, &multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
     (directory.join(config_file_path), user_specified).wrap_to_ok()
@@ -219,7 +219,8 @@ pub fn real_user_from_multi_config_or_populate(
     }
 }
 
-pub fn real_user_data_directory_opt_and_chain_name(
+#[allow(non_snake_case)]
+pub fn real_user__data_directory_opt__chain_name(
     dirs_wrapper: &dyn DirsWrapper,
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, String) {
@@ -288,7 +289,7 @@ pub fn prepare_initialization_mode<'a>(
     )?;
 
     let (real_user, data_directory_opt, chain_name) =
-        real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
+        real_user__data_directory_opt__chain_name(dirs_wrapper, &multi_config);
     let directory = data_directory_from_context(
         &DirsWrapperReal {},
         &real_user,
@@ -730,7 +731,6 @@ pub trait WalletCreationConfigMaker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::blockchains::CHAINS;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -740,6 +740,7 @@ mod tests {
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::pure_test_utils::make_simplified_multi_config;
     use crate::test_utils::ArgsBuilder;
     use bip39::{Mnemonic, Seed};
     use masq_lib::constants::{DEFAULT_CHAIN_DIRECTORY_NAME, DEFAULT_CHAIN_NAME, DEFAULT_PLATFORM};
@@ -1053,27 +1054,28 @@ mod tests {
 
     #[test]
     fn real_user_data_directory_and_chain_id_picks_correct_directory_for_default_chain() {
-        let args = ArgsBuilder::new();
-        let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = make_new_test_multi_config(&app_node(), vec![vcl]).unwrap();
-        let fake_directory_path_for_home =
-            PathBuf::from_str("nonexistent_home/nonexistent_alice").unwrap();
-        let fake_directory_path_for_data =
-            PathBuf::from_str("nonexistent_home/nonexistent_alice/.local/share").unwrap();
-        let dirs_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(fake_directory_path_for_home))
-            .data_dir_result(Some(fake_directory_path_for_data.clone()));
+        let multi_config = make_simplified_multi_config(["MASQNode"]);
+        let fake_home_dir = PathBuf::from_str("nonexistent_home/nonexistent_alice").unwrap();
+        let data_path_structure_by_platform = data_local_dir()
+            .unwrap()
+            .iter()
+            .skip(3)
+            .collect::<PathBuf>();
+        let fake_data_dir = PathBuf::from_str("nonexistent_home/nonexistent_alice/")
+            .unwrap()
+            .join(data_path_structure_by_platform);
+        let dirs_wrapper = DirsWrapperMock::new().home_dir_result(Some(fake_home_dir)); //to create a fake real user
 
         let (real_user, data_directory_opt, chain_name) =
-            real_user_data_directory_opt_and_chain_name(&dirs_wrapper, &multi_config);
+            real_user__data_directory_opt__chain_name(&dirs_wrapper, &multi_config);
         let directory = data_directory_from_context(
-            &DirsWrapperReal {},
+            &DirsWrapperReal,
             &real_user,
             &data_directory_opt,
             &chain_name,
         );
 
-        let expected_root = fake_directory_path_for_data;
+        let expected_root = fake_data_dir;
         let expected_directory = expected_root
             .join("MASQ")
             .join(DEFAULT_PLATFORM)

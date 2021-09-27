@@ -98,7 +98,7 @@ pub mod standard {
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::node_configurator::{
         data_directory_from_context, determine_config_file_path,
-        real_user_data_directory_opt_and_chain_name, real_user_from_multi_config_or_populate,
+        real_user__data_directory_opt__chain_name, real_user_from_multi_config_or_populate,
         request_existing_db_password, DirsWrapper,
     };
     use crate::server_initializer::GatheredParams;
@@ -180,7 +180,7 @@ pub mod standard {
             .blockchain_service_url_opt = value_m!(multi_config, "blockchain-service-url", String);
 
         let (real_user, data_directory_opt, chain_name) =
-            real_user_data_directory_opt_and_chain_name(dirs_wrapper, multi_config);
+            real_user__data_directory_opt__chain_name(dirs_wrapper, multi_config);
         let directory =
             data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
         privileged_config.real_user = real_user;
