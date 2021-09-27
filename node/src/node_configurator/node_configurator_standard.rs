@@ -1907,7 +1907,9 @@ mod tests {
         #[cfg(target_os = "macos")]
         assert_eq!(
             config.data_directory,
-            PathBuf::from("/home/booga/Library/Application Support/MASQ").join(DEFAULT_CHAIN_NAME)
+            PathBuf::from("/home/booga/Library/Application Support/MASQ")
+                .join(DEFAULT_PLATFORM)
+                .join(DEFAULT_CHAIN_DIRECTORY_NAME)
         );
     }
 
