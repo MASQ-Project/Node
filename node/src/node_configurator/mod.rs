@@ -1053,21 +1053,11 @@ mod tests {
     }
 
     #[test]
-    fn real_user_data_directory_and_chain_id_picks_correct_directory_for_default_chain() {
+    fn correct_directory_for_default_chain_is_picked() {
         let multi_config = make_simplified_multi_config(["MASQNode"]);
-        let fake_home_dir = PathBuf::from_str("nonexistent_home/nonexistent_alice").unwrap();
-        let data_path_structure_by_platform = data_local_dir()
-            .unwrap()
-            .iter()
-            .skip(3)
-            .collect::<PathBuf>();
-        let fake_data_dir = PathBuf::from_str("nonexistent_home/nonexistent_alice/")
-            .unwrap()
-            .join(data_path_structure_by_platform);
-        let dirs_wrapper = DirsWrapperMock::new().home_dir_result(Some(fake_home_dir)); //to create a fake real user
-
         let (real_user, data_directory_opt, chain_name) =
-            real_user__data_directory_opt__chain_name(&dirs_wrapper, &multi_config);
+            real_user__data_directory_opt__chain_name(&DirsWrapperReal, &multi_config);
+
         let directory = data_directory_from_context(
             &DirsWrapperReal,
             &real_user,
@@ -1075,7 +1065,7 @@ mod tests {
             &chain_name,
         );
 
-        let expected_root = fake_data_dir;
+        let expected_root = DirsWrapperReal {}.data_dir().unwrap();
         let expected_directory = expected_root
             .join("MASQ")
             .join(DEFAULT_PLATFORM)
