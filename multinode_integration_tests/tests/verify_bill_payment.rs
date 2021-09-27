@@ -13,8 +13,9 @@ use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
 use node_lib::blockchain::blockchain_interface::{
-    contract_address, BlockchainInterface, BlockchainInterfaceNonClandestine,
+    BlockchainInterface, BlockchainInterfaceNonClandestine,
 };
+use node_lib::blockchain::blockchains::contract_address;
 use node_lib::blockchain::raw_transaction::RawTransaction;
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::sub_lib::wallet::Wallet;

@@ -9,7 +9,7 @@ use multinode_integration_tests_lib::masq_node_server::MASQNodeServer;
 use multinode_integration_tests_lib::masq_real_node::MASQRealNode;
 use multinode_integration_tests_lib::multinode_gossip::{parse_gossip, GossipType};
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
-use node_lib::blockchain::blockchain_interface::contract_address;
+use node_lib::blockchain::blockchains::contract_address;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;

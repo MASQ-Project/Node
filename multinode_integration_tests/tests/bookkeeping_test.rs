@@ -6,7 +6,7 @@ use multinode_integration_tests_lib::masq_real_node::{
 };
 use node_lib::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoReal};
-use node_lib::blockchain::blockchain_interface::chain_name_from_id;
+use node_lib::blockchain::blockchains::chain_name_from_id;
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashMap;

@@ -7,7 +7,7 @@ use multinode_integration_tests_lib::multinode_gossip::{
     parse_gossip, GossipType, MultinodeGossip, StandardBuilder,
 };
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
-use node_lib::blockchain::blockchain_interface::chain_name_from_id;
+use node_lib::blockchain::blockchains::chain_name_from_id;
 use node_lib::neighborhood::gossip_acceptor::MAX_DEGREE;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};

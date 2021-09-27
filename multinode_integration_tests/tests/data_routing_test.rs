@@ -11,7 +11,7 @@ use multinode_integration_tests_lib::masq_real_node::{
 use native_tls::HandshakeError;
 use native_tls::TlsConnector;
 use native_tls::TlsStream;
-use node_lib::blockchain::blockchain_interface::chain_name_from_id;
+use node_lib::blockchain::blockchains::chain_name_from_id;
 use node_lib::proxy_server::protocol_pack::ServerImpersonator;
 use node_lib::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
 use node_lib::test_utils::{handle_connection_error, read_until_timeout};

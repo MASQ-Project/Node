@@ -6,7 +6,7 @@ use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, NodeStartupConfigBuilder,
 };
-use node_lib::blockchain::blockchain_interface::chain_name_from_id;
+use node_lib::blockchain::blockchains::chain_name_from_id;
 use regex::escape;
 use std::time::Duration;
 
