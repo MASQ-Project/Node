@@ -50,7 +50,7 @@ impl DaemonInitializerFactoryReal {
     }
 
     fn expect<T>(mut value_opt: Option<T>) -> T {
-        value_opt.take().expect_v(std::any::type_name::<T>())
+        value_opt.take().expectv(std::any::type_name::<T>())
     }
 }
 

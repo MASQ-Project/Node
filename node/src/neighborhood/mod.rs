@@ -459,7 +459,7 @@ impl Neighborhood {
                             node_addr,
                             MessageType::Gossip(gossip.clone().into()),
                         )
-                        .expect_v("public key"),
+                        .expectv("public key"),
                     )
                     .expect("hopper is dead");
                 trace!(
@@ -553,7 +553,7 @@ impl Neighborhood {
                     node_descriptor
                         .node_addr_opt
                         .as_ref()
-                        .expect_v("NodeAddr")
+                        .expectv("NodeAddr")
                         .ip_addr(),
                     failure
                 );
@@ -572,7 +572,7 @@ impl Neighborhood {
                 NodeDescriptor::from((
                     self.neighborhood_database
                         .node_by_key(k)
-                        .expect_v("NodeRecord"),
+                        .expectv("NodeRecord"),
                     self.chain_id == chain_id_from_name(DEFAULT_CHAIN_NAME),
                     self.cryptde,
                 ))

@@ -62,7 +62,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         standard::unprivileged_parse_args(
             multi_config,
             &mut unprivileged_config,
-            streams.expect_v("StdStreams"),
+            streams.expectv("StdStreams"),
             Some(persistent_config.as_mut()),
         )?;
         standard::configure_database(&unprivileged_config, persistent_config.as_mut())?;
@@ -143,7 +143,7 @@ pub mod standard {
         let data_directory = config_file_path
             .parent()
             .map(|dir| dir.to_path_buf())
-            .expect_v("data_directory");
+            .expectv("data_directory");
         let real_user = real_user_from_multi_config_or_populate(&multi_config, dirs_wrapper);
         GatheredParams::new(multi_config, data_directory, real_user).wrap_to_ok()
     }
@@ -241,7 +241,7 @@ pub mod standard {
         unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
         let user_specified = multi_config.deref().occurrences_of("gas-price") > 0;
         unprivileged_config.blockchain_bridge_config.gas_price = if user_specified {
-            value_m!(multi_config, "gas-price", u64).expect_v("gas price")
+            value_m!(multi_config, "gas-price", u64).expectv("gas price")
         } else {
             match persistent_config_opt {
                 Some(ref persistent_config) => match persistent_config.gas_price() {

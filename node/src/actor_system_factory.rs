@@ -232,7 +232,7 @@ impl ActorFactory for ActorFactoryReal {
         let crashable = Self::find_out_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Dispatcher> = arbiter
-            .start(move |_| Dispatcher::new(descriptor.expect_v("node descriptor"), crashable));
+            .start(move |_| Dispatcher::new(descriptor.expectv("node descriptor"), crashable));
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),

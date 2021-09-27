@@ -58,7 +58,7 @@ impl UiGateway {
     }
 
     //TODO: this function will probably be transformed into more appropriate one with GH-472
-    fn deserialization_check_with_potential_crash_request_handling(
+    fn deserialization_validation_with_potential_crash_request(
         &self,
         message_body: MessageBody,
     ) -> Option<UiMessageError> {
@@ -96,7 +96,7 @@ impl Handler<BindMessage> for UiGateway {
         let factory = self
             .websocket_supervisor_factory
             .take()
-            .expect_v("websocket supervisor factory");
+            .expectv("websocket supervisor factory");
         self.websocket_supervisor = match factory.make(
             self.port,
             msg.peer_actors.ui_gateway.node_from_ui_message_sub,
@@ -117,7 +117,7 @@ impl Handler<DaemonBindMessage> for UiGateway {
         let factory = self
             .websocket_supervisor_factory
             .take()
-            .expect_v("websocket supervisor factory");
+            .expectv("websocket supervisor factory");
         self.websocket_supervisor = match factory.make(self.port, msg.from_ui_message_recipient) {
             Ok(wss) => Some(wss),
             Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
@@ -142,7 +142,7 @@ impl Handler<NodeFromUiMessage> for UiGateway {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         if let Some(UiMessageError::DeserializationError(error)) =
-            self.deserialization_check_with_potential_crash_request_handling(msg.body.clone())
+            self.deserialization_validation_with_potential_crash_request(msg.body.clone())
         {
             warning!(self.logger, "Deserialization error: {}", error);
             return;
@@ -319,13 +319,13 @@ mod tests {
         .tmb(12);
         let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, false);
 
-        let result = subject.deserialization_check_with_potential_crash_request_handling(msg_body);
+        let result = subject.deserialization_validation_with_potential_crash_request(msg_body);
 
         assert_eq!(result, None)
     }
 
     #[test]
-    fn deserialization_checker_does_not_care_about_errors_like_payload_errors() {
+    fn deserialization_validator_does_not_care_about_errors_like_payload_errors() {
         let msg_body = MessageBody {
             opcode: "blah".to_string(),
             path: MessagePath::Conversation(45),
@@ -333,13 +333,13 @@ mod tests {
         };
         let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, false);
 
-        let result = subject.deserialization_check_with_potential_crash_request_handling(msg_body);
+        let result = subject.deserialization_validation_with_potential_crash_request(msg_body);
 
         assert_eq!(result, None)
     }
 
     #[test]
-    fn deserialization_checker_does_not_panic_on_a_crash_request_if_the_actor_is_not_crashable() {
+    fn deserialization_validator_does_not_panic_on_a_crash_request_if_the_actor_is_not_crashable() {
         let crash_request = UiCrashRequest {
             actor: CRASH_KEY.to_string(),
             panic_message: "Testing crashing".to_string(),
@@ -348,14 +348,13 @@ mod tests {
         let crashable = false;
         let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, crashable);
 
-        let result =
-            subject.deserialization_check_with_potential_crash_request_handling(crash_request);
+        let result = subject.deserialization_validation_with_potential_crash_request(crash_request);
 
         assert_eq!(result, None)
     }
 
     #[test]
-    fn deserialization_checker_does_not_panic_if_the_crash_request_belongs_to_another_actor() {
+    fn deserialization_validator_does_not_panic_if_the_crash_request_belongs_to_another_actor() {
         let crash_request = UiCrashRequest {
             actor: dispatcher::CRASH_KEY.to_string(),
             panic_message: "Testing crashing".to_string(),
@@ -364,8 +363,7 @@ mod tests {
         let crashable = true;
         let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, crashable);
 
-        let result =
-            subject.deserialization_check_with_potential_crash_request_handling(crash_request);
+        let result = subject.deserialization_validation_with_potential_crash_request(crash_request);
 
         assert_eq!(result, None)
     }

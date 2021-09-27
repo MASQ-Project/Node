@@ -49,10 +49,18 @@ fn node_exits_from_neighborhood_panic_integration() {
 }
 
 #[test]
-fn node_exits_configurator_panic_integration() {
+fn node_exits_from_configurator_panic_integration() {
     start_node_and_request_crash(
         "node_exits_configurator_panic_integration",
         node_lib::node_configurator::configurator::CRASH_KEY,
+    );
+}
+
+#[test]
+fn node_exits_from_uigateway_panic_integration() {
+    start_node_and_request_crash(
+        "node_exits_from_uigateway_panic_integration",
+        node_lib::ui_gateway::CRASH_KEY,
     );
 }
 

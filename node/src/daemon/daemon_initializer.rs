@@ -114,7 +114,7 @@ impl DaemonInitializerReal {
             params
                 .dirs_wrapper
                 .data_dir()
-                .expect_v("data directory")
+                .expectv("data directory")
                 .join("MASQ"),
             &RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref()),
             LevelFilter::Trace,
