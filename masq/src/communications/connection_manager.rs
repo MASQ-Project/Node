@@ -176,7 +176,7 @@ fn make_client_listener(
     Ok(talker_half)
 }
 
-//hack a time-out around connection attempt to the Node or Daemon. Leak a thread if the attempt times out
+//hack a time-out around connection attempt to the Node or Daemon. Leaks a thread if the attempt times out
 fn connect_insecure_timeout(
     mut builder: ClientBuilder<'static>,
     timeout_millis: u64,
@@ -428,6 +428,7 @@ impl ConnectionManagerThread {
             .sender
             .send_message(&mut inner.talker_half.stream, &OwnedMessage::Close(None));
         let _ = inner.talker_half.shutdown_all();
+        inner.active_port = None;
         inner = Self::fallback(inner, NodeConversationTermination::Graceful);
         inner
     }
@@ -958,6 +959,20 @@ mod tests {
         assert_eq!(inner.daemon_port, unoccupied_port);
         assert_eq!(inner.active_port, None);
         assert_eq!(inner.node_port, None);
+    }
+
+    #[test]
+    fn handle_close_avoid_panicking_at_fallback_by_setting_active_port_to_none() {
+        let mut inner = make_inner();
+        inner.daemon_port = 5432;
+        inner.active_port = Some(1234);
+        inner.node_port = Some(1234);
+
+        let inner = ConnectionManagerThread::handle_close(inner);
+
+        assert_eq!(inner.closing_stage, true);
+        assert_eq!(inner.active_port, None);
+        assert_eq!(inner.node_port, None)
     }
 
     #[test]
