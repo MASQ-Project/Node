@@ -1040,7 +1040,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "windows"))]
     use masq_lib::constants::{DEFAULT_CHAIN_DIRECTORY_NAME, DEFAULT_PLATFORM};
 
     fn make_default_cli_params() -> ArgsBuilder {
