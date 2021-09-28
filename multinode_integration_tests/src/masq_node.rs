@@ -2,10 +2,8 @@
 use crate::command::Command;
 use base64::STANDARD_NO_PAD;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT, MASQ_URL_PREFIX};
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
 use node_lib::blockchain::blockchains::{
-    blockchain_from_chain_id, chain_id_from_blockchain, chain_id_from_name, CHAIN_LABEL_DELIMITER,
-    KEY_VS_IP_DELIMITER,
+    blockchain_from_chain_id, chain_id_from_blockchain, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER,
 };
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -31,12 +29,13 @@ use std::time::Instant;
 pub struct NodeReference {
     pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
-    pub chain_id: Option<u8>,
+    pub chain_id: u8,
 }
 
 impl FromStr for NodeReference {
     type Err = String;
 
+    //TODO inaccurate - this works only as long as we don't parse the real Node descriptor with its URL prefix which we don't now
     fn from_str(string_rep: &str) -> Result<Self, <Self as FromStr>::Err> {
         let pieces: Vec<&str> = string_rep.split(':').collect();
         if pieces.len() != 3 {
@@ -50,9 +49,7 @@ impl FromStr for NodeReference {
             public_key,
             ip_addr,
             port_list,
-            Some(chain_id_from_blockchain(
-                NodeDescriptor::blockchain_from_label(label),
-            )),
+            chain_id_from_blockchain(NodeDescriptor::blockchain_from_label(label)),
         ))
     }
 }
@@ -62,9 +59,7 @@ impl From<&dyn MASQNode> for NodeReference {
         NodeReference {
             public_key: masq_node.main_public_key().clone(),
             node_addr_opt: Some(masq_node.node_addr()),
-            chain_id: Some(chain_id_from_name(
-                &masq_node.chain().unwrap_or_else(|| "dev".to_string()),
-            )),
+            chain_id: masq_node.chain_id(),
         }
     }
 }
@@ -89,10 +84,7 @@ impl fmt::Display for NodeReference {
             f,
             "{}{}{}{}{}{}:{}",
             MASQ_URL_PREFIX,
-            NodeDescriptor::label_from_blockchain(blockchain_from_chain_id(
-                self.chain_id
-                    .unwrap_or(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
-            )),
+            NodeDescriptor::label_from_blockchain(blockchain_from_chain_id(self.chain_id)),
             CHAIN_LABEL_DELIMITER,
             public_key_string,
             KEY_VS_IP_DELIMITER,
@@ -109,18 +101,18 @@ impl NodeReference {
         public_key: PublicKey,
         ip_addr_opt: Option<IpAddr>,
         ports: Vec<u16>,
-        chain_id: Option<u8>,
+        chain_id: u8,
     ) -> NodeReference {
         match ip_addr_opt {
             Some(ip_addr) => NodeReference {
                 public_key,
                 node_addr_opt: Some(NodeAddr::new(&ip_addr, &ports)),
-                chain_id,
+                chain_id: chain_id,
             },
             None => NodeReference {
                 public_key,
                 node_addr_opt: None,
-                chain_id,
+                chain_id: chain_id,
             },
         }
     }
@@ -217,7 +209,7 @@ pub trait MASQNode: Any {
     // The RatePack this Node will use to charge fees.
     fn rate_pack(&self) -> RatePack;
     // Valid values are "dev, "ropsten", "rinkeby" for now. Add "mainnet" when it's time.
-    fn chain(&self) -> Option<String>;
+    fn chain_id(&self) -> u8;
     fn accepts_connections(&self) -> bool;
     fn routes_data(&self) -> bool;
 }
@@ -439,7 +431,7 @@ mod tests {
             PublicKey::new(&b"Booga"[..]),
             Some(IpAddr::from_str("12.34.56.78").unwrap()),
             vec![1234, 5678],
-            Some(chain_id),
+            chain_id,
         );
 
         let result = format!("{}", subject);

@@ -41,7 +41,6 @@ fn verify_bill_payment() {
     let blockchain_server = BlockchainServer {
         name: "ganache-cli",
     };
-    cluster.chain_id = 2u8;
     blockchain_server.start();
     blockchain_server.wait_until_ready();
     let (_event_loop_handle, http) = Http::new(blockchain_server.service_url().as_ref()).unwrap();

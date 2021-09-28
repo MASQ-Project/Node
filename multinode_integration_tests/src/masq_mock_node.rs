@@ -6,7 +6,7 @@ use crate::masq_node::MASQNodeUtils;
 use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
-use node_lib::blockchain::blockchains::chain_id_from_name;
+use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
@@ -68,7 +68,7 @@ impl MASQNode for MASQMockNode {
             self.signing_cryptde().unwrap().public_key().clone(),
             Some(self.node_addr().ip_addr()),
             self.node_addr().ports(),
-            self.chain().map(|name| chain_id_from_name(&name)),
+            self.chain_id(),
         )
     }
 
@@ -125,8 +125,8 @@ impl MASQNode for MASQMockNode {
         self.guts.rate_pack.clone()
     }
 
-    fn chain(&self) -> Option<String> {
-        self.guts.chain.clone()
+    fn chain_id(&self) -> u8 {
+        self.guts.chain
     }
 
     fn accepts_connections(&self) -> bool {
@@ -187,7 +187,7 @@ impl MASQMockNode {
             rate_pack: DEFAULT_RATE_PACK.clone(),
             cryptde_enum,
             framer,
-            chain: None,
+            chain: TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID,
         });
         MASQMockNode {
             control_stream,
@@ -494,7 +494,7 @@ struct MASQMockNodeGuts {
     rate_pack: RatePack,
     cryptde_enum: CryptDEEnum,
     framer: RefCell<DataHunkFramer>,
-    chain: Option<String>,
+    chain: u8,
 }
 
 impl Drop for MASQMockNodeGuts {
