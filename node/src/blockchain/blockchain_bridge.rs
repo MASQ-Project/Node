@@ -129,7 +129,7 @@ impl BlockchainBridge {
         }
     }
 
-    pub fn complex_parameters_for_new(
+    pub fn make_connections(
         blockchain_service_url: Option<String>,
         db_initializer: Box<dyn DbInitializer>,
         data_directory: PathBuf,
@@ -413,7 +413,7 @@ mod tests {
     fn invalid_blockchain_url_produces_panic() {
         let data_directory = PathBuf::new(); //never reached
         let blockchain_service_url = Some("http://λ:8545".to_string());
-        let _ = BlockchainBridge::complex_parameters_for_new(
+        let _ = BlockchainBridge::make_connections(
             blockchain_service_url,
             Box::new(DbInitializerMock::default()),
             data_directory,

@@ -429,12 +429,14 @@ impl ConnectionManagerThread {
             .sender
             .send_message(&mut inner.talker_half.stream, &OwnedMessage::Close(None));
         let _ = inner.talker_half.shutdown_all();
-        inner.active_port = None;
         inner = Self::fallback(inner, NodeConversationTermination::Graceful);
         inner
     }
 
     fn fallback(mut inner: CmsInner, termination: NodeConversationTermination) -> CmsInner {
+        if inner.closing_stage {
+            inner.active_port = None
+        }
         inner.node_port = None;
         match &inner.active_port {
             None => {
@@ -963,7 +965,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_close_avoid_panicking_at_fallback_by_setting_active_port_to_none() {
+    fn fallback_avoid_panicking_at_closing_stage_by_setting_active_port_to_none() {
         let mut inner = make_inner();
         inner.daemon_port = 5432;
         inner.active_port = Some(1234);

@@ -267,7 +267,7 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs {
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<Hopper> = arbiter.start(|_| Hopper::new(config));
+        let addr: Addr<Hopper> = arbiter.start(move |_| Hopper::new(config));
         Hopper::make_subs_from(&addr)
     }
 
@@ -335,7 +335,7 @@ impl ActorFactory for ActorFactoryReal {
         let crashable = Self::find_out_crashable(config);
         let ui_gateway = UiGateway::new(&config.ui_gateway_config, crashable);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<UiGateway> = arbiter.start(|_| ui_gateway);
+        let addr: Addr<UiGateway> = arbiter.start(move |_| ui_gateway);
         UiGateway::make_subs_from(&addr)
     }
 
@@ -373,13 +373,12 @@ impl ActorFactory for ActorFactoryReal {
         let chain_id = config.blockchain_bridge_config.chain_id;
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
-            let (blockchain_interface, persistent_config) =
-                BlockchainBridge::complex_parameters_for_new(
-                    blockchain_service_url,
-                    db_initializer,
-                    data_directory,
-                    chain_id,
-                );
+            let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
+                blockchain_service_url,
+                db_initializer,
+                data_directory,
+                chain_id,
+            );
             BlockchainBridge::new(
                 blockchain_interface,
                 persistent_config,
