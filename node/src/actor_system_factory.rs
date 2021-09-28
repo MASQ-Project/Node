@@ -540,12 +540,6 @@ impl AutomapControlFactory for AutomapControlFactoryNull {
     }
 }
 
-impl AutomapControlFactoryNull {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

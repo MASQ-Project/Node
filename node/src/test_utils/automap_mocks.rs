@@ -134,17 +134,3 @@ impl AutomapControlMock {
         self
     }
 }
-
-pub fn make_temporary_automap_control_factory(
-    protocol_opt: Option<AutomapProtocol>,
-    public_ip_opt: Option<IpAddr>,
-) -> AutomapControlFactoryMock {
-    let public_ip_result = match public_ip_opt {
-        Some(ip) => Ok(ip),
-        None => Err(AutomapError::AllProtocolsFailed(vec![])),
-    };
-    let automap_control = AutomapControlMock::new()
-        .get_public_ip_result(public_ip_result)
-        .get_mapping_protocol_result(protocol_opt);
-    AutomapControlFactoryMock::new().make_result(automap_control)
-}

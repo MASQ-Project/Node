@@ -4,7 +4,6 @@ pub mod configurator;
 pub mod node_configurator_initialization;
 pub mod node_configurator_standard;
 
-use crate::actor_system_factory::AutomapControlFactory;
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
@@ -42,7 +41,6 @@ pub trait NodeConfigurator<T> {
         &self,
         multi_config: &MultiConfig,
         streams: Option<&mut StdStreams<'_>>,
-        temporary_automap_control_factory: &dyn AutomapControlFactory,
     ) -> Result<T, ConfiguratorError>;
 }
 

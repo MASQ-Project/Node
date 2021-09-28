@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::actor_system_factory::AutomapControlFactoryReal;
 use crate::run_modes::RunModes;
 use masq_lib::command::StdStreams;
 use std::io;
@@ -13,5 +12,5 @@ pub fn main_with_args(args: &[String]) -> i32 {
 
     let streams_ref: &mut StdStreams<'_> = &mut streams;
 
-    RunModes::new().go(args, streams_ref, &AutomapControlFactoryReal::new())
+    RunModes::new().go(args, streams_ref)
 }

@@ -10,7 +10,6 @@ mod setup_reporter;
 #[cfg(test)]
 mod mocks;
 
-use crate::actor_system_factory::{AutomapControlFactory, AutomapControlFactoryReal};
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use crate::daemon::setup_reporter::{SetupCluster, SetupReporter, SetupReporterReal};
@@ -106,7 +105,6 @@ pub struct Daemon {
     node_ui_port: Option<u16>,
     verifier_tools: Box<dyn VerifierTools>,
     setup_reporter: Box<dyn SetupReporter>,
-    temporary_automap_control_factory: Box<dyn AutomapControlFactory>,
     logger: Logger,
 }
 
@@ -164,7 +162,6 @@ impl Daemon {
             node_ui_port: None,
             verifier_tools: Box::new(VerifierToolsReal::new()),
             setup_reporter: Box::new(SetupReporterReal::new(Box::new(DirsWrapperReal {}))),
-            temporary_automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
             logger: Logger::new("Daemon"),
         }
     }
@@ -182,7 +179,6 @@ impl Daemon {
             match self.setup_reporter.get_modified_setup(
                 existing_setup,
                 incoming_setup,
-                self.temporary_automap_control_factory.as_ref(),
             ) {
                 Ok(setup) => self.change_setup_and_notify(
                     setup,
@@ -510,7 +506,6 @@ mod tests {
             &self,
             existing_setup: SetupCluster,
             incoming_setup: Vec<UiSetupRequestValue>,
-            _temporary_automap_control_factory: &dyn AutomapControlFactory,
         ) -> Result<SetupCluster, (SetupCluster, ConfiguratorError)> {
             self.get_modified_setup_params
                 .lock()
