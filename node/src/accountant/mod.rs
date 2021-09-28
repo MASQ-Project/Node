@@ -1711,8 +1711,9 @@ pub mod tests {
     fn accountant_logs_error_when_blockchain_bridge_responds_with_error() {
         init_test_logging();
         let earning_wallet = make_wallet("earner3000");
-        let blockchain_bridge =
-            Recorder::new().retrieve_transactions_response(Err(BlockchainError::QueryFailed));
+        let blockchain_bridge = Recorder::new().retrieve_transactions_response(Err(
+            BlockchainError::QueryFailed("Some issue".to_string()),
+        ));
         let blockchain_bridge_awaiter = blockchain_bridge.get_awaiter();
         let blockchain_bridge_recording = blockchain_bridge.get_recording();
         let config = bc_from_ac_plus_earning_wallet(
@@ -1757,7 +1758,7 @@ pub mod tests {
         assert_eq!(earning_wallet, retrieve_transactions_message.recipient);
 
         TestLogHandler::new().exists_log_containing(
-            "WARN: Accountant: Unable to retrieve transactions from Blockchain Bridge: QueryFailed",
+            "WARN: Accountant: Unable to retrieve transactions from Blockchain Bridge: QueryFailed(\"Some issue\")",
         );
     }
 

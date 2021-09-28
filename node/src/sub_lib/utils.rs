@@ -105,6 +105,7 @@ pub fn make_new_multi_config<'a>(
     MultiConfig::try_new(schema, vcls)
 }
 
+#[track_caller]
 pub fn handle_ui_crash_request(
     msg: NodeFromUiMessage,
     logger: &Logger,
@@ -117,6 +118,8 @@ pub fn handle_ui_crash_request(
         panic!("{}: {}", cr.panic_message, requester)
     }
 }
+
+#[track_caller]
 fn crash_request_analyzer(
     msg: NodeFromUiMessage,
     logger: &Logger,

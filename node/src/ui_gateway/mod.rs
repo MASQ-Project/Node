@@ -58,7 +58,7 @@ impl UiGateway {
     }
 
     //TODO: this function will probably be transformed into more appropriate one with GH-472
-    fn deserialization_validation_with_potential_crash_request(
+    fn deserialization_validator_with_crash_request_handler(
         &self,
         message_body: MessageBody,
     ) -> Option<UiMessageError> {
@@ -141,8 +141,12 @@ impl Handler<NodeFromUiMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        debug!(
+            self.logger,
+            "Received NodeFromUiMessage with opcode: '{}'", msg.body.opcode
+        );
         if let Some(UiMessageError::DeserializationError(error)) =
-            self.deserialization_validation_with_potential_crash_request(msg.body.clone())
+            self.deserialization_validator_with_crash_request_handler(msg.body.clone())
         {
             warning!(self.logger, "Deserialization error: {}", error);
             return;
@@ -319,7 +323,7 @@ mod tests {
         .tmb(12);
         let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, false);
 
-        let result = subject.deserialization_validation_with_potential_crash_request(msg_body);
+        let result = subject.deserialization_validator_with_crash_request_handler(msg_body);
 
         assert_eq!(result, None)
     }
@@ -333,7 +337,7 @@ mod tests {
         };
         let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, false);
 
-        let result = subject.deserialization_validation_with_potential_crash_request(msg_body);
+        let result = subject.deserialization_validator_with_crash_request_handler(msg_body);
 
         assert_eq!(result, None)
     }
@@ -348,7 +352,7 @@ mod tests {
         let crashable = false;
         let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, crashable);
 
-        let result = subject.deserialization_validation_with_potential_crash_request(crash_request);
+        let result = subject.deserialization_validator_with_crash_request_handler(crash_request);
 
         assert_eq!(result, None)
     }
@@ -363,7 +367,7 @@ mod tests {
         let crashable = true;
         let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, crashable);
 
-        let result = subject.deserialization_validation_with_potential_crash_request(crash_request);
+        let result = subject.deserialization_validator_with_crash_request_handler(crash_request);
 
         assert_eq!(result, None)
     }

@@ -393,6 +393,7 @@ impl ConnectionManagerThread {
         inner.active_port = Some(redirect_order.port);
         inner.listener_to_manager_rx = listener_to_manager_rx;
         inner.talker_half = talker_half;
+        //TODO this is for conversations but redirected fire and forget isn't handled if absolutely first message: GH-487");
         inner.conversations_waiting.iter().for_each(|context_id| {
             let error = if *context_id == redirect_order.context_id {
                 NodeConversationTermination::Resend

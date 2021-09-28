@@ -260,6 +260,7 @@ impl Daemon {
                             FireAndForget => None,
                             Conversation(context_id) => Some(context_id),
                         },
+                        //TODO the concept with this payload in redirect is wrong for CLI; we never read from this field
                         payload: match body.payload {
                             Ok(json) => json,
                             Err((_code, _message)) => unimplemented!(),

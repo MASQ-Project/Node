@@ -138,7 +138,7 @@ pub enum BlockchainError {
     InvalidUrl,
     InvalidAddress,
     InvalidResponse,
-    QueryFailed,
+    QueryFailed(String),
     TransactionFailed(String),
 }
 
@@ -322,7 +322,7 @@ where
                             Ok(transactions)
                         }
                     }
-                    Err(_) => Err(BlockchainError::QueryFailed),
+                    Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
                 })
             })
             .wait()
@@ -389,7 +389,7 @@ where
         self.web3
             .eth()
             .balance(wallet.address(), None)
-            .map_err(|_| BlockchainError::QueryFailed)
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 
@@ -402,7 +402,7 @@ where
                 Options::with(|_| {}),
                 None,
             )
-            .map_err(|_| BlockchainError::QueryFailed)
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 
@@ -410,7 +410,7 @@ where
         self.web3
             .eth()
             .transaction_count(wallet.address(), Some(BlockNumber::Pending))
-            .map_err(|_| BlockchainError::QueryFailed)
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 }
@@ -753,7 +753,13 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Err(BlockchainError::QueryFailed), result);
+        assert_eq!(
+            result,
+            Err(BlockchainError::QueryFailed(
+                r#"Decoder error: Error("invalid hex character: Q, at 5", line: 0, column: 0)"#
+                    .to_string()
+            ))
+        );
     }
 
     #[test]
@@ -834,7 +840,12 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Err(BlockchainError::QueryFailed), result);
+        assert_eq!(
+            Err(BlockchainError::QueryFailed(
+                r#"Api error: Decoder error: Error("invalid hex", line: 0, column: 0)"#.to_string()
+            )),
+            result
+        );
     }
 
     #[test]
