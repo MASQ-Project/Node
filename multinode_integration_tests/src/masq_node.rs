@@ -2,6 +2,7 @@
 use crate::command::Command;
 use base64::STANDARD_NO_PAD;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT, MASQ_URL_PREFIX};
+use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
 use node_lib::blockchain::blockchains::{
     blockchain_from_chain_id, chain_id_from_blockchain, chain_id_from_name, CHAIN_LABEL_DELIMITER,
     KEY_VS_IP_DELIMITER,
@@ -41,8 +42,8 @@ impl FromStr for NodeReference {
         if pieces.len() != 3 {
             return Err(format!("A NodeReference must have the form <chain label>.<public_key>:<IP address>:<port list>, not '{}'", string_rep));
         }
-        let (label, key_segment_alone) = Self::cut_off_label(pieces[0])?;
-        let public_key = Self::extract_public_key(key_segment_alone)?;
+        let (label, key_encoded) = Self::extract_label_and_encoded_public_key(pieces[0])?;
+        let public_key = Self::extract_public_key(key_encoded)?;
         let ip_addr = Self::extract_ip_addr(pieces[1])?;
         let port_list = Self::extract_port_list(pieces[2])?;
         Ok(NodeReference::new(
@@ -89,7 +90,8 @@ impl fmt::Display for NodeReference {
             "{}{}{}{}{}{}:{}",
             MASQ_URL_PREFIX,
             NodeDescriptor::label_from_blockchain(blockchain_from_chain_id(
-                self.chain_id.unwrap_or(0)
+                self.chain_id
+                    .unwrap_or(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
             )),
             CHAIN_LABEL_DELIMITER,
             public_key_string,
@@ -130,7 +132,7 @@ impl NodeReference {
         }
     }
 
-    fn cut_off_label(slice: &str) -> Result<(&str, &str), String> {
+    fn extract_label_and_encoded_public_key(slice: &str) -> Result<(&str, &str), String> {
         let pieces: Vec<&str> = slice.split(CHAIN_LABEL_DELIMITER).collect();
         if pieces.len() != 2 {
             return Err(format!(
@@ -316,7 +318,8 @@ mod tests {
     fn cut_off_label_happy_path() {
         let key_including_label = "dev.AQIDBAUGBwg";
 
-        let (label, key_part) = NodeReference::cut_off_label(key_including_label).unwrap();
+        let (label, key_part) =
+            NodeReference::extract_label_and_encoded_public_key(key_including_label).unwrap();
 
         assert_eq!(label, "dev");
         assert_eq!(key_part, "AQIDBAUGBwg");
@@ -326,7 +329,7 @@ mod tests {
     fn cut_off_label_sad_path() {
         let key_including_label = "devAQIDBAUGBwg";
 
-        let result = NodeReference::cut_off_label(key_including_label);
+        let result = NodeReference::extract_label_and_encoded_public_key(key_including_label);
 
         assert_eq!(
             result,

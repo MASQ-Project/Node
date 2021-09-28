@@ -66,6 +66,7 @@ pub struct BlockchainRecord {
 
 type ChainName = &'static str;
 
+#[track_caller]
 fn return_right_record<F>(closure: Box<F>) -> &'static BlockchainRecord
 where
     F: FnMut(&&BlockchainRecord) -> bool,
