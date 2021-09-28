@@ -233,7 +233,9 @@ impl ActorSystemFactoryReal {
         config: &BootstrapperConfig,
         new_ip_recipients: Vec<Recipient<NewPublicIp>>,
     ) {
+eprintln! ("Neighborhood mode: {:?}", config.neighborhood_config.mode);
         if let NeighborhoodMode::Standard(node_addr, _, _) = &config.neighborhood_config.mode {
+            // If we already know the IP address, no need for Automap
             if node_addr.ip_addr() != IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
                 return;
             }
@@ -244,9 +246,11 @@ impl ActorSystemFactoryReal {
                 }
                 AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(e),
             };
+eprintln! ("Manufacturing automap_control");
             let mut automap_control = self
                 .automap_control_factory
                 .make(config.mapping_protocol_opt, Box::new(change_handler));
+eprintln! ("Seeking public IP");
             let public_ip = match automap_control.get_public_ip() {
                 Ok(ip) => ip,
                 Err(e) => {
@@ -254,14 +258,19 @@ impl ActorSystemFactoryReal {
                     return; // never happens; handle_automap_error doesn't return.
                 }
             };
+eprintln! ("Notifying actors: public IP is {}", public_ip);
             Self::notify_of_public_ip_change(new_ip_recipients.as_slice(), public_ip);
+eprintln! ("Adding mapping for each port: {:?}", node_addr.ports());
             node_addr.ports().iter().for_each(|port| {
+eprintln! ("Adding mapping for port {}", port);
                 if let Err(e) = automap_control.add_mapping(*port) {
+eprintln! ("Error mapping port {}: {:?}", port, e);
                     Self::handle_automap_error(
                         &format!("Can't map port {} through the router - ", port),
                         e,
                     );
                 }
+eprintln! ("Port {} successfully mapped", port);
             });
         }
     }

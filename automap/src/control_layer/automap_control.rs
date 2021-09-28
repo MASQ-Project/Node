@@ -165,12 +165,12 @@ impl AutomapControlReal {
             debug!(self.logger, "Attempting to start housekeeping thread");
             match transactor.start_housekeeping_thread(change_handler, router_ip) {
                 Err(AutomapError::HousekeeperUnconfigured) => {
-                    debug!(
+                    debug!( // TODO Should this perhaps be an error! log instead?
                         self.logger,
                         "Housekeeping thread failed: change handler unconfigured"
                     );
                     Self::put_change_handler_back(transactor, &mut housekeeping_tools);
-                    Ok(())
+                    todo! ("Review consequences of not being able to start housekeeping thread") //Ok(())
                 }
                 Err(e) => {
                     debug!(self.logger, "Housekeeping thread failed: {:?}", e);

@@ -120,7 +120,6 @@ impl SetupReporter for SetupReporterReal {
             ),
         };
         let (configured_setup, error_opt) = self.calculate_configured_setup(
-            self.dirs_wrapper.as_ref(),
             &all_but_configured,
             &data_directory,
             &chain_name,
@@ -272,7 +271,6 @@ impl SetupReporterReal {
 
     fn calculate_configured_setup(
         &self,
-        dirs_wrapper: &dyn DirsWrapper, // TODO: Do we really need this? There's a self.dirs_wrapper.
         combined_setup: &SetupCluster,
         data_directory: &Path,
         chain_name: &str,
@@ -281,13 +279,17 @@ impl SetupReporterReal {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
         let command_line = Self::make_command_line(combined_setup);
-        let multi_config =
-            match Self::make_multi_config(dirs_wrapper, Some(command_line), true, true) {
-                Ok(mc) => mc,
-                Err(ce) => return (HashMap::new(), Some(ce)),
-            };
+        let multi_config = match Self::make_multi_config(
+            self.dirs_wrapper.as_ref(),
+            Some(command_line),
+            true,
+            true,
+        ) {
+            Ok(mc) => mc,
+            Err(ce) => return (HashMap::new(), Some(ce)),
+        };
         let ((bootstrapper_config, persistent_config_opt), error_opt) = self.run_configuration(
-            dirs_wrapper,
+            self.dirs_wrapper.as_ref(),
             &multi_config,
             data_directory,
             chain_id_from_name(chain_name),
@@ -296,7 +298,7 @@ impl SetupReporterReal {
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
-        let mut setup = value_retrievers(dirs_wrapper)
+        let mut setup = value_retrievers(self.dirs_wrapper.as_ref())
             .into_iter()
             .map(|r| {
                 let computed_default = r.computed_default_value(
@@ -1980,7 +1982,6 @@ mod tests {
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
-                &DirsWrapperReal {},
                 &setup,
                 &data_directory,
                 "irrelevant",
@@ -2027,7 +2028,6 @@ mod tests {
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
-                &DirsWrapperReal {},
                 &setup,
                 &data_directory,
                 "irrelevant",
@@ -2067,7 +2067,6 @@ mod tests {
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
-                &DirsWrapperReal {},
                 &setup,
                 &data_directory,
                 "irrelevant",
@@ -2100,7 +2099,6 @@ mod tests {
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
-                &DirsWrapperReal,
                 &setup,
                 &data_directory,
                 "irrelevant",
@@ -2143,7 +2141,6 @@ mod tests {
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
-                &DirsWrapperReal {},
                 &setup,
                 &data_dir,
                 "irrelevant",
@@ -2183,7 +2180,6 @@ mod tests {
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
-                &DirsWrapperReal {},
                 &setup,
                 &data_directory,
                 "irrelevant",
