@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, PortSelector};
@@ -372,7 +372,7 @@ fn create_meaningless_icp(
             originating_node.main_cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
             1357,
-            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
+            Some(contract_address(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)),
         )
         .unwrap(),
         MessageType::ClientRequest(VersionedData::new(
@@ -415,7 +415,7 @@ fn create_server_drop_report(
         originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
-        Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
+        Some(contract_address(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)),
     )
     .unwrap();
     route
@@ -462,7 +462,7 @@ fn create_client_drop_report(
         originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
-        Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
+        Some(contract_address(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)),
     )
     .unwrap();
     let payload = MessageType::ClientRequest(VersionedData::new(
