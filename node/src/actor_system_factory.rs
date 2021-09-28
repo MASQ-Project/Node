@@ -991,7 +991,6 @@ mod tests {
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
             real_user: RealUser::null(),
-            automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
                     NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &[]),
@@ -1063,7 +1062,6 @@ mod tests {
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
             real_user: RealUser::null(),
-            automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
                     NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234, 2345]),
@@ -1198,7 +1196,6 @@ mod tests {
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
             real_user: RealUser::null(),
-            automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
             },
@@ -1260,7 +1257,6 @@ mod tests {
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: Some(AutomapProtocol::Pmp),
             real_user: RealUser::null(),
-            automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
                     NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234]),

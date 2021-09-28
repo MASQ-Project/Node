@@ -46,7 +46,7 @@ use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::{IpAddr, SocketAddr};
+use std::net::{SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -318,7 +318,6 @@ pub struct BootstrapperConfig {
     pub clandestine_port_opt: Option<u16>,
     pub consuming_wallet_opt: Option<Wallet>,
     pub earning_wallet: Wallet,
-    pub automap_public_ip_opt: Option<IpAddr>, // TODO: This should probably be deleted
     pub neighborhood_config: NeighborhoodConfig,
 }
 
@@ -363,7 +362,6 @@ impl BootstrapperConfig {
             clandestine_port_opt: None,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
             consuming_wallet_opt: None,
-            automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
             },

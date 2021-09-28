@@ -18,6 +18,7 @@ use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
 use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::neighborhood::NeighborhoodMode as NeighborhoodModeEnum;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
 use clap::value_t;
@@ -35,6 +36,7 @@ use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter}
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::net::{IpAddr, Ipv4Addr};
 
 const CONSOLE_DIAGNOSTICS: bool = true;
 
@@ -731,18 +733,13 @@ impl ValueRetriever for Ip {
         _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        let automap_ip_opt = &bootstrapper_config.automap_public_ip_opt;
         let neighborhood_mode = &bootstrapper_config.neighborhood_config.mode;
-        match (automap_ip_opt, neighborhood_mode) {
-            (None, crate::sub_lib::neighborhood::NeighborhoodMode::Standard(_, _, _)) => {
-                Some(("".to_string(), UiSetupResponseValueStatus::Required))
-            }
-            (
-                Some(public_ip),
-                crate::sub_lib::neighborhood::NeighborhoodMode::Standard(_, _, _),
-            ) => Some((public_ip.to_string(), UiSetupResponseValueStatus::Default)),
-            (None, _) => Some(("".to_string(), UiSetupResponseValueStatus::Blank)),
-            (Some(_), _) => Some(("".to_string(), UiSetupResponseValueStatus::Blank)),
+        match neighborhood_mode {
+            NeighborhoodModeEnum::Standard(node_addr, _, _) if node_addr.ip_addr() == IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0)) =>
+                Some(("".to_string(), UiSetupResponseValueStatus::Blank)),
+            NeighborhoodModeEnum::Standard(node_addr, _, _) =>
+                Some((node_addr.ip_addr().to_string(), UiSetupResponseValueStatus::Set)),
+            _ => Some(("".to_string(), UiSetupResponseValueStatus::Blank)),
         }
     }
 
@@ -776,17 +773,6 @@ impl ValueRetriever for MappingProtocol {
     fn value_name(&self) -> &'static str {
         "mapping-protocol"
     }
-
-    //     fn computed_default(
-    //         &self,
-    //         _bootstrapper_config: &BootstrapperConfig,
-    //         _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-    //         _db_password_opt: &Option<String>,
-    //     ) -> Option<(String, UiSetupResponseValueStatus)> {
-    // eprintln! ("Computing default for mapping protocol, with bootstrapper_config = {:?}, persistent_config = {:?}",
-    //            _bootstrapper_config.mapping_protocol_opt, _persistent_config_opt.as_ref().map (|pc| pc.mapping_protocol()));
-    //         Some(("".to_string(),Blank))
-    //     }
 }
 
 struct NeighborhoodMode {}
@@ -1713,36 +1699,6 @@ mod tests {
     }
 
     #[test]
-    fn get_modified_blanking_something_that_shouldnt_be_blanked_fails_properly() {
-        let _guard = EnvironmentGuard::new();
-        let home_dir = ensure_node_home_directory_exists(
-            "setup_reporter",
-            "get_modified_blanking_something_that_shouldnt_be_blanked_fails_properly",
-        );
-        let existing_setup = setup_cluster_from(vec![
-            ("data-directory", home_dir.to_str().unwrap(), Set),
-            ("neighborhood-mode", "standard", Set),
-            ("ip", "1.2.3.4", Set),
-        ]);
-        let incoming_setup = vec![UiSetupRequestValue::clear("ip")];
-        let dirs_wrapper = Box::new(DirsWrapperReal);
-        let subject = SetupReporterReal::new(dirs_wrapper);
-
-        let result = subject
-            .get_modified_setup(
-                existing_setup,
-                incoming_setup,
-            )
-            .err()
-            .unwrap();
-
-        assert_eq!(
-            result.0.get("ip").unwrap().clone(),
-            UiSetupResponseValue::new("ip", "1.2.3.4", Set)
-        );
-    }
-
-    #[test]
     fn calculate_fundamentals_with_only_environment() {
         let _guard = EnvironmentGuard::new();
         vec![
@@ -2342,26 +2298,9 @@ mod tests {
     }
 
     #[test]
-    fn ip_computed_default_when_automap_works_and_neighborhood_mode_is_standard() {
-        let subject = Ip {};
-        let mut config = BootstrapperConfig::new();
-        config.automap_public_ip_opt = Some(IpAddr::from_str("1.2.3.4").unwrap());
-        config.neighborhood_config.mode = crate::sub_lib::neighborhood::NeighborhoodMode::Standard(
-            NodeAddr::new(&IpAddr::from_str("5.6.7.8").unwrap(), &[1234]),
-            vec![],
-            DEFAULT_RATE_PACK,
-        );
-
-        let result = subject.computed_default(&config, &None, &None);
-
-        assert_eq!(result, Some(("1.2.3.4".to_string(), Default)));
-    }
-
-    #[test]
     fn ip_computed_default_when_automap_works_and_neighborhood_mode_is_not_standard() {
         let subject = Ip {};
         let mut config = BootstrapperConfig::new();
-        config.automap_public_ip_opt = Some(IpAddr::from_str("1.2.3.4").unwrap());
         config.neighborhood_config.mode = crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
 
         let result = subject.computed_default(&config, &None, &None);
@@ -2370,10 +2309,9 @@ mod tests {
     }
 
     #[test]
-    fn ip_computed_default_when_automap_does_not_work_and_neighborhood_mode_is_standard() {
+    fn ip_computed_default_when_neighborhood_mode_is_standard() {
         let subject = Ip {};
         let mut config = BootstrapperConfig::new();
-        config.automap_public_ip_opt = None;
         config.neighborhood_config.mode = crate::sub_lib::neighborhood::NeighborhoodMode::Standard(
             NodeAddr::new(&IpAddr::from_str("5.6.7.8").unwrap(), &[1234]),
             vec![],
@@ -2382,14 +2320,13 @@ mod tests {
 
         let result = subject.computed_default(&config, &None, &None);
 
-        assert_eq!(result, Some(("".to_string(), Required)));
+        assert_eq!(result, Some(("5.6.7.8".to_string(), Set)));
     }
 
     #[test]
     fn ip_computed_default_when_automap_does_not_work_and_neighborhood_mode_is_not_standard() {
         let subject = Ip {};
         let mut config = BootstrapperConfig::new();
-        config.automap_public_ip_opt = None;
         config.neighborhood_config.mode = crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
 
         let result = subject.computed_default(&config, &None, &None);

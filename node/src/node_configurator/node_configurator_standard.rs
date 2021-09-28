@@ -259,7 +259,6 @@ pub mod standard {
         };
         unprivileged_config.mapping_protocol_opt =
             compute_mapping_protocol_opt(multi_config, persistent_config, logger);
-        unprivileged_config.automap_public_ip_opt = compute_public_ip_opt(multi_config);
         let mnc_result = {
             get_wallets(
                 streams,
@@ -361,7 +360,6 @@ pub mod standard {
         match make_neighborhood_mode(
             multi_config,
             neighbor_configs,
-            unprivileged_config.automap_public_ip_opt,
         ) {
             Ok(mode) => Ok(NeighborhoodConfig { mode }),
             Err(e) => Err(e),
@@ -533,12 +531,11 @@ pub mod standard {
     fn make_neighborhood_mode(
         multi_config: &MultiConfig,
         neighbor_configs: Vec<NodeDescriptor>,
-        automap_public_ip_opt: Option<IpAddr>,
     ) -> Result<NeighborhoodMode, ConfiguratorError> {
         let neighborhood_mode_opt = value_m!(multi_config, "neighborhood-mode", String);
         match neighborhood_mode_opt {
             Some(ref s) if s == "standard" => {
-                neighborhood_mode_standard(multi_config, neighbor_configs, automap_public_ip_opt)
+                neighborhood_mode_standard(multi_config, neighbor_configs)
             }
             Some(ref s) if s == "originate-only" => {
                 if neighbor_configs.is_empty() {
@@ -582,7 +579,7 @@ pub mod standard {
                 s
             ),
             None => {
-                neighborhood_mode_standard(multi_config, neighbor_configs, automap_public_ip_opt)
+                neighborhood_mode_standard(multi_config, neighbor_configs)
             }
         }
     }
@@ -590,9 +587,8 @@ pub mod standard {
     fn neighborhood_mode_standard(
         multi_config: &MultiConfig,
         neighbor_configs: Vec<NodeDescriptor>,
-        automap_public_ip_opt: Option<IpAddr>,
     ) -> Result<NeighborhoodMode, ConfiguratorError> {
-        let ip = get_public_ip(automap_public_ip_opt, multi_config)?;
+        let ip = get_public_ip(multi_config)?;
         Ok(NeighborhoodMode::Standard(
             NodeAddr::new(&ip, &[]),
             neighbor_configs,
@@ -601,22 +597,14 @@ pub mod standard {
     }
 
     pub fn get_public_ip(
-        automap_public_ip_opt: Option<IpAddr>,
         multi_config: &MultiConfig,
     ) -> Result<IpAddr, ConfiguratorError> {
-        match (automap_public_ip_opt, value_m! (multi_config, "ip", String)) {
-            (_, Some(ip_str)) => match IpAddr::from_str(&ip_str) {
+        match value_m! (multi_config, "ip", String) {
+            Some(ip_str) => match IpAddr::from_str(&ip_str) {
                 Ok(ip_addr) => Ok(ip_addr),
-                Err(_) => Err(ConfiguratorError::required(
-                    "ip",
-                    &format! ("blockety blip: '{}'", ip_str),
-                )),
+                Err(_) => todo! ("Drive in a better error message"), //Err(ConfiguratorError::required("ip", &format! ("blockety blip: '{}'", ip_str),
             },
-            (Some(automap_public_ip), None) => Ok(automap_public_ip),
-            (None, None) => Err(ConfiguratorError::required(
-                "ip",
-                "The public IP address cannot be retrieved from the router; therefore --ip must be specified for --neighborhood-mode standard"
-            ))
+            None => Ok (IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) // sentinel: means "Try Automap"
         }
     }
 
@@ -1274,7 +1262,7 @@ mod tests {
     use std::fs::File;
     use std::io::Cursor;
     use std::io::Write;
-    use std::net::IpAddr;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::net::SocketAddr;
     use std::path::PathBuf;
     use std::str::FromStr;
@@ -1357,13 +1345,11 @@ mod tests {
             &mut BootstrapperConfig::new(),
         );
 
-        assert_eq!(
-            result,
-            Err(ConfiguratorError::required(
-                "ip",
-                "The public IP address cannot be retrieved from the router; therefore --ip must be specified for --neighborhood-mode standard"
-            ))
-        )
+        let node_addr = match result {
+            Ok(NeighborhoodConfig {mode: NeighborhoodMode::Standard(node_addr, _, _)}) => node_addr,
+            x => panic! ("Wasn't expecting {:?}", x),
+        };
+        assert_eq!(node_addr.ip_addr(), IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
     }
 
     #[test]
@@ -1593,40 +1579,24 @@ mod tests {
     }
 
     #[test]
-    fn get_public_ip_complains_if_neither_is_provided() {
+    fn get_public_ip_returns_sentinel_if_multiconfig_provides_none() {
         let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
 
-        let result = standard::get_public_ip(None, &multi_config);
+        let result = standard::get_public_ip(&multi_config);
 
-        assert_eq!(
-            result,
-            Err(ConfiguratorError::new(vec![ParamError::new(
-                "ip",
-                "The public IP address cannot be retrieved from the router; therefore --ip must be specified for --neighborhood-mode standard"
-            )]))
-        );
+        assert_eq!(result, Ok(IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0))));
     }
 
     #[test]
-    fn get_public_ip_uses_multi_config_even_if_automap_ip_is_provided() {
+    fn get_public_ip_uses_multi_config() {
         let args = ArgsBuilder::new().param("--ip", "4.3.2.1");
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&app_node(), vec![vcl]).unwrap();
 
         let result =
-            standard::get_public_ip(Some(IpAddr::from_str("1.2.3.4").unwrap()), &multi_config);
+            standard::get_public_ip(&multi_config);
 
         assert_eq!(result, Ok(IpAddr::from_str("4.3.2.1").unwrap()));
-    }
-
-    #[test]
-    fn get_public_ip_uses_automap_ip_if_multi_config_is_not_provided() {
-        let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
-
-        let result =
-            standard::get_public_ip(Some(IpAddr::from_str("1.2.3.4").unwrap()), &multi_config);
-
-        assert_eq!(result, Ok(IpAddr::from_str("1.2.3.4").unwrap()));
     }
 
     #[test]
@@ -2089,10 +2059,6 @@ mod tests {
             }
         );
         assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
-        assert_eq!(
-            config.automap_public_ip_opt,
-            Some(IpAddr::from_str("34.56.78.90").unwrap())
-        );
     }
 
     #[test]
@@ -2103,11 +2069,8 @@ mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = make_default_persistent_configuration()
             .mapping_protocol_result(Ok(None))
-            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
-            .set_mapping_protocol_result(Ok(()))
             .check_password_result(Ok(false));
 
         standard::unprivileged_parse_args(
@@ -2136,20 +2099,11 @@ mod tests {
                 .node_addr_opt()
                 .unwrap()
                 .ip_addr(),
-            IpAddr::from_str("192.168.0.17").unwrap(),
+            IpAddr::from_str("0.0.0.0").unwrap(),
         );
         assert_eq!(config.earning_wallet, DEFAULT_EARNING_WALLET.clone(),);
-        assert_eq!(config.consuming_wallet_opt, None,);
-        assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Igdp));
-        assert_eq!(
-            config.automap_public_ip_opt,
-            Some(IpAddr::from_str("192.168.0.17").unwrap())
-        );
-        let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_mapping_protocol_params,
-            vec![Some(AutomapProtocol::Igdp)]
-        )
+        assert_eq!(config.consuming_wallet_opt, None);
+        assert_eq!(config.mapping_protocol_opt, None);
     }
 
     #[test]
