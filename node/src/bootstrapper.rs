@@ -622,6 +622,7 @@ mod tests {
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use masq_lib::utils::find_free_port;
     use regex::Regex;
     use std::cell::RefCell;
     use std::io;
@@ -1522,6 +1523,7 @@ mod tests {
 
     #[test]
     fn set_up_clandestine_port_handles_specified_port_in_standard_mode() {
+        let port = find_free_port();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_specified_port",
@@ -1542,7 +1544,7 @@ mod tests {
             ),
         };
         config.data_directory = data_dir.clone();
-        config.clandestine_port_opt = Some(1234);
+        config.clandestine_port_opt = Some(port);
         let chain_id = config.blockchain_bridge_config.chain_id;
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let mut subject = BootstrapperBuilder::new()
@@ -1557,7 +1559,7 @@ mod tests {
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        assert_eq!(1234u16, persistent_config.clandestine_port().unwrap());
+        assert_eq!(port, persistent_config.clandestine_port().unwrap());
         assert_eq!(
             subject
                 .config
@@ -1566,7 +1568,7 @@ mod tests {
                 .node_addr_opt()
                 .unwrap()
                 .ports(),
-            vec![1234u16],
+            vec![port],
         );
         assert_eq!(1, subject.listener_handlers.len());
 
