@@ -1980,8 +1980,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
-    fn configurator_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests() {
+    #[should_panic(
+        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    )]
+    fn configurator_can_be_crashed_and_resists_to_mismatched_requests_give_the_use_of_crash_request_analyzer(
+    ) {
         let persistent_config = PersistentConfigurationMock::new();
         let mut configurator = make_subject(Some(persistent_config));
         configurator.crashable = true;

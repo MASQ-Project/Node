@@ -115,7 +115,7 @@ pub fn handle_ui_crash_request(
     let crasher = crash_request_analyzer;
     if let Some(cr) = crasher(msg, logger, crashable, crash_key) {
         let requester = type_name_of(crasher);
-        panic!("{}: {}", cr.panic_message, requester)
+        panic!("{} (processed with: {})", cr.panic_message, requester)
     }
 }
 
@@ -250,7 +250,9 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Foiled again!: node_lib::sub_lib::utils::crash_request_analyzer")]
+    #[should_panic(
+        expected = "Foiled again! (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    )]
     fn handle_ui_crash_message_crashes_if_everything_is_just_right() {
         let logger = Logger::new("Example");
         let msg_body = UiCrashRequest {

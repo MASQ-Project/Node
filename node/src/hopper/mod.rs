@@ -252,8 +252,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
-    fn hopper_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests() {
+    #[should_panic(
+        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    )]
+    fn hopper_can_be_crashed_and_resists_to_mismatched_requests_give_the_use_of_crash_request_analyzer(
+    ) {
         let hopper = Hopper::new(HopperConfig {
             main_cryptde: main_cryptde(),
             alias_cryptde: alias_cryptde(),

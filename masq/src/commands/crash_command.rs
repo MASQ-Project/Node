@@ -11,11 +11,7 @@ pub struct CrashCommand {
     actor: String,
     panic_message: String,
 }
-//accountant,
-//neighborhood,
-//blockchain_bridge,
-//dispatcher,
-//configurator,
+
 pub fn crash_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("crash")
         .about("Causes an element of the Node to crash with a specified message. Only valid if the Node has been started with '--crash-point message'")
