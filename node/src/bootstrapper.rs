@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL};
+use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL, DEFAULT_ACCOUNTANT_SCAN_INTERVAL};
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
@@ -322,10 +322,7 @@ impl BootstrapperConfig {
             log_level: LevelFilter::Off,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(DEFAULT_PAYABLE_SCAN_INTERVAL),
-                payment_received_scan_interval: Duration::from_secs(
-                    DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
-                ),
+                accountant_interval: Duration::from_secs(DEFAULT_ACCOUNTANT_SCAN_INTERVAL),
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
