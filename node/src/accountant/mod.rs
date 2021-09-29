@@ -136,9 +136,8 @@ impl Handler<StartMessage> for Accountant {
         self.handle_start_message();
 
         ctx.run_interval(self.config.accountant_interval, |accountant, _ctx| {
-            self.handle_start_message();
+            accountant.handle_start_message();
         });
-
     }
 }
 
@@ -697,7 +696,7 @@ impl Accountant {
 // segfaults on the Mac when using u64::try_from (i64). This is an attempt to
 // work around that.
 pub fn jackass_unsigned_to_signed(unsigned: u64) -> Result<i64, PaymentError> {
-    if unsigned <= (std::i64::MAX as u64) {
+    if unsigned <= (i64::MAX as u64) {
         Ok(unsigned as i64)
     } else {
         Err(PaymentError::SignConversion(unsigned))
@@ -2768,12 +2767,12 @@ pub mod tests {
             None,
         );
 
-        subject.record_service_provided(std::i64::MAX as u64, 1, 2, &wallet);
+        subject.record_service_provided(i64::MAX as u64, 1, 2, &wallet);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error trying to record service provided to Node with consuming wallet {}: service rate {}, byte rate 1, payload size 2. Skipping",
             wallet,
-            std::i64::MAX as u64
+            i64::MAX as u64
         ));
     }
 
@@ -2792,12 +2791,12 @@ pub mod tests {
             None,
         );
 
-        subject.record_service_consumed(std::i64::MAX as u64, 1, 2, &wallet);
+        subject.record_service_consumed(i64::MAX as u64, 1, 2, &wallet);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error trying to record service consumed from Node with earning wallet {}: service rate {}, byte rate 1, payload size 2. Skipping",
             wallet,
-            std::i64::MAX as u64
+            i64::MAX as u64
         ));
     }
 
@@ -2808,7 +2807,7 @@ pub mod tests {
         let payments = SentPayments {
             payments: vec![Ok(Payment::new(
                 wallet.clone(),
-                std::u64::MAX,
+                u64::MAX,
                 H256::from_uint(&U256::from(1)),
             ))],
         };
@@ -2826,7 +2825,7 @@ pub mod tests {
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error trying to record payment of {} sent to earning wallet {} (transaction {}). Skipping",
-            std::u64::MAX,
+            u64::MAX,
             wallet,
             H256::from_uint(&U256::from(1))
         ));
@@ -2841,15 +2840,15 @@ pub mod tests {
 
     #[test]
     fn jackass_unsigned_to_signed_handles_max_allowable() {
-        let result = jackass_unsigned_to_signed(std::i64::MAX as u64);
+        let result = jackass_unsigned_to_signed(i64::MAX as u64);
 
-        assert_eq!(result, Ok(std::i64::MAX));
+        assert_eq!(result, Ok(i64::MAX));
     }
 
     #[test]
     fn jackass_unsigned_to_signed_handles_max_plus_one() {
-        let attempt = (std::i64::MAX as u64) + 1;
-        let result = jackass_unsigned_to_signed((std::i64::MAX as u64) + 1);
+        let attempt = (i64::MAX as u64) + 1;
+        let result = jackass_unsigned_to_signed((i64::MAX as u64) + 1);
 
         assert_eq!(result, Err(PaymentError::SignConversion(attempt)));
     }
