@@ -236,40 +236,30 @@ pub fn data_directory_from_context(
     data_directory_opt: &Option<PathBuf>,
     chain_name: &str,
 ) -> PathBuf {
-    eprintln!(
-        "data_directory_from_context: data_directory_opt: {:?}",
-        data_directory_opt
-    );
     match data_directory_opt {
         Some(data_directory) => data_directory.clone(),
         None => {
-            eprintln!("home_dir_opt: {:?}", real_user.home_dir_opt);
             let right_home_dir = real_user
                 .home_dir_opt
                 .as_ref()
                 .expect("No real-user home directory; specify --real-user")
                 .to_string_lossy()
                 .to_string();
-            eprintln!("right_home_dir: {:?}", right_home_dir);
             let wrong_home_dir = dirs_wrapper
                 .home_dir()
                 .expect("No privileged home directory; specify --data-directory")
                 .to_string_lossy()
                 .to_string();
-            eprintln!("wrong_home_dir: {:?}", wrong_home_dir);
             let wrong_local_data_dir = dirs_wrapper
                 .data_dir()
                 .expect("No privileged local data directory; specify --data-directory")
                 .to_string_lossy()
                 .to_string();
-            eprintln!("wrong_local_data_dir: {:?}", wrong_local_data_dir);
             let right_local_data_dir =
                 wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
-            eprintln!("right_local_data_dir: {:?}", right_local_data_dir);
             let result = PathBuf::from(right_local_data_dir)
                 .join("MASQ")
                 .join(chain_name);
-            eprintln!("result: {:?}", result);
             result
         }
     }
