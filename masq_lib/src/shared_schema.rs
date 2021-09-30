@@ -55,13 +55,21 @@ pub const LOG_LEVEL_HELP: &str =
      You should probably not specify a level higher than the default unless you have security concerns about \
      persistent logs being kept on your computer: if your Node crashes, it's good to know why.";
 pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in the MASQ \
-     Network to which you'd like your Node to connect on startup. A Node descriptor looks like \
-     this:\n\ngBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ:86.75.30.9:5542 (initial ':' for testnet) and\n\
-     gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ@86.75.30.9:5542 (initial '@' for mainnet)\n\n\
-     If you have more than one, separate them with commas (but no spaces). There is no default value; \
+     Network to which you'd like your Node to connect on startup. A Node descriptor looks similar to one of these:\n\n\
+     masq://eth.gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ:86.75.30.9:5542\n\n
+     masq://eth_t1.A6PGHT3rRjaeFpD/rFi3qGEXAVPq7bJDfEUZpZaIyq8:14.10.50.6:10504\n
+     masq://eth_t2.d2U3Dv1BqtS5t/Zz3mt9/sCl7AgxUlnkB4jOMElylrU:172.50.48.6:9342\n\n\
+     Notice of different labels behind the masq protocol prefix, they determine the family of chains
+     and also the exact chains the descriptor belongs to. A chain marked with 't' stands for a testnet.\n\n\
+     If you have more than one descriptor, separate them with commas (but no spaces). There is no default value; \
      if you don't specify a neighbor, your Node will start without being connected to any MASQ \
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
      --neighbors is meaningless in --neighborhood-mode zero-hop.";
+// for future needs
+// UJNoZW5p/PDVqEjpr3b+8jZ/93yPG8i5dOAgE1bhK+A
+// ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk
+// OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY
+// BE1ZIbcxwGTQjzzkkq3qSAK6YKsu8ncVzUfMxTdw5fc
 pub const NEIGHBORHOOD_MODE_HELP: &str = "This configures the way the Node relates to other Nodes.\n\n\
      zero-hop means that your Node will operate as its own MASQ Network and will not communicate with any \
      other Nodes. --ip, --neighbors, and --clandestine-port are incompatible with --neighborhood_mode \
@@ -139,7 +147,7 @@ pub fn chain_arg<'a>() -> Arg<'a, 'a> {
         .value_name("CHAIN")
         .min_values(0)
         .max_values(1)
-        .possible_values(&["dev", DEFAULT_CHAIN_NAME, "ropsten", "rinkeby"])
+        .possible_values(&[DEFAULT_CHAIN_NAME, "ropsten", "rinkeby", "dev"])
         .help(CHAIN_HELP)
 }
 

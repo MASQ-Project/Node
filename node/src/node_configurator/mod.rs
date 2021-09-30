@@ -259,19 +259,11 @@ pub fn data_directory_from_context(
             let right_local_data_dir =
                 wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
             let platform = platform_from_chain_name(chain_name);
-            let chain_name_adjusted = adjust_composed_names(chain_name);
             PathBuf::from(right_local_data_dir)
                 .join("MASQ")
                 .join(platform)
-                .join(chain_name_adjusted)
+                .join(chain_name)
         }
-    }
-}
-
-fn adjust_composed_names(chain_name: &str) -> &str {
-    match chain_name {
-        "eth-mainnet" => "eth_mainnet",
-        _ => chain_name,
     }
 }
 
@@ -732,7 +724,6 @@ pub trait WalletCreationConfigMaker {
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchains::CHAINS;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::masq_lib::utils::{
         DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
@@ -743,7 +734,7 @@ mod tests {
     use crate::test_utils::pure_test_utils::make_simplified_multi_config;
     use crate::test_utils::ArgsBuilder;
     use bip39::{Mnemonic, Seed};
-    use masq_lib::constants::{DEFAULT_CHAIN_DIRECTORY_NAME, DEFAULT_CHAIN_NAME, DEFAULT_PLATFORM};
+    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_PLATFORM};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::{db_password_arg, ParamError};
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
@@ -752,7 +743,6 @@ mod tests {
     use masq_lib::utils::{find_free_port, running_test};
     use std::io::Cursor;
     use std::net::{SocketAddr, TcpListener};
-    use std::ops::Not;
     use std::sync::{Arc, Mutex};
     use tiny_hderive::bip44::DerivationPath;
 
@@ -935,30 +925,6 @@ mod tests {
     }
 
     #[test]
-    fn adjust_composed_names_works_for_one_word_names() {
-        CHAINS
-            .iter()
-            .filter(|chain| chain.in_command_name.contains("-").not())
-            .for_each(|chain| {
-                assert_eq!(
-                    chain.in_command_name,
-                    adjust_composed_names(chain.in_command_name)
-                )
-            })
-    }
-
-    #[test]
-    fn adjust_composed_names_works_for_composed_names() {
-        let mut filtered_existing = CHAINS
-            .iter()
-            .filter(|chain| chain.in_command_name.contains("-"));
-        let first = filtered_existing.next().unwrap().in_command_name;
-        assert_eq!(first, "eth-mainnet");
-        assert_eq!(adjust_composed_names(first), DEFAULT_CHAIN_DIRECTORY_NAME);
-        assert_eq!(filtered_existing.next(), None)
-    }
-
-    #[test]
     fn data_directory_default_given_no_default() {
         assert_eq!(
             String::from(""),
@@ -1069,7 +1035,7 @@ mod tests {
         let expected_directory = expected_root
             .join("MASQ")
             .join(DEFAULT_PLATFORM)
-            .join(DEFAULT_CHAIN_DIRECTORY_NAME);
+            .join(DEFAULT_CHAIN_NAME);
         assert_eq!(directory, expected_directory);
         assert_eq!(&chain_name, DEFAULT_CHAIN_NAME);
     }

@@ -739,7 +739,7 @@ parm2 - msg2\n"
     fn daemon_and_node_modes_version_call() {
         use chrono::offset::Utc;
         use chrono::NaiveDate;
-        if Utc::today().and_hms(0, 0, 0).naive_utc().date() >= NaiveDate::from_ymd(2021, 9, 30) {
+        if Utc::today().and_hms(0, 0, 0).naive_utc().date() >= NaiveDate::from_ymd(2021, 10, 30) {
             let subject = RunModes::new();
             let mut daemon_v_holder = FakeStreamHolder::new();
             let mut node_v_holder = FakeStreamHolder::new();

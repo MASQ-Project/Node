@@ -9,6 +9,7 @@ use crate::blockchain::blockchains_specific_constants::{
     RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
 };
 use crate::sub_lib::neighborhood::Blockchain;
+use masq_lib::constants::{DEV_LABEL, ETH_MAINNET_LABEL, ETH_RINKEBY_LABEL, ETH_ROPSTEN_LABEL};
 use web3::types::Address;
 
 pub const KEY_VS_IP_DELIMITER: char = ':';
@@ -20,7 +21,7 @@ pub const CHAINS: [BlockchainRecord; 4] = [
         non_num_chain_id: Blockchain::EthMainnet,
         in_command_name: "eth-mainnet",
         directory_by_platform: "eth",
-        delimiter: '@',
+        chain_label: ETH_MAINNET_LABEL,
         contract: MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: MAINNET_CONTRACT_CREATION_BLOCK,
     },
@@ -29,7 +30,7 @@ pub const CHAINS: [BlockchainRecord; 4] = [
         non_num_chain_id: Blockchain::EthRopsten,
         in_command_name: "ropsten",
         directory_by_platform: "eth",
-        delimiter: ':',
+        chain_label: ETH_ROPSTEN_LABEL,
         contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
     },
@@ -38,7 +39,7 @@ pub const CHAINS: [BlockchainRecord; 4] = [
         non_num_chain_id: Blockchain::EthRinkeby,
         in_command_name: "rinkeby",
         directory_by_platform: "eth",
-        delimiter: ':',
+        chain_label: ETH_RINKEBY_LABEL,
         contract: RINKEBY_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK,
     },
@@ -47,7 +48,7 @@ pub const CHAINS: [BlockchainRecord; 4] = [
         non_num_chain_id: Blockchain::Dev,
         in_command_name: "dev",
         directory_by_platform: "dev",
-        delimiter: ':',
+        chain_label: DEV_LABEL,
         contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
     },
@@ -57,24 +58,26 @@ pub const CHAINS: [BlockchainRecord; 4] = [
 pub struct BlockchainRecord {
     pub num_chain_id: u8,
     pub non_num_chain_id: Blockchain,
-    pub in_command_name: ChainName,
+    pub in_command_name: &'static str,
     pub directory_by_platform: &'static str,
-    pub delimiter: char,
+    pub chain_label: &'static str,
     pub contract: Address,
     pub contract_creation_block: u64,
 }
-
-type ChainName = &'static str;
 
 #[track_caller]
 fn return_right_record<F>(closure: Box<F>) -> &'static BlockchainRecord
 where
     F: FnMut(&&BlockchainRecord) -> bool,
 {
-    CHAINS
-        .iter()
-        .find(closure)
-        .expect("chain outside the bounds; unknown")
+    return_right_record_opt(closure).expect("chain outside the bounds; unknown")
+}
+
+fn return_right_record_opt<F>(closure: Box<F>) -> Option<&'static BlockchainRecord>
+where
+    F: FnMut(&&BlockchainRecord) -> bool,
+{
+    CHAINS.iter().find(closure)
 }
 
 fn return_right_record_by_chain_id(chain_id: u8) -> &'static BlockchainRecord {
@@ -127,6 +130,15 @@ pub fn platform_from_chain_name(chain_name: &str) -> &str {
     return_right_record_by_chain_name(chain_name).directory_by_platform
 }
 
+pub fn label_from_blockchain(blockchain: Blockchain) -> &'static str {
+    return_right_record_by_blockchain_name(blockchain).chain_label
+}
+
+pub fn blockchain_from_label_opt(label: &str) -> Option<Blockchain> {
+    return_right_record_opt(Box::new(|b: &&BlockchainRecord| b.chain_label == label))
+        .map(|record| record.non_num_chain_id)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::blockchain::blockchain_interface::{
@@ -134,10 +146,10 @@ mod tests {
         RINKEBY_TESTNET_CONTRACT_ADDRESS, ROPSTEN_TESTNET_CONTRACT_ADDRESS,
     };
     use crate::blockchain::blockchains::{
-        blockchain_from_chain_id, chain_id_from_blockchain, chain_id_from_name,
-        chain_name_from_blockchain, chain_name_from_id, contract_address,
-        contract_creation_block_from_chain_id, platform_from_chain_name, return_right_record,
-        BlockchainRecord, CHAINS,
+        blockchain_from_chain_id, blockchain_from_label_opt, chain_id_from_blockchain,
+        chain_id_from_name, chain_name_from_blockchain, chain_name_from_id, contract_address,
+        contract_creation_block_from_chain_id, label_from_blockchain, platform_from_chain_name,
+        return_right_record, BlockchainRecord, CHAINS,
     };
     use crate::blockchain::blockchains_specific_constants::{
         MAINNET_CONTRACT_CREATION_BLOCK, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
@@ -148,8 +160,20 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "chain outside the bounds; unknown")]
-    fn return_right_record_reliably_panics_if_nonexistent_chain_requested() {
-        let _ = return_right_record(Box::new(|b: &&BlockchainRecord| b.num_chain_id == u8::MAX));
+    fn return_right_record_reliably_panics_if_nonexistent_chain_requested_as_lower() {
+        let first_lower_nonexistent = 0;
+        let _ = return_right_record(Box::new(|b: &&BlockchainRecord| {
+            b.num_chain_id == first_lower_nonexistent
+        }));
+    }
+
+    #[test]
+    #[should_panic(expected = "chain outside the bounds; unknown")]
+    fn return_right_record_reliably_panics_if_nonexistent_chain_requested_as_higher() {
+        let first_higher_nonexistent = CHAINS.len() as u8 + 1;
+        let _ = return_right_record(Box::new(|b: &&BlockchainRecord| {
+            b.num_chain_id == first_higher_nonexistent
+        }));
     }
 
     #[test]
@@ -162,7 +186,7 @@ mod tests {
                 non_num_chain_id: Blockchain::EthMainnet,
                 in_command_name: "eth-mainnet",
                 directory_by_platform: "eth",
-                delimiter: '@',
+                chain_label: "eth",
                 contract: MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: MAINNET_CONTRACT_CREATION_BLOCK,
             }
@@ -179,7 +203,7 @@ mod tests {
                 non_num_chain_id: Blockchain::EthRopsten,
                 in_command_name: "ropsten",
                 directory_by_platform: "eth",
-                delimiter: ':',
+                chain_label: "eth_t1",
                 contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
             }
@@ -196,7 +220,7 @@ mod tests {
                 non_num_chain_id: Blockchain::EthRinkeby,
                 in_command_name: "rinkeby",
                 directory_by_platform: "eth",
-                delimiter: ':',
+                chain_label: "eth_t2",
                 contract: RINKEBY_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK
             }
@@ -213,7 +237,7 @@ mod tests {
                 non_num_chain_id: Blockchain::Dev,
                 in_command_name: "dev",
                 directory_by_platform: "dev",
-                delimiter: ':',
+                chain_label: "dev",
                 contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: 0
             }
@@ -359,5 +383,32 @@ mod tests {
             platform_from_chain_name(chain_name_from_blockchain(blockchain)),
             expected_platform
         )
+    }
+
+    #[test]
+    fn label_from_blockchain_works() {
+        assert_label_from_blockchain(Blockchain::EthMainnet, "eth");
+        assert_label_from_blockchain(Blockchain::EthRopsten, "eth_t1");
+        assert_label_from_blockchain(Blockchain::EthRinkeby, "eth_t2");
+        assert_label_from_blockchain(Blockchain::Dev, "dev");
+        assert_eq!(CHAINS.len(), 4)
+    }
+
+    fn assert_label_from_blockchain(blockchain: Blockchain, expected_label: &str) {
+        assert_eq!(label_from_blockchain(blockchain), expected_label)
+    }
+
+    #[test]
+    fn blockchain_from_label_opt_works() {
+        assert_blockchain_from_label_opt("eth", Some(Blockchain::EthMainnet));
+        assert_blockchain_from_label_opt("eth_t1", Some(Blockchain::EthRopsten));
+        assert_blockchain_from_label_opt("eth_t2", Some(Blockchain::EthRinkeby));
+        assert_blockchain_from_label_opt("dev", Some(Blockchain::Dev));
+        assert_blockchain_from_label_opt("bitcoin", None);
+        assert_eq!(CHAINS.len(), 4)
+    }
+
+    fn assert_blockchain_from_label_opt(label: &str, expected_blockchain: Option<Blockchain>) {
+        assert_eq!(blockchain_from_label_opt(label), expected_blockchain)
     }
 }

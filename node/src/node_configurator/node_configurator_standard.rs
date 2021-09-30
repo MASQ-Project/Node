@@ -90,6 +90,7 @@ pub mod standard {
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::blockchains::{
         blockchain_from_chain_id, chain_id_from_name, chain_name_from_blockchain,
+        label_from_blockchain,
     };
     use crate::bootstrapper::PortConfiguration;
     use crate::db_config::persistent_configuration::{
@@ -413,7 +414,7 @@ pub mod standard {
                                     if desired_chain == descriptor_competence{
                                         Ok(nd)
                                     } else{
-                                        Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' with descriptor belonging to '{}'",chain_name_from_blockchain(desired_chain),chain_name_from_blockchain(descriptor_competence))))
+                                        Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' [{}] with descriptor belonging to '{}' [{}]",chain_name, label_from_blockchain(desired_chain),chain_name_from_blockchain(descriptor_competence),label_from_blockchain(descriptor_competence) )))
                                     }
                                 }
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
@@ -857,7 +858,7 @@ pub mod standard {
                 result,
                 ConfiguratorError::required(
                     "neighbors",
-                    "Mismatched chains. You are requiring access to 'eth-mainnet' with descriptor belonging to 'ropsten'"
+                    "Mismatched chains. You are requiring access to 'eth-mainnet' [eth] with descriptor belonging to 'ropsten' [eth_t1]"
                 )
             )
         }
@@ -1041,7 +1042,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[cfg(not(target_os = "windows"))]
-    use masq_lib::constants::{DEFAULT_CHAIN_DIRECTORY_NAME, DEFAULT_PLATFORM};
+    use masq_lib::constants::DEFAULT_PLATFORM;
 
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")
@@ -1901,7 +1902,7 @@ mod tests {
             config.data_directory,
             PathBuf::from("/home/booga/.local/share/MASQ")
                 .join(DEFAULT_PLATFORM)
-                .join(DEFAULT_CHAIN_DIRECTORY_NAME)
+                .join(DEFAULT_CHAIN_NAME)
         );
 
         #[cfg(target_os = "macos")]
@@ -1909,7 +1910,7 @@ mod tests {
             config.data_directory,
             PathBuf::from("/home/booga/Library/Application Support/MASQ")
                 .join(DEFAULT_PLATFORM)
-                .join(DEFAULT_CHAIN_DIRECTORY_NAME)
+                .join(DEFAULT_CHAIN_NAME)
         );
     }
 

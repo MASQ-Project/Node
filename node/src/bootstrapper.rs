@@ -3,7 +3,9 @@ use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
-use crate::blockchain::blockchains::{blockchain_from_chain_id, CHAIN_LABEL_DELIMITER};
+use crate::blockchain::blockchains::{
+    blockchain_from_chain_id, label_from_blockchain, CHAIN_LABEL_DELIMITER,
+};
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -511,7 +513,7 @@ impl Bootstrapper {
             None => format!(
                 "{}{}{}{}::",
                 MASQ_URL_PREFIX,
-                NodeDescriptor::label_from_blockchain(blockchain_from_chain_id(chain_id)),
+                label_from_blockchain(blockchain_from_chain_id(chain_id)),
                 CHAIN_LABEL_DELIMITER,
                 cryptde.public_key_to_descriptor_fragment(cryptde.public_key())
             ),

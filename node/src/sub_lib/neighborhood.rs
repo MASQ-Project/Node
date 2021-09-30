@@ -1,5 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchains::{CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER};
+use crate::blockchain::blockchains::{
+    blockchain_from_label_opt, label_from_blockchain, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER,
+};
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::configurator::NewPasswordMessage;
@@ -17,7 +19,9 @@ use actix::Message;
 use actix::Recipient;
 use core::fmt;
 use lazy_static::lazy_static;
-use masq_lib::constants::MASQ_URL_PREFIX;
+use masq_lib::constants::{
+    ETH_MAINNET_LABEL, ETH_RINKEBY_LABEL, ETH_ROPSTEN_LABEL, MASQ_URL_PREFIX,
+};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
@@ -193,30 +197,6 @@ impl NodeDescriptor {
         })
     }
 
-    const ETH_MAINNET_LABEL: &'static str = "eth";
-    const ETH_ROPSTEN_LABEL: &'static str = "eth_t1";
-    const ETH_RINKEBY_LABEL: &'static str = "eth_t2";
-    const DEV_LABEL: &'static str = "dev";
-
-    pub fn label_from_blockchain(blockchain: Blockchain) -> &'static str {
-        match blockchain {
-            Blockchain::EthMainnet => Self::ETH_MAINNET_LABEL,
-            Blockchain::EthRopsten => Self::ETH_ROPSTEN_LABEL,
-            Blockchain::EthRinkeby => Self::ETH_RINKEBY_LABEL,
-            Blockchain::Dev => Self::DEV_LABEL,
-        }
-    }
-
-    pub fn blockchain_from_label(label: &str) -> Blockchain {
-        match label {
-            Self::ETH_MAINNET_LABEL => Blockchain::EthMainnet,
-            Self::ETH_ROPSTEN_LABEL => Blockchain::EthRopsten,
-            Self::ETH_RINKEBY_LABEL => Blockchain::EthRinkeby,
-            Self::DEV_LABEL => Blockchain::Dev,
-            x => unreachable!("such a blockchain label isn't registered: {}", x),
-        }
-    }
-
     fn try_dismantle_str(str_descriptor: &str) -> Result<(Blockchain, &str, &str), String> {
         let without_prefix = if let Some(str) = str_descriptor.strip_prefix(MASQ_URL_PREFIX) {
             str
@@ -232,18 +212,15 @@ impl NodeDescriptor {
         let blockchain_label = first_half
             .splitn(2, CHAIN_LABEL_DELIMITER)
             .collect::<Vec<&str>>()[0];
-        let blockchain = match blockchain_label.to_lowercase().as_str() {
-            Self::ETH_MAINNET_LABEL => Blockchain::EthMainnet,
-            Self::ETH_ROPSTEN_LABEL=> Blockchain::EthRopsten,
-            Self::ETH_RINKEBY_LABEL => Blockchain::EthRinkeby,
-            Self::DEV_LABEL=> Blockchain::Dev,
+        let blockchain = match blockchain_from_label_opt(blockchain_label) {
+            Some(bch) => bch,
             _ => {
                 return Err(format!(
-                    "Chain label '{}' isn't valid; you can have only '{}', '{}','{}' while formatted as 'masq://<chain label>.<public key>:<node address>'",
+                    "Chain label '{}' isn't valid; you can have only '{}', '{}', '{}' while formatted as 'masq://<chain label>.<public key>:<node address>'",
                     blockchain_label,
-                    Self::ETH_MAINNET_LABEL,
-                    Self::ETH_ROPSTEN_LABEL,
-                    Self::ETH_RINKEBY_LABEL
+                    ETH_MAINNET_LABEL,
+                    ETH_ROPSTEN_LABEL,
+                    ETH_RINKEBY_LABEL
                 ))
             }
         };
@@ -269,7 +246,7 @@ impl NodeDescriptor {
             Some(node_addr) => node_addr.to_string(),
             None => ":".to_string(),
         };
-        let label = Self::label_from_blockchain(self.blockchain);
+        let label = label_from_blockchain(self.blockchain);
         format!(
             "{}{}{}{}{}{}",
             MASQ_URL_PREFIX,
@@ -335,6 +312,7 @@ impl NodeQueryResponseMetadata {
     }
 }
 
+//TODO probably dead code shrouded by derive trait implementations?
 #[derive(Clone, Debug, Message, PartialEq)]
 pub struct BootstrapNeighborhoodNowMessage {}
 
@@ -568,7 +546,7 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                "Chain label 'bitcoin' isn't valid; you can have only 'eth', 'eth_t1','eth_t2' while formatted as 'masq://<chain label>.<public key>:<node address>'"
+                "Chain label 'bitcoin' isn't valid; you can have only 'eth', 'eth_t1', 'eth_t2' while formatted as 'masq://<chain label>.<public key>:<node address>'"
                     .to_string()
             )
         );
@@ -611,18 +589,6 @@ mod tests {
             result,
             Err("Chain label delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not 'masq://dev.as45cs5c5/1.4.4.5:4545'".to_string())
         );
-    }
-
-    #[test]
-    fn label_from_blockchain_returns_right_labels() {
-        assert_label(Blockchain::EthMainnet, NodeDescriptor::ETH_MAINNET_LABEL);
-        assert_label(Blockchain::EthRopsten, NodeDescriptor::ETH_ROPSTEN_LABEL);
-        assert_label(Blockchain::EthRinkeby, NodeDescriptor::ETH_RINKEBY_LABEL);
-        assert_label(Blockchain::Dev, NodeDescriptor::DEV_LABEL)
-    }
-
-    fn assert_label(blockchain: Blockchain, expected: &str) {
-        assert_eq!(NodeDescriptor::label_from_blockchain(blockchain), expected)
     }
 
     #[test]

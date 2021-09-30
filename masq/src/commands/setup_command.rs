@@ -111,7 +111,7 @@ impl SetupCommand {
         inner.values.into_iter().for_each(|value| {
             short_writeln!(
                 stdout,
-                "{:23}{:65}{:?}",
+                "{:23}{:64} {:?}",
                 value.name,
                 value.value,
                 value.status
@@ -172,6 +172,11 @@ mod tests {
                 values: vec![
                     UiSetupResponseValue::new("chain", "ropsten", Configured),
                     UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
+                    UiSetupResponseValue::new(
+                        "neighbors",
+                        "masq://eth.95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw:13.23.13.23:4545",
+                        Set,
+                    ),
                 ],
                 errors: vec![],
             }
@@ -212,6 +217,7 @@ mod tests {
 "NAME                   VALUE                                                            STATUS\n\
 chain                  ropsten                                                          Configured\n\
 neighborhood-mode      zero-hop                                                         Set\n\
+neighbors              masq://eth.95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw:13.23.13.23:4545 Set\n\
 \n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }

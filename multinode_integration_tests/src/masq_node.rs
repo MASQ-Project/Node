@@ -3,11 +3,12 @@ use crate::command::Command;
 use base64::STANDARD_NO_PAD;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT, MASQ_URL_PREFIX};
 use node_lib::blockchain::blockchains::{
-    blockchain_from_chain_id, chain_id_from_blockchain, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER,
+    blockchain_from_chain_id, blockchain_from_label_opt, chain_id_from_blockchain,
+    label_from_blockchain, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER,
 };
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::neighborhood::{NodeDescriptor, RatePack};
+use node_lib::sub_lib::neighborhood::RatePack;
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
@@ -35,7 +36,7 @@ pub struct NodeReference {
 impl FromStr for NodeReference {
     type Err = String;
 
-    //TODO inaccurate - this works only as long as we don't parse the real Node descriptor with its URL prefix which we don't now
+    //TODO inaccurate - this works only as long as we don't parse the real Node descriptor including its URL prefix which we don't now, see extract_node_reference()
     fn from_str(string_rep: &str) -> Result<Self, <Self as FromStr>::Err> {
         let pieces: Vec<&str> = string_rep.split(':').collect();
         if pieces.len() != 3 {
@@ -49,7 +50,9 @@ impl FromStr for NodeReference {
             public_key,
             ip_addr,
             port_list,
-            chain_id_from_blockchain(NodeDescriptor::blockchain_from_label(label)),
+            chain_id_from_blockchain(
+                blockchain_from_label_opt(label).expect("chain outside the bounds; unknown"),
+            ),
         ))
     }
 }
@@ -84,7 +87,7 @@ impl fmt::Display for NodeReference {
             f,
             "{}{}{}{}{}{}:{}",
             MASQ_URL_PREFIX,
-            NodeDescriptor::label_from_blockchain(blockchain_from_chain_id(self.chain_id)),
+            label_from_blockchain(blockchain_from_chain_id(self.chain_id)),
             CHAIN_LABEL_DELIMITER,
             public_key_string,
             KEY_VS_IP_DELIMITER,

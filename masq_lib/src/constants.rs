@@ -6,7 +6,6 @@ pub const TLS_PORT: u16 = 443;
 pub const MASQ_URL_PREFIX: &str = "masq://";
 pub const DEFAULT_CHAIN_NAME: &str = "eth-mainnet";
 pub const DEFAULT_PLATFORM: &str = "eth";
-pub const DEFAULT_CHAIN_DIRECTORY_NAME: &str = "eth_mainnet";
 pub const DEFAULT_GAS_PRICE: &str = "1";
 pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
 pub const HIGHEST_USABLE_PORT: u16 = 65535;
@@ -14,6 +13,11 @@ pub const DEFAULT_UI_PORT: u16 = 5333;
 pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 
 pub const MASQ_PROMPT: &str = "masq> ";
+
+pub const ETH_MAINNET_LABEL: &str = "eth";
+pub const ETH_ROPSTEN_LABEL: &str = "eth_t1";
+pub const ETH_RINKEBY_LABEL: &str = "eth_t2";
+pub const DEV_LABEL: &str = "dev";
 
 //error codes
 

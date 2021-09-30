@@ -880,7 +880,7 @@ mod tests {
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use masq_lib::constants::{DEFAULT_CHAIN_DIRECTORY_NAME, DEFAULT_PLATFORM};
+    use masq_lib::constants::DEFAULT_PLATFORM;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{
@@ -1267,7 +1267,7 @@ mod tests {
         let mainnet_dir = data_root
             .join("MASQ")
             .join(DEFAULT_PLATFORM)
-            .join(DEFAULT_CHAIN_DIRECTORY_NAME);
+            .join(DEFAULT_CHAIN_NAME);
         {
             std::fs::create_dir_all(mainnet_dir.clone()).unwrap();
             let mut config_file = File::create(mainnet_dir.join("config.toml")).unwrap();
