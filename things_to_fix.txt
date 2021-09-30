@@ -1,6 +1,2 @@
 * Maybe allow `setup --mapping-protocol`
 * Sometimes, mapping protocol can be set in the database, yet a setup command in masq doesn't show it.
-* Turn off setup logging in setup_reporter.rs
-* Remove logging of right_home_dir, wrong_home_dir, etc.
-* Modify Daemon not to use Automap. If the user doesn't set up --ip, then pass no --ip to the Node and let it use
-Automap. --ip should no longer be required.
