@@ -115,7 +115,9 @@ pub mod standard {
     use crate::sub_lib::wallet::Wallet;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use itertools::Itertools;
-    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
+    use masq_lib::constants::{
+        DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT, HTTP_PORT, MASQ_URL_PREFIX, TLS_PORT,
+    };
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
@@ -414,7 +416,12 @@ pub mod standard {
                                     if desired_chain == descriptor_competence{
                                         Ok(nd)
                                     } else{
-                                        Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' [{}] with descriptor belonging to '{}' [{}]",chain_name, label_from_blockchain(desired_chain),chain_name_from_blockchain(descriptor_competence),label_from_blockchain(descriptor_competence) )))
+                                        Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' [{}{}] with descriptor belonging to '{}' [{}{}]",
+                                                              chain_name,MASQ_URL_PREFIX,
+                                                              label_from_blockchain(desired_chain),
+                                                              chain_name_from_blockchain(descriptor_competence),
+                                                              MASQ_URL_PREFIX,
+                                                              label_from_blockchain(descriptor_competence))))
                                     }
                                 }
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
@@ -858,7 +865,7 @@ pub mod standard {
                 result,
                 ConfiguratorError::required(
                     "neighbors",
-                    "Mismatched chains. You are requiring access to 'eth-mainnet' [eth] with descriptor belonging to 'ropsten' [eth_t1]"
+                    "Mismatched chains. You are requiring access to 'eth-mainnet' [masq://eth] with descriptor belonging to 'ropsten' [masq://eth_t1]"
                 )
             )
         }
