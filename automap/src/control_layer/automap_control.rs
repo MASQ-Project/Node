@@ -164,13 +164,13 @@ impl AutomapControlReal {
         if let Some(change_handler) = housekeeping_tools.change_handler_opt.take() {
             debug!(self.logger, "Attempting to start housekeeping thread");
             match transactor.start_housekeeping_thread(change_handler, router_ip) {
-                Err(AutomapError::HousekeeperUnconfigured) => {
-                    debug!( // TODO Should this perhaps be an error! log instead?
+                Err(AutomapError::HousekeeperAlreadyRunning) => {
+                    debug!(
                         self.logger,
-                        "Housekeeping thread failed: change handler unconfigured"
+                        "Housekeeping thread cannot start: already running"
                     );
                     Self::put_change_handler_back(transactor, &mut housekeeping_tools);
-                    todo! ("Review consequences of not being able to start housekeeping thread") //Ok(())
+                    Ok(())
                 }
                 Err(e) => {
                     debug!(self.logger, "Housekeeping thread failed: {:?}", e);
@@ -302,7 +302,15 @@ impl AutomapControlReal {
                 Ok(tuple) => Ok(tuple),
                 Err(_) => {
                     self.maybe_start_housekeeper(transactor, router_ip)?;
-                    experiment(transactor, router_ip).map(|t| (router_ip, t))
+                    match experiment(transactor, router_ip).map(|t| (router_ip, t)) {
+                        Ok (pair) => Ok (pair),
+                        Err (e) => {
+                            let change_handler = transactor.stop_housekeeping_thread();
+                            let mut housekeeping_tools = self.housekeeping_tools.borrow_mut();
+                            let _ = housekeeping_tools.change_handler_opt.replace(change_handler);
+                            Err (e)
+                        }
+                    }
                 }
             })
     }
@@ -332,6 +340,7 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::ptr::addr_of;
 
     lazy_static! {
         static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -883,7 +892,7 @@ mod tests {
                 TransactorMock::new(AutomapProtocol::Pcp)
                     .find_routers_result(Ok(vec![*ROUTER_IP]))
                     .start_housekeeping_thread_result(Ok(unbounded().0))
-                    .get_public_ip_result(Err(AutomapError::ChangeHandlerAlreadyRunning))
+                    .get_public_ip_result(Err(AutomapError::HousekeeperAlreadyRunning))
                     .stop_housekeeping_thread_result(Box::new(|_| ())),
             ),
         );
@@ -895,7 +904,7 @@ mod tests {
 
         let result = subject.get_public_ip();
 
-        assert_eq!(result, Err(AutomapError::ChangeHandlerAlreadyRunning));
+        assert_eq!(result, Err(AutomapError::HousekeeperAlreadyRunning));
     }
 
     #[test]
@@ -1261,7 +1270,7 @@ mod tests {
     }
 
     #[test]
-    fn maybe_start_housekeeper_handles_uninitialized_change_handler() {
+    fn maybe_start_housekeeper_handles_housekeeper_already_running() {
         let mut subject = make_null_subject();
         let change_handler_log_arc = Arc::new(Mutex::new(vec![]));
         let chla_inner = change_handler_log_arc.clone();
@@ -1272,13 +1281,14 @@ mod tests {
             transactor_idx: 0,
         });
         let mut transactor = TransactorMock::new(AutomapProtocol::Igdp)
-            .start_housekeeping_thread_result(Err(AutomapError::HousekeeperUnconfigured))
+            .start_housekeeping_thread_result(Err(AutomapError::HousekeeperAlreadyRunning))
             .stop_housekeeping_thread_result(change_handler);
 
         let result = subject.maybe_start_housekeeper(&mut transactor, *ROUTER_IP);
 
         assert_eq!(result, Ok(()));
-        let expected_change = AutomapChange::Error(AutomapError::ChangeHandlerAlreadyRunning);
+        // Make sure the change handler that's back in housekeeping_tools is the one that writes to our log
+        let expected_change = AutomapChange::Error(AutomapError::NoLocalIpAddress);
         subject
             .housekeeping_tools
             .borrow_mut()
@@ -1350,6 +1360,60 @@ mod tests {
         assert_eq!(start_housekeeping_thread_params[0].1, *ROUTER_IP)
     }
 
+    #[test]
+    fn try_protocol_stops_housekeeping_threads_for_failed_experiments() {
+        let stop_housekeeping_thread_params_arc = Arc::new (Mutex::new (vec![]));
+        let mut transactor = TransactorMock::new(AutomapProtocol::Pmp)
+            .find_routers_result(Ok(vec![
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                IpAddr::from_str("2.3.4.5").unwrap(),
+                IpAddr::from_str("3.4.5.6").unwrap(),
+            ]))
+            .start_housekeeping_thread_result(Ok(unbounded().0))
+            .start_housekeeping_thread_result(Ok(unbounded().0))
+            .start_housekeeping_thread_result(Ok(unbounded().0))
+            .stop_housekeeping_thread_params (&stop_housekeeping_thread_params_arc)
+            .stop_housekeeping_thread_result(Box::new (|_| ()))
+            .stop_housekeeping_thread_result(Box::new (|_| ()));
+            // Any third attempt to stop housekeeping thread should fail the test
+        let experiment: TransactorExperiment<String> = Box::new (|_, router_ip| {
+            if router_ip == IpAddr::from_str ("3.4.5.6").unwrap() {
+                Ok("Success!".to_string())
+            }
+            else {
+                Err(AutomapError::NoLocalIpAddress)
+            }
+        });
+        let subject = AutomapControlReal::new(None, Box::new (|_| ()));
+
+        let result = subject.try_protocol (&mut transactor, &experiment);
+
+        assert_eq! (result, Ok((IpAddr::from_str ("3.4.5.6").unwrap(), "Success!".to_string())));
+        let stop_housekeeping_thread_params = stop_housekeeping_thread_params_arc.lock().unwrap();
+        assert_eq! (*stop_housekeeping_thread_params, vec![(), ()]); // two calls, not three
+    }
+
+    #[test]
+    fn try_protocol_preserves_change_handler_when_experiment_fails() {
+        // In real life these two would be the same, but that's hard to do and unnecessary in this test
+        let initial_change_handler = Box::new (|_| ());
+        let extracted_change_handler = Box::new (|_| ());
+        let expected_change_handler_identity = addr_of!(*extracted_change_handler);
+        let mut transactor = TransactorMock::new(AutomapProtocol::Pmp)
+            .find_routers_result(Ok(vec![IpAddr::from_str("1.2.3.4").unwrap()]))
+            .start_housekeeping_thread_result(Ok(unbounded().0))
+            .stop_housekeeping_thread_result(extracted_change_handler);
+        let experiment: TransactorExperiment<String> = Box::new (|_, _| Err(AutomapError::NoLocalIpAddress));
+        let subject = AutomapControlReal::new(None, initial_change_handler);
+
+        let result = subject.try_protocol (&mut transactor, &experiment);
+
+        assert_eq! (result, Err(AutomapError::NoLocalIpAddress));
+        let actual_change_handler = subject.housekeeping_tools.borrow_mut().change_handler_opt.take().unwrap();
+        let actual_change_handler_identity = addr_of!(*actual_change_handler);
+        assert_eq! (actual_change_handler_identity, expected_change_handler_identity);
+    }
+
     fn make_multirouter_specific_success_subject(
         protocol: AutomapProtocol,
         router_ips: Vec<IpAddr>,
@@ -1365,10 +1429,11 @@ mod tests {
         }
         let router_ip_count = router_ips.len();
         let mut transactor = TransactorMock::new(protocol)
-            .find_routers_result(Ok(router_ips))
-            .start_housekeeping_thread_result(Ok(unbounded().0));
+            .find_routers_result(Ok(router_ips));
         for _ in 0..router_ip_count {
             transactor = transactor
+                .start_housekeeping_thread_result(Ok(unbounded().0))
+                .stop_housekeeping_thread_result(Box::new (|_| ()))
                 .get_public_ip_result(Ok(*PUBLIC_IP))
                 .add_mapping_result(Ok(1000));
         }
@@ -1421,7 +1486,7 @@ mod tests {
         protocol: AutomapProtocol,
         get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
         add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        start_change_handler_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
+        start_housekeeping_thread_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
         housekeeper_commander: Sender<HousekeepingThreadCommand>,
     ) -> Box<dyn Transactor> {
         Box::new(
@@ -1431,8 +1496,9 @@ mod tests {
                 .get_public_ip_result(Ok(*PUBLIC_IP))
                 .add_mapping_params(add_mapping_params_arc)
                 .add_mapping_result(Ok(1000))
-                .start_housekeeping_thread_params(start_change_handler_params_arc)
-                .start_housekeeping_thread_result(Ok(housekeeper_commander)),
+                .start_housekeeping_thread_params(start_housekeeping_thread_params_arc)
+                .start_housekeeping_thread_result(Ok(housekeeper_commander))
+                .stop_housekeeping_thread_result(Box::new (|_| ())),
         )
     }
 
@@ -1448,7 +1514,7 @@ mod tests {
     }
 
     fn make_null_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(None, Box::new(|_x| {}));
+        let mut subject = AutomapControlReal::new(None, Box::new(|_x| ()));
         let adjustment = RefCell::new(
             subject
                 .transactors

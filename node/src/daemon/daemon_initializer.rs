@@ -119,27 +119,22 @@ impl DaemonInitializerReal {
             .expect_v("home directory")
             .to_str()
             .expect_v("path string");
-        eprintln!("dirs_home_dir = {:?}", dirs_home_dir);
         let dirs_data_dir_opt = params.dirs_wrapper.data_dir();
         let dirs_data_dir = dirs_data_dir_opt
             .as_ref()
             .expect("data directory")
             .to_str()
             .expect_v("path string");
-        eprintln!("dirs_data_dir = {:?}", dirs_data_dir);
         let real_home_dir = real_user
             .home_dir_opt
             .as_ref()
             .expect_v("home directory")
             .to_str()
             .expect_v("path string");
-        eprintln!("real_home_dir = {:?}", real_home_dir);
         let relative_data_dir = &dirs_data_dir[(dirs_home_dir.len() + 1)..];
-        eprintln!("relative_data_dir = {:?}", relative_data_dir);
         let real_data_dir = PathBuf::from_str(real_home_dir)
             .expect_v("path string")
             .join(relative_data_dir);
-        eprintln!("real_data_dir = {:?}", real_data_dir);
         params.logger_initializer_wrapper.init(
             real_data_dir.join("MASQ"),
             &real_user,

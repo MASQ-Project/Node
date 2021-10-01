@@ -185,7 +185,7 @@ fn generate_nonce() -> u16 {
 mod tests {
     use std::io::ErrorKind;
 
-    use masq_lib::utils::{find_free_port, localhost};
+    use masq_lib::utils::{localhost, find_free_port_0000};
 
     use crate::automap_core_functions::TestStatus;
     use crate::probe_researcher::mock_tools::{
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn deploy_background_listener_with_good_probe_works() {
-        let port = find_free_port();
+        let port = find_free_port_0000();
 
         let (handle, _) = deploy_background_listener(TestStatus::new(), port, 8875, 500);
 
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn deploy_background_listener_complains_about_probe_of_insufficient_length() {
-        let port = find_free_port();
+        let port = find_free_port_0000();
         let (handle, _) = deploy_background_listener(TestStatus::new(), port, 8875, 500);
         let send_probe_addr = SocketAddr::new(localhost(), port);
         let mut probe = Vec::from(u16_to_byte_array(8875));
@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn deploy_background_listener_complains_about_probe_of_excessive_length() {
-        let port = find_free_port();
+        let port = find_free_port_0000();
         let (handle, _) = deploy_background_listener(TestStatus::new(), port, 8875, 500);
         let send_probe_addr = SocketAddr::new(localhost(), port);
         let mut probe = Vec::from(u16_to_byte_array(8875));
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn deploy_background_listener_without_getting_probe_propagates_that_fact_correctly_after_connection_interrupted(
     ) {
-        let port = find_free_port();
+        let port = find_free_port_0000();
         let (handle, _) = deploy_background_listener(TestStatus::new(), port, 8875, 500);
         let send_probe_addr = SocketAddr::new(localhost(), port);
 
@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn deploy_background_listener_without_getting_probe_terminates_alone_after_connection_lasts_too_long(
     ) {
-        let port = find_free_port();
+        let port = find_free_port_0000();
         let (handle, _) = deploy_background_listener(TestStatus::new(), port, 8875, 200);
         let send_probe_addr = SocketAddr::new(localhost(), port);
         test_stream_acceptor_and_probe(&[], 500, send_probe_addr);
@@ -285,7 +285,9 @@ mod tests {
     #[test]
     fn deploy_background_listener_ends_its_job_after_waiting_period_for_any_connection_but_none_was_sensed(
     ) {
-        let (handle, status) = deploy_background_listener(TestStatus::new(), 7004, 1234, 10);
+        let port = find_free_port_0000();
+
+        let (handle, status) = deploy_background_listener(TestStatus::new(), port, 1234, 10);
 
         assert_eq!(status.step_success, true);
         let result = handle.join();

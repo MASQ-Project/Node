@@ -86,9 +86,17 @@ fn next_port(port: u16) -> u16 {
 }
 
 pub fn find_free_port() -> u16 {
+    find_free_port_for_ip_addr(localhost())
+}
+
+pub fn find_free_port_0000() -> u16 {
+    find_free_port_for_ip_addr(IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0)))
+}
+
+fn find_free_port_for_ip_addr(ip_addr: IpAddr) -> u16 {
     let mut candidate = FIND_FREE_PORT_NEXT.lock().unwrap();
     loop {
-        match TcpListener::bind(SocketAddr::new(localhost(), *candidate)) {
+        match TcpListener::bind(SocketAddr::new(ip_addr, *candidate)) {
             Err(ref e) if e.kind() == ErrorKind::AddrInUse => *candidate = next_port(*candidate),
             Err(e) => panic!("Couldn't find free port: {:?}", e),
             Ok(_listener) => {

@@ -519,15 +519,6 @@ pub mod standard {
         computed_mapping_protocol_opt
     }
 
-    fn compute_public_ip_opt(
-        multi_config: &MultiConfig,
-    ) -> Option<IpAddr> {
-        if value_m!(multi_config, "neighborhood-mode", String) == Some("zero-hop".to_string()) {
-            return None;
-        }
-        value_m!(multi_config, "ip", IpAddr)
-    }
-
     fn make_neighborhood_mode(
         multi_config: &MultiConfig,
         neighbor_configs: Vec<NodeDescriptor>,

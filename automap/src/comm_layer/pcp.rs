@@ -198,7 +198,7 @@ impl Transactor for PcpTransactor {
             "Starting housekeeping thread for router at {}", router_ip
         );
         if let Some(_change_handler_stopper) = &self.housekeeper_commander_opt {
-            return Err(AutomapError::ChangeHandlerAlreadyRunning);
+            return Err(AutomapError::HousekeeperAlreadyRunning);
         }
         let ip_addr = IpAddr::V4(Ipv4Addr::new(224, 0, 0, 1));
         let socket_addr = SocketAddr::new(ip_addr, self.listen_port);
@@ -1532,7 +1532,7 @@ mod tests {
 
         assert_eq!(
             result.err().unwrap(),
-            AutomapError::ChangeHandlerAlreadyRunning
+            AutomapError::HousekeeperAlreadyRunning
         )
     }
 
@@ -1575,10 +1575,10 @@ mod tests {
 
         let change_handler = subject.stop_housekeeping_thread();
 
-        change_handler(AutomapChange::Error(AutomapError::HousekeeperUnconfigured));
+        change_handler(AutomapChange::Error(AutomapError::NoLocalIpAddress));
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing("WARN: PcpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
-        tlh.exists_log_containing("ERROR: PcpTransactor: Change handler recovery failed: discarded Error(HousekeeperUnconfigured)");
+        tlh.exists_log_containing("ERROR: PcpTransactor: Change handler recovery failed: discarded Error(NoLocalIpAddress)");
     }
 
     #[test]

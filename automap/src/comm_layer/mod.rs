@@ -55,8 +55,7 @@ pub enum AutomapError {
     DeleteMappingError(String),
     TransactionFailure(String),
     AllProtocolsFailed(Vec<(AutomapProtocol, AutomapError)>),
-    ChangeHandlerAlreadyRunning,
-    HousekeeperUnconfigured,
+    HousekeeperAlreadyRunning,
 }
 
 impl AutomapError {
@@ -84,10 +83,7 @@ impl AutomapError {
             AutomapError::DeleteMappingError(_) => AutomapErrorCause::ProtocolFailed,
             AutomapError::TransactionFailure(_) => AutomapErrorCause::ProtocolFailed,
             AutomapError::AllProtocolsFailed(_) => AutomapErrorCause::NetworkConfiguration,
-            AutomapError::ChangeHandlerAlreadyRunning => {
-                AutomapErrorCause::Unknown("Sequencing error".to_string())
-            }
-            AutomapError::HousekeeperUnconfigured => {
+            AutomapError::HousekeeperAlreadyRunning => {
                 AutomapErrorCause::Unknown("Sequencing error".to_string())
             }
         }
@@ -275,11 +271,7 @@ mod tests {
                 AutomapErrorCause::NetworkConfiguration,
             ),
             (
-                AutomapError::ChangeHandlerAlreadyRunning,
-                AutomapErrorCause::Unknown("Sequencing error".to_string()),
-            ),
-            (
-                AutomapError::HousekeeperUnconfigured,
+                AutomapError::HousekeeperAlreadyRunning,
                 AutomapErrorCause::Unknown("Sequencing error".to_string()),
             ),
         ];

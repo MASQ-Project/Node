@@ -112,7 +112,6 @@ struct IgdpTransactorInner {
     housekeeping_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     public_ip_opt: Option<Ipv4Addr>,
     mapping_adder: Box<dyn MappingAdder>,
-    // mapping_config_opt: RefCell<Option<MappingConfig>>,
     logger: Logger,
 }
 
@@ -262,7 +261,7 @@ impl Transactor for IgdpTransactor {
                     inner.logger,
                     "Change handler for router at {} is already running", router_ip
                 );
-                return Err(AutomapError::ChangeHandlerAlreadyRunning);
+                return Err(AutomapError::HousekeeperAlreadyRunning);
             }
             inner.housekeeping_commander_opt = Some(tx.clone());
             debug!(
@@ -279,7 +278,7 @@ impl Transactor for IgdpTransactor {
             "end of start_housekeeping_thread:\nhousekeeping_commander_opt populated: {}",
             self.inner_arc
                 .lock()
-                .unwrap()
+                .expect("Housekeeping commander mutex is poisoned")
                 .housekeeping_commander_opt
                 .is_some()
         );
@@ -428,9 +427,7 @@ impl IgdpTransactor {
         last_remapped: &mut Instant,
         mapping_config_opt: &Option<MappingConfig>,
     ) -> bool {
-        eprintln!("thread_guts_iteration waiting for inner_arc");
         let mut inner = inner_arc.lock().expect("IgdpTransactor died");
-        eprintln!("thread_guts_iteration locked inner_arc");
         debug!(
             inner.logger,
             "Polling router to see if public IP has changed"
@@ -462,7 +459,16 @@ impl IgdpTransactor {
                 "No public IP change detected; still {}", old_public_ip
             );
         };
+        Self::remap_if_necessary(change_handler, &*inner, last_remapped, mapping_config_opt);
+        true
+    }
 
+    fn remap_if_necessary (
+        change_handler: &ChangeHandler,
+        inner: &IgdpTransactorInner,
+        last_remapped: &mut Instant,
+        mapping_config_opt: &Option<MappingConfig>,
+    ) {
         if let Some(mapping_config) = mapping_config_opt {
             let since_last_remapped = last_remapped.elapsed();
             if since_last_remapped.gt(&mapping_config.remap_interval) {
@@ -475,12 +481,11 @@ impl IgdpTransactor {
                 ) {
                     error!(inner.logger, "Remapping failure: {:?}", e);
                     change_handler(AutomapChange::Error(e));
-                    return true;
+                    return;
                 }
                 *last_remapped = Instant::now();
             }
         }
-        true
     }
 
     fn null_change_handler(change: AutomapChange) {
@@ -502,7 +507,7 @@ impl IgdpTransactor {
                 (_, Err(e)) => {
                     error!(
                         inner.logger,
-                        "Change handler could not get public IP from router: {:?}", e
+                        "Housekeeper could not get public IP from router: {:?}", e
                     );
                     change_handler(AutomapChange::Error(AutomapError::GetPublicIpError(
                         format!("{:?}", e),
@@ -512,7 +517,7 @@ impl IgdpTransactor {
                 (None, Ok(current)) => {
                     warning!(
                         inner.logger,
-                        "Change handler was started before retrieving public IP"
+                        "Housekeeper was started before retrieving public IP"
                     );
                     (Ipv4Addr::new(0, 0, 0, 0), current)
                 }
@@ -1175,7 +1180,7 @@ mod tests {
 
         assert_eq!(
             result.err().unwrap(),
-            AutomapError::ChangeHandlerAlreadyRunning
+            AutomapError::HousekeeperAlreadyRunning
         );
         TestLogHandler::new().exists_log_containing(
             "INFO: IgdpTransactor: Change handler for router at 192.168.0.254 is already running",
@@ -1301,10 +1306,10 @@ mod tests {
 
         let change_handler = subject.stop_housekeeping_thread();
 
-        change_handler(AutomapChange::Error(AutomapError::HousekeeperUnconfigured));
+        change_handler(AutomapChange::Error(AutomapError::NoLocalIpAddress));
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing("WARN: IgdpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
-        tlh.exists_log_containing("ERROR: IgdpTransactor: Change handler recovery failed: discarded Error(HousekeeperUnconfigured)");
+        tlh.exists_log_containing("ERROR: IgdpTransactor: Change handler recovery failed: discarded Error(NoLocalIpAddress)");
     }
 
     #[test]
@@ -1472,7 +1477,7 @@ mod tests {
             vec![AutomapChange::NewIp(IpAddr::V4(new_public_ip))]
         );
         TestLogHandler::new().exists_log_containing(
-            "WARN: test: Change handler was started before retrieving public IP",
+            "WARN: test: Housekeeper was started before retrieving public IP",
         );
     }
 
@@ -1576,9 +1581,14 @@ mod tests {
             ))]
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: test: Change handler could not get public IP from router: {}",
+            "ERROR: test: Housekeeper could not get public IP from router: {}",
             err_msg
         ));
+    }
+
+    #[test]
+    fn remap_if_necessary_does_not_remap_if_router_insists_on_permanent_mappings() {
+        todo! ("Complete me");
     }
 
     #[test]
