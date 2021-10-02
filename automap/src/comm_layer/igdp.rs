@@ -470,20 +470,22 @@ impl IgdpTransactor {
         mapping_config_opt: &Option<MappingConfig>,
     ) {
         if let Some(mapping_config) = mapping_config_opt {
-            let since_last_remapped = last_remapped.elapsed();
-            if since_last_remapped.gt(&mapping_config.remap_interval) {
-                if let Err(e) = Self::remap_port(
-                    inner.mapping_adder.as_ref(),
-                    inner.gateway_opt.as_ref().expect_v("gateway_opt").as_ref(),
-                    mapping_config.hole_port,
-                    mapping_config.remap_interval,
-                    &inner.logger,
-                ) {
-                    error!(inner.logger, "Remapping failure: {:?}", e);
-                    change_handler(AutomapChange::Error(e));
-                    return;
+            if mapping_config.next_lifetime.as_secs() > 0 {
+                let since_last_remapped = last_remapped.elapsed();
+                if since_last_remapped.gt(&mapping_config.remap_interval) {
+                    if let Err(e) = Self::remap_port(
+                        inner.mapping_adder.as_ref(),
+                        inner.gateway_opt.as_ref().expect_v("gateway_opt").as_ref(),
+                        mapping_config.hole_port,
+                        mapping_config.remap_interval,
+                        &inner.logger,
+                    ) {
+                        error!(inner.logger, "Remapping failure: {:?}", e);
+                        change_handler(AutomapChange::Error(e));
+                        return;
+                    }
+                    *last_remapped = Instant::now();
                 }
-                *last_remapped = Instant::now();
             }
         }
     }
@@ -1588,7 +1590,28 @@ mod tests {
 
     #[test]
     fn remap_if_necessary_does_not_remap_if_router_insists_on_permanent_mappings() {
-        todo! ("Complete me");
+        let change_handler: ChangeHandler = Box::new (|_| ());
+        let inner = IgdpTransactorInner {
+            gateway_opt: None,
+            housekeeping_commander_opt: None,
+            public_ip_opt: None,
+            mapping_adder: Box::new(MappingAdderMock::new()),
+            logger: Logger::new ("test"),
+        };
+        let mapping_config = MappingConfig {
+            hole_port: 1234,
+            next_lifetime: Duration::from_secs(0), // permanent mapping
+            remap_interval: Duration::from_secs(10),
+        };
+
+        IgdpTransactor::remap_if_necessary (
+            &change_handler,
+            &inner,
+            &mut Instant::now().sub (Duration::from_secs(300)),
+            &Some(mapping_config),
+        );
+
+        // No exception; test passes
     }
 
     #[test]
