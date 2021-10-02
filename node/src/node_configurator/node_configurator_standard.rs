@@ -497,14 +497,23 @@ pub mod standard {
                 None
             }
         };
+        let mapping_protocol_specified = multi_config.occurrences_of("mapping-protocol") > 0;
+        eprintln!("************** specified {:?}", mapping_protocol_specified);
+        eprintln!("**************{:?}", value_m!(multi_config, "mapping-protocol", AutomapProtocol));
         let computed_mapping_protocol_opt = match (
             value_m!(multi_config, "mapping-protocol", AutomapProtocol),
             persistent_mapping_protocol_opt,
+            mapping_protocol_specified
         ) {
-            (None, Some(persisted_mapping_protocol)) => Some(persisted_mapping_protocol),
-            (cmd_line_mapping_protocol_opt, _) => cmd_line_mapping_protocol_opt,
+            (None, Some(persisted_mapping_protocol),false) => Some(persisted_mapping_protocol),
+            (None,_,true) => None,
+            (cmd_line_mapping_protocol_opt, _,_) => cmd_line_mapping_protocol_opt,
         };
+        eprintln!(">>> computed_mapping_protocol_opt: {:?}",computed_mapping_protocol_opt);
         if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
+            if computed_mapping_protocol_opt.is_none(){
+                debug!(logger,"Blanking mapping protocol out of the database")
+            }
             match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
                 Ok(_) => (),
                 Err(e) => {
@@ -1124,6 +1133,28 @@ pub mod standard {
             assert_eq!(
                 *set_mapping_protocol_params,
                 vec![Some(AutomapProtocol::Igdp)]
+            );
+        }
+
+        #[test]
+        fn compute_mapping_protocol_blanks_database_if_command_line_with_missing_value() {
+            let multi_config =
+                make_simplified_multi_config(["MASQNode", "--mapping-protocol"]);
+            let logger = Logger::new("test");
+            let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
+            let mut persistent_config = make_default_persistent_configuration()
+                .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)))
+                .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+                .set_mapping_protocol_result(Ok(()));
+
+            let result =
+                compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+
+            assert_eq!(result, None);
+            let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
+            assert_eq!(
+                *set_mapping_protocol_params,
+                vec![None]
             );
         }
 
