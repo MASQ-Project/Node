@@ -357,10 +357,7 @@ pub mod standard {
                 },
             }
         };
-        match make_neighborhood_mode(
-            multi_config,
-            neighbor_configs,
-        ) {
+        match make_neighborhood_mode(multi_config, neighbor_configs) {
             Ok(mode) => Ok(NeighborhoodConfig { mode }),
             Err(e) => Err(e),
         }
@@ -499,20 +496,26 @@ pub mod standard {
         };
         let mapping_protocol_specified = multi_config.occurrences_of("mapping-protocol") > 0;
         eprintln!("************** specified {:?}", mapping_protocol_specified);
-        eprintln!("**************{:?}", value_m!(multi_config, "mapping-protocol", AutomapProtocol));
+        eprintln!(
+            "**************{:?}",
+            value_m!(multi_config, "mapping-protocol", AutomapProtocol)
+        );
         let computed_mapping_protocol_opt = match (
             value_m!(multi_config, "mapping-protocol", AutomapProtocol),
             persistent_mapping_protocol_opt,
-            mapping_protocol_specified
+            mapping_protocol_specified,
         ) {
-            (None, Some(persisted_mapping_protocol),false) => Some(persisted_mapping_protocol),
-            (None,_,true) => None,
-            (cmd_line_mapping_protocol_opt, _,_) => cmd_line_mapping_protocol_opt,
+            (None, Some(persisted_mapping_protocol), false) => Some(persisted_mapping_protocol),
+            (None, _, true) => None,
+            (cmd_line_mapping_protocol_opt, _, _) => cmd_line_mapping_protocol_opt,
         };
-        eprintln!(">>> computed_mapping_protocol_opt: {:?}",computed_mapping_protocol_opt);
+        eprintln!(
+            ">>> computed_mapping_protocol_opt: {:?}",
+            computed_mapping_protocol_opt
+        );
         if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
-            if computed_mapping_protocol_opt.is_none(){
-                debug!(logger,"Blanking mapping protocol out of the database")
+            if computed_mapping_protocol_opt.is_none() {
+                debug!(logger, "Blanking mapping protocol out of the database")
             }
             match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
                 Ok(_) => (),
@@ -578,9 +581,7 @@ pub mod standard {
                 "--neighborhood-mode {} has not been properly provided for in the code",
                 s
             ),
-            None => {
-                neighborhood_mode_standard(multi_config, neighbor_configs)
-            }
+            None => neighborhood_mode_standard(multi_config, neighbor_configs),
         }
     }
 
@@ -596,15 +597,13 @@ pub mod standard {
         ))
     }
 
-    pub fn get_public_ip(
-        multi_config: &MultiConfig,
-    ) -> Result<IpAddr, ConfiguratorError> {
-        match value_m! (multi_config, "ip", String) {
+    pub fn get_public_ip(multi_config: &MultiConfig) -> Result<IpAddr, ConfiguratorError> {
+        match value_m!(multi_config, "ip", String) {
             Some(ip_str) => match IpAddr::from_str(&ip_str) {
                 Ok(ip_addr) => Ok(ip_addr),
-                Err(_) => todo! ("Drive in a better error message"), //Err(ConfiguratorError::required("ip", &format! ("blockety blip: '{}'", ip_str),
+                Err(_) => todo!("Drive in a better error message"), //Err(ConfiguratorError::required("ip", &format! ("blockety blip: '{}'", ip_str),
             },
-            None => Ok (IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) // sentinel: means "Try Automap"
+            None => Ok(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))), // sentinel: means "Try Automap"
         }
     }
 
@@ -1138,8 +1137,7 @@ pub mod standard {
 
         #[test]
         fn compute_mapping_protocol_blanks_database_if_command_line_with_missing_value() {
-            let multi_config =
-                make_simplified_multi_config(["MASQNode", "--mapping-protocol"]);
+            let multi_config = make_simplified_multi_config(["MASQNode", "--mapping-protocol"]);
             let logger = Logger::new("test");
             let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
             let mut persistent_config = make_default_persistent_configuration()
@@ -1152,10 +1150,7 @@ pub mod standard {
 
             assert_eq!(result, None);
             let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
-            assert_eq!(
-                *set_mapping_protocol_params,
-                vec![None]
-            );
+            assert_eq!(*set_mapping_protocol_params, vec![None]);
         }
 
         #[test]
@@ -1208,27 +1203,6 @@ pub mod standard {
             TestLogHandler::new().exists_log_containing(
                 "WARN: BAD_MP_WRITE: Could not save mapping protocol to database: NotPresent",
             );
-        }
-
-        #[test]
-        fn compute_public_ip_opt_returns_none_if_neighborhood_mode_is_zero_hop() {
-            let multi_config = make_new_test_multi_config(
-                &app_node(),
-                vec![Box::new(CommandLineVcl::new(
-                    ArgsBuilder::new()
-                        .param("--ip", "1.2.3.4")
-                        .param("--neighborhood-mode", "zero-hop")
-                        .into(),
-                ))],
-            )
-            .unwrap();
-            let mut config = BootstrapperConfig::default();
-            config.mapping_protocol_opt = None;
-
-            let result = compute_public_ip_opt(&multi_config);
-
-            assert_eq!(result, None);
-            assert_eq!(config.mapping_protocol_opt, None);
         }
     }
 }
@@ -1284,8 +1258,8 @@ mod tests {
     use std::fs::File;
     use std::io::Cursor;
     use std::io::Write;
-    use std::net::{IpAddr, Ipv4Addr};
     use std::net::SocketAddr;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -1368,8 +1342,10 @@ mod tests {
         );
 
         let node_addr = match result {
-            Ok(NeighborhoodConfig {mode: NeighborhoodMode::Standard(node_addr, _, _)}) => node_addr,
-            x => panic! ("Wasn't expecting {:?}", x),
+            Ok(NeighborhoodConfig {
+                mode: NeighborhoodMode::Standard(node_addr, _, _),
+            }) => node_addr,
+            x => panic!("Wasn't expecting {:?}", x),
         };
         assert_eq!(node_addr.ip_addr(), IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
     }
@@ -1606,7 +1582,7 @@ mod tests {
 
         let result = standard::get_public_ip(&multi_config);
 
-        assert_eq!(result, Ok(IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0))));
+        assert_eq!(result, Ok(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))));
     }
 
     #[test]
@@ -1615,8 +1591,7 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&app_node(), vec![vcl]).unwrap();
 
-        let result =
-            standard::get_public_ip(&multi_config);
+        let result = standard::get_public_ip(&multi_config);
 
         assert_eq!(result, Ok(IpAddr::from_str("4.3.2.1").unwrap()));
     }

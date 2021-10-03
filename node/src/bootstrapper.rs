@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL};
-use crate::actor_system_factory::{ActorSystemFactory, ActorFactoryReal};
 use crate::actor_system_factory::ActorSystemFactoryReal;
+use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactory};
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -46,7 +46,7 @@ use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::{SocketAddr};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -403,10 +403,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         &mut self,
         multi_config: &MultiConfig,
     ) -> Result<(), ConfiguratorError> {
-        self.config = NodeConfiguratorStandardPrivileged::new().configure(
-            multi_config,
-            None,
-        )?;
+        self.config = NodeConfiguratorStandardPrivileged::new().configure(multi_config, None)?;
         self.logger_initializer.init(
             self.config.data_directory.clone(),
             &self.config.real_user,
@@ -438,10 +435,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
         let unprivileged_config = NodeConfiguratorStandardUnprivileged::new(&self.config)
-            .configure(
-                multi_config,
-                Some(streams),
-            )?;
+            .configure(multi_config, Some(streams))?;
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
         let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(

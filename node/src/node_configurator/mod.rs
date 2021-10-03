@@ -257,10 +257,9 @@ pub fn data_directory_from_context(
                 .to_string();
             let right_local_data_dir =
                 wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
-            let result = PathBuf::from(right_local_data_dir)
+            PathBuf::from(right_local_data_dir)
                 .join("MASQ")
-                .join(chain_name);
-            result
+                .join(chain_name)
         }
     }
 }

@@ -90,7 +90,7 @@ pub fn find_free_port() -> u16 {
 }
 
 pub fn find_free_port_0000() -> u16 {
-    find_free_port_for_ip_addr(IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0)))
+    find_free_port_for_ip_addr(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))
 }
 
 fn find_free_port_for_ip_addr(ip_addr: IpAddr) -> u16 {

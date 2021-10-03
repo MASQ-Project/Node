@@ -15,9 +15,9 @@ use crate::server_initializer::{
 use masq_lib::command::StdStreams;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectValue;
-use std::cell::RefCell;
 #[cfg(test)]
 use std::any::Any;
+use std::cell::RefCell;
 
 pub type RunModeResult = Result<(), ConfiguratorError>;
 
@@ -103,10 +103,7 @@ impl DaemonInitializerFactory for DaemonInitializerFactoryReal {
         let configurator = Self::expect(self.configurator.take());
         let multi_config =
             NodeConfiguratorInitializationReal::make_multi_config_daemon_specific(args)?;
-        let initialization_config = configurator.configure(
-            &multi_config,
-            Some(streams),
-        )?;
+        let initialization_config = configurator.configure(&multi_config, Some(streams))?;
         let initializer_clustered_params = Self::expect(self.inner.take());
         let daemon_initializer = Box::new(DaemonInitializerReal::new(
             initialization_config,
@@ -211,12 +208,7 @@ mod tests {
         ]);
         let mut stream_holder = FakeStreamHolder::default();
 
-        let result = subject
-            .make(
-                &args,
-                &mut stream_holder.streams(),
-            )
-            .unwrap();
+        let result = subject.make(&args, &mut stream_holder.streams()).unwrap();
 
         let factory_product = result
             .as_any()
@@ -258,10 +250,7 @@ mod tests {
         let args = &array_of_borrows_to_vec(&["program", "--wooooooo", "--fooooooo"]);
         let mut stream_holder = FakeStreamHolder::default();
 
-        let result = subject.make(
-            &args,
-            &mut stream_holder.streams(),
-        );
+        let result = subject.make(&args, &mut stream_holder.streams());
 
         let mut config_error = result.err().unwrap();
         let actual_error = config_error.param_errors.remove(0);
@@ -292,10 +281,7 @@ mod tests {
         let args = &array_of_borrows_to_vec(&["program", "--initialization"]);
         let mut stream_holder = FakeStreamHolder::default();
 
-        let result = subject.make(
-            &args,
-            &mut stream_holder.streams(),
-        );
+        let result = subject.make(&args, &mut stream_holder.streams());
 
         let mut config_error = result.err().unwrap();
         let actual_error = config_error.param_errors.remove(0);

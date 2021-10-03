@@ -185,7 +185,7 @@ fn generate_nonce() -> u16 {
 mod tests {
     use std::io::ErrorKind;
 
-    use masq_lib::utils::{localhost, find_free_port_0000};
+    use masq_lib::utils::{find_free_port_0000, localhost};
 
     use crate::automap_core_functions::TestStatus;
     use crate::probe_researcher::mock_tools::{

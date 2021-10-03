@@ -463,7 +463,7 @@ impl IgdpTransactor {
         true
     }
 
-    fn remap_if_necessary (
+    fn remap_if_necessary(
         change_handler: &ChangeHandler,
         inner: &IgdpTransactorInner,
         last_remapped: &mut Instant,
@@ -1590,13 +1590,13 @@ mod tests {
 
     #[test]
     fn remap_if_necessary_does_not_remap_if_router_insists_on_permanent_mappings() {
-        let change_handler: ChangeHandler = Box::new (|_| ());
+        let change_handler: ChangeHandler = Box::new(|_| ());
         let inner = IgdpTransactorInner {
             gateway_opt: None,
             housekeeping_commander_opt: None,
             public_ip_opt: None,
             mapping_adder: Box::new(MappingAdderMock::new()),
-            logger: Logger::new ("test"),
+            logger: Logger::new("test"),
         };
         let mapping_config = MappingConfig {
             hole_port: 1234,
@@ -1604,10 +1604,10 @@ mod tests {
             remap_interval: Duration::from_secs(10),
         };
 
-        IgdpTransactor::remap_if_necessary (
+        IgdpTransactor::remap_if_necessary(
             &change_handler,
             &inner,
-            &mut Instant::now().sub (Duration::from_secs(300)),
+            &mut Instant::now().sub(Duration::from_secs(300)),
             &Some(mapping_config),
         );
 

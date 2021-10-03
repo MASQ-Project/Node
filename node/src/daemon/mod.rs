@@ -176,10 +176,10 @@ impl Daemon {
         } else {
             let incoming_setup = payload.values;
             let existing_setup = self.params.clone();
-            match self.setup_reporter.get_modified_setup(
-                existing_setup,
-                incoming_setup,
-            ) {
+            match self
+                .setup_reporter
+                .get_modified_setup(existing_setup, incoming_setup)
+            {
                 Ok(setup) => self.change_setup_and_notify(
                     setup,
                     ConfiguratorError::new(vec![]),

@@ -17,8 +17,8 @@ use crate::node_configurator::node_configurator_standard::standard::{
 use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
-use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::NeighborhoodMode as NeighborhoodModeEnum;
+use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
 use clap::value_t;
@@ -34,11 +34,11 @@ use masq_lib::multi_config::{
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
 use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::net::{IpAddr, Ipv4Addr};
 
-const CONSOLE_DIAGNOSTICS: bool = false;
+const CONSOLE_DIAGNOSTICS: bool = true;
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
@@ -118,7 +118,10 @@ impl SetupReporter for SetupReporterReal {
                 &chain_name,
             ),
         };
-        let list_of_blanked_parameters = blanked_out_former_values.keys().map(|item|item.to_owned()).collect_vec();
+        let list_of_blanked_parameters = blanked_out_former_values
+            .keys()
+            .map(|item| item.to_owned())
+            .collect_vec();
         let (configured_setup, error_opt) = self.calculate_configured_setup(
             &all_but_configured,
             list_of_blanked_parameters,
@@ -278,7 +281,7 @@ impl SetupReporterReal {
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
-        let command_line = Self::make_command_line(combined_setup,blanked_out_parameters);
+        let command_line = Self::make_command_line(combined_setup, blanked_out_parameters);
         let multi_config = match Self::make_multi_config(
             self.dirs_wrapper.as_ref(),
             Some(command_line),
@@ -353,7 +356,7 @@ impl SetupReporterReal {
         }
     }
 
-    fn make_command_line(setup: &SetupCluster, blanked_out_params:Vec<String>) -> Vec<String> {
+    fn make_command_line(setup: &SetupCluster, blanked_out_params: Vec<String>) -> Vec<String> {
         let accepted_statuses = vec![Set, Configured];
         let mut command_line = setup
             .iter()
@@ -361,7 +364,9 @@ impl SetupReporterReal {
             .flat_map(|(_, v)| vec![format!("--{}", v.name), v.value.clone()])
             .collect::<Vec<String>>();
         command_line.insert(0, "program_name".to_string());
-        blanked_out_params.iter().for_each(|blanked_param|command_line.push(format!("--{}", blanked_param)));
+        blanked_out_params
+            .iter()
+            .for_each(|blanked_param| command_line.push(format!("--{}", blanked_param)));
         command_line
     }
 
@@ -739,10 +744,15 @@ impl ValueRetriever for Ip {
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let neighborhood_mode = &bootstrapper_config.neighborhood_config.mode;
         match neighborhood_mode {
-            NeighborhoodModeEnum::Standard(node_addr, _, _) if node_addr.ip_addr() == IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0)) =>
-                Some(("".to_string(), UiSetupResponseValueStatus::Blank)),
-            NeighborhoodModeEnum::Standard(node_addr, _, _) =>
-                Some((node_addr.ip_addr().to_string(), UiSetupResponseValueStatus::Set)),
+            NeighborhoodModeEnum::Standard(node_addr, _, _)
+                if node_addr.ip_addr() == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) =>
+            {
+                Some(("".to_string(), UiSetupResponseValueStatus::Blank))
+            }
+            NeighborhoodModeEnum::Standard(node_addr, _, _) => Some((
+                node_addr.ip_addr().to_string(),
+                UiSetupResponseValueStatus::Set,
+            )),
             _ => Some(("".to_string(), UiSetupResponseValueStatus::Blank)),
         }
     }
@@ -784,20 +794,26 @@ impl ValueRetriever for MappingProtocol {
         persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        let persistent_mapping_protocol_opt = match persistent_config_opt{
+        let persistent_mapping_protocol_opt = match persistent_config_opt {
             Some(pc) => match pc.mapping_protocol() {
                 Ok(protocol_opt) => protocol_opt,
-                Err(_) => None
-            }
-            None => None
+                Err(_) => None,
+            },
+            None => None,
         };
         let from_bootstrapper_opt = bootstrapper_config.mapping_protocol_opt;
-        match (persistent_mapping_protocol_opt,from_bootstrapper_opt){
-            (Some(persistent),None) => Some((persistent.to_string().to_lowercase(),Configured)),
-            (None,Some(from_bootstrapper)) => Some((from_bootstrapper.to_string().to_lowercase(),Set)),
-            (Some(persistent),Some(from_bootstrapper)) if persistent != from_bootstrapper => Some((from_bootstrapper.to_string().to_lowercase(),Set)),
-            (Some(persistent),Some(_)) => Some((persistent.to_string().to_lowercase(),Configured)),
-            _ => None
+        match (persistent_mapping_protocol_opt, from_bootstrapper_opt) {
+            (Some(persistent), None) => Some((persistent.to_string().to_lowercase(), Configured)),
+            (None, Some(from_bootstrapper)) => {
+                Some((from_bootstrapper.to_string().to_lowercase(), Configured))
+            }
+            (Some(persistent), Some(from_bootstrapper)) if persistent != from_bootstrapper => {
+                Some((from_bootstrapper.to_string().to_lowercase(), Configured))
+            }
+            (Some(persistent), Some(_)) => {
+                Some((persistent.to_string().to_lowercase(), Configured))
+            }
+            _ => None,
         }
     }
 }
@@ -948,7 +964,10 @@ mod tests {
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+    };
+    use masq_lib::utils::AutomapProtocol;
     use std::cell::RefCell;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
@@ -957,7 +976,6 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use masq_lib::utils::AutomapProtocol;
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -1087,10 +1105,7 @@ mod tests {
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
-            .get_modified_setup(
-                HashMap::new(),
-                incoming_setup,
-            )
+            .get_modified_setup(HashMap::new(), incoming_setup)
             .unwrap();
 
         let (dns_servers_str, dns_servers_status) =
@@ -1172,12 +1187,7 @@ mod tests {
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
 
-        let result = subject
-            .get_modified_setup(
-                existing_setup,
-                vec![],
-            )
-            .unwrap();
+        let result = subject.get_modified_setup(existing_setup, vec![]).unwrap();
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Set),
@@ -1240,10 +1250,7 @@ mod tests {
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
-            .get_modified_setup(
-                HashMap::new(),
-                incoming_setup,
-            )
+            .get_modified_setup(HashMap::new(), incoming_setup)
             .unwrap();
 
         let expected_result = vec![
@@ -1307,12 +1314,7 @@ mod tests {
         let params = vec![];
         let subject = SetupReporterReal::new(dirs_wrapper);
 
-        let result = subject
-            .get_modified_setup(
-                HashMap::new(),
-                params,
-            )
-            .unwrap();
+        let result = subject.get_modified_setup(HashMap::new(), params).unwrap();
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Configured),
@@ -1413,20 +1415,10 @@ mod tests {
                 .data_dir_result(Some(data_root.clone())),
         );
         let params = vec![UiSetupRequestValue::new("chain", DEFAULT_CHAIN_NAME)];
-        let existing_setup = subject
-            .get_modified_setup(
-                HashMap::new(),
-                params,
-            )
-            .unwrap();
+        let existing_setup = subject.get_modified_setup(HashMap::new(), params).unwrap();
         let params = vec![UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME)];
 
-        let result = subject
-            .get_modified_setup(
-                existing_setup,
-                params,
-            )
-            .unwrap();
+        let result = subject.get_modified_setup(existing_setup, params).unwrap();
 
         let expected_result = vec![
             (
@@ -1567,12 +1559,7 @@ mod tests {
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
 
-        let result = subject
-            .get_modified_setup(
-                existing_setup,
-                params,
-            )
-            .unwrap();
+        let result = subject.get_modified_setup(existing_setup, params).unwrap();
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Configured),
@@ -1651,10 +1638,7 @@ mod tests {
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
-            .get_modified_setup(
-                existing_setup,
-                incoming_setup,
-            )
+            .get_modified_setup(existing_setup, incoming_setup)
             .unwrap();
 
         let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
@@ -1714,10 +1698,7 @@ mod tests {
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
-            .get_modified_setup(
-                existing_setup,
-                incoming_setup,
-            )
+            .get_modified_setup(existing_setup, incoming_setup)
             .err()
             .unwrap()
             .0;
@@ -1944,12 +1925,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(
-                &setup,
-                vec![],
-                &data_directory,
-                "irrelevant",
-            )
+            .calculate_configured_setup(&setup, vec![], &data_directory, "irrelevant")
             .0;
 
         assert_eq!(
@@ -1990,12 +1966,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(
-                &setup,
-                vec![],
-                &data_directory,
-                "irrelevant",
-            )
+            .calculate_configured_setup(&setup, vec![], &data_directory, "irrelevant")
             .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
@@ -2004,13 +1975,15 @@ mod tests {
     #[test]
     fn mapping_protocol_is_blanked_out() {
         let _guard = EnvironmentGuard::new();
-        let data_directory = ensure_node_home_directory_exists(
-            "setup_reporter",
-            "mapping_protocol_is_blanked_out",
-        );
-        let conn = DbInitializerReal::default().initialize(&data_directory,DEFAULT_CHAIN_ID,true).unwrap();
+        let data_directory =
+            ensure_node_home_directory_exists("setup_reporter", "mapping_protocol_is_blanked_out");
+        let conn = DbInitializerReal::default()
+            .initialize(&data_directory, DEFAULT_CHAIN_ID, true)
+            .unwrap();
         let mut persist_config = PersistentConfigurationReal::from(conn);
-        persist_config.set_mapping_protocol(Some(AutomapProtocol::Pcp)).unwrap();
+        persist_config
+            .set_mapping_protocol(Some(AutomapProtocol::Pcp))
+            .unwrap();
 
         let setup = vec![
             // no config-file setting
@@ -2021,9 +1994,9 @@ mod tests {
                 Set,
             ),
         ]
-            .into_iter()
-            .map(|uisrv| (uisrv.name.clone(), uisrv))
-            .collect();
+        .into_iter()
+        .map(|uisrv| (uisrv.name.clone(), uisrv))
+        .collect();
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
@@ -2034,7 +2007,10 @@ mod tests {
             )
             .0;
 
-        assert_eq!(result.get("mapping-protocol").unwrap(), &UiSetupResponseValue::new("mapping-protocol","",Blank));
+        assert_eq!(
+            result.get("mapping-protocol").unwrap(),
+            &UiSetupResponseValue::new("mapping-protocol", "", Blank)
+        );
     }
 
     #[test]
@@ -2065,12 +2041,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(
-                &setup,
-                vec![],
-                &data_directory,
-                "irrelevant",
-            )
+            .calculate_configured_setup(&setup, vec![], &data_directory, "irrelevant")
             .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
@@ -2097,12 +2068,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(
-                &setup,
-                vec![],
-                &data_directory,
-                "irrelevant",
-            )
+            .calculate_configured_setup(&setup, vec![], &data_directory, "irrelevant")
             .1
             .unwrap();
 
@@ -2139,12 +2105,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(
-                &setup,
-                vec![],
-                &data_dir,
-                "irrelevant",
-            )
+            .calculate_configured_setup(&setup, vec![], &data_dir, "irrelevant")
             .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
@@ -2178,12 +2139,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(
-                &setup,
-                vec![],
-                &data_directory,
-                "irrelevant",
-            )
+            .calculate_configured_setup(&setup, vec![], &data_directory, "irrelevant")
             .1
             .unwrap();
 
@@ -2416,9 +2372,14 @@ mod tests {
     #[test]
     fn mapping_protocol_is_just_blank_if_no_data_in_database_and_unspecified_on_command_line() {
         let subject = MappingProtocol {};
-        let persistent_config = PersistentConfigurationMock::default().mapping_protocol_result(Ok(None));
+        let persistent_config =
+            PersistentConfigurationMock::default().mapping_protocol_result(Ok(None));
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &Some(Box::new(persistent_config)), &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &Some(Box::new(persistent_config)),
+            &None,
+        );
 
         assert_eq!(result, None)
     }
@@ -2426,48 +2387,34 @@ mod tests {
     #[test]
     fn mapping_protocol_is_configured_if_data_in_database_and_no_command_line() {
         let subject = MappingProtocol {};
-        let persistent_config = PersistentConfigurationMock::default().mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
+        let persistent_config = PersistentConfigurationMock::default()
+            .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
         let bootstrapper_config = BootstrapperConfig::new();
 
-        let result = subject.computed_default(&bootstrapper_config, &Some(Box::new(persistent_config)), &None);
+        let result = subject.computed_default(
+            &bootstrapper_config,
+            &Some(Box::new(persistent_config)),
+            &None,
+        );
 
-        assert_eq!(result, Some(("pmp".to_string(),Configured)))
+        assert_eq!(result, Some(("pmp".to_string(), Configured)))
     }
 
     #[test]
-    fn mapping_protocol_is_set_if_data_in_database_but_also_on_command_line() {
+    fn mapping_protocol_is_configured_if_no_database_but_bootstrapper_config_contains_some_value() {
         let subject = MappingProtocol {};
-        let persistent_config = PersistentConfigurationMock::default().mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
-        let mut bootstrapper_config = BootstrapperConfig::new();
-        bootstrapper_config.mapping_protocol_opt = Some(AutomapProtocol::Igdp);
-
-        let result = subject.computed_default(&bootstrapper_config, &Some(Box::new(persistent_config)), &None);
-
-        assert_eq!(result, Some(("igdp".to_string(),Set)))
-    }
-
-    #[test]
-    fn mapping_protocol_is_set_if_no_database_but_bootstrapper_config_contains_some_value() {
-        let subject = MappingProtocol {};
-        let persistent_config = PersistentConfigurationMock::default().mapping_protocol_result(Ok(None));
+        let persistent_config =
+            PersistentConfigurationMock::default().mapping_protocol_result(Ok(None));
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.mapping_protocol_opt = Some(AutomapProtocol::Pcp);
 
-        let result = subject.computed_default(&bootstrapper_config, &Some(Box::new(persistent_config)), &None);
+        let result = subject.computed_default(
+            &bootstrapper_config,
+            &Some(Box::new(persistent_config)),
+            &None,
+        );
 
-        assert_eq!(result, Some(("pcp".to_string(),Set)))
-    }
-
-    #[test]
-    fn mapping_protocol_is_configured_if_both_database_and_command_line_contain_the_same_value() {
-        let subject = MappingProtocol {};
-        let persistent_config = PersistentConfigurationMock::default().mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
-        let mut bootstrapper_config = BootstrapperConfig::new();
-        bootstrapper_config.mapping_protocol_opt = Some(AutomapProtocol::Pmp);
-
-        let result = subject.computed_default(&bootstrapper_config, &Some(Box::new(persistent_config)), &None);
-
-        assert_eq!(result, Some(("pmp".to_string(),Configured)))
+        assert_eq!(result, Some(("pcp".to_string(), Configured)))
     }
 
     #[test]
