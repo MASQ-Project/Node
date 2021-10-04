@@ -433,6 +433,8 @@ impl ConnectionManagerThread {
         inner
     }
 
+    //TODO this is provisional, wanting to debug for "handle_startup_and_shutdown_integration"
+    #[track_caller]
     fn fallback(mut inner: CmsInner, termination: NodeConversationTermination) -> CmsInner {
         if inner.closing_stage {
             inner.active_port = None
