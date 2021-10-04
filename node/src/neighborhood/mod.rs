@@ -421,7 +421,7 @@ impl Neighborhood {
             self.logger,
             "Changed public IP from {} to {}", old_public_ip, new_public_ip
         );
-        // TODO: Add code to abort process here until we have Gossip capable of notifying neighbors of new IP
+        exit_process(1, "The Node cannot currently tolerate IP changes from the ISP, so...down we go.")
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
@@ -3066,6 +3066,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // The test to drive the actual Gossip-an-IP-change code should start here
     fn handle_new_public_ip_changes_public_ip_and_nothing_else() {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(1234, true);
@@ -3088,6 +3089,20 @@ mod tests {
         );
         TestLogHandler::new()
             .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
+    }
+
+    #[test]
+    #[should_panic (expected = "The Node cannot currently tolerate IP changes from the ISP, so...down we go.")]
+    fn handle_new_public_ip_kills_the_whole_node_until_we_can_gossip_the_change() {
+        running_test();
+        let subject_node = make_global_cryptde_node_record(1234, true);
+        let neighbor = make_node_record(1050, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
+        let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
+
+        subject.handle_new_public_ip(NewPublicIp {
+            new_ip: new_public_ip,
+        });
     }
 
     #[test]

@@ -46,8 +46,6 @@ struct ProtocolInfo<T: PartialEq + Debug> {
     router_ip: IpAddr,
 }
 
-//Dan, you will need this at maybe_start_change_handler because we use an owned ChangeHandler which cannot clone; we move with it
-//you can keep with this or we had to find a way to make it cloneable (i tried earlier and hit trait object boundaries)
 struct HousekeepingTools {
     change_handler_opt: Option<ChangeHandler>,
     housekeeping_thread_commander_opt: Option<Sender<HousekeepingThreadCommand>>,

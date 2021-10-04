@@ -91,7 +91,6 @@ impl StdinHandle {
                 panic!("type_command failed: {}", e)
             }
         }
-        // short_writeln!(&self.stdin, "{}", command);
     }
 }
 
