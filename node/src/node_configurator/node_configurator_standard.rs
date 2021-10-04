@@ -419,10 +419,10 @@ pub mod standard {
                         .map(
                             |string_record| match NodeDescriptor::from_str(dummy_cryptde.as_ref(), &string_record) {
                                 Ok(nd) => match (chain_name.as_str(), nd.mainnet) {
-                                    (DEFAULT_CHAIN_NAME, true) => validate_mandatory_node_addr(&string_record,nd),
+                                    (DEFAULT_CHAIN_NAME, true) => validate_mandatory_node_addr(&string_record, nd),
                                     (DEFAULT_CHAIN_NAME, false) => Err(ParamError::new("neighbors", "Mainnet node descriptors use '@', not ':', as the first delimiter")),
                                     (_, true) => Err(ParamError::new("neighbors", &format!("Mainnet node descriptor uses '@', but chain configured for '{}'", chain_name))),
-                                    (_, false) => validate_mandatory_node_addr(&string_record,nd),
+                                    (_, false) => validate_mandatory_node_addr(&string_record, nd),
                                 },
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
                             },
