@@ -56,6 +56,7 @@ pub enum AutomapError {
     TransactionFailure(String),
     AllProtocolsFailed(Vec<(AutomapProtocol, AutomapError)>),
     HousekeeperAlreadyRunning,
+    HousekeeperCrashed,
 }
 
 impl AutomapError {
@@ -85,7 +86,10 @@ impl AutomapError {
             AutomapError::AllProtocolsFailed(_) => AutomapErrorCause::NetworkConfiguration,
             AutomapError::HousekeeperAlreadyRunning => {
                 AutomapErrorCause::Unknown("Sequencing error".to_string())
-            }
+            },
+            AutomapError::HousekeeperCrashed => {
+                AutomapErrorCause::Unknown("Thread crash".to_string())
+            },
         }
     }
 }
@@ -108,7 +112,7 @@ pub trait Transactor {
         change_handler: ChangeHandler,
         router_ip: IpAddr,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError>;
-    fn stop_housekeeping_thread(&mut self) -> ChangeHandler;
+    fn stop_housekeeping_thread(&mut self) -> Result<ChangeHandler, AutomapError>;
     fn as_any(&self) -> &dyn Any;
 }
 

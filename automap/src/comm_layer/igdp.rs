@@ -277,13 +277,13 @@ impl Transactor for IgdpTransactor {
         Ok(tx)
     }
 
-    fn stop_housekeeping_thread(&mut self) -> ChangeHandler {
+    fn stop_housekeeping_thread(&mut self) -> Result<ChangeHandler, AutomapError> {
         let stopper = {
             let inner = self.inner();
             debug!(inner.logger, "Stopping housekeeping thread");
             inner.housekeeping_commander_opt.clone().expect("No HousekeepingCommander: can't stop housekeeping thread")
         };
-        match stopper.try_send(HousekeepingThreadCommand::Stop) {
+        let change_handler = match stopper.try_send(HousekeepingThreadCommand::Stop) {
             Ok(_) => {
                 let join_handle = self
                     .join_handle_opt
@@ -297,16 +297,17 @@ impl Transactor for IgdpTransactor {
                             inner.logger,
                             "Tried to stop housekeeping thread that had panicked"
                         );
-                        Box::new(Self::null_change_handler)
+                        return Err(AutomapError::HousekeeperCrashed);
                     }
                 }
             }
             Err(_) => {
                 let inner = self.inner_arc.lock().expect("Change handler is dead");
                 warning!(inner.logger, "Tried to stop housekeeping thread that had already disconnected from the commander");
-                Box::new(Self::null_change_handler)
+                return Err(AutomapError::HousekeeperCrashed);
             }
-        }
+        };
+        Ok(change_handler)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -470,14 +471,6 @@ impl IgdpTransactor {
                 }
             }
         }
-    }
-
-    fn null_change_handler(change: AutomapChange) {
-        let logger = Logger::new("IgdpTransactor");
-        error!(
-            logger,
-            "Change handler recovery failed: discarded {:?}", change
-        );
     }
 
     fn retrieve_old_and_new_public_ips(
@@ -1167,7 +1160,7 @@ mod tests {
             AutomapError::HousekeeperAlreadyRunning
         );
         TestLogHandler::new().exists_log_containing(
-            "INFO: IgdpTransactor: Change handler for router at 192.168.0.254 is already running",
+            "INFO: IgdpTransactor: Housekeeping thread for router at 192.168.0.254 is already running",
         );
     }
 
@@ -1263,7 +1256,7 @@ mod tests {
         let _ =
             subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap());
 
-        let change_handler = subject.stop_housekeeping_thread();
+        let change_handler = subject.stop_housekeeping_thread().unwrap();
 
         let change = AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap());
         change_handler(change.clone());
@@ -1288,12 +1281,10 @@ mod tests {
         subject.inner_arc.lock().unwrap().housekeeping_commander_opt = Some(tx);
         std::mem::drop(rx);
 
-        let change_handler = subject.stop_housekeeping_thread();
+        let result = subject.stop_housekeeping_thread().err().unwrap();
 
-        change_handler(AutomapChange::Error(AutomapError::NoLocalIpAddress));
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("WARN: IgdpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
-        tlh.exists_log_containing("ERROR: IgdpTransactor: Change handler recovery failed: discarded Error(NoLocalIpAddress)");
+        assert_eq! (result, AutomapError::HousekeeperCrashed);
+        TestLogHandler::new().exists_log_containing("WARN: IgdpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
     }
 
     #[test]
@@ -1315,14 +1306,12 @@ mod tests {
         subject.inner_arc.lock().unwrap().housekeeping_commander_opt = Some(tx);
         subject.join_handle_opt = Some(thread::spawn(|| panic!("Booga!")));
 
-        let change_handler = subject.stop_housekeeping_thread();
+        let result = subject.stop_housekeeping_thread().err().unwrap();
 
-        change_handler(AutomapChange::Error(AutomapError::CantFindDefaultGateway));
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing(
+        assert_eq! (result, AutomapError::HousekeeperCrashed);
+        TestLogHandler::new().exists_log_containing(
             "WARN: IgdpTransactor: Tried to stop housekeeping thread that had panicked",
         );
-        tlh.exists_log_containing("ERROR: IgdpTransactor: Change handler recovery failed: discarded Error(CantFindDefaultGateway)");
     }
 
     #[test]

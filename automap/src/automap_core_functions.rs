@@ -113,7 +113,7 @@ fn perform_test(
     transactor: &dyn Transactor,
     parameters: &TestParameters,
 ) -> Result<(), AutomapErrorCause> {
-    let status = test_common(status, &transactor, parameters);
+    let status = test_common(status, transactor, parameters);
     analyze_status(status)
 }
 
