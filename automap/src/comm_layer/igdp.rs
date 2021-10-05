@@ -139,7 +139,7 @@ impl Transactor for IgdpTransactor {
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
         self.ensure_gateway()?;
-        let mut inner = self.inner_arc.lock().expect("Change handler died");
+        let mut inner = self.inner();
         debug!(
             inner.logger,
             "Seeking public IP from router at {}", router_ip
@@ -174,7 +174,7 @@ impl Transactor for IgdpTransactor {
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
         self.ensure_gateway()?;
-        let inner = self.inner_arc.lock().expect("Housekeeping thread is dead");
+        let inner = self.inner();
         debug!(
             inner.logger,
             "Adding mapping for port {} through router at {} for {} seconds",
@@ -185,7 +185,7 @@ impl Transactor for IgdpTransactor {
         let gateway = inner
             .gateway_opt
             .as_ref()
-            .expect("Ensuring the gateway didn't work");
+            .expect("ensure_gateway() failed");
         inner
             .mapping_adder
             .add_mapping(gateway.as_ref(), hole_port, lifetime)
@@ -218,7 +218,7 @@ impl Transactor for IgdpTransactor {
 
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
         self.ensure_gateway()?;
-        let inner = self.inner_arc.lock().expect("Change handler is dead");
+        let inner = self.inner();
         debug!(
             inner.logger,
             "Deleting mapping of port {} through router at {}", hole_port, router_ip
@@ -255,11 +255,11 @@ impl Transactor for IgdpTransactor {
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
         let (tx, rx) = unbounded();
         let public_ip_poll_delay_ms = {
-            let mut inner = self.inner_arc.lock().expect("Change handler is dead");
+            let mut inner = self.inner();
             if inner.housekeeping_commander_opt.is_some() {
                 info!(
                     inner.logger,
-                    "Change handler for router at {} is already running", router_ip
+                    "Housekeeping thread for router at {} is already running", router_ip
                 );
                 return Err(AutomapError::HousekeeperAlreadyRunning);
             }
@@ -274,28 +274,15 @@ impl Transactor for IgdpTransactor {
         self.join_handle_opt = Some(thread::spawn(move || {
             Self::thread_guts(public_ip_poll_delay_ms, change_handler, inner_inner, rx)
         }));
-        eprintln!(
-            "end of start_housekeeping_thread:\nhousekeeping_commander_opt populated: {}",
-            self.inner_arc
-                .lock()
-                .expect("Housekeeping commander mutex is poisoned")
-                .housekeeping_commander_opt
-                .is_some()
-        );
         Ok(tx)
     }
 
     fn stop_housekeeping_thread(&mut self) -> ChangeHandler {
         let stopper = {
-            let inner = self.inner_arc.lock().expect("Change handler is dead");
-            eprintln!(
-                "beginning of stop_housekeeping_thread:\nhousekeeping_commander_opt populated: {}",
-                inner.housekeeping_commander_opt.is_some()
-            );
+            let inner = self.inner();
             debug!(inner.logger, "Stopping housekeeping thread");
-            inner.housekeeping_commander_opt.clone()
-        }
-        .expect("No HousekeepingCommander: can't stop housekeeping thread");
+            inner.housekeeping_commander_opt.clone().expect("No HousekeepingCommander: can't stop housekeeping thread")
+        };
         match stopper.try_send(HousekeepingThreadCommand::Stop) {
             Ok(_) => {
                 let join_handle = self
@@ -352,13 +339,8 @@ impl IgdpTransactor {
     }
 
     fn ensure_gateway(&self) -> Result<(), AutomapError> {
-        Self::ensure_gateway_static(&self.inner_arc, self.gateway_factory.as_ref())
-    }
-
-    fn ensure_gateway_static(
-        inner_arc: &Arc<Mutex<IgdpTransactorInner>>,
-        gateway_factory: &dyn GatewayFactory,
-    ) -> Result<(), AutomapError> {
+        let inner_arc = &self.inner_arc;
+        let gateway_factory = &self.gateway_factory.as_ref();
         let mut inner = inner_arc.lock().expect("Change handler is dead");
         if inner.gateway_opt.is_some() {
             return Ok(());
@@ -379,7 +361,7 @@ impl IgdpTransactor {
     }
 
     fn inner(&self) -> MutexGuard<IgdpTransactorInner> {
-        self.inner_arc.lock().expect("Change handler died")
+        self.inner_arc.lock().expect("Housekeeping thread died")
     }
 
     fn thread_guts(
@@ -449,7 +431,7 @@ impl IgdpTransactor {
         if current_public_ip != old_public_ip {
             info!(
                 inner.logger,
-                "Public IP changed from {} to {}", current_public_ip, old_public_ip
+                "Public IP changed from {} to {}", old_public_ip, current_public_ip
             );
             inner.public_ip_opt.replace(current_public_ip);
             change_handler(AutomapChange::NewIp(IpAddr::V4(current_public_ip)));
@@ -470,7 +452,7 @@ impl IgdpTransactor {
         mapping_config_opt: &Option<MappingConfig>,
     ) {
         if let Some(mapping_config) = mapping_config_opt {
-            if mapping_config.next_lifetime.as_secs() > 0 {
+            if mapping_config.next_lifetime.as_secs() > 0 { // if the mapping isn't permanent
                 let since_last_remapped = last_remapped.elapsed();
                 if since_last_remapped.gt(&mapping_config.remap_interval) {
                     if let Err(e) = Self::remap_port(
@@ -1170,7 +1152,7 @@ mod tests {
     }
 
     #[test]
-    fn start_change_handler_complains_if_change_handler_is_already_running() {
+    fn start_housekeeping_thread_complains_if_change_handler_is_already_running() {
         init_test_logging();
         let mut subject = IgdpTransactor::new();
         subject.inner_arc.lock().unwrap().housekeeping_commander_opt = Some(unbounded().0);
@@ -1236,7 +1218,7 @@ mod tests {
     }
 
     #[test]
-    fn start_change_handler_handles_absence_of_gateway() {
+    fn start_housekeeping_thread_handles_absence_of_gateway() {
         init_test_logging();
         let public_ip = Ipv4Addr::from_str("1.2.3.4").unwrap();
         let router_ip = IpAddr::from_str("192.168.0.255").unwrap();

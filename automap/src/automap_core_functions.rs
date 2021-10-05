@@ -29,6 +29,7 @@ pub struct AutomapParameters {
     pub test_parameters: TestParameters,
 }
 
+// TODO: Figure out how to get AutomapControl in here.
 impl AutomapParameters {
     pub fn new(args: Args, probe_server_address_str: &str) -> Self {
         let probe_server_address =
@@ -90,26 +91,29 @@ pub fn test_pcp(
     status: TestStatus,
     test_parameters: &TestParameters,
 ) -> Result<(), AutomapErrorCause> {
-    let transactor = PcpTransactor::default();
-    let status = test_common(status, &transactor, test_parameters);
-    analyze_status(status)
+    perform_test(status, &PcpTransactor::default(), test_parameters)
 }
 
 pub fn test_pmp(
     status: TestStatus,
     test_parameters: &TestParameters,
 ) -> Result<(), AutomapErrorCause> {
-    let transactor = PmpTransactor::default();
-    let status = test_common(status, &transactor, test_parameters);
-    analyze_status(status)
+    perform_test(status, &PmpTransactor::default(), test_parameters)
 }
 
 pub fn test_igdp(
     status: TestStatus,
     test_parameters: &TestParameters,
 ) -> Result<(), AutomapErrorCause> {
-    let transactor = IgdpTransactor::default();
-    let status = test_common(status, &transactor, test_parameters);
+    perform_test(status, &IgdpTransactor::default(), test_parameters)
+}
+
+fn perform_test(
+    status: TestStatus,
+    transactor: &dyn Transactor,
+    parameters: &TestParameters,
+) -> Result<(), AutomapErrorCause> {
+    let status = test_common(status, &transactor, parameters);
     analyze_status(status)
 }
 
