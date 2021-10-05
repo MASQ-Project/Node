@@ -400,6 +400,7 @@ impl Neighborhood {
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
+        trace!(self.logger, "Handling route query message: {:?}", msg);
         let msg_str = format!("{:?}", msg);
         let route_result = if msg.minimum_hop_count == 0 {
             Ok(self.zero_hop_route_response())
@@ -955,7 +956,9 @@ impl Neighborhood {
     }
 
     fn route_length_qualifies(&self, hops_remaining: usize) -> bool {
-        hops_remaining == 0
+        let no_remaining = hops_remaining == 0;
+        trace!(self.logger, "Route length qualifies: {}", no_remaining);
+        no_remaining
     }
 
     fn last_key_qualifies(
@@ -963,10 +966,12 @@ impl Neighborhood {
         last_node_ref: &NodeRecord,
         target_key_ref_opt: Option<&PublicKey>,
     ) -> bool {
-        match target_key_ref_opt {
+        let last_key_qualifies = match target_key_ref_opt {
             Some(target_key_ref) => last_node_ref.public_key() == target_key_ref,
             None => true,
-        }
+        };
+        trace!(self.logger, "Last key qualifies: {}", last_key_qualifies);
+        last_key_qualifies
     }
 
     fn validate_last_node_not_too_close_to_first_node(
@@ -975,13 +980,15 @@ impl Neighborhood {
         first_node_key: &PublicKey,
         candidate_node_key: &PublicKey,
     ) -> bool {
-        if prefix_len <= 2 {
+        let too_close_to_first = if prefix_len <= 2 {
             true // Zero- and single-hop routes are not subject to exit-too-close restrictions
         } else {
             !self
                 .neighborhood_database
                 .has_half_neighbor(candidate_node_key, first_node_key)
-        }
+        };
+        trace!(self.logger, "Too close to first: {}", too_close_to_first);
+        too_close_to_first
     }
 
     fn is_orig_node_on_back_leg(
@@ -1048,6 +1055,7 @@ impl Neighborhood {
                 .flat_map(|node_record| {
                     let mut new_prefix = prefix.clone();
                     new_prefix.push(node_record.public_key());
+                    trace!(self.logger, "Considered Node: {}", node_record.public_key());
 
                     let new_hops_remaining = if hops_remaining == 0 {
                         0

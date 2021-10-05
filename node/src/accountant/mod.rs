@@ -48,15 +48,18 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
-pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
+pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 1800; // one hour   //TODO adjusted temporarily for a test, used to be one hour
+pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 1800; // one hour  //TODO adjusted temporarily for a test, used to be one hour
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
+//TODO this is for tracking the issues with composing valid routes; will be adjusted more properly later
+const TEST_TIME_PERIOD_BEFORE_INCLUDED: i64 = 900; //15 minutes
+
 lazy_static! {
     pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
-        payment_suggested_after_sec: SECONDS_PER_DAY,
-        payment_grace_before_ban_sec: SECONDS_PER_DAY,
+        payment_suggested_after_sec: TEST_TIME_PERIOD_BEFORE_INCLUDED,
+        payment_grace_before_ban_sec: TEST_TIME_PERIOD_BEFORE_INCLUDED,
         permanent_debt_allowed_gwub: 10_000_000,
         balance_to_decrease_from_gwub: 1_000_000_000,
         balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
