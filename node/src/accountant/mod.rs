@@ -48,13 +48,13 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 1800; // one hour   //TODO adjusted temporarily for a test, used to be one hour
-pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 1800; // one hour  //TODO adjusted temporarily for a test, used to be one hour
+pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 600; // now 10 minutes TODO adjusted temporarily for a test, used to be one hour
+pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 600; //now 10 minutes // TODO adjusted temporarily for a test, used to be one hour
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
 //TODO this is for tracking the issues with composing valid routes; will be adjusted more properly later
-const TEST_TIME_PERIOD_BEFORE_INCLUDED: i64 = 900; //15 minutes
+const TEST_TIME_PERIOD_BEFORE_INCLUDED: i64 = 1320; //22 minutes
 
 lazy_static! {
     pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
