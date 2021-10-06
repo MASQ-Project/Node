@@ -4,5 +4,7 @@ pub mod automap_core_functions;
 pub mod comm_layer;
 pub mod control_layer;
 pub mod logger;
+#[cfg(test)]
+pub mod mocks;
 pub mod probe_researcher;
 pub mod protocols;

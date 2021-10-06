@@ -662,7 +662,6 @@ mod tests {
         FreePortFactoryMock, UdpSocketFactoryMock, UdpSocketMock,
     };
     use crate::comm_layer::pcp_pmp_common::ROUTER_PORT;
-    use crate::comm_layer::tests::LocalIpFinderMock;
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
@@ -679,6 +678,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
+    use crate::mocks::LocalIpFinderMock;
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,

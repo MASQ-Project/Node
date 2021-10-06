@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use std::ops::Add;
+use std::ops::{Add, Sub};
 
 pub const HOUSEKEEPING_THREAD_LOOP_DELAY_MS: u64 = 100;
 pub const PUBLIC_IP_POLL_DELAY_SECONDS: u64 = 60;
@@ -451,6 +451,8 @@ impl IgdpTransactor {
                 "Public IP changed from {} to {}", old_public_ip, current_public_ip
             );
             inner.public_ip_opt.replace(current_public_ip);
+            *last_remapped = Instant::now().sub(Duration::from_secs(86400)); // a day ago: remap now
+            Self::remap_if_necessary(change_handler, &*inner, last_remapped, mapping_config_opt);
             change_handler(AutomapChange::NewIp(IpAddr::V4(current_public_ip)));
         } else {
             debug!(
@@ -621,7 +623,6 @@ impl MappingAdderReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::tests::LocalIpFinderMock;
     use crate::control_layer::automap_control::AutomapChange;
     use core::ptr::addr_of;
     use crossbeam_channel::unbounded;
@@ -635,6 +636,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use crate::mocks::LocalIpFinderMock;
 
     fn clone_get_external_ip_error(error: &GetExternalIpError) -> GetExternalIpError {
         match error {
@@ -1185,6 +1187,7 @@ mod tests {
         let one_ip = Ipv4Addr::from_str("1.2.3.4").unwrap();
         let another_ip = Ipv4Addr::from_str("4.3.2.1").unwrap();
         let router_ip = IpAddr::from_str("5.5.5.5").unwrap();
+        let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
         let mut subject = IgdpTransactor::new();
         {
             let mut inner = subject.inner_arc.lock().unwrap();
@@ -1199,6 +1202,12 @@ mod tests {
                     .get_external_ip_result(Ok(another_ip)),
             ));
             inner.public_ip_opt = Some(one_ip);
+            inner.mapping_adder = Box::new (MappingAdderMock::new()
+                .add_mapping_params (&add_mapping_params_arc)
+                .add_mapping_result(Ok(600))
+                .add_mapping_result(Ok(600))
+                .add_mapping_result(Ok(600))
+            );
         }
         subject.housekeeping_thread_loop_delay = Duration::from_millis(1);
         subject.public_ip_poll_delay = Duration::from_millis(10);
@@ -1208,10 +1217,15 @@ mod tests {
             change_log_inner_arc.lock().unwrap().push(change)
         });
 
-        subject
+        let commander = subject
             .start_housekeeping_thread(change_handler, router_ip)
             .unwrap();
 
+        commander.send (HousekeepingThreadCommand::InitializeMappingConfig(MappingConfig{
+            hole_port: 6666,
+            next_lifetime: Duration::from_secs(600),
+            remap_interval: Duration::from_secs(600),
+        })).unwrap();
         thread::sleep(Duration::from_millis(200));
         let _ = subject.stop_housekeeping_thread();
         let change_log = change_log_arc.lock().unwrap();
@@ -1225,6 +1239,17 @@ mod tests {
         );
         let inner = subject.inner_arc.lock().unwrap();
         assert_eq!(inner.public_ip_opt, Some(another_ip));
+        let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
+        let params_triple = add_mapping_params.remove(0);
+        assert_eq!(params_triple.1, 6666);
+        assert_eq!(params_triple.2, 600);
+        let params_triple = add_mapping_params.remove(0);
+        assert_eq!(params_triple.1, 6666);
+        assert_eq!(params_triple.2, 600);
+        let params_triple = add_mapping_params.remove(0);
+        assert_eq!(params_triple.1, 6666);
+        assert_eq!(params_triple.2, 600);
+        assert_eq!(add_mapping_params.is_empty(), true);
     }
 
     #[test]
@@ -1366,7 +1391,7 @@ mod tests {
         );
 
         // If we get here, neither mapping_adder.add_mapping() nor gateway.add_port() was called
-        TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port 1234");
+        TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port");
     }
 
     #[test]
@@ -1505,6 +1530,7 @@ mod tests {
         );
 
         assert!(result);
+        // no exception; test passes
     }
 
     #[test]
