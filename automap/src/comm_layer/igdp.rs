@@ -22,8 +22,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use std::ops::Add;
 
-pub const PUBLIC_IP_POLL_DELAY_SECONDS: u32 = 60;
+pub const HOUSEKEEPING_THREAD_LOOP_DELAY_MS: u64 = 100;
+pub const PUBLIC_IP_POLL_DELAY_SECONDS: u64 = 60;
 
 trait GatewayFactory {
     fn make(&self, options: SearchOptions) -> Result<Box<dyn GatewayWrapper>, SearchError>;
@@ -117,7 +119,8 @@ struct IgdpTransactorInner {
 
 pub struct IgdpTransactor {
     gateway_factory: Box<dyn GatewayFactory>,
-    public_ip_poll_delay_ms: u32,
+    housekeeping_thread_loop_delay: Duration,
+    public_ip_poll_delay: Duration,
     inner_arc: Arc<Mutex<IgdpTransactorInner>>,
     join_handle_opt: Option<JoinHandle<ChangeHandler>>,
 }
@@ -254,7 +257,7 @@ impl Transactor for IgdpTransactor {
         router_ip: IpAddr,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
         let (tx, rx) = unbounded();
-        let public_ip_poll_delay_ms = {
+        let public_ip_poll_delay = {
             let mut inner = self.inner();
             if inner.housekeeping_commander_opt.is_some() {
                 info!(
@@ -268,11 +271,18 @@ impl Transactor for IgdpTransactor {
                 inner.logger,
                 "Starting housekeeping thread for router at {}", router_ip
             );
-            self.public_ip_poll_delay_ms
+            self.public_ip_poll_delay.clone()
         };
         let inner_inner = self.inner_arc.clone();
+        let inner_housekeeping_thread_loop_delay = self.housekeeping_thread_loop_delay.clone();
         self.join_handle_opt = Some(thread::spawn(move || {
-            Self::thread_guts(public_ip_poll_delay_ms, change_handler, inner_inner, rx)
+            Self::thread_guts(
+                inner_housekeeping_thread_loop_delay,
+                public_ip_poll_delay,
+                change_handler,
+                inner_inner,
+                rx
+            )
         }));
         Ok(tx)
     }
@@ -333,7 +343,8 @@ impl IgdpTransactor {
         }));
         Self {
             gateway_factory,
-            public_ip_poll_delay_ms: PUBLIC_IP_POLL_DELAY_SECONDS * 1000,
+            housekeeping_thread_loop_delay: Duration::from_millis(HOUSEKEEPING_THREAD_LOOP_DELAY_MS),
+            public_ip_poll_delay: Duration::from_secs(PUBLIC_IP_POLL_DELAY_SECONDS),
             inner_arc,
             join_handle_opt: None,
         }
@@ -366,22 +377,27 @@ impl IgdpTransactor {
     }
 
     fn thread_guts(
-        public_ip_poll_delay_ms: u32,
+        housekeeping_thread_loop_delay: Duration,
+        public_ip_poll_delay: Duration,
         change_handler: ChangeHandler,
         inner_arc: Arc<Mutex<IgdpTransactorInner>>,
         rx: Receiver<HousekeepingThreadCommand>,
     ) -> ChangeHandler {
         let mut last_remapped = Instant::now();
+        let mut last_announcement_check = Instant::now();
         let mut mapping_config_opt = None;
         loop {
-            thread::sleep(Duration::from_millis(public_ip_poll_delay_ms as u64));
-            if !Self::thread_guts_iteration(
-                &change_handler,
-                &inner_arc,
-                &mut last_remapped,
-                &mapping_config_opt,
-            ) {
-                break;
+            thread::sleep(housekeeping_thread_loop_delay);
+            if last_announcement_check.add(public_ip_poll_delay).lt (&Instant::now()) {
+                last_announcement_check = Instant::now();
+                if !Self::thread_guts_iteration(
+                    &change_handler,
+                    &inner_arc,
+                    &mut last_remapped,
+                    &mapping_config_opt,
+                ) {
+                    break;
+                }
             }
             match rx.try_recv() {
                 Ok(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config)) => {
@@ -1184,7 +1200,8 @@ mod tests {
             ));
             inner.public_ip_opt = Some(one_ip);
         }
-        subject.public_ip_poll_delay_ms = 10;
+        subject.housekeeping_thread_loop_delay = Duration::from_millis(1);
+        subject.public_ip_poll_delay = Duration::from_millis(10);
         let change_log_arc = Arc::new(Mutex::new(vec![]));
         let change_log_inner_arc = change_log_arc.clone();
         let change_handler = Box::new(move |change: AutomapChange| {
@@ -1216,7 +1233,8 @@ mod tests {
         let public_ip = Ipv4Addr::from_str("1.2.3.4").unwrap();
         let router_ip = IpAddr::from_str("192.168.0.255").unwrap();
         let mut subject = IgdpTransactor::new();
-        subject.public_ip_poll_delay_ms = 10;
+        subject.housekeeping_thread_loop_delay = Duration::from_millis(1);
+        subject.public_ip_poll_delay = Duration::from_millis(10);
         {
             let mut inner = subject.inner_arc.lock().unwrap();
             inner.gateway_opt = None;
@@ -1252,7 +1270,7 @@ mod tests {
             change_log.push(change)
         });
         let mut subject = IgdpTransactor::new();
-        subject.public_ip_poll_delay_ms = 10;
+        subject.public_ip_poll_delay = Duration::from_millis(10);
         let _ =
             subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap());
 
@@ -1339,7 +1357,13 @@ mod tests {
         .unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
-        let _ = IgdpTransactor::thread_guts(10, change_handler, inner_arc, rx);
+        let _ = IgdpTransactor::thread_guts(
+            Duration::from_millis(1),
+            Duration::from_millis(10),
+            change_handler,
+            inner_arc,
+            rx
+        );
 
         // If we get here, neither mapping_adder.add_mapping() nor gateway.add_port() was called
         TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port 1234");
@@ -1400,7 +1424,13 @@ mod tests {
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1234))
             .unwrap();
 
-        let _ = IgdpTransactor::thread_guts(10, change_handler, inner_arc, rx);
+        let _ = IgdpTransactor::thread_guts(
+            Duration::from_millis(1),
+            Duration::from_millis(10),
+            change_handler,
+            inner_arc,
+            rx
+        );
     }
 
     #[test]
