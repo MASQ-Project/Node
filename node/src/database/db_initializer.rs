@@ -748,7 +748,7 @@ mod tests {
             value
         };
 
-        verify(&mut config_vec, "chain_name", Some("ropsten"));
+        verify(&mut config_vec, "chain_name", Some(TEST_DEFAULT_CHAIN_NAME));
         let clandestine_port_str_opt = verify_name(&mut config_vec, "clandestine_port");
         let clandestine_port: u16 = clandestine_port_str_opt.unwrap().parse().unwrap();
         assert!(clandestine_port >= 1025);

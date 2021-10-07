@@ -362,6 +362,7 @@ mod tests {
         revive_tables_of_the_version_0_and_return_the_connection_to_the_db,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
     use std::cell::RefCell;
@@ -490,7 +491,7 @@ mod tests {
 
     fn make_external_migration_parameters() -> ExternalMigrationParameters {
         ExternalMigrationParameters {
-            chain_name: "mainnet".to_string(),
+            chain_name: DEFAULT_CHAIN_NAME.to_string(),
         }
     }
 
