@@ -162,8 +162,7 @@ mod tests {
     use std::io::Error;
     use std::io::ErrorKind;
     use std::str::FromStr;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn stream_writer_writes_packets_in_sequenced_order() {
@@ -344,7 +343,7 @@ mod tests {
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec!(
             format!("DEBUG: StreamWriter for {:?}/1.3.3.4:5678: Writing 19 bytes over existing stream", stream_key).as_str (),
-            format!("WARN: StreamWriter for {:?}/1.3.3.4:5678: Continuing after write error: other os error", stream_key).as_str (),
+            format!("WARN: StreamWriter for {:?}/1.3.3.4:5678: Continuing after write error: other error", stream_key).as_str (),
             format!("DEBUG: StreamWriter for {:?}/1.3.3.4:5678: Wrote 19/19 bytes of clear data", stream_key).as_str ()));
     }
 

@@ -4,7 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
 use masq_lib::as_any_impl;
 use masq_lib::constants::SETUP_ERROR;
@@ -293,7 +293,7 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
         };
         let (stream_factory, handle) = TestStreamFactory::new();
         let (mut stdout, _) = stream_factory.make();
-        let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
         SetupCommand::handle_broadcast(message, &mut stdout, &term_interface);
 

@@ -5,8 +5,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 #[cfg(not(target_os = "windows"))]
 mod not_win_cfg {
@@ -239,7 +238,7 @@ mod tests {
     use super::*;
     use std::env::current_dir;
     use std::fmt::Write;
-    use std::fs::{create_dir, File, OpenOptions};
+    use std::fs::{create_dir_all, File, OpenOptions};
     use std::io::Write as FmtWrite;
 
     #[test]
@@ -344,8 +343,8 @@ mod tests {
     #[should_panic(expected = "writeln failed")]
     fn short_writeln_panic_politely_with_a_message() {
         let path = current_dir().unwrap();
-        let path = path.join("test").join("other_tests");
-        create_dir(&path).unwrap_or(()); //can be an error if already exists
+        let path = path.join("tests").join("short_writeln");
+        let _ = create_dir_all(&path);
         let full_path = path.join("short-writeln.txt");
         File::create(&full_path).unwrap();
         let mut read_only_file_handle = OpenOptions::new().read(true).open(full_path).unwrap();

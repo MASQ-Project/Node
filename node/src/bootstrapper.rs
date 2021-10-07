@@ -617,6 +617,7 @@ mod tests {
     use crate::test_utils::{assert_contains, rate_pack};
     use actix::Recipient;
     use actix::System;
+    use crossbeam_channel::unbounded;
     use lazy_static::lazy_static;
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::test_utils::environment_guard::ClapGuard;
@@ -630,9 +631,7 @@ mod tests {
     use std::net::{IpAddr, SocketAddr};
     use std::ops::{DerefMut, Not};
     use std::str::FromStr;
-    use std::sync::mpsc;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio;
     use tokio::prelude::Async;
@@ -1872,7 +1871,7 @@ mod tests {
 
     impl ActorSystemFactoryMock {
         fn new() -> ActorSystemFactoryMock {
-            let (tx, rx) = mpsc::channel();
+            let (tx, rx) = unbounded();
             thread::spawn(move || {
                 let system = System::new("test");
 

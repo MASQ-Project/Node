@@ -1,44 +1,38 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal_interface::{InterfaceWrapper, MasqTerminal, WriterLock};
+use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
 use linefeed::{ReadResult, Signal};
+use masq_lib::command::StdStreams;
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::short_writeln;
+use std::error::Error;
 use std::fmt::Debug;
-use std::io::{stdin, stdout, Read, Write};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::io::Write;
 
-#[derive(Debug, PartialEq)]
+//most of the events depend on the default linefeed signal handlers which ignore them unless you explicitly set the opposite
+#[derive(Debug, PartialEq, Clone)]
 pub enum TerminalEvent {
     CommandLine(Vec<String>),
-    CLError(Option<String>), //'None' when already printed out
-    CLContinue,              //as ignore
-    CLBreak,
+    Error(Option<String>), //'None' when already processed by printing out
+    Continue,              //as ignore
+    Break,
+    EoF,
 }
 
 pub struct TerminalReal {
-    pub interface: Box<dyn InterfaceWrapper>,
-}
-
-impl TerminalReal {
-    pub fn new(interface: Box<dyn InterfaceWrapper>) -> Self {
-        Self { interface }
-    }
+    interface: Box<dyn InterfaceWrapper>,
 }
 
 impl MasqTerminal for TerminalReal {
     fn read_line(&self) -> TerminalEvent {
         match self.interface.read_line() {
-            Ok(ReadResult::Input(line)) => {
-                add_history(self, line.clone());
-                let args = split_quoted_line(line);
-                TerminalEvent::CommandLine(args)
-            }
-            Err(e) => TerminalEvent::CLError(Some(format!("Reading from the terminal: {}", e))),
+            Ok(ReadResult::Input(line)) => self.process_command_line(line),
+            Err(e) => Self::dispatch_error_msg(e),
             Ok(ReadResult::Signal(Signal::Resize)) | Ok(ReadResult::Signal(Signal::Continue)) => {
-                TerminalEvent::CLContinue
+                TerminalEvent::Continue
             }
-            _ => TerminalEvent::CLBreak,
+            Ok(ReadResult::Eof) => TerminalEvent::EoF,
+            _ => TerminalEvent::Break,
         }
     }
 
@@ -48,20 +42,70 @@ impl MasqTerminal for TerminalReal {
             .expect("lock writer append failed")
     }
 
+    //used because we don't want to see the prompt show up again after this last-second printing operation;
+    //to assure a decent screen appearance while the whole app's going down
+    fn lock_without_prompt(
+        &self,
+        streams: &mut StdStreams,
+        stderr: bool,
+    ) -> Box<dyn WriterLock + '_> {
+        let kept_buffer = self.interface.get_buffer();
+        self.make_prompt_vanish();
+        let lock = self
+            .interface
+            .lock_writer_append()
+            .expect("lock writer append failed");
+        short_writeln!(
+            if !stderr {
+                &mut streams.stdout
+            } else {
+                &mut streams.stderr
+            },
+            "{}",
+            format!("{}{}", MASQ_PROMPT, kept_buffer)
+        );
+        lock
+    }
+
     #[cfg(test)]
-    fn tell_me_who_you_are(&self) -> String {
+    fn improvised_struct_id(&self) -> String {
         format!(
             "TerminalReal<{}>",
             self.interface
                 .lock_writer_append()
                 .unwrap()
-                .tell_me_who_you_are()
+                .improvised_struct_id()
         )
     }
 }
 
-fn add_history(terminal: &TerminalReal, line: String) {
-    terminal.interface.add_history(line)
+impl TerminalReal {
+    pub fn new(interface: Box<dyn InterfaceWrapper>) -> Self {
+        Self { interface }
+    }
+
+    fn process_command_line(&self, line: String) -> TerminalEvent {
+        self.add_history(line.clone());
+        let args = split_quoted_line(line);
+        TerminalEvent::CommandLine(args)
+    }
+
+    fn make_prompt_vanish(&self) {
+        self.interface
+            .set_prompt("")
+            .expect("unsetting the prompt failed");
+        self.interface
+            .set_buffer("")
+            .expect("clearing the buffer failed");
+    }
+
+    fn add_history(&self, line: String) {
+        self.interface.add_history(line)
+    }
+
+    fn dispatch_error_msg<E: Error>(error: E) -> TerminalEvent {
+        TerminalEvent::Error(Some(format!("Reading from the terminal: {}", error)))
+    }
 }
 
 fn split_quoted_line(input: String) -> Vec<String> {
@@ -89,140 +133,17 @@ fn split_quoted_line(input: String) -> Vec<String> {
     pieces
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-//utils for integration tests run in the interactive mode
-
-pub struct IntegrationTestTerminal {
-    lock: Arc<Mutex<()>>,
-    stdin: Arc<Mutex<Box<dyn Read + Send>>>,
-    stdout: Arc<Mutex<Box<dyn Write + Send>>>,
+pub fn split_quoted_line_for_fake_terminals_in_tests(input: String) -> Vec<String> {
+    split_quoted_line(input)
 }
-
-impl Default for IntegrationTestTerminal {
-    fn default() -> Self {
-        IntegrationTestTerminal {
-            lock: Arc::new(Mutex::new(())),
-            stdin: Arc::new(Mutex::new(Box::new(stdin()))),
-            stdout: Arc::new(Mutex::new(Box::new(stdout()))),
-        }
-    }
-}
-
-impl MasqTerminal for IntegrationTestTerminal {
-    fn read_line(&self) -> TerminalEvent {
-        let mut buffer = [0; 1024];
-        let number_of_bytes = self
-            .stdin
-            .lock()
-            .expect("poisoned mutex")
-            .read(&mut buffer)
-            .expect("reading failed");
-        let _lock = self
-            .lock
-            .lock()
-            .expect("poisoned mutex in IntegrationTestTerminal: lock");
-        short_writeln!(
-            self.stdout
-                .lock()
-                .expect("poisoned mutex in IntegrationTestTerminal: stdout"),
-            "{}",
-            MASQ_PROMPT
-        );
-        drop(_lock);
-        let finalized_command_line = std::str::from_utf8(&buffer[..number_of_bytes])
-            .expect("conversion into str failed")
-            .to_string();
-        TerminalEvent::CommandLine(split_quoted_line(finalized_command_line))
-    }
-
-    fn lock(&self) -> Box<dyn WriterLock + '_> {
-        Box::new(IntegrationTestWriter {
-            mutex_guard_simulating_locking: self.lock.lock().expect("providing MutexGuard failed"),
-        })
-    }
-}
-
-struct IntegrationTestWriter<'a> {
-    #[allow(dead_code)]
-    mutex_guard_simulating_locking: MutexGuard<'a, ()>,
-}
-
-impl WriterLock for IntegrationTestWriter<'_> {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terminal_interface::TerminalWrapper;
-    use crate::test_utils::mocks::{InterfaceRawMock, StdoutBlender};
-    use crossbeam_channel::{bounded, unbounded};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayReader;
+    use crate::test_utils::mocks::{InterfaceRawMock, WriterInactive};
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::io::ErrorKind;
     use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
-
-    #[test]
-    fn integration_test_terminal_provides_functional_synchronization() {
-        let (tx_cb, rx_cb) = unbounded();
-        let mut terminal_interface = IntegrationTestTerminal::default();
-        terminal_interface.stdin =
-            Arc::new(Mutex::new(Box::new(ByteArrayReader::new(b"Some command"))));
-        terminal_interface.stdout =
-            Arc::new(Mutex::new(Box::new(StdoutBlender::new(tx_cb.clone()))));
-        let terminal = TerminalWrapper::new(Box::new(terminal_interface));
-        let mut terminal_clone = terminal.clone();
-        let (tx, rx) = bounded(1);
-        let handle = thread::spawn(move || {
-            let mut background_thread_stdout = StdoutBlender::new(tx_cb);
-            tx.send(()).unwrap();
-            (0..3).for_each(|_| {
-                write_one_cycle(&mut background_thread_stdout, &mut terminal_clone);
-                thread::sleep(Duration::from_millis(1))
-            })
-        });
-        rx.recv().unwrap();
-        thread::sleep(Duration::from_millis(5));
-        let quite_irrelevant = terminal.read_line();
-
-        handle.join().unwrap();
-
-        assert_eq!(
-            quite_irrelevant,
-            TerminalEvent::CommandLine(vec!["Some".to_string(), ("command").to_string()])
-        );
-        let mut written_in_a_whole = String::new();
-        loop {
-            match rx_cb.try_recv() {
-                Ok(string) => written_in_a_whole.push_str(&string),
-                Err(_) => break,
-            }
-        }
-        assert!(!written_in_a_whole.starts_with("mas"));
-        assert!(!written_in_a_whole.ends_with("asq> \n"));
-        assert_eq!(written_in_a_whole.len(), 97);
-        let filtered_string = written_in_a_whole.replace("012345678910111213141516171819", "");
-        assert_eq!(filtered_string, "masq> \n");
-    }
-
-    fn write_one_cycle(stdout: &mut StdoutBlender, interface: &mut TerminalWrapper) {
-        let _lock = interface.lock();
-        (0..20).for_each(|num: u8| {
-            stdout.write(num.to_string().as_bytes()).unwrap();
-            thread::sleep(Duration::from_millis(1))
-        })
-    }
-
-    #[test]
-    fn read_line_works_when_eof_is_hit() {
-        let subject = TerminalReal::new(Box::new(
-            InterfaceRawMock::new().read_line_result(Ok(ReadResult::Eof)),
-        ));
-
-        let result = subject.read_line();
-
-        assert_eq!(result, TerminalEvent::CLBreak);
-    }
 
     #[test]
     fn read_line_works_when_signal_interrupted_is_hit() {
@@ -232,7 +153,7 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::CLBreak);
+        assert_eq!(result, TerminalEvent::Break);
     }
 
     #[test]
@@ -243,16 +164,16 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::CLBreak);
+        assert_eq!(result, TerminalEvent::Break);
     }
 
     #[test]
-    fn read_line_works_when_a_valid_string_line_comes_from_the_terminal() {
+    fn read_line_works_when_a_valid_string_comes_from_the_command_line() {
         let add_history_unique_params_arc = Arc::new(Mutex::new(vec![]));
         let subject = TerminalReal::new(Box::new(
             InterfaceRawMock::new()
                 .read_line_result(Ok(ReadResult::Input("setup --ip 4.4.4.4".to_string())))
-                .add_history_unique_params(add_history_unique_params_arc.clone()),
+                .add_history_unique_params(&add_history_unique_params_arc),
         ));
 
         let result = subject.read_line();
@@ -281,7 +202,7 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::CLBreak)
+        assert_eq!(result, TerminalEvent::Break)
     }
 
     #[test]
@@ -292,7 +213,7 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::CLBreak)
+        assert_eq!(result, TerminalEvent::Break)
     }
 
     #[test]
@@ -303,7 +224,7 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::CLContinue);
+        assert_eq!(result, TerminalEvent::Continue);
     }
 
     #[test]
@@ -314,7 +235,7 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::CLContinue);
+        assert_eq!(result, TerminalEvent::Continue);
     }
 
     #[test]
@@ -328,10 +249,70 @@ mod tests {
 
         assert_eq!(
             result,
-            TerminalEvent::CLError(Some(
+            TerminalEvent::Error(Some(
                 "Reading from the terminal: invalid input parameter".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn read_line_responds_well_to_end_of_file() {
+        let subject = TerminalReal::new(Box::new(
+            InterfaceRawMock::new().read_line_result(Ok(ReadResult::Eof)),
+        ));
+
+        let result = subject.read_line();
+
+        assert_eq!(result, TerminalEvent::EoF);
+    }
+
+    #[test]
+    //unfortunately, I haven't been able to write a stronger test for this
+    fn lock_without_prompt_utilizes_inner_components_properly() {
+        let set_buffer_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_prompt_params_arc = Arc::new(Mutex::new(vec![]));
+        let terminal = InterfaceRawMock::default()
+            .set_buffer_params(&set_buffer_params_arc)
+            .set_buffer_result(Ok(()))
+            .set_prompt_params(&set_prompt_params_arc)
+            .set_prompt_result(Ok(()))
+            .get_buffer_result("my once opened writing".to_string())
+            .lock_writer_append_result(Ok(Box::new(WriterInactive {})));
+        let subject = TerminalReal::new(Box::new(terminal));
+        let mut streams_holder = FakeStreamHolder::default();
+        let mut streams = streams_holder.streams();
+
+        let _ = subject.lock_without_prompt(&mut streams, false);
+
+        assert_eq!(
+            streams_holder.stdout.get_string(),
+            "masq> my once opened writing\n".to_string()
+        );
+        assert!(streams_holder.stderr.get_string().is_empty());
+        let set_buffer_params = set_buffer_params_arc.lock().unwrap();
+        assert_eq!(*set_buffer_params, vec!["".to_string()]);
+        let set_prompt_params = set_prompt_params_arc.lock().unwrap();
+        assert_eq!(*set_prompt_params, vec!["".to_string()])
+    }
+
+    #[test]
+    fn lock_without_prompt_writes_in_stderr_if_specified_so() {
+        let terminal = InterfaceRawMock::default()
+            .set_prompt_result(Ok(()))
+            .set_buffer_result(Ok(()))
+            .get_buffer_result("my once opened writing".to_string())
+            .lock_writer_append_result(Ok(Box::new(WriterInactive {})));
+        let subject = TerminalReal::new(Box::new(terminal));
+        let mut streams_holder = FakeStreamHolder::default();
+        let mut streams = streams_holder.streams();
+
+        let _ = subject.lock_without_prompt(&mut streams, true);
+
+        assert!(streams_holder.stdout.get_string().is_empty());
+        assert_eq!(
+            streams_holder.stderr.get_string(),
+            "masq> my once opened writing\n".to_string()
+        )
     }
 
     #[test]

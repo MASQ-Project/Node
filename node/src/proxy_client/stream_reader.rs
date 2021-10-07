@@ -7,8 +7,8 @@ use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::utils;
 use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
+use crossbeam_channel::Sender;
 use std::net::SocketAddr;
-use std::sync::mpsc::Sender;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
@@ -124,11 +124,11 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use actix::System;
+    use crossbeam_channel::unbounded;
     use std::io::Error;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::sync::mpsc;
     use std::thread;
 
     #[test]
@@ -159,7 +159,7 @@ mod tests {
             (vec![], Ok(Async::Ready(0))),
         ];
 
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -170,7 +170,7 @@ mod tests {
         });
 
         let proxy_client_sub = rx.recv().unwrap();
-        let (stream_killer, stream_killer_params) = mpsc::channel();
+        let (stream_killer, stream_killer_params) = unbounded();
         let mut subject = StreamReader {
             stream_key: make_meaningless_stream_key(),
             proxy_client_sub,
@@ -240,7 +240,7 @@ mod tests {
             ),
             (vec![], Err(Error::from(ErrorKind::BrokenPipe))),
         ];
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -250,7 +250,7 @@ mod tests {
             system.run();
         });
         let proxy_client_sub = rx.recv().unwrap();
-        let (stream_killer, stream_killer_params) = mpsc::channel();
+        let (stream_killer, stream_killer_params) = unbounded();
         let mut subject = StreamReader {
             stream_key: make_meaningless_stream_key(),
             proxy_client_sub,
@@ -308,7 +308,7 @@ mod tests {
     fn receiving_0_bytes_kills_stream() {
         init_test_logging();
         let stream_key = make_meaningless_stream_key();
-        let (stream_killer, kill_stream_params) = mpsc::channel();
+        let (stream_killer, kill_stream_params) = unbounded();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec![(vec![], Ok(Async::Ready(0)))];
 
@@ -343,7 +343,7 @@ mod tests {
         init_test_logging();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
-        let (stream_killer, _) = mpsc::channel();
+        let (stream_killer, _) = unbounded();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec![
             (vec![], Err(Error::from(ErrorKind::Other))),
@@ -354,7 +354,7 @@ mod tests {
             (vec![], Err(Error::from(ErrorKind::BrokenPipe))),
         ];
 
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new("non_dead_stream_read_errors_log_but_do_not_shut_down");
@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(result, Err(()));
         proxy_client_awaiter.await_message_count(1);
         TestLogHandler::new().exists_log_containing(
-            "WARN: test: Continuing after read error on stream from 6.5.4.1:8325: other os error",
+            "WARN: test: Continuing after read error on stream from 6.5.4.1:8325: other error",
         );
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
