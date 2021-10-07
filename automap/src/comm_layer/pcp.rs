@@ -2,7 +2,7 @@
 
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig,
-    UdpSocketFactory, UdpSocketFactoryReal, UdpSocketWrapper, CHANGE_HANDLER_PORT,
+    UdpSocketWrapperFactory, UdpSocketFactoryReal, UdpSocketWrapper, ANNOUNCEMENT_PORT,
     READ_TIMEOUT_MILLIS, ROUTER_PORT,
 };
 use crate::comm_layer::{
@@ -25,7 +25,7 @@ use std::any::Any;
 use std::convert::TryFrom;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use std::{io, thread};
@@ -51,7 +51,7 @@ impl MappingNonceFactoryReal {
 }
 
 struct Factories {
-    socket_factory: Box<dyn UdpSocketFactory>,
+    socket_factory: Box<dyn UdpSocketWrapperFactory>,
     local_ip_finder: Box<dyn LocalIpFinder>,
     mapping_nonce_factory: Box<dyn MappingNonceFactory>,
     free_port_factory: Box<dyn FreePortFactory>,
@@ -94,17 +94,17 @@ impl Transactor for PcpTransactor {
             self.logger,
             "Seeking public IP from router at {}", router_ip
         );
-        let inner = self
-            .inner_arc
-            .lock()
-            .expect("PCP Housekeeping Thread is dead");
+        let inner = self.inner();
         Ok(inner
             .mapping_transactor
-            .mapping_transaction(
+            .transact(
                 &inner.factories,
                 SocketAddr::new(router_ip, self.router_port),
                 &mut MappingConfig {
-                    hole_port: 0x0009,
+                    // We have to have something here. Its value doesn't really matter, as long as
+                    // it's not a port somebody else has mapped so that we don't accidentally
+                    // delete (lifetime is zero) their mapping. Documentation suggests 9.
+                    hole_port: 9,
                     next_lifetime: Duration::from_secs(0),
                     remap_interval: Duration::from_secs(0),
                 },
@@ -126,10 +126,7 @@ impl Transactor for PcpTransactor {
             router_ip,
             lifetime
         );
-        let inner = self
-            .inner_arc
-            .lock()
-            .expect("PCP Housekeeping Thread is dead");
+        let inner = self.inner();
         let mut mapping_config = MappingConfig {
             hole_port,
             next_lifetime: Duration::from_secs(lifetime as u64),
@@ -137,7 +134,7 @@ impl Transactor for PcpTransactor {
         };
         let approved_lifetime = inner
             .mapping_transactor
-            .mapping_transaction(
+            .transact(
                 &inner.factories,
                 SocketAddr::new(router_ip, self.router_port),
                 &mut mapping_config,
@@ -149,7 +146,7 @@ impl Transactor for PcpTransactor {
             .try_send(HousekeepingThreadCommand::InitializeMappingConfig(
                 mapping_config,
             ))
-            .unwrap();
+            .expect("Housekeepig thread panicked");
         Ok(approved_lifetime / 2)
     }
 
@@ -166,13 +163,10 @@ impl Transactor for PcpTransactor {
             self.logger,
             "Deleting mapping of port {} through router at {}", hole_port, router_ip
         );
-        let inner = self
-            .inner_arc
-            .lock()
-            .expect("PCP Housekeeping Thread is dead");
+        let inner = self.inner();
         inner
             .mapping_transactor
-            .mapping_transaction(
+            .transact(
                 &inner.factories,
                 SocketAddr::new(router_ip, self.router_port),
                 &mut MappingConfig {
@@ -200,25 +194,7 @@ impl Transactor for PcpTransactor {
         if let Some(_change_handler_stopper) = &self.housekeeper_commander_opt {
             return Err(AutomapError::HousekeeperAlreadyRunning);
         }
-        let ip_addr = IpAddr::V4(Ipv4Addr::new(224, 0, 0, 1));
-        let socket_addr = SocketAddr::new(ip_addr, self.listen_port);
-        let socket_result = {
-            let factories = &self
-                .inner_arc
-                .lock()
-                .expect("Automap is poisoned!")
-                .factories;
-            factories.socket_factory.make(socket_addr)
-        };
-        let socket = match socket_result {
-            Ok(s) => s,
-            Err(e) => {
-                return Err(AutomapError::SocketBindingError(
-                    format!("{:?}", e),
-                    socket_addr,
-                ))
-            }
-        };
+        let socket = self.make_announcement_socket()?;
         let (tx, rx) = unbounded();
         self.housekeeper_commander_opt = Some(tx.clone());
         let inner_arc = self.inner_arc.clone();
@@ -283,7 +259,7 @@ impl Default for PcpTransactor {
                 factories: Factories::default(),
             })),
             router_port: ROUTER_PORT,
-            listen_port: CHANGE_HANDLER_PORT,
+            listen_port: ANNOUNCEMENT_PORT,
             housekeeper_commander_opt: None,
             join_handle_opt: None,
             read_timeout_millis: READ_TIMEOUT_MILLIS,
@@ -293,6 +269,32 @@ impl Default for PcpTransactor {
 }
 
 impl PcpTransactor {
+    fn inner(&self) -> MutexGuard<PcpTransactorInner> {
+        self
+            .inner_arc
+            .lock()
+            .expect("PCP Housekeeping Thread is dead")
+    }
+
+    fn make_announcement_socket(&mut self) -> Result<Box<dyn UdpSocketWrapper>, AutomapError> {
+        let ip_addr = IpAddr::V4(Ipv4Addr::new(224, 0, 0, 1));
+        let socket_addr = SocketAddr::new(ip_addr, self.listen_port);
+        let socket_result = {
+            let factories = &self.inner().factories;
+            factories.socket_factory.make(socket_addr)
+        };
+        let socket = match socket_result {
+            Ok(s) => s,
+            Err(e) => {
+                return Err(AutomapError::SocketBindingError(
+                    format!("{:?}", e),
+                    socket_addr,
+                ))
+            }
+        };
+        Ok(socket)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn thread_guts(
         announcement_socket: &dyn UdpSocketWrapper,
@@ -364,8 +366,7 @@ impl PcpTransactor {
                     }
                 }
                 Err(e)
-                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => {
-                }
+                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
                 Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
             }
             let since_last_remapped = last_remapped.elapsed();
@@ -408,7 +409,7 @@ impl PcpTransactor {
         mapping_config.next_lifetime = Duration::from_secs(requested_lifetime_secs as u64);
         Ok(inner
             .mapping_transactor
-            .mapping_transaction(&inner.factories, router_addr, mapping_config)?
+            .transact(&inner.factories, router_addr, mapping_config)?
             .0)
     }
 
@@ -420,7 +421,7 @@ impl PcpTransactor {
         logger: &Logger,
     ) {
         let mut local_mapping_config = MappingConfig {
-            hole_port: 0x0009,
+            hole_port: 9, // meaningless port suggested in PCP RFC document
             next_lifetime: Duration::from_secs(0),
             remap_interval: Duration::from_secs(0),
         };
@@ -428,7 +429,7 @@ impl PcpTransactor {
             Some(mc) => mc,
             None => &mut local_mapping_config,
         };
-        match inner.mapping_transactor.mapping_transaction(
+        match inner.mapping_transactor.transact(
             &inner.factories,
             router_addr,
             mapping_config,
@@ -453,7 +454,7 @@ impl PcpTransactor {
 }
 
 trait MappingTransactor: Send {
-    fn mapping_transaction(
+    fn transact(
         &self,
         factories: &Factories,
         router_addr: SocketAddr,
@@ -466,7 +467,7 @@ struct MappingTransactorReal {
 }
 
 impl MappingTransactor for MappingTransactorReal {
-    fn mapping_transaction(
+    fn transact(
         &self,
         factories: &Factories,
         router_addr: SocketAddr,
@@ -506,7 +507,7 @@ impl MappingTransactor for MappingTransactorReal {
             Err(e) => {
                 warning!(
                     self.logger,
-                    "Error connecting to router at {}: \"{:?}\"",
+                    "Error while connecting to router at {}: \"{:?}\"",
                     socket_addr,
                     e
                 );
@@ -524,7 +525,7 @@ impl MappingTransactor for MappingTransactorReal {
             Err(e) => {
                 warning!(
                     self.logger,
-                    "Error transmitting to router at {}: \"{:?}\"",
+                    "Error while transmitting to router at {}: \"{:?}\"",
                     router_addr,
                     e
                 );
@@ -539,7 +540,7 @@ impl MappingTransactor for MappingTransactorReal {
                 Err(e) => {
                     warning!(
                         self.logger,
-                        "Error parsing packet from router at {}: \"{:?}\"",
+                        "Error while parsing packet from router at {}: \"{:?}\"",
                         router_addr,
                         e
                     );
@@ -554,7 +555,7 @@ impl MappingTransactor for MappingTransactorReal {
             Err(e) => {
                 warning!(
                     self.logger,
-                    "Error receiving from router at {}: \"{:?}\"",
+                    "Error while receiving from router at {}: \"{:?}\"",
                     router_addr,
                     e
                 );
@@ -658,9 +659,6 @@ impl MappingTransactorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::mocks::{
-        FreePortFactoryMock, UdpSocketFactoryMock, UdpSocketMock,
-    };
     use crate::comm_layer::pcp_pmp_common::ROUTER_PORT;
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
@@ -678,7 +676,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
-    use crate::mocks::LocalIpFinderMock;
+    use crate::mocks::{LocalIpFinderMock, UdpSocketWrapperFactoryMock, FreePortFactoryMock, UdpSocketWrapperMock};
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -704,49 +702,49 @@ mod tests {
     }
 
     struct MappingTransactorMock {
-        mapping_transaction_params: Arc<Mutex<Vec<(*const (), SocketAddr, MappingConfig)>>>,
-        mapping_transaction_results: RefCell<Vec<Result<(u32, MapOpcodeData), AutomapError>>>,
+        transact_params: Arc<Mutex<Vec<(*const (), SocketAddr, MappingConfig)>>>,
+        transact_results: RefCell<Vec<Result<(u32, MapOpcodeData), AutomapError>>>,
     }
 
     unsafe impl Send for MappingTransactorMock {}
 
     impl MappingTransactor for MappingTransactorMock {
-        fn mapping_transaction(
+        fn transact(
             &self,
             factories: &Factories,
             router_addr: SocketAddr,
             mapping_config: &mut MappingConfig,
         ) -> Result<(u32, MapOpcodeData), AutomapError> {
-            self.mapping_transaction_params.lock().unwrap().push((
+            self.transact_params.lock().unwrap().push((
                 addr_of!(*factories) as *const (),
                 router_addr,
                 mapping_config.clone(),
             ));
-            self.mapping_transaction_results.borrow_mut().remove(0)
+            self.transact_results.borrow_mut().remove(0)
         }
     }
 
     impl MappingTransactorMock {
         fn new() -> Self {
             Self {
-                mapping_transaction_params: Arc::new(Mutex::new(vec![])),
-                mapping_transaction_results: RefCell::new(vec![]),
+                transact_params: Arc::new(Mutex::new(vec![])),
+                transact_results: RefCell::new(vec![]),
             }
         }
 
-        fn mapping_transaction_params(
+        fn transact_params(
             mut self,
             params: &Arc<Mutex<Vec<(*const (), SocketAddr, MappingConfig)>>>,
         ) -> Self {
-            self.mapping_transaction_params = params.clone();
+            self.transact_params = params.clone();
             self
         }
 
-        fn mapping_transaction_result(
+        fn transact_result(
             self,
             result: Result<(u32, MapOpcodeData), AutomapError>,
         ) -> Self {
-            self.mapping_transaction_results.borrow_mut().push(result);
+            self.transact_results.borrow_mut().push(result);
             self
         }
     }
@@ -765,12 +763,16 @@ mod tests {
         let mut value_sets: Vec<HashSet<u8>> =
             (0..12).into_iter().map(|_| HashSet::new()).collect();
         let subject = MappingNonceFactoryReal::new();
+
+        // Generate ten nonces; collect all first bytes into one set, all second bytes into another, etc.
         for _ in 0..10 {
             let nonce = subject.make();
             for n in 0..12 {
                 value_sets[n].insert(nonce[n]);
             }
         }
+
+        // Make sure more than five different values were chosen for each byte
         for n in 0..12 {
             assert_eq!(
                 value_sets[n].len() > 5,
@@ -789,7 +791,7 @@ mod tests {
         let router_ip = IpAddr::from_str("192.168.0.255").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Err(io_error));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Err(io_error));
         let free_port_factory = FreePortFactoryMock::new().make_result(5566);
         let subject = MappingTransactorReal::default();
         let mut factories = Factories::default();
@@ -797,7 +799,7 @@ mod tests {
         factories.free_port_factory = Box::new(free_port_factory);
 
         let result = subject
-            .mapping_transaction(
+            .transact(
                 &factories,
                 SocketAddr::new(router_ip, ROUTER_PORT),
                 &mut MappingConfig {
@@ -818,7 +820,7 @@ mod tests {
             e => panic!("Expected SocketBindingError, got {:?}", e),
         }
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: PcpTransactor: Error connecting to router at 0.0.0.0:5566: {:?}",
+            "WARN: PcpTransactor: Error while connecting to router at 0.0.0.0:5566: {:?}",
             io_error_str
         ));
     }
@@ -829,15 +831,15 @@ mod tests {
         let router_ip = IpAddr::from_str("192.168.0.254").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Err(io_error));
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = MappingTransactorReal::default();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);
 
-        let result = subject.mapping_transaction(
+        let result = subject.transact(
             &factories,
             SocketAddr::new(router_ip, ROUTER_PORT),
             &mut MappingConfig {
@@ -854,7 +856,7 @@ mod tests {
             )))
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: PcpTransactor: Error transmitting to router at {}:5351: {:?}",
+            "WARN: PcpTransactor: Error while transmitting to router at {}:5351: {:?}",
             router_ip, io_error_str
         ));
     }
@@ -865,16 +867,16 @@ mod tests {
         let router_ip = IpAddr::from_str("192.168.0.253").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(Err(io_error), vec![]);
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = MappingTransactorReal::default();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);
 
-        let result = subject.mapping_transaction(
+        let result = subject.transact(
             &factories,
             SocketAddr::new(router_ip, ROUTER_PORT),
             &mut MappingConfig {
@@ -891,7 +893,7 @@ mod tests {
             ))
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: PcpTransactor: Error receiving from router at {}:5351: {:?}",
+            "WARN: PcpTransactor: Error while receiving from router at {}:5351: {:?}",
             router_ip, io_error_str
         ));
     }
@@ -900,16 +902,16 @@ mod tests {
     fn mapping_transaction_handles_packet_parse_error() {
         init_test_logging();
         let router_ip = IpAddr::from_str("192.168.0.252").unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(Ok((0, SocketAddr::new(router_ip, ROUTER_PORT))), vec![]);
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = MappingTransactorReal::default();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);
 
-        let result = subject.mapping_transaction(
+        let result = subject.transact(
             &factories,
             SocketAddr::new(router_ip, ROUTER_PORT),
             &mut MappingConfig {
@@ -926,7 +928,7 @@ mod tests {
             )))
         );
         TestLogHandler::new ().exists_log_containing(&format! (
-            "WARN: PcpTransactor: Error parsing packet from router at {}:5351: \"ShortBuffer(24, 0)\"",
+            "WARN: PcpTransactor: Error while parsing packet from router at {}:5351: \"ShortBuffer(24, 0)\"",
             router_ip
         ));
     }
@@ -938,19 +940,19 @@ mod tests {
         let mut buffer = [0u8; 1100];
         let packet = vanilla_request();
         let len = packet.marshal(&mut buffer).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(
                 Ok((len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 buffer[0..len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = MappingTransactorReal::default();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);
 
-        let result = subject.mapping_transaction(
+        let result = subject.transact(
             &factories,
             SocketAddr::new(router_ip, ROUTER_PORT),
             &mut MappingConfig {
@@ -980,19 +982,19 @@ mod tests {
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Other(127);
         let len = packet.marshal(&mut buffer).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(
                 Ok((len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 buffer[0..len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = MappingTransactorReal::default();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);
 
-        let result = subject.mapping_transaction(
+        let result = subject.transact(
             &factories,
             SocketAddr::new(router_ip, ROUTER_PORT),
             &mut MappingConfig {
@@ -1020,7 +1022,7 @@ mod tests {
 
         let result = subject.find_routers().unwrap();
 
-        assert_eq!(result.len(), 1)
+        assert! (result.len() > 0)
     }
 
     #[test]
@@ -1030,8 +1032,8 @@ mod tests {
         request_packet.opcode = Opcode::Map;
         request_packet.lifetime = 0;
         let mut opcode_data = vanilla_map_request();
-        opcode_data.internal_port = 0x0009;
-        opcode_data.external_port = 0x0009;
+        opcode_data.internal_port = 9;
+        opcode_data.external_port = 9;
         request_packet.opcode_data = opcode_data;
         let mut request = [0u8; 1100];
         let _request_len = request_packet.marshal(&mut request).unwrap();
@@ -1041,7 +1043,7 @@ mod tests {
         response_packet.opcode_data = vanilla_map_response();
         let mut response = [0u8; 1100];
         let response_len = response_packet.marshal(&mut response).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_params(&send_to_params_arc)
             .send_to_result(Ok(1000))
@@ -1052,7 +1054,7 @@ mod tests {
                 )),
                 response[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
         let subject = PcpTransactor::default();
@@ -1094,7 +1096,7 @@ mod tests {
         packet.opcode_data = vanilla_map_response();
         let mut response = [0u8; 1100];
         let response_len = packet.marshal(&mut response).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(
@@ -1104,7 +1106,7 @@ mod tests {
                 )),
                 response[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
         let subject = PcpTransactor::default();
@@ -1154,14 +1156,14 @@ mod tests {
     #[test]
     fn add_mapping_works() {
         let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
         let send_to_params_arc = Arc::new(Mutex::new(vec![]));
         let recv_from_params_arc = Arc::new(Mutex::new(vec![]));
         let mut packet = vanilla_request();
         packet.opcode = Opcode::Map;
         packet.lifetime = 10000;
         packet.opcode_data = vanilla_map_request();
-        let mut request = [0x00u8; 1100];
+        let mut request = [0u8; 1100];
         let request_len = packet.marshal(&mut request).unwrap();
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Map;
@@ -1169,8 +1171,8 @@ mod tests {
         packet.lifetime = 8000;
         let mut response = [0u8; 1100];
         let response_len = packet.marshal(&mut response).unwrap();
-        let socket = UdpSocketMock::new()
-            .set_read_timeout_params(&read_timeout_params_arc)
+        let socket = UdpSocketWrapperMock::new()
+            .set_read_timeout_params(&set_read_timeout_params_arc)
             .set_read_timeout_result(Ok(()))
             .send_to_params(&send_to_params_arc)
             .send_to_result(Ok(1000))
@@ -1182,7 +1184,7 @@ mod tests {
                 )),
                 response[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new()
+        let socket_factory = UdpSocketWrapperFactoryMock::new()
             .make_params(&make_params_arc)
             .make_result(Ok(socket));
         let nonce_factory =
@@ -1221,8 +1223,8 @@ mod tests {
                 34567
             ))]
         );
-        let read_timeout_params = read_timeout_params_arc.lock().unwrap();
-        assert_eq!(*read_timeout_params, vec![Some(Duration::from_secs(3))]);
+        let set_read_timeout_params = set_read_timeout_params_arc.lock().unwrap();
+        assert_eq!(*set_read_timeout_params, vec![Some(Duration::from_secs(3))]);
         let mut send_to_params = send_to_params_arc.lock().unwrap();
         let (actual_buf, actual_addr) = send_to_params.remove(0);
         assert_eq!(
@@ -1249,7 +1251,7 @@ mod tests {
         packet.opcode_data = opcode_data;
         let mut response = [0u8; 1100];
         let response_len = packet.marshal(&mut response).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(
@@ -1259,7 +1261,7 @@ mod tests {
                 )),
                 response[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
         let subject = PcpTransactor::default();
@@ -1289,14 +1291,14 @@ mod tests {
 
     #[test]
     fn delete_mapping_works() {
-        let read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
         let send_to_params_arc = Arc::new(Mutex::new(vec![]));
         let recv_from_params_arc = Arc::new(Mutex::new(vec![]));
         let mut packet = vanilla_request();
         packet.opcode = Opcode::Map;
         packet.lifetime = 0;
         packet.opcode_data = vanilla_map_request();
-        let mut request = [0x00u8; 1100];
+        let mut request = [0u8; 1100];
         let request_len = packet.marshal(&mut request).unwrap();
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Map;
@@ -1304,8 +1306,8 @@ mod tests {
         packet.opcode_data = vanilla_map_response();
         let mut response = [0u8; 1100];
         let response_len = packet.marshal(&mut response).unwrap();
-        let socket = UdpSocketMock::new()
-            .set_read_timeout_params(&read_timeout_params_arc)
+        let socket = UdpSocketWrapperMock::new()
+            .set_read_timeout_params(&set_read_timeout_params_arc)
             .set_read_timeout_result(Ok(()))
             .send_to_params(&send_to_params_arc)
             .send_to_result(Ok(1000))
@@ -1317,7 +1319,7 @@ mod tests {
                 )),
                 response[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
         let subject = PcpTransactor::default();
@@ -1330,8 +1332,8 @@ mod tests {
         let result = subject.delete_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666);
 
         assert_eq!(result, Ok(()));
-        let read_timeout_params = read_timeout_params_arc.lock().unwrap();
-        assert_eq!(*read_timeout_params, vec![Some(Duration::from_secs(3))]);
+        let set_read_timeout_params = set_read_timeout_params_arc.lock().unwrap();
+        assert_eq!(*set_read_timeout_params, vec![Some(Duration::from_secs(3))]);
         let send_to_params = send_to_params_arc.lock().unwrap();
         assert_eq!(
             *send_to_params,
@@ -1353,7 +1355,7 @@ mod tests {
         packet.opcode_data = vanilla_map_response();
         let mut response = [0u8; 1100];
         let response_len = packet.marshal(&mut response).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(
@@ -1363,7 +1365,7 @@ mod tests {
                 )),
                 response[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
         let subject = PcpTransactor::default();
@@ -1402,14 +1404,11 @@ mod tests {
             changes_arc_inner.lock().unwrap().push(change);
         };
 
-        subject
+        let commander = subject
             .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
-        subject
-            .housekeeper_commander_opt
-            .as_ref()
-            .unwrap()
+        commander
             .try_send(HousekeepingThreadCommand::InitializeMappingConfig(
                 mapping_config,
             ))
@@ -1516,7 +1515,7 @@ mod tests {
     }
 
     #[test]
-    fn start_change_handler_doesnt_work_if_change_handler_stopper_is_populated() {
+    fn start_housekeeping_thread_doesnt_work_if_change_handler_stopper_is_populated() {
         let mut subject = PcpTransactor::default();
         subject.housekeeper_commander_opt = Some(unbounded().0);
         let change_handler = move |_| {};
@@ -1604,12 +1603,12 @@ mod tests {
         init_test_logging();
         let (tx, rx) = unbounded();
         let socket: Box<dyn UdpSocketWrapper> = Box::new(
-            UdpSocketMock::new()
+            UdpSocketWrapperMock::new()
                 .set_read_timeout_result(Ok(()))
                 .recv_from_result(Err(io::Error::from(ErrorKind::TimedOut)), vec![]),
         );
         let socket_factory = Box::new(
-            UdpSocketFactoryMock::new(), // no results specified; demanding one will fail the test
+            UdpSocketWrapperFactoryMock::new(), // no results specified; demanding one will fail the test
         );
         let mut factories = Factories::default();
         factories.socket_factory = socket_factory;
@@ -1641,7 +1640,7 @@ mod tests {
             Logger::new("no_remap_test"),
         );
 
-        TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port 1234");
+        TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port");
     }
 
     #[test]
@@ -1654,7 +1653,7 @@ mod tests {
         let local_ip = IpAddr::from_str("192.168.0.100").unwrap();
         let local_ip_finder = Box::new(LocalIpFinderMock::new().find_result(Ok(local_ip)));
         let announcement_socket: Box<dyn UdpSocketWrapper> = Box::new(
-            UdpSocketMock::new()
+            UdpSocketWrapperMock::new()
                 .set_read_timeout_result(Ok(()))
                 .recv_from_result(Err(io::Error::from(ErrorKind::WouldBlock)), vec![]),
         );
@@ -1697,7 +1696,7 @@ mod tests {
         let mut incoming_packet_buf = [0u8; 100];
         let incoming_packet_len = incoming_packet.marshal(&mut incoming_packet_buf).unwrap();
         let mapping_socket_send_to_params_arc = Arc::new(Mutex::new(vec![]));
-        let mapping_socket = UdpSocketMock::new()
+        let mapping_socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_params(&mapping_socket_send_to_params_arc)
             .send_to_result(Ok(expected_outgoing_packet_length))
@@ -1708,7 +1707,7 @@ mod tests {
                 )),
                 incoming_packet_buf[0..incoming_packet_len].to_vec(),
             );
-        let socket_factory = Box::new(UdpSocketFactoryMock::new().make_result(Ok(mapping_socket)));
+        let socket_factory = Box::new(UdpSocketWrapperFactoryMock::new().make_result(Ok(mapping_socket)));
         let mut factories = Factories::default();
         factories.mapping_nonce_factory = mapping_nonce_factory;
         factories.local_ip_finder = local_ip_finder;
@@ -1763,7 +1762,7 @@ mod tests {
         init_test_logging();
         let (tx, rx) = unbounded();
         let socket: Box<dyn UdpSocketWrapper> = Box::new(
-            UdpSocketMock::new()
+            UdpSocketWrapperMock::new()
                 .set_read_timeout_result(Ok(()))
                 .recv_from_result(Err(io::Error::from(ErrorKind::BrokenPipe)), vec![]),
         );
@@ -1803,7 +1802,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.1.1.1:1").unwrap();
         let (tx, rx) = unbounded();
         let socket: Box<dyn UdpSocketWrapper> = Box::new(
-            UdpSocketMock::new()
+            UdpSocketWrapperMock::new()
                 .set_read_timeout_result(Ok(()))
                 .recv_from_result(Ok((5, socket_addr)), b"booga".to_vec()),
         );
@@ -1842,12 +1841,12 @@ mod tests {
         init_test_logging();
         let (tx, rx) = unbounded();
         let socket: Box<dyn UdpSocketWrapper> = Box::new(
-            UdpSocketMock::new()
+            UdpSocketWrapperMock::new()
                 .set_read_timeout_result(Ok(()))
                 .recv_from_result(Err(std::io::Error::from(ErrorKind::WouldBlock)), vec![]),
         );
         let mapping_transactor =
-            Box::new(MappingTransactorMock::new().mapping_transaction_result(Err(
+            Box::new(MappingTransactorMock::new().transact_result(Err(
                 AutomapError::TemporaryMappingError("NoResources".to_string()),
             )));
         let logger = Logger::new(
@@ -1888,7 +1887,7 @@ mod tests {
         let mut announce_buf = [0u8; 100];
         let announce_packet_len = announce_packet.marshal(&mut announce_buf).unwrap();
         let socket: Box<dyn UdpSocketWrapper> = Box::new(
-            UdpSocketMock::new()
+            UdpSocketWrapperMock::new()
                 .set_read_timeout_result(Ok(()))
                 .recv_from_result(
                     Ok((
@@ -1906,7 +1905,7 @@ mod tests {
         });
         let mapping_transactor = Box::new(
             MappingTransactorMock::new()
-                .mapping_transaction_result(Ok((1111, *vanilla_map_response()))),
+                .transact_result(Ok((1111, *vanilla_map_response()))),
         );
         let logger = Logger::new(
             "thread_guts_logs_and_continues_if_announcement_is_received_before_mapping_config",
@@ -1945,15 +1944,14 @@ mod tests {
     #[test]
     fn thread_guts_complains_if_remapping_fails() {
         init_test_logging();
-        let socket_addr = SocketAddr::from_str("1.1.1.1:1").unwrap();
         let (tx, rx) = unbounded();
         let socket: Box<dyn UdpSocketWrapper> = Box::new(
-            UdpSocketMock::new()
+            UdpSocketWrapperMock::new()
                 .set_read_timeout_result(Ok(()))
-                .recv_from_result(Ok((5, socket_addr)), b"booga".to_vec()),
+                .recv_from_result(Err(io::Error::from (ErrorKind::TimedOut)), b"".to_vec())
         );
         let mapping_transactor =
-            Box::new(MappingTransactorMock::new().mapping_transaction_result(Err(
+            Box::new(MappingTransactorMock::new().transact_result(Err(
                 AutomapError::TemporaryMappingError("NoResources".to_string()),
             )));
         let change_opt_arc = Arc::new(Mutex::new(None));
@@ -2008,7 +2006,7 @@ mod tests {
         init_test_logging();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(
-            UdpSocketFactoryMock::new().make_result(Err(io::Error::from(ErrorKind::AlreadyExists))),
+            UdpSocketWrapperFactoryMock::new().make_result(Err(io::Error::from(ErrorKind::AlreadyExists))),
         );
         factories.free_port_factory = Box::new(FreePortFactoryMock::new().make_result(2345));
         let change_log_arc = Arc::new(Mutex::new(vec![]));
@@ -2050,8 +2048,8 @@ mod tests {
     fn remap_port_correctly_converts_lifetime_greater_than_one_second() {
         let mapping_transactor_params_arc = Arc::new(Mutex::new(vec![]));
         let mapping_transactor = MappingTransactorMock::new()
-            .mapping_transaction_params(&mapping_transactor_params_arc)
-            .mapping_transaction_result(Err(AutomapError::Unknown));
+            .transact_params(&mapping_transactor_params_arc)
+            .transact_result(Err(AutomapError::Unknown));
         let inner = PcpTransactorInner {
             mapping_transactor: Box::new(mapping_transactor),
             factories: Factories::default(),
@@ -2079,8 +2077,8 @@ mod tests {
     fn remap_port_correctly_converts_lifetime_less_than_one_second() {
         let mapping_transactor_params_arc = Arc::new(Mutex::new(vec![]));
         let mapping_transactor = MappingTransactorMock::new()
-            .mapping_transaction_params(&mapping_transactor_params_arc)
-            .mapping_transaction_result(Err(AutomapError::Unknown));
+            .transact_params(&mapping_transactor_params_arc)
+            .transact_result(Err(AutomapError::Unknown));
         let inner = PcpTransactorInner {
             mapping_transactor: Box::new(mapping_transactor),
             factories: Factories::default(),
@@ -2107,7 +2105,7 @@ mod tests {
 
     #[test]
     fn remap_port_handles_mapping_failure() {
-        let mapping_transactor = MappingTransactorMock::new().mapping_transaction_result(Err(
+        let mapping_transactor = MappingTransactorMock::new().transact_result(Err(
             AutomapError::PermanentMappingError("MalformedRequest".to_string()),
         ));
         let inner = PcpTransactorInner {

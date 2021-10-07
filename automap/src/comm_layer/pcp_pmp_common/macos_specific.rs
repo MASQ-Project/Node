@@ -45,6 +45,7 @@ mod tests {
     use super::*;
     use crate::comm_layer::pcp_pmp_common::mocks::FindRoutersCommandMock;
     use std::str::FromStr;
+    use std::collections::HashSet;
 
     #[test]
     fn find_routers_works_when_there_are_multiple_routers_to_find() {
@@ -118,17 +119,17 @@ destination: default
                 }
             })
             .map(|header| header.trim())
-            .collect::<Vec<&str>>();
+            .collect::<HashSet<&str>>();
         assert_eq!(
             lines,
-            vec![
+            HashSet::from(vec![
                 "route to",
                 "destination",
                 "mask",
                 "gateway",
                 "interface",
                 "flags"
-            ]
+            ])
         );
     }
 }

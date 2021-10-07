@@ -2,7 +2,7 @@
 
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig,
-    UdpSocketFactory, UdpSocketFactoryReal, UdpSocketWrapper, CHANGE_HANDLER_PORT,
+    UdpSocketWrapperFactory, UdpSocketFactoryReal, UdpSocketWrapper, ANNOUNCEMENT_PORT,
     READ_TIMEOUT_MILLIS, ROUTER_PORT,
 };
 use crate::comm_layer::{AutomapError, AutomapErrorCause, HousekeepingThreadCommand, Transactor};
@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 const PMP_READ_TIMEOUT_MS: u64 = 3000;
 
 struct Factories {
-    socket_factory: Box<dyn UdpSocketFactory>,
+    socket_factory: Box<dyn UdpSocketWrapperFactory>,
     free_port_factory: Box<dyn FreePortFactory>,
 }
 
@@ -247,7 +247,7 @@ impl Default for PmpTransactor {
             mapping_adder_arc: Arc::new(Mutex::new(Box::new(MappingAdderReal::default()))),
             factories_arc: Arc::new(Mutex::new(Factories::default())),
             router_port: ROUTER_PORT,
-            listen_port: CHANGE_HANDLER_PORT,
+            listen_port: ANNOUNCEMENT_PORT,
             housekeeper_commander_opt: None,
             read_timeout_millis: READ_TIMEOUT_MILLIS,
             join_handle_opt: None,
@@ -743,9 +743,6 @@ impl MappingAdder for MappingAdderReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::mocks::{
-        FreePortFactoryMock, UdpSocketFactoryMock, UdpSocketMock,
-    };
     use crate::comm_layer::pcp_pmp_common::{MappingConfig, UdpSocket};
     use crate::comm_layer::AutomapErrorCause;
     use crate::control_layer::automap_control::AutomapChange;
@@ -763,6 +760,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
+    use crate::mocks::{UdpSocketWrapperFactoryMock, UdpSocketWrapperMock, FreePortFactoryMock};
 
     struct MappingAdderMock {
         add_mapping_params: Arc<Mutex<Vec<(Arc<Mutex<Factories>>, SocketAddr, MappingConfig)>>>,
@@ -826,7 +824,7 @@ mod tests {
         let router_ip = IpAddr::from_str("192.168.0.255").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionReset);
         let io_error_str = format!("{:?}", io_error);
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Err(io_error));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Err(io_error));
         let subject = make_subject(socket_factory);
 
         let result = subject.get_public_ip(router_ip).err().unwrap();
@@ -850,10 +848,10 @@ mod tests {
         let router_ip = IpAddr::from_str("192.168.0.254").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionReset);
         let io_error_str = format!("{:?}", io_error);
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Err(io_error));
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = make_subject(socket_factory);
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
@@ -876,11 +874,11 @@ mod tests {
         let router_ip = IpAddr::from_str("192.168.0.253").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionReset);
         let io_error_str = format!("{:?}", io_error);
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(24))
             .recv_from_result(Err(io_error), vec![]);
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = make_subject(socket_factory);
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
@@ -901,11 +899,11 @@ mod tests {
     fn transact_handles_packet_parse_error() {
         init_test_logging();
         let router_ip = IpAddr::from_str("192.168.0.252").unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(24))
             .recv_from_result(Ok((0, SocketAddr::new(router_ip, ROUTER_PORT))), vec![]);
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = PmpTransactor::default();
         subject.factories_arc.lock().unwrap().socket_factory = Box::new(socket_factory);
 
@@ -938,7 +936,7 @@ mod tests {
         let router_ip = IpAddr::from_str("192.168.0.249").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Err(io_error));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Err(io_error));
         let free_port_factory = FreePortFactoryMock::new().make_result(5566);
         let subject = MappingAdderReal::default();
         let mut factories = Factories::default();
@@ -978,10 +976,10 @@ mod tests {
         let router_ip = IpAddr::from_str("192.168.0.248").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Err(io_error));
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = MappingAdderReal::default();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);
@@ -1014,11 +1012,11 @@ mod tests {
         let router_ip = IpAddr::from_str("192.168.0.247").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(Err(io_error), vec![]);
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = MappingAdderReal::default();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);
@@ -1049,11 +1047,11 @@ mod tests {
     fn add_mapping_handles_packet_parse_error() {
         init_test_logging();
         let router_ip = IpAddr::from_str("192.168.0.246").unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(Ok((0, SocketAddr::new(router_ip, ROUTER_PORT))), vec![]);
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = MappingAdderReal::default();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);
@@ -1087,14 +1085,14 @@ mod tests {
         let mut buffer = [0u8; 1100];
         let packet = make_request(Opcode::Other(127), Box::new(UnrecognizedData::new()));
         let len = packet.marshal(&mut buffer).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(
                 Ok((len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 buffer[0..len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = MappingAdderReal::default();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);
@@ -1133,14 +1131,14 @@ mod tests {
         );
         packet.opcode = Opcode::Other(127);
         let len = packet.marshal(&mut buffer).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(
                 Ok((len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 buffer[0..len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = MappingAdderReal::default();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);
@@ -1177,14 +1175,14 @@ mod tests {
             make_map_response(0, 6666, 1234),
         );
         let len = packet.marshal(&mut buffer).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(
                 Ok((len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 buffer[0..len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = MappingAdderReal::default();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);
@@ -1228,7 +1226,7 @@ mod tests {
         let set_read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
         let send_to_params_arc = Arc::new(Mutex::new(vec![]));
         let recv_from_params_arc = Arc::new(Mutex::new(vec![]));
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_params(&set_read_timeout_params_arc)
             .set_read_timeout_result(Ok(()))
             .send_to_params(&send_to_params_arc)
@@ -1238,7 +1236,7 @@ mod tests {
                 Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 response_buffer[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = make_subject(socket_factory);
 
         let result = subject.get_public_ip(router_ip);
@@ -1273,14 +1271,14 @@ mod tests {
         );
         response.result_code_opt = Some(ResultCode::OutOfResources);
         let response_len = response.marshal(&mut response_buffer).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(24))
             .recv_from_result(
                 Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 response_buffer[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = make_subject(socket_factory);
 
         let result = subject.get_public_ip(router_ip);
@@ -1309,8 +1307,8 @@ mod tests {
         let set_read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
         let send_to_params_arc = Arc::new(Mutex::new(vec![]));
         let recv_from_params_arc = Arc::new(Mutex::new(vec![]));
-        let announcement_socket = UdpSocketMock::new();
-        let main_socket = UdpSocketMock::new()
+        let announcement_socket = UdpSocketWrapperMock::new();
+        let main_socket = UdpSocketWrapperMock::new()
             .set_read_timeout_params(&set_read_timeout_params_arc)
             .set_read_timeout_result(Ok(()))
             .send_to_params(&send_to_params_arc)
@@ -1320,7 +1318,7 @@ mod tests {
                 Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 response_buffer[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new()
+        let socket_factory = UdpSocketWrapperFactoryMock::new()
             .make_result(Ok(announcement_socket))
             .make_result(Ok(main_socket));
         let mut subject = make_subject(socket_factory);
@@ -1360,14 +1358,14 @@ mod tests {
         );
         response.result_code_opt = Some(ResultCode::OutOfResources);
         let response_len = response.marshal(&mut response_buffer).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(24))
             .recv_from_result(
                 Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 response_buffer[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = make_subject(socket_factory);
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
@@ -1391,14 +1389,14 @@ mod tests {
         );
         response.result_code_opt = Some(ResultCode::UnsupportedOpcode);
         let response_len = response.marshal(&mut response_buffer).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(24))
             .recv_from_result(
                 Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 response_buffer[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = make_subject(socket_factory);
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
@@ -1451,8 +1449,8 @@ mod tests {
         let set_read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
         let send_to_params_arc = Arc::new(Mutex::new(vec![]));
         let recv_from_params_arc = Arc::new(Mutex::new(vec![]));
-        let announcement_socket = UdpSocketMock::new();
-        let main_socket = UdpSocketMock::new()
+        let announcement_socket = UdpSocketWrapperMock::new();
+        let main_socket = UdpSocketWrapperMock::new()
             .set_read_timeout_params(&set_read_timeout_params_arc)
             .set_read_timeout_result(Ok(()))
             .send_to_params(&send_to_params_arc)
@@ -1462,7 +1460,7 @@ mod tests {
                 Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 response_buffer[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new()
+        let socket_factory = UdpSocketWrapperFactoryMock::new()
             .make_result(Ok(announcement_socket))
             .make_result(Ok(main_socket));
         let mut subject = make_subject(socket_factory);
@@ -1760,7 +1758,7 @@ mod tests {
     fn thread_guts_does_not_remap_if_interval_does_not_run_out() {
         init_test_logging();
         let announcement_socket: Box<dyn UdpSocketWrapper> = Box::new(
-            UdpSocketMock::new()
+            UdpSocketWrapperMock::new()
                 .set_read_timeout_result(Ok(()))
                 .recv_from_result(Err(io::Error::from(ErrorKind::TimedOut)), vec![]),
         );
@@ -1808,7 +1806,7 @@ mod tests {
         let mut factories = Factories::default();
         factories.free_port_factory = Box::new(free_port_factory);
         let announcement_socket: Box<dyn UdpSocketWrapper> = Box::new(
-            UdpSocketMock::new()
+            UdpSocketWrapperMock::new()
                 .set_read_timeout_result(Ok(()))
                 .recv_from_result(Err(io::Error::from(ErrorKind::WouldBlock)), vec![]),
         );
@@ -1988,12 +1986,12 @@ mod tests {
     #[test]
     fn handle_announcement_processes_transaction_failure() {
         init_test_logging();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(100))
             .recv_from_result(Err(io::Error::from(ErrorKind::ConnectionReset)), vec![]);
         let factories = Factories {
-            socket_factory: Box::new(UdpSocketFactoryMock::new().make_result(Ok(socket))),
+            socket_factory: Box::new(UdpSocketWrapperFactoryMock::new().make_result(Ok(socket))),
             free_port_factory: Box::new(FreePortFactoryMock::new().make_result(1234)),
         };
         let change_handler_log_arc = Arc::new(Mutex::new(vec![]));
@@ -2035,12 +2033,12 @@ mod tests {
         packet.opcode_data = Box::new(MapOpcodeData::default());
         let mut buffer = [0u8; 100];
         let buflen = packet.marshal(&mut buffer).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(100))
             .recv_from_result(Ok((buflen, router_address)), buffer[0..buflen].to_vec());
         let factories = Factories {
-            socket_factory: Box::new(UdpSocketFactoryMock::new().make_result(Ok(socket))),
+            socket_factory: Box::new(UdpSocketWrapperFactoryMock::new().make_result(Ok(socket))),
             free_port_factory: Box::new(FreePortFactoryMock::new().make_result(1234)),
         };
         let change_handler_log_arc = Arc::new(Mutex::new(vec![]));
@@ -2074,12 +2072,12 @@ mod tests {
         packet.opcode_data = Box::new(MapOpcodeData::default());
         let mut buffer = [0u8; 100];
         let buflen = packet.marshal(&mut buffer).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(100))
             .recv_from_result(Ok((buflen, router_address)), buffer[0..buflen].to_vec());
         let factories = Factories {
-            socket_factory: Box::new(UdpSocketFactoryMock::new().make_result(Ok(socket))),
+            socket_factory: Box::new(UdpSocketWrapperFactoryMock::new().make_result(Ok(socket))),
             free_port_factory: Box::new(FreePortFactoryMock::new().make_result(1234)),
         };
         let change_handler_log_arc = Arc::new(Mutex::new(vec![]));
@@ -2123,12 +2121,12 @@ mod tests {
         packet.opcode_data = Box::new(MapOpcodeData::default());
         let mut buffer = [0u8; 100];
         let buflen = packet.marshal(&mut buffer).unwrap();
-        let socket = UdpSocketMock::new()
+        let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(100))
             .recv_from_result(Ok((buflen, router_address)), buffer[0..buflen].to_vec());
         let factories = Factories {
-            socket_factory: Box::new(UdpSocketFactoryMock::new().make_result(Ok(socket))),
+            socket_factory: Box::new(UdpSocketWrapperFactoryMock::new().make_result(Ok(socket))),
             free_port_factory: Box::new(FreePortFactoryMock::new().make_result(1234)),
         };
         let change_handler_log_arc = Arc::new(Mutex::new(vec![]));
@@ -2261,7 +2259,7 @@ mod tests {
         );
     }
 
-    fn make_subject(socket_factory: UdpSocketFactoryMock) -> PmpTransactor {
+    fn make_subject(socket_factory: UdpSocketWrapperFactoryMock) -> PmpTransactor {
         let mut subject = PmpTransactor::default();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);

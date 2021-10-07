@@ -41,8 +41,8 @@ impl LinuxFindRoutersCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::mocks::FindRoutersCommandMock;
     use std::str::FromStr;
+    use crate::mocks::FindRoutersCommandMock;
 
     #[test]
     fn find_routers_works_when_there_is_a_router_to_find() {
