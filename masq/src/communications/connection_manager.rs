@@ -25,7 +25,9 @@ use websocket::{ClientBuilder, WebSocketResult};
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
-pub const FALLBACK_TIMEOUT_MILLIS: u64 = 1000; //used to be 500; but we have suspicion that Actions doesn't make it and needs more
+//used to be 500 then 1000; but we have suspicion that Actions (Windows) doesn't make it and needs more;
+//the last attempt is exaggerated on purpose to find out if we ever can fix it by changing the time amount
+pub const FALLBACK_TIMEOUT_MILLIS: u64 = 60_000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutgoingMessageType {
@@ -433,12 +435,7 @@ impl ConnectionManagerThread {
         inner
     }
 
-    //TODO this is provisional, wanting to debug for "handle_startup_and_shutdown_integration"
-    #[track_caller]
     fn fallback(mut inner: CmsInner, termination: NodeConversationTermination) -> CmsInner {
-        if inner.closing_stage {
-            inner.active_port = None
-        }
         inner.node_port = None;
         match &inner.active_port {
             None => {
@@ -964,20 +961,6 @@ mod tests {
         assert_eq!(inner.daemon_port, unoccupied_port);
         assert_eq!(inner.active_port, None);
         assert_eq!(inner.node_port, None);
-    }
-
-    #[test]
-    fn fallback_avoid_panicking_at_closing_stage_by_setting_active_port_to_none() {
-        let mut inner = make_inner();
-        inner.daemon_port = 5432;
-        inner.active_port = Some(1234);
-        inner.node_port = Some(1234);
-
-        let inner = ConnectionManagerThread::handle_close(inner);
-
-        assert_eq!(inner.closing_stage, true);
-        assert_eq!(inner.active_port, None);
-        assert_eq!(inner.node_port, None)
     }
 
     #[test]
