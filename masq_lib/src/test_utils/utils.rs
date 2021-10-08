@@ -3,10 +3,10 @@
 use std::fs;
 use std::path::PathBuf;
 
-pub const TEST_DEFAULT_CHAIN_ID: u8 = 2;
+pub const TEST_DEFAULT_CHAIN_ID: u8 = 3;
 pub const TEST_DEFAULT_CHAIN_NAME: &str = "ropsten";
 pub const TEST_DEFAULT_PLATFORM: &str = "eth";
-pub const TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID: u8 = 4;
+pub const TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID: u8 = 5;
 pub const TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME: &str = "dev";
 pub const BASE_TEST_DIR: &str = "generated/test";
 

@@ -1,6 +1,0 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-
-pub const MAINNET_CONTRACT_CREATION_BLOCK: u64 = 9_415_932;
-pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
-pub const RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 5_893_771;
-pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;

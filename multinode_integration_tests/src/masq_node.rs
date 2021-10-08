@@ -110,12 +110,12 @@ impl NodeReference {
             Some(ip_addr) => NodeReference {
                 public_key,
                 node_addr_opt: Some(NodeAddr::new(&ip_addr, &ports)),
-                chain_id: chain_id,
+                chain_id,
             },
             None => NodeReference {
                 public_key,
                 node_addr_opt: None,
-                chain_id: chain_id,
+                chain_id,
             },
         }
     }

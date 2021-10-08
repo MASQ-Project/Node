@@ -877,8 +877,7 @@ mod tests {
             2u64,
         );
 
-        //TODO remove this comment: to my defence in the review, I replaced these strings because I believe that chain_id takes part in the signing process and because of changing the number the sign must look different now
-        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900027a0d0f4d1ca4d9504b0f7d68d05479123cb1c36f1e6b63e291f4d5198d4a3b5583ba040af5e2aea610e991180bc81b52f07305b39313935d2470721d44336cf27eb69""#)]);
+        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0b8e83e714af8bf1685b496912ee4aeff7007ba0f4c29ae50f513bc71ce6a18f4a06a923088306b4ee9cbfcdc62c9b396385f9b1c380134bf046d6c9ae47dea6578""#)]);
         transport.assert_no_more_requests();
         assert_eq!(result, Ok(H256::from_uint(&U256::from(1))));
     }

@@ -1,7 +1,4 @@
-use crate::constants::{
-    DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HIGHEST_USABLE_PORT,
-    LOWEST_USABLE_INSECURE_PORT,
-};
+use crate::constants::{DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT, DEFAULT_CHAIN_NAME};
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
 use lazy_static::lazy_static;

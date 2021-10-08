@@ -19,6 +19,11 @@ pub const ETH_ROPSTEN_LABEL: &str = "eth_t1";
 pub const ETH_RINKEBY_LABEL: &str = "eth_t2";
 pub const DEV_LABEL: &str = "dev";
 
+pub const MAINNET_CONTRACT_CREATION_BLOCK: u64 = 9_415_932;
+pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
+pub const RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 5_893_771;
+pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
+
 //error codes
 
 //moved from configurator

@@ -1,7 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchains::{
-    blockchain_from_label_opt, label_from_blockchain, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER,
-};
+use crate::blockchain::blockchains::{blockchain_from_label_opt, label_from_blockchain, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER, CHAINS};
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::configurator::NewPasswordMessage;
@@ -19,15 +17,14 @@ use actix::Message;
 use actix::Recipient;
 use core::fmt;
 use lazy_static::lazy_static;
-use masq_lib::constants::{
-    ETH_MAINNET_LABEL, ETH_RINKEBY_LABEL, ETH_ROPSTEN_LABEL, MASQ_URL_PREFIX,
-};
+use masq_lib::constants::{MASQ_URL_PREFIX};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
+use itertools::Itertools;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -119,20 +116,21 @@ impl NeighborhoodMode {
     }
 }
 
+//TODO for sake of optimization we could have our own impl of serde for Blockchain
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct NodeDescriptor {
+    pub blockchain: Blockchain,
+    pub encryption_public_key: PublicKey,
+    pub node_addr_opt: Option<NodeAddr>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum Blockchain {
     EthMainnet,
     EthRopsten,
     EthRinkeby,
     Dev,
-}
-
-//TODO for sake of optimization we could make our own impl of serde to blockchain
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct NodeDescriptor {
-    pub blockchain: Blockchain,
-    pub encryption_public_key: PublicKey,
-    pub node_addr_opt: Option<NodeAddr>,
 }
 
 impl From<(&PublicKey, &NodeAddr, Blockchain, &dyn CryptDE)> for NodeDescriptor {
@@ -182,7 +180,7 @@ impl From<(&NodeRecord, Blockchain, &dyn CryptDE)> for NodeDescriptor {
 
 impl NodeDescriptor {
     pub fn from_str(cryptde: &dyn CryptDE, str_descriptor: &str) -> Result<NodeDescriptor, String> {
-        let (blockchain, key, str_node_addr) = Self::try_dismantle_str(str_descriptor)?;
+        let (blockchain, key, str_node_addr) = Self::parse(str_descriptor)?;
         let encryption_public_key = cryptde.descriptor_fragment_to_first_contact_public_key(key)?;
         let node_addr_opt = if str_node_addr == ":" {
             None
@@ -195,45 +193,6 @@ impl NodeDescriptor {
             encryption_public_key,
             node_addr_opt,
         })
-    }
-
-    fn try_dismantle_str(str_descriptor: &str) -> Result<(Blockchain, &str, &str), String> {
-        let without_prefix = if let Some(str) = str_descriptor.strip_prefix(MASQ_URL_PREFIX) {
-            str
-        } else {
-            return Err(format!("Prefix or more missing. Should be 'masq://<chain label>.<public key>:<node address>', not '{}'",str_descriptor));
-        };
-        let halves: Vec<&str> = without_prefix.splitn(2, KEY_VS_IP_DELIMITER).collect();
-        if halves.len() == 1 {
-            return Err(format!("Central delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not '{}'",str_descriptor));
-        };
-        let first_half = halves[0];
-        let second_half = halves[1];
-        let blockchain_label = first_half
-            .splitn(2, CHAIN_LABEL_DELIMITER)
-            .collect::<Vec<&str>>()[0];
-        let blockchain = match blockchain_from_label_opt(blockchain_label) {
-            Some(bch) => bch,
-            _ => {
-                return Err(format!(
-                    "Chain label '{}' isn't valid; you can have only '{}', '{}', '{}' while formatted as 'masq://<chain label>.<public key>:<node address>'",
-                    blockchain_label,
-                    ETH_MAINNET_LABEL,
-                    ETH_ROPSTEN_LABEL,
-                    ETH_RINKEBY_LABEL
-                ))
-            }
-        };
-        let key_offset = blockchain_label.len() + 1;
-        if key_offset > first_half.len() {
-            return Err("Chain label delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not 'masq://dev.as45cs5c5/1.4.4.5:4545'".to_string());
-        }
-        let key = &first_half[key_offset..];
-        let regex = Regex::new(r"\d\.\d").expect("regex initialization failed"); //the ip address contains ':' too, could be confused with the central delimiter
-        if regex.is_match(key) {
-            return Err(format!("Central delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not '{}'",str_descriptor));
-        }
-        Ok((blockchain, key, second_half))
     }
 
     pub fn to_string(&self, cryptde: &dyn CryptDE) -> String {
@@ -257,7 +216,62 @@ impl NodeDescriptor {
             node_addr_string
         )
     }
+
+    fn parse(str_descriptor: &str) -> Result<(Blockchain, &str, &str), String> {
+        let without_prefix = if let Some(str) = str_descriptor.strip_prefix(MASQ_URL_PREFIX) {
+            str
+        } else {
+            return Err(DescriptorParsingError::PrefixMissing(str_descriptor).to_string());
+        };
+        let halves: Vec<&str> = without_prefix.splitn(2, KEY_VS_IP_DELIMITER).collect();
+        if halves.len() == 1 {
+            return Err(DescriptorParsingError::WrongCentralDelimiter(str_descriptor).to_string());
+        };
+        let first_half = halves[0];
+        let second_half = halves[1];
+        let blockchain_label = first_half
+            .splitn(2, CHAIN_LABEL_DELIMITER)
+            .collect::<Vec<&str>>()[0];
+        let blockchain = match blockchain_from_label_opt(blockchain_label) {
+            Some(bch) => bch,
+            _ => {
+                return Err(DescriptorParsingError::WrongChainLabel(blockchain_label).to_string())
+            }
+        };
+        let key_offset = blockchain_label.len() + 1;
+        if key_offset > first_half.len() {
+            return Err(DescriptorParsingError::WrongChainLabelDelimiter(str_descriptor).to_string());
+        }
+        let key = &first_half[key_offset..];
+        let regex = Regex::new(r"\d\.\d").expect("regex initialization failed"); //the ip address contains ':' too, could be confused with the central delimiter
+        if regex.is_match(key) {
+            return Err(DescriptorParsingError::WrongCentralDelimiter(str_descriptor).to_string());
+        }
+        Ok((blockchain, key, second_half))
+    }
 }
+
+enum DescriptorParsingError<'a>{
+    WrongCentralDelimiter(&'a str),
+    WrongChainLabelDelimiter(&'a str),
+    PrefixMissing(&'a str),
+    WrongChainLabel(&'a str)
+}
+
+impl Display for DescriptorParsingError<'_>{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self{
+            Self::WrongCentralDelimiter(descriptor) => write!(f,"Central delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not '{}'",descriptor),
+            Self::WrongChainLabelDelimiter(descriptor) => write!(f,"Chain label delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not '{}'",descriptor),
+            Self::PrefixMissing(descriptor) => write!(f,"Prefix or more missing. Should be 'masq://<chain label>.<public key>:<node address>', not '{}'",descriptor),
+            Self::WrongChainLabel(label) => write!(f,"Chain label '{}' isn't valid; you can have only '{}' while formatted as 'masq://<chain label>.<public key>:<node address>'",
+            label,
+            CHAINS.iter().map(|record|record.chain_label).filter(|label|*label != "dev").join(", ")
+            )
+        }
+    }
+}
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NeighborhoodConfig {
@@ -478,10 +492,10 @@ mod tests {
     }
 
     #[test]
-    fn try_dismantle_works_for_ethereum_mainnet() {
+    fn parse_works_for_ethereum_mainnet() {
         let descriptor = "masq://eth.as45cs5c5:1.2.3.4:4444";
 
-        let result = NodeDescriptor::try_dismantle_str(descriptor).unwrap();
+        let result = NodeDescriptor::parse(descriptor).unwrap();
 
         assert_eq!(
             result,
@@ -490,10 +504,10 @@ mod tests {
     }
 
     #[test]
-    fn try_dismantle_str_works_for_ethereum_testnet_ropsten() {
+    fn parse_works_for_ethereum_testnet_ropsten() {
         let descriptor = "masq://eth_t1.as45cs5c5:1.2.3.4:4444";
 
-        let result = NodeDescriptor::try_dismantle_str(descriptor).unwrap();
+        let result = NodeDescriptor::parse(descriptor).unwrap();
 
         assert_eq!(
             result,
@@ -502,10 +516,10 @@ mod tests {
     }
 
     #[test]
-    fn try_dismantle_str_works_for_ethereum_testnet_rinkeby() {
+    fn parse_works_for_ethereum_testnet_rinkeby() {
         let descriptor = "masq://eth_t2.as45cs5c5:1.2.3.4:4444";
 
-        let result = NodeDescriptor::try_dismantle_str(descriptor).unwrap();
+        let result = NodeDescriptor::parse(descriptor).unwrap();
 
         assert_eq!(
             result,
@@ -514,19 +528,19 @@ mod tests {
     }
 
     #[test]
-    fn try_dismantle_str_works_for_dev_chain() {
+    fn parse_works_for_dev_chain() {
         let descriptor = "masq://dev.as45cs5c5:1.2.3.4:4444";
 
-        let result = NodeDescriptor::try_dismantle_str(descriptor).unwrap();
+        let result = NodeDescriptor::parse(descriptor).unwrap();
 
         assert_eq!(result, (Blockchain::Dev, "as45cs5c5", "1.2.3.4:4444"))
     }
 
     #[test]
-    fn try_dismantle_str_complains_about_url_prefix_not_found() {
+    fn parse_complains_about_url_prefix_not_found() {
         let descriptor = "https://eth.as45cs5c5:1.2.3.4:4444";
 
-        let result = NodeDescriptor::try_dismantle_str(descriptor);
+        let result = NodeDescriptor::parse(descriptor);
 
         assert_eq!(
             result,
@@ -538,26 +552,26 @@ mod tests {
     }
 
     #[test]
-    fn try_dismantle_str_complains_about_unknown_chain_label() {
+    fn parse_complains_about_unknown_chain_label() {
         let descriptor = "masq://bitcoin.as45cs5c5:1.2.3.4:4444";
 
-        let result = NodeDescriptor::try_dismantle_str(descriptor);
+        let result = NodeDescriptor::parse(descriptor);
 
         assert_eq!(
             result,
             Err(
-                "Chain label 'bitcoin' isn't valid; you can have only 'eth', 'eth_t1', 'eth_t2' while formatted as 'masq://<chain label>.<public key>:<node address>'"
+                "Chain label 'bitcoin' isn't valid; you can have only 'eth, eth_t1, eth_t2' while formatted as 'masq://<chain label>.<public key>:<node address>'"
                     .to_string()
             )
         );
     }
 
     #[test]
-    fn try_dismantle_str_complains_about_str_which_it_does_not_know_how_to_halve_because_no_colons_at_all(
+    fn parse_complains_about_str_which_it_does_not_know_how_to_halve_because_no_colons_at_all(
     ) {
         let descriptor = "masq://dev.as45cs5c5/1.4.4.5;4545";
 
-        let result = NodeDescriptor::try_dismantle_str(descriptor);
+        let result = NodeDescriptor::parse(descriptor);
 
         assert_eq!(
             result,
@@ -566,11 +580,11 @@ mod tests {
     }
 
     #[test]
-    fn try_dismantle_str_complains_about_str_which_must_lack_the_central_colon_though_one_from_ip_addrs_was_falsely_taken(
+    fn parse_complains_about_str_which_must_lack_the_central_colon_though_one_from_ip_addrs_was_falsely_taken(
     ) {
         let descriptor = "masq://dev.as45cs5c5/1.4.4.5:4545";
 
-        let result = NodeDescriptor::try_dismantle_str(descriptor);
+        let result = NodeDescriptor::parse(descriptor);
 
         assert_eq!(
             result,
@@ -583,12 +597,21 @@ mod tests {
     ) {
         let descriptor = "masq://dev:as45cs5c5:1.4.4.5:4545";
 
-        let result = NodeDescriptor::try_dismantle_str(descriptor);
+        let result = NodeDescriptor::parse(descriptor);
 
         assert_eq!(
             result,
-            Err("Chain label delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not 'masq://dev.as45cs5c5/1.4.4.5:4545'".to_string())
+            Err("Chain label delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not 'masq://dev:as45cs5c5:1.4.4.5:4545'".to_string())
         );
+    }
+
+    #[test]
+    fn wrong_chain_label_error_does_not_mention_dev_chain(){
+        assert!(CHAINS.iter().find(|record|record.chain_label == "dev").is_some());
+
+        let result = DescriptorParsingError::WrongChainLabel("blah").to_string();
+
+        assert_eq!(result, "Chain label 'blah' isn't valid; you can have only 'eth, eth_t1, eth_t2' while formatted as 'masq://<chain label>.<public key>:<node address>'")
     }
 
     #[test]
