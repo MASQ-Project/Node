@@ -279,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     fn new_handles_linux_root_home_directory() {
         let _guard = EnvironmentGuard::new();
         std::env::set_var("SUDO_USER", "username");
@@ -291,14 +291,14 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     fn new_handles_macos_root_home_directory() {
         let _guard = EnvironmentGuard::new();
         std::env::set_var("SUDO_USER", "username");
         new_handles_home_directory(
             "/var/root",
             "standard/data/dir",
-            "/home/username/standard/data/dir/MASQ",
+            "/Users/username/standard/data/dir/MASQ",
         );
     }
 

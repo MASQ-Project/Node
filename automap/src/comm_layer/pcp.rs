@@ -3,7 +3,7 @@
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig,
     UdpSocketWrapperFactory, UdpSocketFactoryReal, UdpSocketWrapper, ANNOUNCEMENT_PORT,
-    READ_TIMEOUT_MILLIS, ROUTER_PORT,
+    ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
 };
 use crate::comm_layer::{
     AutomapError, AutomapErrorCause, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal,
@@ -262,7 +262,7 @@ impl Default for PcpTransactor {
             listen_port: ANNOUNCEMENT_PORT,
             housekeeper_commander_opt: None,
             join_handle_opt: None,
-            read_timeout_millis: READ_TIMEOUT_MILLIS,
+            read_timeout_millis: ANNOUNCEMENT_READ_TIMEOUT_MILLIS,
             logger: Logger::new("PcpTransactor"),
         }
     }

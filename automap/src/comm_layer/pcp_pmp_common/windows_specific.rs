@@ -37,14 +37,12 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
                             let ip_addr_maybe_with_scope_id = first_elements[2];
                             let ip_addr_str =
                                 ip_addr_maybe_with_scope_id.split('%').collect::<Vec<_>>()[0];
-                            match IpAddr::from_str(ip_addr_str) {
-                                Err(_) => panic!("Bad syntax from ipconfig /all"),
-                                Ok(addr) => Some(addr),
-                            }
+                            IpAddr::from_str(ip_addr_str)
+                                .map_err(|_| panic!("Bad syntax from ipconfig /all"))
                         }
                     },
                 )
-                .flat_map(|opt| opt)
+                .flatten()
                 .collect::<Vec<IpAddr>>();
             Ok(addresses)
         }
@@ -173,6 +171,7 @@ Ethernet adapter Ethernet 2:
 
     #[test]
     fn find_routers_works_on_another_specific_machine() {
+        // Several adapters without a Default Gateway, then one with
         let route_n_output = "
 Windows IP Configuration
 
@@ -224,6 +223,7 @@ Ethernet adapter Ethernet 2:
 
     #[test]
     fn find_routers_works_on_galactic_overlords_machine() {
+        // Default gateway has an IPv6 address followed by an IPv4 address
         let route_n_output = "
 Ethernet adapter Ethernet:
 
