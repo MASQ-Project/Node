@@ -366,7 +366,7 @@ impl ThreadGuts {
         }
     }
 
-    pub fn go (mut self) -> JoinHandle<ChangeHandler> {
+    pub fn go (self) -> JoinHandle<ChangeHandler> {
         thread::spawn(move || self.thread_guts())
     }
 
@@ -1865,79 +1865,103 @@ mod tests {
     //         "ERROR: maybe_remap_handles_remapping_error: Automatic PMP remapping failed for port 6689: ProtocolError(\"Booga\")"
     //     );
     // }
-    //
-    // #[test]
-    // fn parse_buffer_rejects_request_packet() {
-    //     init_test_logging();
-    //     let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
-    //     let mut packet = PmpPacket::default();
-    //     packet.opcode = Opcode::Get;
-    //     packet.direction = Direction::Request;
-    //     let mut buffer = [0u8; 100];
-    //     let buflen = packet.marshal(&mut buffer).unwrap();
-    //     let logger = Logger::new("PMPTransactor");
-    //
-    //     let result = PmpTransactor::parse_buffer(
-    //         &buffer[0..buflen],
-    //         SocketAddr::new(router_ip, 5351),
-    //         &logger,
-    //     );
-    //
-    //     let err_msg = "Unexpected PMP Get request (request!) from router at 4.3.2.1:5351: ignoring";
-    //     assert_eq!(
-    //         result,
-    //         Err(AutomapError::ProtocolError(err_msg.to_string()))
-    //     );
-    //     TestLogHandler::new().exists_log_containing(&format!("WARN: PMPTransactor: {}", err_msg));
-    // }
-    //
-    // #[test]
-    // fn parse_buffer_rejects_packet_other_than_get() {
-    //     init_test_logging();
-    //     let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
-    //     let mut packet = PmpPacket::default();
-    //     packet.opcode = Opcode::MapUdp;
-    //     packet.direction = Direction::Response;
-    //     packet.opcode_data = Box::new(MapOpcodeData::default());
-    //     let mut buffer = [0u8; 100];
-    //     let buflen = packet.marshal(&mut buffer).unwrap();
-    //     let logger = Logger::new("PMPTransactor");
-    //
-    //     let result = PmpTransactor::parse_buffer(
-    //         &buffer[0..buflen],
-    //         SocketAddr::new(router_ip, 5351),
-    //         &logger,
-    //     );
-    //
-    //     let err_msg =
-    //         "Unexpected PMP MapUdp response (instead of Get) from router at 4.3.2.1:5351: ignoring";
-    //     assert_eq!(
-    //         result,
-    //         Err(AutomapError::ProtocolError(err_msg.to_string()))
-    //     );
-    //     TestLogHandler::new().exists_log_containing(&format!("WARN: PMPTransactor: {}", err_msg));
-    // }
-    //
-    // #[test]
-    // fn parse_buffer_rejects_unparseable_packet() {
-    //     init_test_logging();
-    //     let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
-    //     let buffer = [0xFFu8; 100];
-    //     let logger = Logger::new("PMPTransactor");
-    //
-    //     let result = PmpTransactor::parse_buffer(
-    //         &buffer[0..2], // wayyy too short
-    //         SocketAddr::new(router_ip, 5351),
-    //         &logger,
-    //     );
-    //
-    //     let err_msg = "Unparseable packet from router at 4.3.2.1:5351: ignoring";
-    //     assert_eq!(
-    //         result,
-    //         Err(AutomapError::ProtocolError(err_msg.to_string()))
-    //     );
-    //     TestLogHandler::new().exists_log_containing(&format!("WARN: PMPTransactor: {}", err_msg));
-    // }
+
+    #[test]
+    fn parse_buffer_rejects_request_packet() {
+        init_test_logging();
+        let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
+        let mut packet = PmpPacket::default();
+        packet.opcode = Opcode::Get;
+        packet.direction = Direction::Request;
+        let mut buffer = [0u8; 100];
+        let buflen = packet.marshal(&mut buffer).unwrap();
+        let logger = Logger::new("parse_buffer_rejects_request_packet");
+        let transactor = PmpTransactor::new();
+        let mut subject = ThreadGuts::new (
+            &transactor,
+            router_ip,
+            Box::new (UdpSocketWrapperMock::new()),
+            Box::new (|_| ()),
+            unbounded().1,
+        );
+        subject.logger = logger;
+
+        let result = subject.parse_buffer(
+            &buffer[0..buflen],
+            SocketAddr::new(router_ip, 5351),
+        );
+
+        let err_msg = "Unexpected PMP Get request (request!) from router at 4.3.2.1:5351: ignoring";
+        assert_eq!(
+            result,
+            Err(AutomapError::ProtocolError(err_msg.to_string()))
+        );
+        TestLogHandler::new().exists_log_containing(&format!("WARN: parse_buffer_rejects_request_packet: {}", err_msg));
+    }
+
+    #[test]
+    fn parse_buffer_rejects_packet_other_than_get() {
+        init_test_logging();
+        let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
+        let mut packet = PmpPacket::default();
+        packet.opcode = Opcode::MapUdp;
+        packet.direction = Direction::Response;
+        packet.opcode_data = Box::new(MapOpcodeData::default());
+        let mut buffer = [0u8; 100];
+        let buflen = packet.marshal(&mut buffer).unwrap();
+        let logger = Logger::new("parse_buffer_rejects_packet_other_than_get");
+        let transactor = PmpTransactor::new();
+        let mut subject = ThreadGuts::new (
+            &transactor,
+            router_ip,
+            Box::new (UdpSocketWrapperMock::new()),
+            Box::new (|_| ()),
+            unbounded().1,
+        );
+        subject.logger = logger;
+
+        let result = subject.parse_buffer(
+            &buffer[0..buflen],
+            SocketAddr::new(router_ip, 5351),
+        );
+
+        let err_msg =
+            "Unexpected PMP MapUdp response (instead of Get) from router at 4.3.2.1:5351: ignoring";
+        assert_eq!(
+            result,
+            Err(AutomapError::ProtocolError(err_msg.to_string()))
+        );
+        TestLogHandler::new().exists_log_containing(&format!("WARN: parse_buffer_rejects_packet_other_than_get: {}", err_msg));
+    }
+
+    #[test]
+    fn parse_buffer_rejects_unparseable_packet() {
+        init_test_logging();
+        let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
+        let buffer = [0xFFu8; 100];
+        let logger = Logger::new("parse_buffer_rejects_unparseable_packet");
+        let transactor = PmpTransactor::new();
+        let mut subject = ThreadGuts::new (
+            &transactor,
+            router_ip,
+            Box::new (UdpSocketWrapperMock::new()),
+            Box::new (|_| ()),
+            unbounded().1,
+        );
+        subject.logger = logger;
+
+        let result = subject.parse_buffer(
+            &buffer[0..2], // wayyy too short
+            SocketAddr::new(router_ip, 5351),
+        );
+
+        let err_msg = "Unparseable packet from router at 4.3.2.1:5351: ignoring";
+        assert_eq!(
+            result,
+            Err(AutomapError::ProtocolError(err_msg.to_string()))
+        );
+        TestLogHandler::new().exists_log_containing(&format!("WARN: parse_buffer_rejects_unparseable_packet: {}", err_msg));
+    }
 
     #[test]
     fn handle_announcement_processes_transaction_failure() {
