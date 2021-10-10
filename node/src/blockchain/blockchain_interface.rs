@@ -138,7 +138,7 @@ pub enum BlockchainError {
     InvalidUrl,
     InvalidAddress,
     InvalidResponse,
-    QueryFailed,
+    QueryFailed(String),
     TransactionFailed(String),
 }
 
@@ -322,7 +322,7 @@ where
                             Ok(transactions)
                         }
                     }
-                    Err(_) => Err(BlockchainError::QueryFailed),
+                    Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
                 })
             })
             .wait()
@@ -389,7 +389,7 @@ where
         self.web3
             .eth()
             .balance(wallet.address(), None)
-            .map_err(|_| BlockchainError::QueryFailed)
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 
@@ -402,7 +402,7 @@ where
                 Options::with(|_| {}),
                 None,
             )
-            .map_err(|_| BlockchainError::QueryFailed)
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 
@@ -410,7 +410,7 @@ where
         self.web3
             .eth()
             .transaction_count(wallet.address(), Some(BlockNumber::Pending))
-            .map_err(|_| BlockchainError::QueryFailed)
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 }
@@ -560,12 +560,12 @@ mod tests {
             body["params"][0]["topics"][2].to_string(),
         );
         assert_eq!(
+            result,
             vec![Transaction {
                 block_number: 4_974_179u64,
                 from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
                 gwei_amount: 4_503_599u64,
-            }],
-            result,
+            }]
         )
     }
 
@@ -583,8 +583,8 @@ mod tests {
             .retrieve_transactions(42, &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"));
 
         assert_eq!(
-            BlockchainError::InvalidAddress,
-            result.expect_err("Expected an Err, got Ok")
+            result.expect_err("Expected an Err, got Ok"),
+            BlockchainError::InvalidAddress
         );
     }
 
@@ -614,8 +614,8 @@ mod tests {
         );
 
         assert_eq!(
-            BlockchainError::InvalidResponse,
-            result.expect_err("Expected an Err, got Ok")
+            result.expect_err("Expected an Err, got Ok"),
+            BlockchainError::InvalidResponse
         );
     }
 
@@ -645,7 +645,7 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Err(BlockchainError::InvalidResponse), result);
+        assert_eq!(result, Err(BlockchainError::InvalidResponse));
     }
 
     #[test]
@@ -675,7 +675,7 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Ok(vec![]), result);
+        assert_eq!(result, Ok(vec![]));
     }
 
     #[test]
@@ -699,11 +699,13 @@ mod tests {
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
 
-        let result = subject.get_eth_balance(
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
+        let result = subject
+            .get_eth_balance(
+                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+            )
+            .unwrap();
 
-        assert_eq!(U256::from(65_535), result.unwrap());
+        assert_eq!(result, U256::from(65_535));
     }
 
     #[test]
@@ -724,7 +726,7 @@ mod tests {
         let result =
             subject.get_eth_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
 
-        assert_eq!(Err(BlockchainError::InvalidAddress), result);
+        assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
 
     #[test]
@@ -753,7 +755,13 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Err(BlockchainError::QueryFailed), result);
+        assert_eq!(
+            result,
+            Err(BlockchainError::QueryFailed(
+                r#"Decoder error: Error("invalid hex character: Q, at 5", line: 0, column: 0)"#
+                    .to_string()
+            ))
+        );
     }
 
     #[test]
@@ -779,11 +787,13 @@ mod tests {
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
 
-        let result = subject.get_token_balance(
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
+        let result = subject
+            .get_token_balance(
+                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+            )
+            .unwrap();
 
-        assert_eq!(U256::from(65_535), result.unwrap());
+        assert_eq!(result, U256::from(65_535));
     }
 
     #[test]
@@ -803,7 +813,7 @@ mod tests {
         let result =
             subject.get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
 
-        assert_eq!(Err(BlockchainError::InvalidAddress), result);
+        assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
 
     #[test]
@@ -834,7 +844,12 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Err(BlockchainError::QueryFailed), result);
+        assert_eq!(
+            result,
+            Err(BlockchainError::QueryFailed(
+                r#"Api error: Decoder error: Error("invalid hex", line: 0, column: 0)"#.to_string()
+            ))
+        );
     }
 
     #[test]
@@ -874,8 +889,8 @@ mod tests {
         let eth_balance = results.0.unwrap();
         let token_balance = results.1.unwrap();
 
-        assert_eq!(U256::from(1), eth_balance);
-        assert_eq!(U256::from(1), token_balance)
+        assert_eq!(eth_balance, U256::from(1),);
+        assert_eq!(token_balance, U256::from(1))
     }
 
     #[test]
