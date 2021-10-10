@@ -34,6 +34,12 @@ impl FindRoutersCommand for MacOsFindRoutersCommand {
     }
 }
 
+impl Default for MacOsFindRoutersCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MacOsFindRoutersCommand {
     pub fn new() -> Self {
         Self {}

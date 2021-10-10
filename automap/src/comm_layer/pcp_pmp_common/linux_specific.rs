@@ -32,6 +32,12 @@ impl FindRoutersCommand for LinuxFindRoutersCommand {
     }
 }
 
+impl Default for LinuxFindRoutersCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LinuxFindRoutersCommand {
     pub fn new() -> Self {
         Self {}

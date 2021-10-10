@@ -89,6 +89,12 @@ impl UdpSocketFactoryReal {
     }
 }
 
+impl Default for UdpSocketFactoryReal {
+    fn default() -> Self {
+         Self::new()
+    }
+}
+
 pub trait FreePortFactory: Send {
     fn make(&self) -> u16;
 }
@@ -104,6 +110,12 @@ impl FreePortFactory for FreePortFactoryReal {
 impl FreePortFactoryReal {
     pub fn new() -> Self {
         Self {}
+    }
+}
+
+impl Default for FreePortFactoryReal {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

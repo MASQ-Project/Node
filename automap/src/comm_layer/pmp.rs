@@ -712,6 +712,7 @@ mod tests {
     use std::time::Duration;
     use std::{io, thread};
     use crate::mocks::{UdpSocketWrapperFactoryMock, UdpSocketWrapperMock, FreePortFactoryMock};
+    use std::ops::Sub;
 
     lazy_static! {
         static ref ROUTER_ADDR: SocketAddr = SocketAddr::from_str("1.2.3.4:5351").unwrap();
@@ -1710,161 +1711,166 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn thread_guts_does_not_remap_if_interval_does_not_run_out() {
-    //     init_test_logging();
-    //     let announcement_socket: Box<dyn UdpSocketWrapper> = Box::new(
-    //         UdpSocketWrapperMock::new()
-    //             .set_read_timeout_result(Ok(()))
-    //             .recv_from_result(Err(io::Error::from(ErrorKind::TimedOut)), vec![]),
-    //     );
-    //     let (tx, rx) = unbounded();
-    //     let mapping_adder = Box::new(MappingAdderMock::new()); // no results specified
-    //     let change_handler: ChangeHandler = Box::new(move |_| {});
-    //     let mapping_config = MappingConfig {
-    //         hole_port: 0,
-    //         next_lifetime: Duration::from_secs(2),
-    //         remap_interval: Duration::from_secs(1),
-    //     };
-    //     tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
-    //         mapping_config,
-    //     ))
-    //     .unwrap();
-    //     tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000))
-    //         .unwrap();
-    //     tx.send(HousekeepingThreadCommand::Stop).unwrap();
-    //
-    //     let _ = PmpTransactor::thread_guts(
-    //         announcement_socket.as_ref(),
-    //         &rx,
-    //         Arc::new(Mutex::new(mapping_adder)),
-    //         Arc::new(Mutex::new(Factories::default())),
-    //         SocketAddr::new(localhost(), 0),
-    //         change_handler,
-    //         10,
-    //         Logger::new("no_remap_test"),
-    //     );
-    //
-    //     TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port 1234");
-    // }
-    //
-    // #[test]
-    // fn thread_guts_remaps_when_interval_runs_out() {
-    //     init_test_logging();
-    //     let (tx, rx) = unbounded();
-    //     let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let mapping_adder = Box::new(
-    //         MappingAdderMock::new()
-    //             .add_mapping_params(&add_mapping_params_arc)
-    //             .add_mapping_result(Ok(300)),
-    //     );
-    //     let free_port_factory = FreePortFactoryMock::new().make_result(5555);
-    //     let mut factories = Factories::default();
-    //     factories.free_port_factory = Box::new(free_port_factory);
-    //     let announcement_socket: Box<dyn UdpSocketWrapper> = Box::new(
-    //         UdpSocketWrapperMock::new()
-    //             .set_read_timeout_result(Ok(()))
-    //             .recv_from_result(Err(io::Error::from(ErrorKind::WouldBlock)), vec![]),
-    //     );
-    //     let change_handler: ChangeHandler = Box::new(move |_| {});
-    //     let mapping_config = MappingConfig {
-    //         hole_port: 6689,
-    //         next_lifetime: Duration::from_secs(1000),
-    //         remap_interval: Duration::from_millis(80),
-    //     };
-    //     tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
-    //         mapping_config,
-    //     ))
-    //     .unwrap();
-    //     tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80))
-    //         .unwrap();
-    //
-    //     let handle = thread::spawn(move || {
-    //         let _ = PmpTransactor::thread_guts(
-    //             announcement_socket.as_ref(),
-    //             &rx,
-    //             Arc::new(Mutex::new(mapping_adder)),
-    //             Arc::new(Mutex::new(factories)),
-    //             SocketAddr::new(IpAddr::from_str("6.6.6.6").unwrap(), 6666),
-    //             change_handler,
-    //             10,
-    //             Logger::new("timed_remap_test"),
-    //         );
-    //     });
-    //
-    //     thread::sleep(Duration::from_millis(100));
-    //     tx.send(HousekeepingThreadCommand::Stop).unwrap();
-    //     handle.join().unwrap();
-    //     let add_mapping_params = add_mapping_params_arc.lock().unwrap().remove(0);
-    //     assert_eq!(
-    //         add_mapping_params
-    //             .0
-    //             .lock()
-    //             .unwrap()
-    //             .free_port_factory
-    //             .make(),
-    //         5555
-    //     );
-    //     assert_eq!(
-    //         add_mapping_params.1,
-    //         SocketAddr::from_str("6.6.6.6:6666").unwrap()
-    //     );
-    //     assert_eq!(
-    //         add_mapping_params.2,
-    //         MappingConfig {
-    //             hole_port: 6689,
-    //             next_lifetime: Duration::from_secs(1000),
-    //             remap_interval: Duration::from_secs(300)
-    //         }
-    //     );
-    //     TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
-    // }
-    //
-    // #[test]
-    // fn maybe_remap_handles_remapping_error() {
-    //     init_test_logging();
-    //     let mapping_adder: Box<dyn MappingAdder> = Box::new(
-    //         MappingAdderMock::new()
-    //             .add_mapping_result(Err(AutomapError::ProtocolError("Booga".to_string()))),
-    //     );
-    //     let mapping_adder_arc = Arc::new(Mutex::new(mapping_adder));
-    //     let factories_arc = Arc::new(Mutex::new(Factories::default()));
-    //     let router_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-    //     let change_records = vec![];
-    //     let change_records_arc = Arc::new(Mutex::new(change_records));
-    //     let change_records_arc_inner = change_records_arc.clone();
-    //     let change_handler: ChangeHandler = Box::new(move |change| {
-    //         change_records_arc_inner.lock().unwrap().push(change);
-    //     });
-    //     let mut mapping_config = MappingConfig {
-    //         hole_port: 6689,
-    //         next_lifetime: Duration::from_secs(600),
-    //         remap_interval: Duration::from_secs(0),
-    //     };
-    //     let mut last_remapped = Instant::now().sub(Duration::from_secs(3600));
-    //     let logger = Logger::new("maybe_remap_handles_remapping_error");
-    //
-    //     PmpTransactor::maybe_remap(
-    //         &mapping_adder_arc,
-    //         &factories_arc,
-    //         router_addr,
-    //         &change_handler,
-    //         &mut mapping_config,
-    //         &mut last_remapped,
-    //         &logger,
-    //     );
-    //
-    //     let change_records = change_records_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *change_records,
-    //         vec![AutomapChange::Error(AutomapError::ProtocolError(
-    //             "Booga".to_string()
-    //         ))]
-    //     );
-    //     TestLogHandler::new().exists_log_containing(
-    //         "ERROR: maybe_remap_handles_remapping_error: Automatic PMP remapping failed for port 6689: ProtocolError(\"Booga\")"
-    //     );
-    // }
+    #[test]
+    fn thread_guts_does_not_remap_if_interval_does_not_run_out() {
+        init_test_logging();
+        let announcement_socket: Box<dyn UdpSocketWrapper> = Box::new(
+            UdpSocketWrapperMock::new()
+                .set_read_timeout_result(Ok(()))
+                .recv_from_result(Err(io::Error::from(ErrorKind::TimedOut)), vec![]),
+        );
+        let (tx, rx) = unbounded();
+        let mapping_adder: Box<dyn MappingAdder> = Box::new(MappingAdderMock::new()); // no results specified
+        let mapping_config = MappingConfig {
+            hole_port: 0,
+            next_lifetime: Duration::from_secs(2),
+            remap_interval: Duration::from_secs(1),
+        };
+        let transactor = PmpTransactor::new ();
+        let mut subject = ThreadGuts::new (
+            &transactor,
+            ROUTER_ADDR.ip(),
+            announcement_socket,
+            Box::new(move |_| {}),
+            rx,
+        );
+        subject.mapping_adder_arc = Arc::new(Mutex::new(mapping_adder));
+        subject.logger = Logger::new ("no_remap_test");
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            mapping_config,
+        ))
+        .unwrap();
+        tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000))
+            .unwrap();
+        tx.send(HousekeepingThreadCommand::Stop).unwrap();
+
+        let handle = subject.go();
+
+        let _ = handle.join();
+        TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port 1234");
+    }
+
+    #[test]
+    fn thread_guts_remaps_when_interval_runs_out() {
+        init_test_logging();
+        let (tx, rx) = unbounded();
+        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>> = Arc::new(Mutex::new(Box::new(
+            MappingAdderMock::new()
+                .add_mapping_params(&add_mapping_params_arc)
+                .add_mapping_result(Ok(300)),
+        )));
+        let free_port_factory = FreePortFactoryMock::new().make_result(5555);
+        let mut factories = Factories::default();
+        factories.free_port_factory = Box::new(free_port_factory);
+        let announcement_socket: Box<dyn UdpSocketWrapper> = Box::new(
+            UdpSocketWrapperMock::new()
+                .set_read_timeout_result(Ok(()))
+                .recv_from_result(Err(io::Error::from(ErrorKind::WouldBlock)), vec![]),
+        );
+        let mapping_config = MappingConfig {
+            hole_port: 6689,
+            next_lifetime: Duration::from_secs(1000),
+            remap_interval: Duration::from_millis(80),
+        };
+        let transactor = PmpTransactor::new ();
+        let mut subject = ThreadGuts::new (
+            &transactor,
+            ROUTER_ADDR.ip(),
+            announcement_socket,
+            Box::new(move |_| {}),
+            rx,
+        );
+        subject.mapping_adder_arc = mapping_adder_arc;
+        subject.factories_arc = Arc::new(Mutex::new(factories));
+        subject.logger = Logger::new ("timed_remap_test");
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            mapping_config,
+        ))
+        .unwrap();
+        tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80))
+            .unwrap();
+
+        let handle = subject.go();
+
+        thread::sleep(Duration::from_millis(100));
+        tx.send(HousekeepingThreadCommand::Stop).unwrap();
+        let _ = handle.join().unwrap();
+        let add_mapping_params = add_mapping_params_arc.lock().unwrap().remove(0);
+        assert_eq!(
+            add_mapping_params
+                .0
+                .lock()
+                .unwrap()
+                .free_port_factory
+                .make(),
+            5555
+        );
+        assert_eq!(
+            add_mapping_params.1,
+            *ROUTER_ADDR
+        );
+        assert_eq!(
+            add_mapping_params.2,
+            MappingConfig {
+                hole_port: 6689,
+                next_lifetime: Duration::from_secs(1000),
+                remap_interval: Duration::from_secs(300)
+            }
+        );
+        TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
+    }
+
+    #[test]
+    fn maybe_remap_handles_remapping_error() {
+        init_test_logging();
+        let mapping_adder: Box<dyn MappingAdder> = Box::new(
+            MappingAdderMock::new()
+                .add_mapping_result(Err(AutomapError::ProtocolError("Booga".to_string()))),
+        );
+        let mapping_adder_arc = Arc::new(Mutex::new(mapping_adder));
+        let router_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let change_records = vec![];
+        let change_records_arc = Arc::new(Mutex::new(change_records));
+        let change_records_arc_inner = change_records_arc.clone();
+        let change_handler: ChangeHandler = Box::new(move |change| {
+            change_records_arc_inner.lock().unwrap().push(change);
+        });
+        let mut mapping_config = MappingConfig {
+            hole_port: 6689,
+            next_lifetime: Duration::from_secs(600),
+            remap_interval: Duration::from_secs(0),
+        };
+        let mut last_remapped = Instant::now().sub(Duration::from_secs(3600));
+        let logger = Logger::new("maybe_remap_handles_remapping_error");
+        let transactor = PmpTransactor::new();
+        let mut subject = ThreadGuts::new (
+            &transactor,
+            router_addr.ip(),
+            Box::new (UdpSocketWrapperMock::new()),
+            change_handler,
+            unbounded().1,
+        );
+        subject.mapping_adder_arc = mapping_adder_arc;
+        // subject.factories_arc = factories_arc;
+        subject.logger = logger;
+
+        subject.maybe_remap(
+            &mut mapping_config,
+            &mut last_remapped,
+        );
+
+        let change_records = change_records_arc.lock().unwrap();
+        assert_eq!(
+            *change_records,
+            vec![AutomapChange::Error(AutomapError::ProtocolError(
+                "Booga".to_string()
+            ))]
+        );
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: maybe_remap_handles_remapping_error: Automatic PMP remapping failed for port 6689: ProtocolError(\"Booga\")"
+        );
+    }
 
     #[test]
     fn parse_buffer_rejects_request_packet() {

@@ -271,10 +271,10 @@ impl Transactor for IgdpTransactor {
                 inner.logger,
                 "Starting housekeeping thread for router at {}", router_ip
             );
-            self.public_ip_poll_delay.clone()
+            self.public_ip_poll_delay
         };
         let inner_inner = self.inner_arc.clone();
-        let inner_housekeeping_thread_loop_delay = self.housekeeping_thread_loop_delay.clone();
+        let inner_housekeeping_thread_loop_delay = self.housekeeping_thread_loop_delay;
         self.join_handle_opt = Some(thread::spawn(move || {
             Self::thread_guts(
                 inner_housekeeping_thread_loop_delay,

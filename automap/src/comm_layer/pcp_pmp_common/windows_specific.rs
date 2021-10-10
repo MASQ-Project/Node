@@ -58,6 +58,12 @@ impl FindRoutersCommand for WindowsFindRoutersCommand {
     }
 }
 
+impl Default for WindowsFindRoutersCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WindowsFindRoutersCommand {
     pub fn new() -> Self {
         Self {}
