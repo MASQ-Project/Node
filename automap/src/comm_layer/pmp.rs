@@ -381,7 +381,7 @@ impl ThreadGuts {
         mapping_config_opt: &mut Option<MappingConfig>,
         last_remapped: &mut Instant,
     ) -> bool {
-        if self.check_for_announcement(mapping_config_opt) {
+        if self.handle_announcement_if_present(mapping_config_opt) {
             return true;
         }
         if let Some(mapping_config) = mapping_config_opt {
@@ -401,7 +401,7 @@ impl ThreadGuts {
         true
     }
 
-    fn check_for_announcement(&self, mapping_config_opt: &Option<MappingConfig>) -> bool {
+    fn handle_announcement_if_present(&self, mapping_config_opt: &Option<MappingConfig>) -> bool {
         let mut buffer = [0u8; 100];
         // This will block for awhile, conserving CPU cycles
         debug!(&self.logger, "Waiting for an IP-change announcement");
@@ -438,7 +438,7 @@ impl ThreadGuts {
                 .mapping_adder_arc
                 .lock()
                 .expect("PmpTransactor is dead");
-            if let Err(e) = self.remap_port((*mapping_adder).as_ref(), mapping_config) {
+            if let Err(e) = self.remap_port(mapping_adder.as_ref(), mapping_config) {
                 error!(
                     &self.logger,
                     "Automatic PMP remapping failed for port {}: {:?})",
@@ -484,15 +484,16 @@ impl ThreadGuts {
                     Err(AutomapError::ProtocolError(err_msg))
                 }
             }
-            Err(_) => {
+            Err(e) => {
                 error!(
                     &self.logger,
-                    "Unparseable PMP packet:\n{}",
+                    "Unparseable PMP packet ({:?}):\n{}",
+                    &e,
                     PrettyHex::hex_dump(&buffer)
                 );
                 let err_msg = format!(
-                    "Unparseable packet from router at {}: ignoring",
-                    source_address
+                    "Unparseable packet ({:?}) from router at {}: ignoring",
+                    &e, source_address
                 );
                 warning!(
                     &self.logger,
@@ -1756,7 +1757,7 @@ mod tests {
         let handle = subject.go();
 
         let _ = handle.join();
-        TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port 1234");
+        TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port");
     }
 
     #[test]
@@ -1964,7 +1965,8 @@ mod tests {
             SocketAddr::new(router_ip, 5351),
         );
 
-        let err_msg = "Unparseable packet from router at 4.3.2.1:5351: ignoring";
+        let err_msg =
+            "Unparseable packet (WrongVersion(255)) from router at 4.3.2.1:5351: ignoring";
         assert_eq!(
             result,
             Err(AutomapError::ProtocolError(err_msg.to_string()))
@@ -2056,7 +2058,7 @@ mod tests {
         );
         subject.router_addr = router_address;
         subject.factories_arc = Arc::new(Mutex::new(factories));
-        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(MappingAdderMock::new())));
+        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(MappingAdderMock::new()))); // no results
         subject.logger = logger;
 
         subject.handle_announcement(
@@ -2067,6 +2069,8 @@ mod tests {
                 remap_interval: Duration::from_secs(0),
             }),
         );
+
+        // No complaint from MappingAdderMock about not having a result for add_mapping; test passes
     }
 
     #[test]
@@ -2149,7 +2153,8 @@ mod tests {
         let change_handler_log_inner = change_handler_log_arc.clone();
         let change_handler: ChangeHandler =
             Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
-        let logger = Logger::new("test");
+        let logger =
+            Logger::new("handle_announcement_rejects_permanently_unsuccessful_result_code");
         let transactor = PmpTransactor::new();
         let mut subject = ThreadGuts::new(
             &transactor,
@@ -2180,7 +2185,10 @@ mod tests {
                 err_msg.to_string()
             ))]
         );
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: test: {}", err_msg));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: handle_announcement_rejects_permanently_unsuccessful_result_code: {}",
+            err_msg
+        ));
     }
 
     #[test]
