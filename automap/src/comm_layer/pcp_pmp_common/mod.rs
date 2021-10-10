@@ -91,7 +91,7 @@ impl UdpSocketFactoryReal {
 
 impl Default for UdpSocketFactoryReal {
     fn default() -> Self {
-         Self::new()
+        Self::new()
     }
 }
 

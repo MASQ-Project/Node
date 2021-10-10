@@ -47,8 +47,8 @@ impl LinuxFindRoutersCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
     use crate::mocks::FindRoutersCommandMock;
+    use std::str::FromStr;
 
     #[test]
     fn find_routers_works_when_there_is_a_router_to_find() {

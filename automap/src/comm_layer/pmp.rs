@@ -2,7 +2,7 @@
 
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig,
-    UdpSocketWrapperFactory, UdpSocketFactoryReal, UdpSocketWrapper, ANNOUNCEMENT_PORT,
+    UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_PORT,
     ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
 };
 use crate::comm_layer::{AutomapError, AutomapErrorCause, HousekeepingThreadCommand, Transactor};
@@ -185,14 +185,8 @@ impl Transactor for PmpTransactor {
         };
         let (tx, rx) = unbounded();
         self.housekeeper_commander_opt = Some(tx.clone());
-        let thread_guts = ThreadGuts::new (
-            self,
-            router_ip,
-            announcement_socket,
-            change_handler,
-            rx
-        );
-        self.join_handle_opt = Some (thread_guts.go());
+        let thread_guts = ThreadGuts::new(self, router_ip, announcement_socket, change_handler, rx);
+        self.join_handle_opt = Some(thread_guts.go());
         Ok(tx)
     }
 
@@ -347,7 +341,7 @@ struct ThreadGuts {
 }
 
 impl ThreadGuts {
-    pub fn new (
+    pub fn new(
         transactor: &PmpTransactor,
         router_ip: IpAddr,
         announcement_socket: Box<dyn UdpSocketWrapper>,
@@ -359,14 +353,14 @@ impl ThreadGuts {
             housekeeper_flunkie,
             mapping_adder_arc: transactor.mapping_adder_arc.clone(),
             factories_arc: transactor.factories_arc.clone(),
-            router_addr: SocketAddr::new (router_ip, transactor.router_port),
+            router_addr: SocketAddr::new(router_ip, transactor.router_port),
             change_handler,
             announcement_read_timeout_millis: transactor.read_timeout_millis,
             logger: transactor.logger.clone(),
         }
     }
 
-    pub fn go (self) -> JoinHandle<ChangeHandler> {
+    pub fn go(self) -> JoinHandle<ChangeHandler> {
         thread::spawn(move || self.thread_guts())
     }
 
@@ -374,16 +368,18 @@ impl ThreadGuts {
         let mut last_remapped = Instant::now();
         let mut mapping_config_opt = None;
         self.announcement_socket
-            .set_read_timeout(Some(Duration::from_millis(self.announcement_read_timeout_millis)))
+            .set_read_timeout(Some(Duration::from_millis(
+                self.announcement_read_timeout_millis,
+            )))
             .expect("Can't set read timeout");
         while self.thread_guts_iteration(&mut mapping_config_opt, &mut last_remapped) {}
         self.change_handler
     }
 
-    fn thread_guts_iteration (
+    fn thread_guts_iteration(
         &mut self,
         mapping_config_opt: &mut Option<MappingConfig>,
-        last_remapped: &mut Instant
+        last_remapped: &mut Instant,
     ) -> bool {
         if self.check_for_announcement(mapping_config_opt) {
             return true;
@@ -426,7 +422,10 @@ impl ThreadGuts {
                 false
             }
             Err(e) => {
-                error!(&self.logger, "Error receiving PCP packet from router: {:?}", e);
+                error!(
+                    &self.logger,
+                    "Error receiving PCP packet from router: {:?}", e
+                );
                 false
             }
         }
@@ -435,11 +434,11 @@ impl ThreadGuts {
     fn maybe_remap(&self, mapping_config: &mut MappingConfig, last_remapped: &mut Instant) {
         let since_last_remapped = last_remapped.elapsed();
         if since_last_remapped.gt(&mapping_config.remap_interval) {
-            let mapping_adder = self.mapping_adder_arc.lock().expect("PmpTransactor is dead");
-            if let Err(e) = self.remap_port(
-                (*mapping_adder).as_ref(),
-                mapping_config,
-            ) {
+            let mapping_adder = self
+                .mapping_adder_arc
+                .lock()
+                .expect("PmpTransactor is dead");
+            if let Err(e) = self.remap_port((*mapping_adder).as_ref(), mapping_config) {
                 error!(
                     &self.logger,
                     "Automatic PMP remapping failed for port {}: {:?})",
@@ -495,7 +494,12 @@ impl ThreadGuts {
                     "Unparseable packet from router at {}: ignoring",
                     source_address
                 );
-                warning!(&self.logger, "{}\n{}", err_msg, PrettyHex::hex_dump(&buffer));
+                warning!(
+                    &self.logger,
+                    "{}\n{}",
+                    err_msg,
+                    PrettyHex::hex_dump(&buffer)
+                );
                 Err(AutomapError::ProtocolError(err_msg))
             }
         }
@@ -529,8 +533,13 @@ impl ThreadGuts {
                 ) {
                     Ok(response) => match response.result_code_opt {
                         Some(ResultCode::Success) => {
-                            debug!(&self.logger, "Remapping successful; triggering change handler");
-                            self.change_handler.as_ref()(AutomapChange::NewIp(IpAddr::V4(public_ip)));
+                            debug!(
+                                &self.logger,
+                                "Remapping successful; triggering change handler"
+                            );
+                            self.change_handler.as_ref()(AutomapChange::NewIp(IpAddr::V4(
+                                public_ip,
+                            )));
                         }
                         Some(result_code) => {
                             let err_msg = format!(
@@ -548,9 +557,9 @@ impl ThreadGuts {
                         None => {
                             let err_msg = "Remapping after IP change failed; Node is useless: Received request when expecting response".to_string();
                             error!(&self.logger, "{}\n{:?}", err_msg, packet);
-                            self.change_handler.as_ref()(AutomapChange::Error(AutomapError::ProtocolError(
-                                err_msg,
-                            )));
+                            self.change_handler.as_ref()(AutomapChange::Error(
+                                AutomapError::ProtocolError(err_msg),
+                            ));
                         }
                     },
                     Err(e) => {
@@ -558,9 +567,9 @@ impl ThreadGuts {
                             &self.logger,
                             "Remapping after IP change failed; Node is useless: {:?}", e
                         );
-                        self.change_handler.as_ref()(AutomapChange::Error(AutomapError::SocketReceiveError(
-                            AutomapErrorCause::SocketFailure,
-                        )));
+                        self.change_handler.as_ref()(AutomapChange::Error(
+                            AutomapError::SocketReceiveError(AutomapErrorCause::SocketFailure),
+                        ));
                     }
                 }
             }
@@ -697,6 +706,7 @@ mod tests {
     use crate::comm_layer::pcp_pmp_common::{MappingConfig, UdpSocket};
     use crate::comm_layer::AutomapErrorCause;
     use crate::control_layer::automap_control::AutomapChange;
+    use crate::mocks::{FreePortFactoryMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
     use crate::protocols::pmp::get_packet::GetOpcodeData;
     use crate::protocols::pmp::map_packet::MapOpcodeData;
     use crate::protocols::pmp::pmp_packet::{Opcode, PmpOpcodeData, PmpPacket, ResultCode};
@@ -707,12 +717,11 @@ mod tests {
     use std::cell::RefCell;
     use std::io::ErrorKind;
     use std::net::{Ipv4Addr, SocketAddr};
+    use std::ops::Sub;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
-    use crate::mocks::{UdpSocketWrapperFactoryMock, UdpSocketWrapperMock, FreePortFactoryMock};
-    use std::ops::Sub;
 
     lazy_static! {
         static ref ROUTER_ADDR: SocketAddr = SocketAddr::from_str("1.2.3.4:5351").unwrap();
@@ -1680,7 +1689,7 @@ mod tests {
 
         let result = subject.stop_housekeeping_thread().err().unwrap();
 
-        assert_eq! (result, AutomapError::HousekeeperCrashed);
+        assert_eq!(result, AutomapError::HousekeeperCrashed);
         TestLogHandler::new().exists_log_containing("WARN: PmpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
     }
 
@@ -1705,7 +1714,7 @@ mod tests {
 
         let result = subject.stop_housekeeping_thread().err().unwrap();
 
-        assert_eq! (result, AutomapError::HousekeeperCrashed);
+        assert_eq!(result, AutomapError::HousekeeperCrashed);
         TestLogHandler::new().exists_log_containing(
             "WARN: PmpTransactor: Tried to stop housekeeping thread that had panicked",
         );
@@ -1726,8 +1735,8 @@ mod tests {
             next_lifetime: Duration::from_secs(2),
             remap_interval: Duration::from_secs(1),
         };
-        let transactor = PmpTransactor::new ();
-        let mut subject = ThreadGuts::new (
+        let transactor = PmpTransactor::new();
+        let mut subject = ThreadGuts::new(
             &transactor,
             ROUTER_ADDR.ip(),
             announcement_socket,
@@ -1735,7 +1744,7 @@ mod tests {
             rx,
         );
         subject.mapping_adder_arc = Arc::new(Mutex::new(mapping_adder));
-        subject.logger = Logger::new ("no_remap_test");
+        subject.logger = Logger::new("no_remap_test");
         tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
             mapping_config,
         ))
@@ -1773,8 +1782,8 @@ mod tests {
             next_lifetime: Duration::from_secs(1000),
             remap_interval: Duration::from_millis(80),
         };
-        let transactor = PmpTransactor::new ();
-        let mut subject = ThreadGuts::new (
+        let transactor = PmpTransactor::new();
+        let mut subject = ThreadGuts::new(
             &transactor,
             ROUTER_ADDR.ip(),
             announcement_socket,
@@ -1783,7 +1792,7 @@ mod tests {
         );
         subject.mapping_adder_arc = mapping_adder_arc;
         subject.factories_arc = Arc::new(Mutex::new(factories));
-        subject.logger = Logger::new ("timed_remap_test");
+        subject.logger = Logger::new("timed_remap_test");
         tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
             mapping_config,
         ))
@@ -1806,10 +1815,7 @@ mod tests {
                 .make(),
             5555
         );
-        assert_eq!(
-            add_mapping_params.1,
-            *ROUTER_ADDR
-        );
+        assert_eq!(add_mapping_params.1, *ROUTER_ADDR);
         assert_eq!(
             add_mapping_params.2,
             MappingConfig {
@@ -1844,10 +1850,10 @@ mod tests {
         let mut last_remapped = Instant::now().sub(Duration::from_secs(3600));
         let logger = Logger::new("maybe_remap_handles_remapping_error");
         let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new (
+        let mut subject = ThreadGuts::new(
             &transactor,
             router_addr.ip(),
-            Box::new (UdpSocketWrapperMock::new()),
+            Box::new(UdpSocketWrapperMock::new()),
             change_handler,
             unbounded().1,
         );
@@ -1855,10 +1861,7 @@ mod tests {
         // subject.factories_arc = factories_arc;
         subject.logger = logger;
 
-        subject.maybe_remap(
-            &mut mapping_config,
-            &mut last_remapped,
-        );
+        subject.maybe_remap(&mut mapping_config, &mut last_remapped);
 
         let change_records = change_records_arc.lock().unwrap();
         assert_eq!(
@@ -1883,26 +1886,26 @@ mod tests {
         let buflen = packet.marshal(&mut buffer).unwrap();
         let logger = Logger::new("parse_buffer_rejects_request_packet");
         let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new (
+        let mut subject = ThreadGuts::new(
             &transactor,
             router_ip,
-            Box::new (UdpSocketWrapperMock::new()),
-            Box::new (|_| ()),
+            Box::new(UdpSocketWrapperMock::new()),
+            Box::new(|_| ()),
             unbounded().1,
         );
         subject.logger = logger;
 
-        let result = subject.parse_buffer(
-            &buffer[0..buflen],
-            SocketAddr::new(router_ip, 5351),
-        );
+        let result = subject.parse_buffer(&buffer[0..buflen], SocketAddr::new(router_ip, 5351));
 
         let err_msg = "Unexpected PMP Get request (request!) from router at 4.3.2.1:5351: ignoring";
         assert_eq!(
             result,
             Err(AutomapError::ProtocolError(err_msg.to_string()))
         );
-        TestLogHandler::new().exists_log_containing(&format!("WARN: parse_buffer_rejects_request_packet: {}", err_msg));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "WARN: parse_buffer_rejects_request_packet: {}",
+            err_msg
+        ));
     }
 
     #[test]
@@ -1917,19 +1920,16 @@ mod tests {
         let buflen = packet.marshal(&mut buffer).unwrap();
         let logger = Logger::new("parse_buffer_rejects_packet_other_than_get");
         let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new (
+        let mut subject = ThreadGuts::new(
             &transactor,
             router_ip,
-            Box::new (UdpSocketWrapperMock::new()),
-            Box::new (|_| ()),
+            Box::new(UdpSocketWrapperMock::new()),
+            Box::new(|_| ()),
             unbounded().1,
         );
         subject.logger = logger;
 
-        let result = subject.parse_buffer(
-            &buffer[0..buflen],
-            SocketAddr::new(router_ip, 5351),
-        );
+        let result = subject.parse_buffer(&buffer[0..buflen], SocketAddr::new(router_ip, 5351));
 
         let err_msg =
             "Unexpected PMP MapUdp response (instead of Get) from router at 4.3.2.1:5351: ignoring";
@@ -1937,7 +1937,10 @@ mod tests {
             result,
             Err(AutomapError::ProtocolError(err_msg.to_string()))
         );
-        TestLogHandler::new().exists_log_containing(&format!("WARN: parse_buffer_rejects_packet_other_than_get: {}", err_msg));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "WARN: parse_buffer_rejects_packet_other_than_get: {}",
+            err_msg
+        ));
     }
 
     #[test]
@@ -1947,11 +1950,11 @@ mod tests {
         let buffer = [0xFFu8; 100];
         let logger = Logger::new("parse_buffer_rejects_unparseable_packet");
         let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new (
+        let mut subject = ThreadGuts::new(
             &transactor,
             router_ip,
-            Box::new (UdpSocketWrapperMock::new()),
-            Box::new (|_| ()),
+            Box::new(UdpSocketWrapperMock::new()),
+            Box::new(|_| ()),
             unbounded().1,
         );
         subject.logger = logger;
@@ -1966,7 +1969,10 @@ mod tests {
             result,
             Err(AutomapError::ProtocolError(err_msg.to_string()))
         );
-        TestLogHandler::new().exists_log_containing(&format!("WARN: parse_buffer_rejects_unparseable_packet: {}", err_msg));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "WARN: parse_buffer_rejects_unparseable_packet: {}",
+            err_msg
+        ));
     }
 
     #[test]
@@ -1986,16 +1992,16 @@ mod tests {
             Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
         let logger = Logger::new("test");
         let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new (
+        let mut subject = ThreadGuts::new(
             &transactor,
             ROUTER_ADDR.ip(),
-            Box::new (UdpSocketWrapperMock::new()),
+            Box::new(UdpSocketWrapperMock::new()),
             change_handler,
             unbounded().1,
         );
         subject.router_addr = *ROUTER_ADDR;
-        subject.factories_arc = Arc::new (Mutex::new (factories));
-        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new (MappingAdderMock::new())));
+        subject.factories_arc = Arc::new(Mutex::new(factories));
+        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(MappingAdderMock::new())));
         subject.logger = logger;
 
         subject.handle_announcement(
@@ -2041,16 +2047,16 @@ mod tests {
             Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
         let logger = Logger::new("test");
         let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new (
+        let mut subject = ThreadGuts::new(
             &transactor,
             router_address.ip(),
-            Box::new (UdpSocketWrapperMock::new()),
+            Box::new(UdpSocketWrapperMock::new()),
             change_handler,
             unbounded().1,
         );
         subject.router_addr = router_address;
-        subject.factories_arc = Arc::new (Mutex::new (factories));
-        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new (MappingAdderMock::new())));
+        subject.factories_arc = Arc::new(Mutex::new(factories));
+        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(MappingAdderMock::new())));
         subject.logger = logger;
 
         subject.handle_announcement(
@@ -2088,16 +2094,16 @@ mod tests {
             Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
         let logger = Logger::new("test");
         let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new (
+        let mut subject = ThreadGuts::new(
             &transactor,
             router_address.ip(),
-            Box::new (UdpSocketWrapperMock::new()),
+            Box::new(UdpSocketWrapperMock::new()),
             change_handler,
             unbounded().1,
         );
         subject.router_addr = router_address;
-        subject.factories_arc = Arc::new (Mutex::new (factories));
-        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new (MappingAdderMock::new())));
+        subject.factories_arc = Arc::new(Mutex::new(factories));
+        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(MappingAdderMock::new())));
         subject.logger = logger;
 
         subject.handle_announcement(
@@ -2145,16 +2151,16 @@ mod tests {
             Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
         let logger = Logger::new("test");
         let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new (
+        let mut subject = ThreadGuts::new(
             &transactor,
             router_address.ip(),
-            Box::new (UdpSocketWrapperMock::new()),
+            Box::new(UdpSocketWrapperMock::new()),
             change_handler,
             unbounded().1,
         );
         subject.router_addr = router_address;
-        subject.factories_arc = Arc::new (Mutex::new (factories));
-        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new (MappingAdderMock::new())));
+        subject.factories_arc = Arc::new(Mutex::new(factories));
+        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(MappingAdderMock::new())));
         subject.logger = logger;
 
         subject.handle_announcement(
@@ -2180,17 +2186,18 @@ mod tests {
     #[test]
     fn remap_port_correctly_converts_lifetime_greater_than_one_second() {
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>> = Arc::new(Mutex::new(Box::new (MappingAdderMock::new()
-            .add_mapping_params(&add_mapping_params_arc)
-            .add_mapping_result(Err(AutomapError::Unknown))
+        let mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>> = Arc::new(Mutex::new(Box::new(
+            MappingAdderMock::new()
+                .add_mapping_params(&add_mapping_params_arc)
+                .add_mapping_result(Err(AutomapError::Unknown)),
         )));
         let mut transactor = PmpTransactor::new();
         transactor.mapping_adder_arc = mapping_adder_arc.clone();
-        let subject = ThreadGuts::new (
+        let subject = ThreadGuts::new(
             &transactor,
             ROUTER_ADDR.ip(),
-            Box::new (UdpSocketWrapperMock::new()),
-            Box::new (|_| ()),
+            Box::new(UdpSocketWrapperMock::new()),
+            Box::new(|_| ()),
             unbounded().1,
         );
 
@@ -2211,17 +2218,18 @@ mod tests {
     #[test]
     fn remap_port_correctly_converts_lifetime_less_than_one_second() {
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>> = Arc::new(Mutex::new(Box::new (MappingAdderMock::new()
-            .add_mapping_params(&add_mapping_params_arc)
-            .add_mapping_result(Err(AutomapError::Unknown))
+        let mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>> = Arc::new(Mutex::new(Box::new(
+            MappingAdderMock::new()
+                .add_mapping_params(&add_mapping_params_arc)
+                .add_mapping_result(Err(AutomapError::Unknown)),
         )));
         let mut transactor = PmpTransactor::new();
         transactor.mapping_adder_arc = mapping_adder_arc.clone();
-        let subject = ThreadGuts::new (
+        let subject = ThreadGuts::new(
             &transactor,
             ROUTER_ADDR.ip(),
-            Box::new (UdpSocketWrapperMock::new()),
-            Box::new (|_| ()),
+            Box::new(UdpSocketWrapperMock::new()),
+            Box::new(|_| ()),
             unbounded().1,
         );
 
@@ -2241,16 +2249,18 @@ mod tests {
 
     #[test]
     fn remap_port_handles_temporary_mapping_failure() {
-        let mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>> = Arc::new(Mutex::new(Box::new (MappingAdderMock::new()
-            .add_mapping_result(Err(AutomapError::TemporaryMappingError("NetworkFailure".to_string()),
-        )))));
+        let mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>> = Arc::new(Mutex::new(Box::new(
+            MappingAdderMock::new().add_mapping_result(Err(AutomapError::TemporaryMappingError(
+                "NetworkFailure".to_string(),
+            ))),
+        )));
         let mut transactor = PmpTransactor::new();
         transactor.mapping_adder_arc = mapping_adder_arc.clone();
-        let subject = ThreadGuts::new (
+        let subject = ThreadGuts::new(
             &transactor,
             ROUTER_ADDR.ip(),
-            Box::new (UdpSocketWrapperMock::new()),
-            Box::new (|_| ()),
+            Box::new(UdpSocketWrapperMock::new()),
+            Box::new(|_| ()),
             unbounded().1,
         );
 
@@ -2273,16 +2283,18 @@ mod tests {
 
     #[test]
     fn remap_port_handles_permanent_mapping_failure() {
-        let mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>> = Arc::new(Mutex::new(Box::new (MappingAdderMock::new()
-            .add_mapping_result(Err(AutomapError::PermanentMappingError("MalformedRequest".to_string()),
-        )))));
+        let mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>> = Arc::new(Mutex::new(Box::new(
+            MappingAdderMock::new().add_mapping_result(Err(AutomapError::PermanentMappingError(
+                "MalformedRequest".to_string(),
+            ))),
+        )));
         let mut transactor = PmpTransactor::new();
         transactor.mapping_adder_arc = mapping_adder_arc.clone();
-        let subject = ThreadGuts::new (
+        let subject = ThreadGuts::new(
             &transactor,
             ROUTER_ADDR.ip(),
-            Box::new (UdpSocketWrapperMock::new()),
-            Box::new (|_| ()),
+            Box::new(UdpSocketWrapperMock::new()),
+            Box::new(|_| ()),
             unbounded().1,
         );
 

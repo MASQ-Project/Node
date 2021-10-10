@@ -2,7 +2,7 @@
 
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig,
-    UdpSocketWrapperFactory, UdpSocketFactoryReal, UdpSocketWrapper, ANNOUNCEMENT_PORT,
+    UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_PORT,
     ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
 };
 use crate::comm_layer::{
@@ -270,8 +270,7 @@ impl Default for PcpTransactor {
 
 impl PcpTransactor {
     fn inner(&self) -> MutexGuard<PcpTransactorInner> {
-        self
-            .inner_arc
+        self.inner_arc
             .lock()
             .expect("PCP Housekeeping Thread is dead")
     }
@@ -366,7 +365,10 @@ impl PcpTransactor {
                     }
                 }
                 Err(e)
-                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
+                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
+                {
+                    ()
+                }
                 Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
             }
             let since_last_remapped = last_remapped.elapsed();
@@ -429,11 +431,10 @@ impl PcpTransactor {
             Some(mc) => mc,
             None => &mut local_mapping_config,
         };
-        match inner.mapping_transactor.transact(
-            &inner.factories,
-            router_addr,
-            mapping_config,
-        ) {
+        match inner
+            .mapping_transactor
+            .transact(&inner.factories, router_addr, mapping_config)
+        {
             Ok((_, opcode_data)) => {
                 debug!(
                     logger,
@@ -661,6 +662,9 @@ mod tests {
     use super::*;
     use crate::comm_layer::pcp_pmp_common::ROUTER_PORT;
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
+    use crate::mocks::{
+        FreePortFactoryMock, LocalIpFinderMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock,
+    };
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
@@ -676,7 +680,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
-    use crate::mocks::{LocalIpFinderMock, UdpSocketWrapperFactoryMock, FreePortFactoryMock, UdpSocketWrapperMock};
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -740,10 +743,7 @@ mod tests {
             self
         }
 
-        fn transact_result(
-            self,
-            result: Result<(u32, MapOpcodeData), AutomapError>,
-        ) -> Self {
+        fn transact_result(self, result: Result<(u32, MapOpcodeData), AutomapError>) -> Self {
             self.transact_results.borrow_mut().push(result);
             self
         }
@@ -1022,7 +1022,7 @@ mod tests {
 
         let result = subject.find_routers().unwrap();
 
-        assert! (result.len() > 0)
+        assert!(result.len() > 0)
     }
 
     #[test]
@@ -1567,7 +1567,7 @@ mod tests {
 
         let result = subject.stop_housekeeping_thread().err().unwrap();
 
-        assert_eq! (result, AutomapError::HousekeeperCrashed);
+        assert_eq!(result, AutomapError::HousekeeperCrashed);
         TestLogHandler::new().exists_log_containing("WARN: PcpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
     }
 
@@ -1592,7 +1592,7 @@ mod tests {
 
         let result = subject.stop_housekeeping_thread().err().unwrap();
 
-        assert_eq! (result, AutomapError::HousekeeperCrashed);
+        assert_eq!(result, AutomapError::HousekeeperCrashed);
         TestLogHandler::new().exists_log_containing(
             "WARN: PcpTransactor: Tried to stop housekeeping thread that had panicked",
         );
@@ -1707,7 +1707,8 @@ mod tests {
                 )),
                 incoming_packet_buf[0..incoming_packet_len].to_vec(),
             );
-        let socket_factory = Box::new(UdpSocketWrapperFactoryMock::new().make_result(Ok(mapping_socket)));
+        let socket_factory =
+            Box::new(UdpSocketWrapperFactoryMock::new().make_result(Ok(mapping_socket)));
         let mut factories = Factories::default();
         factories.mapping_nonce_factory = mapping_nonce_factory;
         factories.local_ip_finder = local_ip_finder;
@@ -1845,10 +1846,9 @@ mod tests {
                 .set_read_timeout_result(Ok(()))
                 .recv_from_result(Err(std::io::Error::from(ErrorKind::WouldBlock)), vec![]),
         );
-        let mapping_transactor =
-            Box::new(MappingTransactorMock::new().transact_result(Err(
-                AutomapError::TemporaryMappingError("NoResources".to_string()),
-            )));
+        let mapping_transactor = Box::new(MappingTransactorMock::new().transact_result(Err(
+            AutomapError::TemporaryMappingError("NoResources".to_string()),
+        )));
         let logger = Logger::new(
             "thread_guts_logs_and_continues_if_remap_interval_is_set_before_mapping_config",
         );
@@ -1904,8 +1904,7 @@ mod tests {
             change_log.push(change)
         });
         let mapping_transactor = Box::new(
-            MappingTransactorMock::new()
-                .transact_result(Ok((1111, *vanilla_map_response()))),
+            MappingTransactorMock::new().transact_result(Ok((1111, *vanilla_map_response()))),
         );
         let logger = Logger::new(
             "thread_guts_logs_and_continues_if_announcement_is_received_before_mapping_config",
@@ -1948,12 +1947,11 @@ mod tests {
         let socket: Box<dyn UdpSocketWrapper> = Box::new(
             UdpSocketWrapperMock::new()
                 .set_read_timeout_result(Ok(()))
-                .recv_from_result(Err(io::Error::from (ErrorKind::TimedOut)), b"".to_vec())
+                .recv_from_result(Err(io::Error::from(ErrorKind::TimedOut)), b"".to_vec()),
         );
-        let mapping_transactor =
-            Box::new(MappingTransactorMock::new().transact_result(Err(
-                AutomapError::TemporaryMappingError("NoResources".to_string()),
-            )));
+        let mapping_transactor = Box::new(MappingTransactorMock::new().transact_result(Err(
+            AutomapError::TemporaryMappingError("NoResources".to_string()),
+        )));
         let change_opt_arc = Arc::new(Mutex::new(None));
         let change_opt_arc_inner = change_opt_arc.clone();
         let change_handler: ChangeHandler = Box::new(move |change| {
@@ -2006,7 +2004,8 @@ mod tests {
         init_test_logging();
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(
-            UdpSocketWrapperFactoryMock::new().make_result(Err(io::Error::from(ErrorKind::AlreadyExists))),
+            UdpSocketWrapperFactoryMock::new()
+                .make_result(Err(io::Error::from(ErrorKind::AlreadyExists))),
         );
         factories.free_port_factory = Box::new(FreePortFactoryMock::new().make_result(2345));
         let change_log_arc = Arc::new(Mutex::new(vec![]));

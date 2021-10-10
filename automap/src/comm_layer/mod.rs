@@ -86,10 +86,10 @@ impl AutomapError {
             AutomapError::AllProtocolsFailed(_) => AutomapErrorCause::NetworkConfiguration,
             AutomapError::HousekeeperAlreadyRunning => {
                 AutomapErrorCause::Unknown("Sequencing error".to_string())
-            },
+            }
             AutomapError::HousekeeperCrashed => {
                 AutomapErrorCause::Unknown("Thread crash".to_string())
-            },
+            }
         }
     }
 }

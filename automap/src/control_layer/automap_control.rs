@@ -191,8 +191,8 @@ impl AutomapControlReal {
         housekeeping_tools: &mut RefMut<HousekeepingTools>,
     ) {
         let change_handler = match transactor.stop_housekeeping_thread() {
-            Ok (ch) => ch,
-            Err (e) => todo! ("{:?}", e),
+            Ok(ch) => ch,
+            Err(e) => todo!("{:?}", e),
         };
         housekeeping_tools
             .change_handler_opt
@@ -307,8 +307,8 @@ impl AutomapControlReal {
                         Ok(pair) => Ok(pair),
                         Err(e) => {
                             let change_handler = match transactor.stop_housekeeping_thread() {
-                                Ok (ch) => ch,
-                                Err (e) => todo! ("{:?}", e),
+                                Ok(ch) => ch,
+                                Err(e) => todo!("{:?}", e),
                             };
                             let mut housekeeping_tools = self.housekeeping_tools.borrow_mut();
                             let _ = housekeeping_tools
@@ -549,7 +549,10 @@ mod tests {
             self
         }
 
-        pub fn stop_housekeeping_thread_result(self, result: Result<ChangeHandler, AutomapError>) -> Self {
+        pub fn stop_housekeeping_thread_result(
+            self,
+            result: Result<ChangeHandler, AutomapError>,
+        ) -> Self {
             self.stop_housekeeping_thread_results
                 .borrow_mut()
                 .push(result);

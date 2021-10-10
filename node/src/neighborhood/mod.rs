@@ -421,7 +421,10 @@ impl Neighborhood {
             self.logger,
             "Changed public IP from {} to {}", old_public_ip, new_public_ip
         );
-        exit_process(1, "The Node cannot currently tolerate IP changes from the ISP, so...down we go.")
+        exit_process(
+            1,
+            "The Node cannot currently tolerate IP changes from the ISP, so...down we go.",
+        )
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
@@ -3092,7 +3095,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "The Node cannot currently tolerate IP changes from the ISP, so...down we go.")]
+    #[should_panic(
+        expected = "The Node cannot currently tolerate IP changes from the ISP, so...down we go."
+    )]
     fn handle_new_public_ip_kills_the_whole_node_until_we_can_gossip_the_change() {
         running_test();
         let subject_node = make_global_cryptde_node_record(1234, true);

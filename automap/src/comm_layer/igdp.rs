@@ -18,11 +18,11 @@ use masq_lib::utils::{AutomapProtocol, ExpectValue};
 use masq_lib::warning;
 use std::any::Any;
 use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
+use std::ops::{Add, Sub};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use std::ops::{Add, Sub};
 
 pub const HOUSEKEEPING_THREAD_LOOP_DELAY_MS: u64 = 100;
 pub const PUBLIC_IP_POLL_DELAY_SECONDS: u64 = 60;
@@ -185,10 +185,7 @@ impl Transactor for IgdpTransactor {
             router_ip,
             lifetime
         );
-        let gateway = inner
-            .gateway_opt
-            .as_ref()
-            .expect("ensure_gateway() failed");
+        let gateway = inner.gateway_opt.as_ref().expect("ensure_gateway() failed");
         inner
             .mapping_adder
             .add_mapping(gateway.as_ref(), hole_port, lifetime)
@@ -281,7 +278,7 @@ impl Transactor for IgdpTransactor {
                 public_ip_poll_delay,
                 change_handler,
                 inner_inner,
-                rx
+                rx,
             )
         }));
         Ok(tx)
@@ -291,7 +288,10 @@ impl Transactor for IgdpTransactor {
         let stopper = {
             let inner = self.inner();
             debug!(inner.logger, "Stopping housekeeping thread");
-            inner.housekeeping_commander_opt.clone().expect("No HousekeepingCommander: can't stop housekeeping thread")
+            inner
+                .housekeeping_commander_opt
+                .clone()
+                .expect("No HousekeepingCommander: can't stop housekeeping thread")
         };
         let change_handler = match stopper.try_send(HousekeepingThreadCommand::Stop) {
             Ok(_) => {
@@ -343,7 +343,9 @@ impl IgdpTransactor {
         }));
         Self {
             gateway_factory,
-            housekeeping_thread_loop_delay: Duration::from_millis(HOUSEKEEPING_THREAD_LOOP_DELAY_MS),
+            housekeeping_thread_loop_delay: Duration::from_millis(
+                HOUSEKEEPING_THREAD_LOOP_DELAY_MS,
+            ),
             public_ip_poll_delay: Duration::from_secs(PUBLIC_IP_POLL_DELAY_SECONDS),
             inner_arc,
             join_handle_opt: None,
@@ -388,7 +390,10 @@ impl IgdpTransactor {
         let mut mapping_config_opt = None;
         loop {
             thread::sleep(housekeeping_thread_loop_delay);
-            if last_announcement_check.add(public_ip_poll_delay).lt (&Instant::now()) {
+            if last_announcement_check
+                .add(public_ip_poll_delay)
+                .lt(&Instant::now())
+            {
                 last_announcement_check = Instant::now();
                 if !Self::thread_guts_iteration(
                     &change_handler,
@@ -471,7 +476,8 @@ impl IgdpTransactor {
         mapping_config_opt: &Option<MappingConfig>,
     ) {
         if let Some(mapping_config) = mapping_config_opt {
-            if mapping_config.next_lifetime.as_secs() > 0 { // if the mapping isn't permanent
+            if mapping_config.next_lifetime.as_secs() > 0 {
+                // if the mapping isn't permanent
                 let since_last_remapped = last_remapped.elapsed();
                 if since_last_remapped.gt(&mapping_config.remap_interval) {
                     if let Err(e) = Self::remap_port(
@@ -624,6 +630,7 @@ impl MappingAdderReal {
 mod tests {
     use super::*;
     use crate::control_layer::automap_control::AutomapChange;
+    use crate::mocks::LocalIpFinderMock;
     use core::ptr::addr_of;
     use crossbeam_channel::unbounded;
     use igd::RequestError;
@@ -636,7 +643,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use crate::mocks::LocalIpFinderMock;
 
     fn clone_get_external_ip_error(error: &GetExternalIpError) -> GetExternalIpError {
         match error {
@@ -1187,7 +1193,7 @@ mod tests {
         let one_ip = Ipv4Addr::from_str("1.2.3.4").unwrap();
         let another_ip = Ipv4Addr::from_str("4.3.2.1").unwrap();
         let router_ip = IpAddr::from_str("5.5.5.5").unwrap();
-        let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
+        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = IgdpTransactor::new();
         {
             let mut inner = subject.inner_arc.lock().unwrap();
@@ -1202,11 +1208,12 @@ mod tests {
                     .get_external_ip_result(Ok(another_ip)),
             ));
             inner.public_ip_opt = Some(one_ip);
-            inner.mapping_adder = Box::new (MappingAdderMock::new()
-                .add_mapping_params (&add_mapping_params_arc)
-                .add_mapping_result(Ok(600))
-                .add_mapping_result(Ok(600))
-                .add_mapping_result(Ok(600))
+            inner.mapping_adder = Box::new(
+                MappingAdderMock::new()
+                    .add_mapping_params(&add_mapping_params_arc)
+                    .add_mapping_result(Ok(600))
+                    .add_mapping_result(Ok(600))
+                    .add_mapping_result(Ok(600)),
             );
         }
         subject.housekeeping_thread_loop_delay = Duration::from_millis(1);
@@ -1221,11 +1228,15 @@ mod tests {
             .start_housekeeping_thread(change_handler, router_ip)
             .unwrap();
 
-        commander.send (HousekeepingThreadCommand::InitializeMappingConfig(MappingConfig{
-            hole_port: 6666,
-            next_lifetime: Duration::from_secs(600),
-            remap_interval: Duration::from_secs(600),
-        })).unwrap();
+        commander
+            .send(HousekeepingThreadCommand::InitializeMappingConfig(
+                MappingConfig {
+                    hole_port: 6666,
+                    next_lifetime: Duration::from_secs(600),
+                    remap_interval: Duration::from_secs(600),
+                },
+            ))
+            .unwrap();
         thread::sleep(Duration::from_millis(200));
         let _ = subject.stop_housekeeping_thread();
         let change_log = change_log_arc.lock().unwrap();
@@ -1326,7 +1337,7 @@ mod tests {
 
         let result = subject.stop_housekeeping_thread().err().unwrap();
 
-        assert_eq! (result, AutomapError::HousekeeperCrashed);
+        assert_eq!(result, AutomapError::HousekeeperCrashed);
         TestLogHandler::new().exists_log_containing("WARN: IgdpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
     }
 
@@ -1351,7 +1362,7 @@ mod tests {
 
         let result = subject.stop_housekeeping_thread().err().unwrap();
 
-        assert_eq! (result, AutomapError::HousekeeperCrashed);
+        assert_eq!(result, AutomapError::HousekeeperCrashed);
         TestLogHandler::new().exists_log_containing(
             "WARN: IgdpTransactor: Tried to stop housekeeping thread that had panicked",
         );
@@ -1387,7 +1398,7 @@ mod tests {
             Duration::from_millis(10),
             change_handler,
             inner_arc,
-            rx
+            rx,
         );
 
         // If we get here, neither mapping_adder.add_mapping() nor gateway.add_port() was called
@@ -1454,7 +1465,7 @@ mod tests {
             Duration::from_millis(10),
             change_handler,
             inner_arc,
-            rx
+            rx,
         );
     }
 

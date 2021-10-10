@@ -50,8 +50,8 @@ impl MacOsFindRoutersCommand {
 mod tests {
     use super::*;
     use crate::comm_layer::pcp_pmp_common::mocks::FindRoutersCommandMock;
-    use std::str::FromStr;
     use std::collections::HashSet;
+    use std::str::FromStr;
 
     #[test]
     fn find_routers_works_when_there_are_multiple_routers_to_find() {

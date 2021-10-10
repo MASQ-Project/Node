@@ -1,14 +1,15 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-
-use std::cell::RefCell;
-use std::net::{IpAddr, SocketAddr};
+use crate::comm_layer::pcp_pmp_common::{
+    FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory,
+};
 use crate::comm_layer::{AutomapError, LocalIpFinder};
-use std::time::Duration;
+use std::cell::RefCell;
 use std::io;
-use std::sync::{Mutex, Arc};
 use std::io::ErrorKind;
-use crate::comm_layer::pcp_pmp_common::{FindRoutersCommand, UdpSocketWrapperFactory, UdpSocketWrapper, FreePortFactory};
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 pub struct LocalIpFinderMock {
     find_results: RefCell<Vec<Result<IpAddr, AutomapError>>>,
@@ -86,11 +87,7 @@ impl UdpSocketWrapperMock {
         self
     }
 
-    pub fn recv_from_result(
-        self,
-        result: io::Result<(usize, SocketAddr)>,
-        bytes: Vec<u8>,
-    ) -> Self {
+    pub fn recv_from_result(self, result: io::Result<(usize, SocketAddr)>, bytes: Vec<u8>) -> Self {
         self.recv_from_results.borrow_mut().push((result, bytes));
         self
     }
@@ -105,10 +102,7 @@ impl UdpSocketWrapperMock {
         self
     }
 
-    pub fn set_read_timeout_params(
-        mut self,
-        params: &Arc<Mutex<Vec<Option<Duration>>>>,
-    ) -> Self {
+    pub fn set_read_timeout_params(mut self, params: &Arc<Mutex<Vec<Option<Duration>>>>) -> Self {
         self.set_read_timeout_params = params.clone();
         self
     }
@@ -146,7 +140,7 @@ impl UdpSocketWrapperFactoryMock {
 
     pub fn make_result(self, result: io::Result<UdpSocketWrapperMock>) -> Self {
         self.make_results.borrow_mut().push(match result {
-            Ok(uswm) => Ok(Box::new (uswm)),
+            Ok(uswm) => Ok(Box::new(uswm)),
             Err(e) => Err(e),
         });
         self
