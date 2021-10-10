@@ -568,23 +568,15 @@ impl Accountant {
                 let p_age = now
                     .duration_since(p.last_paid_timestamp)
                     .expect("Payable time is corrupt");
-                if p.balance > biggest.balance {
-                    biggest = PayableInfo {
-                        balance: p.balance,
-                        age: p_age,
-                    }
-                } else if p.balance == biggest.balance && p_age > biggest.age {
+                if (p.balance > biggest.balance)
+                    || (p.balance == biggest.balance && p_age > biggest.age)
+                {
                     biggest = PayableInfo {
                         balance: p.balance,
                         age: p_age,
                     }
                 }
-                if p_age > oldest.age {
-                    oldest = PayableInfo {
-                        balance: p.balance,
-                        age: p_age,
-                    }
-                } else if p_age == oldest.age && p.balance > oldest.balance {
+                if (p_age > oldest.age) || (p_age == oldest.age && p.balance > oldest.balance) {
                     oldest = PayableInfo {
                         balance: p.balance,
                         age: p_age,
