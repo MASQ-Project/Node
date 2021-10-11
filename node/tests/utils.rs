@@ -110,7 +110,7 @@ impl MASQNode {
     }
 
     #[allow(dead_code)]
-    pub fn start_standard_without_preparation(data_dir: &PathBuf) -> MASQNode {
+    pub fn start_standard_in_unsterilized_environment(data_dir: &PathBuf) -> MASQNode {
         let args_extension =
             CommandConfig::new().pair("--data-directory", data_dir.to_str().unwrap());
         let command = Self::make_node_command(data_dir, Some(args_extension), false);

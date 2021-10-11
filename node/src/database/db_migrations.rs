@@ -374,8 +374,8 @@ mod tests {
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
         too_high_found_schema_will_panic_params: Arc<Mutex<Vec<usize>>>,
-        make_mig_declaration_utils_results: RefCell<Vec<Box<dyn MigDeclarationUtilities>>>,
         make_mig_declaration_utils_params: Arc<Mutex<Vec<ExternalMigrationParameters>>>,
+        make_mig_declaration_utils_results: RefCell<Vec<Box<dyn MigDeclarationUtilities>>>,
         update_schema_version_params: Arc<Mutex<Vec<usize>>>,
         update_schema_version_results: RefCell<Vec<rusqlite::Result<()>>>,
         commit_results: RefCell<Vec<Result<(), String>>>,
@@ -991,27 +991,22 @@ mod tests {
         let dir_path = ensure_node_home_directory_exists("db_migrations", "0_to_1");
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join(DATABASE_FILE);
-        let connection =
-            revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
+        let _ = revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
         let subject = DbInitializerReal::default();
 
         let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, 1, true);
 
+        let connection = result.unwrap();
         let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
             assurance_query_for_config_table(
-                &connection,
+                connection.as_ref(),
                 "select name, value, encrypted from config where name = 'mapping_protocol'",
             );
         let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
             assurance_query_for_config_table(
-                &connection,
+                connection.as_ref(),
                 "select name, value, encrypted from config where name = 'schema_version'",
             );
-        assert!(result
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ConnectionWrapperReal>()
-            .is_some());
         assert_eq!(mp_name, "mapping_protocol".to_string());
         assert_eq!(mp_value, None);
         assert_eq!(mp_encrypted, 0);
@@ -1024,8 +1019,7 @@ mod tests {
     fn migration_from_1_to_2_is_properly_set() {
         let dir_path = ensure_node_home_directory_exists("db_migrations", "1_to_2");
         let db_path = dir_path.join(DATABASE_FILE);
-        let connection =
-            revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
+        let _ = revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
         let subject = DbInitializerReal::default();
         {
             subject
@@ -1035,21 +1029,17 @@ mod tests {
 
         let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, 2, true);
 
+        let connection = result.unwrap();
         let (chn_name, chn_value, chn_encrypted): (String, Option<String>, u16) =
             assurance_query_for_config_table(
-                &connection,
+                connection.as_ref(),
                 "select name, value, encrypted from config where name = 'chain_name'",
             );
         let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
             assurance_query_for_config_table(
-                &connection,
+                connection.as_ref(),
                 "select name, value, encrypted from config where name = 'schema_version'",
             );
-        assert!(result
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ConnectionWrapperReal>()
-            .is_some());
         assert_eq!(chn_name, "chain_name".to_string());
         assert_eq!(chn_value, Some("ropsten".to_string()));
         assert_eq!(chn_encrypted, 0);

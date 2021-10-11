@@ -444,6 +444,7 @@ mod tests {
     use super::*;
     use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
@@ -488,6 +489,7 @@ mod tests {
     use crate::test_utils::{alias_cryptde, rate_pack};
     use actix::System;
     use log::LevelFilter;
+    use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -1199,7 +1201,7 @@ mod tests {
 
     #[test]
     fn database_chain_validity_happy_path() {
-        let chain_id = 1;
+        let chain_id = chain_id_from_name(DEFAULT_CHAIN_NAME); //due to confusing nomenclature in the constants being available // TODO GH-473 may fix this
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("mainnet".to_string());
 
@@ -1211,7 +1213,7 @@ mod tests {
         expected = "Database with the wrong chain name detected; expected: ropsten, was: mainnet"
     )]
     fn database_chain_validity_sad_path() {
-        let chain_id = 3; //Ropsten
+        let chain_id = DEFAULT_CHAIN_ID; //Ropsten
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("mainnet".to_string());
 

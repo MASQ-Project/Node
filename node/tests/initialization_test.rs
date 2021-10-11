@@ -176,7 +176,7 @@ fn required_chain_name_from_input_meets_different_db_chain_name_and_panics_integ
     )
     .unwrap();
 
-    let mut node = MASQNode::start_standard_without_preparation(&db_dir);
+    let mut node = MASQNode::start_standard_in_unsterilized_environment(&db_dir);
 
     let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with the wrong chain name detected; expected: ropsten, was: mainnet";
     node.wait_for_log(regex_pattern, Some(1000));

@@ -843,10 +843,10 @@ mod tests {
             "db_initializer",
             "existing_database_with_the_wrong_version_comes_to_migrator_that_makes_it_gradually_migrate_to_upper_versions",
         );
-        let template_db_path_dir = &home_dir.join("template");
         let updated_db_path_dir = &home_dir.join("updated");
-        std::fs::create_dir(template_db_path_dir).unwrap();
+        let from_scratch_db_path_dir = &home_dir.join("from_scratch");
         std::fs::create_dir(updated_db_path_dir).unwrap();
+        std::fs::create_dir(from_scratch_db_path_dir).unwrap();
         {
             revive_tables_of_the_version_0_and_return_the_connection_to_the_db(
                 &updated_db_path_dir.join(DATABASE_FILE),
@@ -858,7 +858,7 @@ mod tests {
             .initialize(&updated_db_path_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let _ = subject
-            .initialize(&template_db_path_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&from_scratch_db_path_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
 
         let conn_updated = Connection::open_with_flags(
@@ -866,31 +866,28 @@ mod tests {
             OpenFlags::SQLITE_OPEN_READ_ONLY,
         )
         .unwrap();
-        let conn_template = Connection::open_with_flags(
-            &template_db_path_dir.join(DATABASE_FILE),
+        let conn_from_scratch = Connection::open_with_flags(
+            &from_scratch_db_path_dir.join(DATABASE_FILE),
             OpenFlags::SQLITE_OPEN_READ_ONLY,
         )
         .unwrap();
         let extract_from_updated = subject.extract_configurations(&conn_updated);
-        let extract_from_template = subject.extract_configurations(&conn_template);
-        //please, write all rows with irregular values here
-        let sieve = |updated: &(&String, &Option<String>),
-                     _template: &(&String, &Option<String>)| {
-            updated.0 != "clandestine_port"
-        };
+        let extract_from_from_scratch = subject.extract_configurations(&conn_from_scratch);
+        //please, write all rows with unpredictable values here
+        let sieve = |updated_parameter: &String| updated_parameter != "clandestine_port";
         let zipped_iterators = extract_from_updated
             .iter()
             .sorted()
-            .zip(extract_from_template.iter().sorted());
+            .zip(extract_from_from_scratch.iter().sorted());
         //with regular values
         zipped_iterators
             .clone()
-            .take_while(|(updated, template)| sieve(updated, template))
-            .for_each(|(updated, template)| assert_eq!(updated, template));
+            .take_while(|((parameter_name, _), _)| sieve(parameter_name))
+            .for_each(|(updated, from_scratch)| assert_eq!(updated, from_scratch));
         //with irregular values
         zipped_iterators
-            .take_while(|(updated, template)| sieve(updated, template).not())
-            .for_each(|(updated, template)| assert_eq!(updated.0, template.0));
+            .take_while(|((parameter_name, _), _)| sieve(parameter_name).not())
+            .for_each(|(updated, from_scratch)| assert_eq!(updated.0, from_scratch.0));
         TestLogHandler::new().exists_log_containing(
             "WARN: DbInitializer: Database is incompatible and its updating is necessary",
         );
