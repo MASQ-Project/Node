@@ -2197,7 +2197,7 @@ mod tests {
         let mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>> = Arc::new(Mutex::new(Box::new(
             MappingAdderMock::new()
                 .add_mapping_params(&add_mapping_params_arc)
-                .add_mapping_result(Err(AutomapError::Unknown)),
+                .add_mapping_result(Err(AutomapError::Unknown)), // means smaller setup
         )));
         let mut transactor = PmpTransactor::new();
         transactor.mapping_adder_arc = mapping_adder_arc.clone();
@@ -2213,14 +2213,14 @@ mod tests {
             mapping_adder_arc.lock().unwrap().as_ref(),
             &mut MappingConfig {
                 hole_port: 0,
-                next_lifetime: Duration::from_millis(100900),
+                next_lifetime: Duration::from_millis(100900), // greater than one second
                 remap_interval: Default::default(),
             },
         );
 
         assert_eq!(result, Err(AutomapError::Unknown));
         let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq!(add_mapping_params.remove(0).2.next_lifetime_secs(), 100);
+        assert_eq!(add_mapping_params.remove(0).2.next_lifetime_secs(), 100); // rounds down to int seconds
     }
 
     #[test]
@@ -2229,7 +2229,7 @@ mod tests {
         let mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>> = Arc::new(Mutex::new(Box::new(
             MappingAdderMock::new()
                 .add_mapping_params(&add_mapping_params_arc)
-                .add_mapping_result(Err(AutomapError::Unknown)),
+                .add_mapping_result(Err(AutomapError::Unknown)), // means smaller setup
         )));
         let mut transactor = PmpTransactor::new();
         transactor.mapping_adder_arc = mapping_adder_arc.clone();
@@ -2245,14 +2245,14 @@ mod tests {
             mapping_adder_arc.lock().unwrap().as_ref(),
             &mut MappingConfig {
                 hole_port: 0,
-                next_lifetime: Duration::from_millis(80),
+                next_lifetime: Duration::from_millis(80), // less than one second
                 remap_interval: Default::default(),
             },
         );
 
         assert_eq!(result, Err(AutomapError::Unknown));
         let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq!(add_mapping_params.remove(0).2.next_lifetime_secs(), 1);
+        assert_eq!(add_mapping_params.remove(0).2.next_lifetime_secs(), 1); // rounds up to one second
     }
 
     #[test]

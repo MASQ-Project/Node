@@ -21,8 +21,6 @@ pub enum AutomapChange {
     Error(AutomapError),
 }
 
-unsafe impl Send for AutomapChange {}
-
 pub type ChangeHandler = Box<dyn Fn(AutomapChange) + Send>;
 
 pub trait AutomapControl {
@@ -32,7 +30,7 @@ pub trait AutomapControl {
     fn get_mapping_protocol(&self) -> Option<AutomapProtocol>;
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug)]
 struct AutomapControlRealInner {
     router_ip: IpAddr,
     transactor_idx: usize,
@@ -232,8 +230,8 @@ impl AutomapControlReal {
         &mut self,
         experiment: TransactorExperiment<T>,
     ) -> Result<ProtocolInfo<T>, AutomapError> {
+        let mut transactors_ref_mut = self.transactors.borrow_mut();
         if let Some(usual_protocol) = self.usual_protocol_opt {
-            let mut transactors_ref_mut = self.transactors.borrow_mut();
             let transactor = transactors_ref_mut
                 .iter_mut()
                 .find(|t| t.protocol() == usual_protocol)
@@ -254,7 +252,6 @@ impl AutomapControlReal {
         }
         let init: Result<(AutomapProtocol, IpAddr, T), Vec<(AutomapProtocol, AutomapError)>> =
             Err(vec![]);
-        let mut transactors_ref_mut = self.transactors.borrow_mut();
         let protocol_router_ip_and_experimental_outcome_result = transactors_ref_mut
             .iter_mut()
             .fold(init, |so_far, transactor| {
@@ -437,10 +434,12 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((change_handler, router_ip));
-            self.housekeeping_thread_started = true;
-            self.start_housekeeping_thread_results
+            let result = self
+                .start_housekeeping_thread_results
                 .borrow_mut()
-                .remove(0)
+                .remove(0);
+            self.housekeeping_thread_started = true;
+            result
         }
 
         fn stop_housekeeping_thread(&mut self) -> Result<ChangeHandler, AutomapError> {
@@ -448,8 +447,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(());
+            let result = self.stop_housekeeping_thread_results.borrow_mut().remove(0);
             self.housekeeping_thread_started = false;
-            self.stop_housekeeping_thread_results.borrow_mut().remove(0)
+            result
         }
 
         fn as_any(&self) -> &dyn Any {
@@ -629,6 +629,7 @@ mod tests {
             AutomapError::ProtocolError("Booga!".to_string()),
             AutomapError::ProtocolError("Booga!".to_string()),
         );
+        assert_eq!(subject.inner_opt, None);
     }
 
     #[test]

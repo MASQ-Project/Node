@@ -4,8 +4,9 @@ use crate::comm_layer::igdp::IgdpTransactor;
 use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
 use crate::comm_layer::{AutomapError, AutomapErrorCause, Transactor};
+use crate::control_layer::automap_control::AutomapChange;
 use crate::probe_researcher::request_probe;
-use log::{info, warn};
+use log::{error, info, warn};
 use masq_lib::utils::{find_free_port, AutomapProtocol};
 use std::env::Args;
 use std::net::{IpAddr, SocketAddr};
@@ -20,6 +21,7 @@ pub struct TestParameters {
     pub nopoke: bool,
     pub noremove: bool,
     pub permanent: bool,
+    pub auto: bool,
 }
 
 pub type Tester = Box<dyn FnOnce(TestStatus, &TestParameters) -> Result<(), AutomapErrorCause>>;
@@ -40,6 +42,7 @@ impl AutomapParameters {
         let mut nopoke = false;
         let mut noremove = false;
         let mut permanent = false;
+        let mut auto = false;
         args.into_iter().skip(1).for_each(|arg| match arg.as_str() {
             "pcp" => protocols.push(AutomapProtocol::Pcp),
             "pmp" => protocols.push(AutomapProtocol::Pmp),
@@ -47,6 +50,7 @@ impl AutomapParameters {
             "nopoke" => nopoke = true,
             "noremove" => noremove = true,
             "permanent" => permanent = true,
+            "auto" => auto = true,
             arg => {
                 hole_port = arg
                     .parse::<u16>()
@@ -71,11 +75,19 @@ impl AutomapParameters {
             nopoke,
             noremove,
             permanent,
+            auto,
         };
         Self {
             protocols,
             test_parameters,
         }
+    }
+}
+
+pub fn change_handler(change: AutomapChange) {
+    match change {
+        AutomapChange::NewIp(ip_addr) => info!("Notified of public-IP change to {:?}", ip_addr),
+        AutomapChange::Error(e) => error!("Notified of error: {:?}", e),
     }
 }
 
@@ -91,26 +103,26 @@ pub fn test_pcp(
     status: TestStatus,
     test_parameters: &TestParameters,
 ) -> Result<(), AutomapErrorCause> {
-    perform_test(status, &PcpTransactor::default(), test_parameters)
+    perform_test(status, &mut PcpTransactor::default(), test_parameters)
 }
 
 pub fn test_pmp(
     status: TestStatus,
     test_parameters: &TestParameters,
 ) -> Result<(), AutomapErrorCause> {
-    perform_test(status, &PmpTransactor::default(), test_parameters)
+    perform_test(status, &mut PmpTransactor::default(), test_parameters)
 }
 
 pub fn test_igdp(
     status: TestStatus,
     test_parameters: &TestParameters,
 ) -> Result<(), AutomapErrorCause> {
-    perform_test(status, &IgdpTransactor::default(), test_parameters)
+    perform_test(status, &mut IgdpTransactor::default(), test_parameters)
 }
 
 fn perform_test(
     status: TestStatus,
-    transactor: &dyn Transactor,
+    transactor: &mut dyn Transactor,
     parameters: &TestParameters,
 ) -> Result<(), AutomapErrorCause> {
     let status = test_common(status, transactor, parameters);
@@ -119,7 +131,7 @@ fn perform_test(
 
 fn test_common(
     status: TestStatus,
-    transactor: &dyn Transactor,
+    transactor: &mut dyn Transactor,
     parameters: &TestParameters,
 ) -> TestStatus {
     if status.fatal {
@@ -128,8 +140,13 @@ fn test_common(
     info!("");
     info!("=============={}===============", &transactor.protocol());
     let (router_ip, status) = find_router(status, transactor);
+    let status = start_housekeeping_thread(status, router_ip, transactor);
+    if status.fatal {
+        return status;
+    }
     let (public_ip, status) = seek_public_ip(status, router_ip, transactor);
     if status.fatal {
+        let status = stop_housekeeping_thread(status, transactor);
         return status;
     }
     let status = if parameters.nopoke {
@@ -145,9 +162,10 @@ fn test_common(
     };
     let status = run_probe_test(status, parameters, public_ip);
     if status.fatal {
+        let status = stop_housekeeping_thread(status, transactor);
         return status;
     }
-    if parameters.noremove {
+    let status = if parameters.noremove {
         let status = status.begin_attempt(format!(
             "Terminating without closing firewall hole at port {}, as requested",
             parameters.hole_port
@@ -155,7 +173,8 @@ fn test_common(
         status.succeed()
     } else {
         remove_firewall_hole(parameters.hole_port, status, router_ip, transactor)
-    }
+    };
+    stop_housekeeping_thread(status, transactor)
 }
 
 fn find_router(status: TestStatus, transactor: &dyn Transactor) -> (IpAddr, TestStatus) {
@@ -178,13 +197,29 @@ fn find_router(status: TestStatus, transactor: &dyn Transactor) -> (IpAddr, Test
     }
 }
 
+fn start_housekeeping_thread(
+    status: TestStatus,
+    router_ip: IpAddr,
+    transactor: &mut dyn Transactor,
+) -> TestStatus {
+    let status = status.begin_attempt(format!(
+        "Starting housekeeping thread for router at {}",
+        router_ip
+    ));
+    match transactor.start_housekeeping_thread(Box::new(change_handler), router_ip) {
+        Ok(_) => status.succeed(),
+        Err(e) => status.fail(e),
+    }
+}
+
 fn seek_public_ip(
     status: TestStatus,
     router_ip: IpAddr,
-    transactor: &dyn Transactor,
+    transactor: &mut dyn Transactor,
 ) -> (IpAddr, TestStatus) {
     let null_ip = IpAddr::from_str("255.255.255.255").expect("Bad IP address");
     if status.fatal {
+        let status = stop_housekeeping_thread(status, transactor);
         return (null_ip, status);
     }
     let status = status.begin_attempt(format!(
@@ -201,9 +236,10 @@ fn poke_firewall_hole(
     test_port: u16,
     status: TestStatus,
     router_ip: IpAddr,
-    transactor: &dyn Transactor,
+    transactor: &mut dyn Transactor,
 ) -> TestStatus {
     if status.fatal {
+        let status = stop_housekeeping_thread(status, transactor);
         return status;
     }
     let status = status.begin_attempt(format!(
@@ -223,9 +259,10 @@ fn poke_permanent_firewall_hole(
     test_port: u16,
     status: TestStatus,
     router_ip: IpAddr,
-    transactor: &dyn Transactor,
+    transactor: &mut dyn Transactor,
 ) -> TestStatus {
     if status.fatal {
+        let status = stop_housekeeping_thread(status, transactor);
         return status;
     }
     let status = status.begin_attempt(format!(
@@ -269,6 +306,14 @@ pub fn remove_firewall_hole(
             );
             status.fail(e)
         }
+    }
+}
+
+fn stop_housekeeping_thread(status: TestStatus, transactor: &mut dyn Transactor) -> TestStatus {
+    let status = status.begin_attempt("Stopping housekeeping thread".to_string());
+    match transactor.stop_housekeeping_thread() {
+        Ok(_) => status.succeed(),
+        Err(e) => status.fail(e),
     }
 }
 
