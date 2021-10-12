@@ -88,7 +88,7 @@ pub mod standard {
 
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchains::{chain_id_from_name, Chain};
+    use crate::blockchain::blockchains::{Chain};
     use crate::bootstrapper::PortConfiguration;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration,
@@ -96,7 +96,7 @@ pub mod standard {
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::node_configurator::{
         data_directory_from_context, determine_config_file_path,
-        real_user__data_directory_opt__chain_name, real_user_from_multi_config_or_populate,
+        real_user_with_data_directory_opt_and_chain, real_user_from_multi_config_or_populate,
         request_existing_db_password, DirsWrapper,
     };
     use crate::server_initializer::GatheredParams;
@@ -179,13 +179,13 @@ pub mod standard {
             .blockchain_bridge_config
             .blockchain_service_url_opt = value_m!(multi_config, "blockchain-service-url", String);
 
-        let (real_user, data_directory_opt, chain_name) =
-            real_user__data_directory_opt__chain_name(dirs_wrapper, multi_config);
+        let (real_user, data_directory_opt, chain) =
+            real_user_with_data_directory_opt_and_chain(dirs_wrapper, multi_config);
         let directory =
-            data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
+            data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
         privileged_config.real_user = real_user;
         privileged_config.data_directory = directory;
-        privileged_config.blockchain_bridge_config.chain_id = chain_id_from_name(&chain_name);
+        privileged_config.blockchain_bridge_config.chain_id = chain.record().num_chain_id;
 
         let joined_dns_servers_opt = value_m!(multi_config, "dns-servers", String);
         privileged_config.dns_servers = match joined_dns_servers_opt {
@@ -408,7 +408,7 @@ pub mod standard {
                             |s| match NodeDescriptor::from_str(dummy_cryptde.as_ref(), &s) {
                                 Ok(nd) =>
                                     {
-                                        let desired_chain = Chain::from_id(chain_id_from_name(chain_name.as_str()));
+                                        let desired_chain = Chain::from(chain_name.as_str());
                                         let descriptor_competence = nd.blockchain;
                                     if desired_chain == descriptor_competence{
                                         Ok(nd)
@@ -994,7 +994,7 @@ mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchains::{chain_id_from_name, Chain};
+    use crate::blockchain::blockchains::{Chain};
     use crate::bootstrapper::RealUser;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -2555,7 +2555,7 @@ mod tests {
 
         assert_eq!(
             config.blockchain_bridge_config.chain_id,
-            chain_id_from_name("dev")
+            Chain::from("dev").record().num_chain_id
         );
     }
 
@@ -2580,7 +2580,7 @@ mod tests {
 
         assert_eq!(
             config.blockchain_bridge_config.chain_id,
-            chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)
+            TEST_DEFAULT_CHAIN_ID
         );
     }
 
@@ -2624,7 +2624,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             bootstrapper_config.blockchain_bridge_config.chain_id,
-            chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)
+            TEST_DEFAULT_CHAIN_ID
         );
     }
 

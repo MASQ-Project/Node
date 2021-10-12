@@ -1226,7 +1226,7 @@ pub fn regenerate_signed_gossip(
 mod tests {
     use std::cell::RefCell;
     use std::convert::TryInto;
-    use std::net::{IpAddr, SocketAddr};
+    use std::net::{IpAddr, SocketAddr, Ipv4Addr};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -1239,15 +1239,14 @@ mod tests {
     use serde_cbor;
     use tokio::prelude::Future;
 
-    use masq_lib::constants::{DEFAULT_CHAIN_NAME, TLS_PORT};
+    use masq_lib::constants::{TLS_PORT};
     use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID
     };
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::utils::running_test;
 
-    use crate::blockchain::blockchains::{Chain, chain_id_from_name};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::neighborhood::gossip::Gossip_0v1;
     use crate::neighborhood::gossip::GossipBuilder;
@@ -1282,6 +1281,7 @@ mod tests {
     use crate::test_utils::vec_to_set;
 
     use super::*;
+    use crate::blockchain::blockchains::DEFAULT_CHAIN;
 
     #[test]
     #[should_panic(
@@ -1302,7 +1302,7 @@ mod tests {
             None,
             "cant_create_mainnet_neighborhood_with_non_mainnet_neighbors",
         );
-        bc.blockchain_bridge_config.chain_id = chain_id_from_name(DEFAULT_CHAIN_NAME);
+        bc.blockchain_bridge_config.chain_id = DEFAULT_CHAIN.record().num_chain_id;
 
         let _ = Neighborhood::new(cryptde, &bc);
     }
@@ -1326,7 +1326,7 @@ mod tests {
             None,
             "cant_create_non_mainnet_neighborhood_with_mainnet_neighbors",
         );
-        bc.blockchain_bridge_config.chain_id = chain_id_from_name(TEST_DEFAULT_CHAIN_NAME);
+        bc.blockchain_bridge_config.chain_id = TEST_DEFAULT_CHAIN_ID;
 
         let _ = Neighborhood::new(cryptde, &bc);
     }
@@ -2676,7 +2676,7 @@ mod tests {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let public_key = PublicKey::new(&[1, 2, 3, 4]);
-        let node_addr = NodeAddr::from_str("1.2.3.4:1234").unwrap();
+        let node_addr = NodeAddr::try_from((IpAddr::V4(Ipv4Addr::from_str("1.2.3.4").unwrap()),"1234")).unwrap();
         let gossip_acceptor =
             GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Failed(
                 GossipFailure_0v1::NoSuitableNeighbors,

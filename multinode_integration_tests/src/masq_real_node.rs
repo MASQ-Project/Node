@@ -12,7 +12,7 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
-use node_lib::blockchain::blockchains::{chain_id_from_name, Chain};
+use node_lib::blockchain::blockchains::{Chain};
 use node_lib::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -589,7 +589,7 @@ impl NodeStartupConfigBuilder {
     }
 
     pub fn chain(mut self, chain: &str) -> Self {
-        self.chain_id = chain_id_from_name(chain.into());
+        self.chain_id = Chain::from(chain).record().num_chain_id;
         self
     }
 

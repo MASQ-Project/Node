@@ -8,7 +8,7 @@ use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
 use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{
-    data_directory_from_context, real_user__data_directory_opt__chain_name, DirsWrapper,
+    data_directory_from_context, real_user_with_data_directory_opt_and_chain, DirsWrapper,
 };
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::run_modes_factories::DumpConfigRunner;
@@ -25,7 +25,6 @@ use serde_json::json;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
-use crate::blockchain::blockchains::chain_id_from_name;
 #[cfg(test)]
 use std::any::Any;
 
@@ -132,15 +131,15 @@ fn distill_args(
         Box::new(EnvironmentVcl::new(&app)),
     ];
     let multi_config = make_new_multi_config(&app, vcls)?;
-    let (real_user, data_directory_opt, chain_name) =
-        real_user__data_directory_opt__chain_name(dirs_wrapper, &multi_config);
+    let (real_user, data_directory_opt, chain) =
+        real_user_with_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
     let directory =
-        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
+        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
     let password_opt = value_m!(multi_config, "db-password", String);
     Ok((
         real_user,
         directory,
-        chain_id_from_name(&chain_name),
+        chain.record().num_chain_id,
         password_opt,
     ))
 }

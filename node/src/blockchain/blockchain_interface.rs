@@ -1,12 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchains::{chain_id_from_name, Chain};
+use crate::blockchain::blockchains::{Chain, DEFAULT_CHAIN};
 use crate::blockchain::raw_transaction::RawTransaction;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use futures::{future, Future};
-use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -139,7 +138,7 @@ impl BlockchainInterfaceClandestine {
 
 impl Default for BlockchainInterfaceClandestine {
     fn default() -> Self {
-        Self::new(chain_id_from_name(DEFAULT_CHAIN_NAME))
+        Self::new(DEFAULT_CHAIN.record().num_chain_id)
     }
 }
 

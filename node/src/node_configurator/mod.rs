@@ -6,7 +6,6 @@ pub mod node_configurator_standard;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
-use crate::blockchain::blockchains::{chain_id_from_name, platform_from_chain_name};
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::db_config::persistent_configuration::{
@@ -35,6 +34,7 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
+use crate::blockchain::blockchains::Chain;
 
 pub trait NodeConfigurator<T> {
     fn configure(
@@ -141,10 +141,10 @@ pub fn determine_config_file_path(
     let multi_config = make_new_multi_config(&orientation_schema, vec![Box::new(orientation_vcl)])?;
     let config_file_path = value_m!(multi_config, "config-file", PathBuf).expect_v("config-file");
     let user_specified = multi_config.occurrences_of("config-file") > 0;
-    let (real_user, data_directory_opt, chain_name) =
-        real_user__data_directory_opt__chain_name(dirs_wrapper, &multi_config);
+    let (real_user, data_directory_opt, chain) =
+        real_user_with_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
     let directory =
-        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
+        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
     (directory.join(config_file_path), user_specified).wrap_to_ok()
 }
 
@@ -219,23 +219,22 @@ pub fn real_user_from_multi_config_or_populate(
     }
 }
 
-#[allow(non_snake_case)]
-pub fn real_user__data_directory_opt__chain_name(
+pub fn real_user_with_data_directory_opt_and_chain(
     dirs_wrapper: &dyn DirsWrapper,
     multi_config: &MultiConfig,
-) -> (RealUser, Option<PathBuf>, String) {
+) -> (RealUser, Option<PathBuf>, Chain) {
     let real_user = real_user_from_multi_config_or_populate(multi_config, dirs_wrapper);
     let chain_name =
         value_m!(multi_config, "chain", String).unwrap_or_else(|| DEFAULT_CHAIN_NAME.to_string());
     let data_directory_opt = value_m!(multi_config, "data-directory", PathBuf);
-    (real_user, data_directory_opt, chain_name)
+    (real_user, data_directory_opt, Chain::from(chain_name.as_str()))
 }
 
 pub fn data_directory_from_context(
     dirs_wrapper: &dyn DirsWrapper,
     real_user: &RealUser,
     data_directory_opt: &Option<PathBuf>,
-    chain_name: &str,
+    chain: Chain,
 ) -> PathBuf {
     match data_directory_opt {
         Some(data_directory) => data_directory.clone(),
@@ -258,11 +257,11 @@ pub fn data_directory_from_context(
                 .to_string();
             let right_local_data_dir =
                 wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
-            let platform = platform_from_chain_name(chain_name);
+            let platform = chain.record().directory_by_platform;
             PathBuf::from(right_local_data_dir)
                 .join("MASQ")
                 .join(platform)
-                .join(chain_name)
+                .join(chain.record().plain_text_name)
         }
     }
 }
@@ -280,15 +279,15 @@ pub fn prepare_initialization_mode<'a>(
         ],
     )?;
 
-    let (real_user, data_directory_opt, chain_name) =
-        real_user__data_directory_opt__chain_name(dirs_wrapper, &multi_config);
+    let (real_user, data_directory_opt, chain) =
+        real_user_with_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
     let directory = data_directory_from_context(
         &DirsWrapperReal {},
         &real_user,
         &data_directory_opt,
-        &chain_name,
+        chain,
     );
-    let persistent_config_box = initialize_database(&directory, chain_id_from_name(&chain_name));
+    let persistent_config_box = initialize_database(&directory, chain.record().num_chain_id);
     Ok((multi_config, persistent_config_box))
 }
 
@@ -969,7 +968,7 @@ mod tests {
         let chain_name = "ropsten";
 
         let result =
-            data_directory_from_context(&dirs_wrapper, &real_user, &data_dir_opt, chain_name);
+            data_directory_from_context(&dirs_wrapper, &real_user, &data_dir_opt, Chain::from(chain_name));
 
         assert_eq!(
             result,
@@ -1021,14 +1020,14 @@ mod tests {
     #[test]
     fn correct_directory_for_default_chain_is_picked() {
         let multi_config = make_simplified_multi_config(["MASQNode"]);
-        let (real_user, data_directory_opt, chain_name) =
-            real_user__data_directory_opt__chain_name(&DirsWrapperReal, &multi_config);
+        let (real_user, data_directory_opt, chain) =
+            real_user_with_data_directory_opt_and_chain(&DirsWrapperReal, &multi_config);
 
         let directory = data_directory_from_context(
             &DirsWrapperReal,
             &real_user,
             &data_directory_opt,
-            &chain_name,
+            chain,
         );
 
         let expected_root = DirsWrapperReal {}.data_dir().unwrap();
@@ -1037,7 +1036,7 @@ mod tests {
             .join(DEFAULT_PLATFORM)
             .join(DEFAULT_CHAIN_NAME);
         assert_eq!(directory, expected_directory);
-        assert_eq!(&chain_name, DEFAULT_CHAIN_NAME);
+        assert_eq!(chain.record().plain_text_name, DEFAULT_CHAIN_NAME);
     }
 
     #[test]

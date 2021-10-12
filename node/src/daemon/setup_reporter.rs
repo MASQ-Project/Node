@@ -1,7 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::apps::app_head;
-use crate::blockchain::blockchains::{chain_id_from_name};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
@@ -29,7 +28,7 @@ use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupRespo
 use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
-use crate::blockchain::blockchains::Chain as BlockChain;
+use crate::blockchain::blockchains::{Chain as BlockChain, DEFAULT_CHAIN};
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
 use std::collections::HashMap;
@@ -94,12 +93,12 @@ impl SetupReporter for SetupReporterReal {
         eprintln_setup("INCOMING", &incoming_setup);
         eprintln_setup("ALL BUT CONFIGURED", &all_but_configured);
         let mut error_so_far = ConfiguratorError::new(vec![]);
-        let (real_user_opt, data_directory_opt, chain_name) =
+        let (real_user_opt, data_directory_opt, chain) =
             match Self::calculate_fundamentals(self.dirs_wrapper.as_ref(), &all_but_configured) {
                 Ok(triple) => triple,
                 Err(error) => {
                     error_so_far.extend(error);
-                    (None, None, DEFAULT_CHAIN_NAME.to_string())
+                    (None, None, DEFAULT_CHAIN)
                 }
             };
         let real_user = real_user_opt.unwrap_or_else(|| {
@@ -112,14 +111,14 @@ impl SetupReporter for SetupReporterReal {
                 self.dirs_wrapper.as_ref(),
                 &real_user,
                 &data_directory_opt,
-                &chain_name,
+                chain,
             ),
         };
         let (configured_setup, error_opt) = Self::calculate_configured_setup(
             self.dirs_wrapper.as_ref(),
             &all_but_configured,
             &data_directory,
-            &chain_name,
+            chain,
         );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -223,7 +222,7 @@ impl SetupReporterReal {
         (
             Option<crate::bootstrapper::RealUser>,
             Option<PathBuf>,
-            String,
+            BlockChain,
         ),
         ConfiguratorError,
     > {
@@ -244,7 +243,7 @@ impl SetupReporterReal {
             value_m!(multi_config, "chain", String),
             combined_setup.get("chain"),
         ) {
-            (Some(chain_str), None) => chain_str,
+            (Some(chain), None) => chain,
             (Some(_), Some(uisrv)) if uisrv.status == Set => uisrv.value.clone(),
             (Some(chain_str), Some(_)) => chain_str,
             (None, Some(uisrv)) => uisrv.value.clone(),
@@ -259,14 +258,14 @@ impl SetupReporterReal {
             (Some(ddir_str), Some(_)) => Some(PathBuf::from(&ddir_str)),
             _ => None,
         };
-        Ok((real_user_opt, data_directory_opt, chain_name))
+        Ok((real_user_opt, data_directory_opt, BlockChain::from(chain_name.as_str())))
     }
 
     fn calculate_configured_setup(
         dirs_wrapper: &dyn DirsWrapper,
         combined_setup: &SetupCluster,
         data_directory: &Path,
-        chain_name: &str,
+        chain: BlockChain,
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
@@ -280,7 +279,7 @@ impl SetupReporterReal {
             dirs_wrapper,
             &multi_config,
             data_directory,
-            chain_id_from_name(chain_name),
+            chain.record().num_chain_id,
         );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -578,14 +577,14 @@ impl ValueRetriever for DataDirectory {
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let real_user = &bootstrapper_config.real_user;
-        let chain_name = BlockChain::from_id(bootstrapper_config.blockchain_bridge_config.chain_id).record().plain_text_name;
+        let chain = BlockChain::from_id(bootstrapper_config.blockchain_bridge_config.chain_id);
         let data_directory_opt = None;
         Some((
             data_directory_from_context(
                 self.dirs_wrapper.as_ref(),
                 real_user,
                 &data_directory_opt,
-                chain_name,
+                chain,
             )
             .to_string_lossy()
             .to_string(),
@@ -875,7 +874,7 @@ mod tests {
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
-    use crate::blockchain::blockchains::Chain as Blockchain;
+    use crate::blockchain::blockchains::{Chain as Blockchain, DEFAULT_CHAIN};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
@@ -884,9 +883,7 @@ mod tests {
     use masq_lib::constants::DEFAULT_PLATFORM;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, TEST_DEFAULT_PLATFORM,
-    };
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, TEST_DEFAULT_PLATFORM, TEST_DEFAULT_CHAIN_ID};
     use std::cell::RefCell;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
@@ -975,7 +972,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, chain_id_from_name(DEFAULT_CHAIN_NAME), true)
+            .initialize(&home_dir, DEFAULT_CHAIN.record().num_chain_id, true)
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
@@ -1662,7 +1659,7 @@ mod tests {
         .for_each(|(name, value)| std::env::set_var(name, value));
         let setup = setup_cluster_from(vec![]);
 
-        let (real_user_opt, data_directory_opt, chain_name) =
+        let (real_user_opt, data_directory_opt, chain) =
             SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
@@ -1674,7 +1671,7 @@ mod tests {
             ))
         );
         assert_eq!(data_directory_opt, Some(PathBuf::from("env_dir")));
-        assert_eq!(chain_name, TEST_DEFAULT_CHAIN_NAME.to_string());
+        assert_eq!(chain, Blockchain::from_id(TEST_DEFAULT_CHAIN_ID));
     }
 
     #[test]
@@ -1693,7 +1690,7 @@ mod tests {
             ("real-user", "1111:1111:agoob", Configured),
         ]);
 
-        let (real_user_opt, data_directory_opt, chain_name) =
+        let (real_user_opt, data_directory_opt, chain) =
             SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
@@ -1705,7 +1702,7 @@ mod tests {
             ))
         );
         assert_eq!(data_directory_opt, Some(PathBuf::from("env_dir")));
-        assert_eq!(chain_name, TEST_DEFAULT_CHAIN_NAME.to_string());
+        assert_eq!(chain, Blockchain::from_id(TEST_DEFAULT_CHAIN_ID));
     }
 
     #[test]
@@ -1724,7 +1721,7 @@ mod tests {
             ("real-user", "1111:1111:agoob", Set),
         ]);
 
-        let (real_user_opt, data_directory_opt, chain_name) =
+        let (real_user_opt, data_directory_opt, chain) =
             SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
@@ -1736,7 +1733,7 @@ mod tests {
             ))
         );
         assert_eq!(data_directory_opt, Some(PathBuf::from("setup_dir")));
-        assert_eq!(chain_name, "dev".to_string());
+        assert_eq!(chain, Blockchain::from("dev"));
     }
 
     #[test]
@@ -1751,7 +1748,7 @@ mod tests {
             ("real-user", "1111:1111:agoob", Configured),
         ]);
 
-        let (real_user_opt, data_directory_opt, chain_name) =
+        let (real_user_opt, data_directory_opt, chain) =
             SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
@@ -1763,7 +1760,7 @@ mod tests {
             ))
         );
         assert_eq!(data_directory_opt, None);
-        assert_eq!(chain_name, "dev".to_string());
+        assert_eq!(chain, Blockchain::from("dev"));
     }
 
     #[test]
@@ -1774,7 +1771,7 @@ mod tests {
             .for_each(|(name, value): (&str, &str)| std::env::set_var(name, value));
         let setup = setup_cluster_from(vec![]);
 
-        let (real_user_opt, data_directory_opt, chain_name) =
+        let (real_user_opt, data_directory_opt, chain) =
             SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
@@ -1784,7 +1781,7 @@ mod tests {
             )
         );
         assert_eq!(data_directory_opt, None);
-        assert_eq!(chain_name, DEFAULT_CHAIN_NAME.to_string());
+        assert_eq!(chain, DEFAULT_CHAIN);
     }
 
     #[test]
@@ -1871,7 +1868,7 @@ mod tests {
             &DirsWrapperReal {},
             &setup,
             &data_directory,
-            "eth-mainnet", //irrelevant
+            Blockchain::EthMainnet, //irrelevant
         )
         .0;
 
@@ -1916,7 +1913,7 @@ mod tests {
             &DirsWrapperReal {},
             &setup,
             &data_directory,
-            "eth-mainnet", //irrelevant
+            Blockchain::EthMainnet, //irrelevant
         )
         .0;
 
@@ -1954,7 +1951,7 @@ mod tests {
             &DirsWrapperReal {},
             &setup,
             &data_directory,
-            "eth-mainnet", //irrelevant
+            Blockchain::EthMainnet, //irrelevant
         )
         .0;
 
@@ -1985,7 +1982,7 @@ mod tests {
             &DirsWrapperReal,
             &setup,
             &data_directory,
-            "irrelevant",
+            Blockchain::EthMainnet //irrelevant
         )
         .1
         .unwrap();
@@ -2026,7 +2023,7 @@ mod tests {
             &DirsWrapperReal {},
             &setup,
             &data_dir,
-            "eth-mainnet", //irrelevant
+            Blockchain::EthMainnet, //irrelevant
         )
         .0;
 
@@ -2064,7 +2061,7 @@ mod tests {
             &DirsWrapperReal {},
             &setup,
             &data_directory,
-            "irrelevant",
+            Blockchain::EthMainnet //irrelevant
         )
         .1
         .unwrap();
@@ -2125,12 +2122,12 @@ mod tests {
     fn data_directory_computed_default() {
         let real_user = RealUser::new(None, None, None).populate(&DirsWrapperReal {});
         let expected =
-            data_directory_from_context(&DirsWrapperReal {}, &real_user, &None, "eth-mainnet")
+            data_directory_from_context(&DirsWrapperReal {}, &real_user, &None, Blockchain::EthMainnet)
                 .to_string_lossy()
                 .to_string();
         let mut config = BootstrapperConfig::new();
         config.real_user = real_user;
-        config.blockchain_bridge_config.chain_id = chain_id_from_name("eth-mainnet");
+        config.blockchain_bridge_config.chain_id = Blockchain::from("eth-mainnet").record().num_chain_id;
 
         let subject = DataDirectory::default();
 
