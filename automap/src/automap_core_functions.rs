@@ -31,7 +31,6 @@ pub struct AutomapParameters {
     pub test_parameters: TestParameters,
 }
 
-// TODO: Figure out how to get AutomapControl in here.
 impl AutomapParameters {
     pub fn new(args: Args, probe_server_address_str: &str) -> Self {
         let probe_server_address =

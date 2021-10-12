@@ -684,7 +684,7 @@ mod tests {
 
     #[test]
     fn find_protocol_without_usual_protocol_traverses_available_protocols() {
-        let mut subject = make_all_routers_subject();
+        let mut subject = make_fully_populated_subject();
         subject.usual_protocol_opt = None;
         let outer_protocol_log_arc = Arc::new(Mutex::new(vec![]));
         let inner_protocol_log_arc = outer_protocol_log_arc.clone();
@@ -752,7 +752,7 @@ mod tests {
 
     #[test]
     fn find_protocol_with_failing_usual_protocol_tries_other_protocols() {
-        let mut subject = make_all_routers_subject();
+        let mut subject = make_fully_populated_subject();
         subject.usual_protocol_opt = Some(AutomapProtocol::Pmp);
         let outer_protocol_log_arc = Arc::new(Mutex::new(vec![]));
         let inner_protocol_log_arc = outer_protocol_log_arc.clone();
@@ -817,6 +817,7 @@ mod tests {
         let (actual_change_handler, router_ip) =
             start_change_handler_params_arc.lock().unwrap().remove(0);
         assert_eq!(router_ip, *ROUTER_IP);
+        // Run a change through this handler to make sure it's the same one we sent in
         let change = AutomapChange::Error(AutomapError::ProtocolError("Booga!".to_string()));
         actual_change_handler(change.clone());
         let change_handler_log = change_handler_log_arc.lock().unwrap();
@@ -967,33 +968,32 @@ mod tests {
 
     #[test]
     fn add_mapping_passes_on_error_from_failing_to_start_housekeeping_thread() {
-        let subject = make_null_subject();
-        let subject = replace_transactor(
+        let mut subject = make_null_subject();
+        fn add_transactor(
+            subject: AutomapControlReal,
+            protocol: AutomapProtocol,
+            start_thread_error: AutomapError,
+        ) -> AutomapControlReal {
+            replace_transactor(
+                subject,
+                Box::new(
+                    TransactorMock::new(protocol)
+                        .find_routers_result(Ok(vec![*ROUTER_IP]))
+                        .start_housekeeping_thread_result(Err(start_thread_error))
+                        .stop_housekeeping_thread_result(Ok(Box::new(|_| ()))),
+                ),
+            )
+        }
+        subject = add_transactor(subject, AutomapProtocol::Pcp, AutomapError::Unknown);
+        subject = add_transactor(
             subject,
-            Box::new(
-                TransactorMock::new(AutomapProtocol::Pcp)
-                    .find_routers_result(Ok(vec![*ROUTER_IP]))
-                    .start_housekeeping_thread_result(Err(AutomapError::Unknown))
-                    .stop_housekeeping_thread_result(Ok(Box::new(|_| ()))),
-            ),
+            AutomapProtocol::Pmp,
+            AutomapError::NoLocalIpAddress,
         );
-        let subject = replace_transactor(
+        subject = add_transactor(
             subject,
-            Box::new(
-                TransactorMock::new(AutomapProtocol::Pmp)
-                    .find_routers_result(Ok(vec![*ROUTER_IP]))
-                    .start_housekeeping_thread_result(Err(AutomapError::NoLocalIpAddress))
-                    .stop_housekeeping_thread_result(Ok(Box::new(|_| ()))),
-            ),
-        );
-        let mut subject = replace_transactor(
-            subject,
-            Box::new(
-                TransactorMock::new(AutomapProtocol::Igdp)
-                    .find_routers_result(Ok(vec![*ROUTER_IP]))
-                    .start_housekeeping_thread_result(Err(AutomapError::CantFindDefaultGateway))
-                    .stop_housekeeping_thread_result(Ok(Box::new(|_| ()))),
-            ),
+            AutomapProtocol::Igdp,
+            AutomapError::CantFindDefaultGateway,
         );
         subject.housekeeping_tools.borrow_mut().change_handler_opt = Some(Box::new(|_| ()));
         subject.inner_opt = None;
@@ -1474,7 +1474,7 @@ mod tests {
         protocol: AutomapProtocol,
         get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
         add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        start_change_handler_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
+        start_housekeeping_thread_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
         housekeeper_commander: Sender<HousekeepingThreadCommand>,
     ) -> AutomapControlReal {
         let subject = make_general_failure_subject();
@@ -1482,7 +1482,7 @@ mod tests {
             protocol,
             get_public_ip_params_arc,
             add_mapping_params_arc,
-            start_change_handler_params_arc,
+            start_housekeeping_thread_params_arc,
             housekeeper_commander,
         );
         replace_transactor(subject, success_transactor)
@@ -1490,7 +1490,7 @@ mod tests {
 
     fn make_general_failure_subject() -> AutomapControlReal {
         let mut subject = AutomapControlReal::new(None, Box::new(|_x| {}));
-        let adjusted = RefCell::new(
+        let modified_transactors = RefCell::new(
             subject
                 .transactors
                 .borrow()
@@ -1498,7 +1498,7 @@ mod tests {
                 .map(|t| make_failure_transactor(t.protocol()))
                 .collect(),
         );
-        subject.transactors = adjusted;
+        subject.transactors = modified_transactors;
         subject
     }
 
@@ -1550,7 +1550,7 @@ mod tests {
         subject
     }
 
-    fn make_all_routers_subject() -> AutomapControlReal {
+    fn make_fully_populated_subject() -> AutomapControlReal {
         let mut subject = AutomapControlReal::new(None, Box::new(|_x| {}));
         let adjustment = RefCell::new(
             subject
@@ -1574,7 +1574,7 @@ mod tests {
 
     fn make_no_routers_subject() -> AutomapControlReal {
         let mut subject = AutomapControlReal::new(None, Box::new(|_x| {}));
-        let adjustment = RefCell::new(
+        let modified_transactors = RefCell::new(
             subject
                 .transactors
                 .borrow()
@@ -1582,7 +1582,7 @@ mod tests {
                 .map(|t| make_no_router_transactor(t.protocol()))
                 .collect(),
         );
-        subject.transactors = adjustment;
+        subject.transactors = modified_transactors;
         subject
     }
 
