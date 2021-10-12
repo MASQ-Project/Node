@@ -199,7 +199,6 @@ mod tests {
     use crate::blockchain::blockchain_interface::{
         Balance, BlockchainError, BlockchainResult, Nonce, Transaction, Transactions,
     };
-    use crate::blockchain::blockchains::contract_address;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -220,6 +219,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
+    use crate::blockchain::blockchains::Chain;
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -377,7 +377,7 @@ mod tests {
         let wallet = make_wallet("smelly");
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(result)
-            .contract_address_result(contract_address(TEST_DEFAULT_CHAIN_ID));
+            .contract_address_result(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract);
         let retrieve_transactions_parameters = blockchain_interface_mock
             .retrieve_transactions_parameters
             .clone();
@@ -412,7 +412,7 @@ mod tests {
             .get_transaction_count_result(Ok(U256::from(2)))
             .send_transaction_result(Ok(H256::from("sometransactionhash".keccak256())))
             .send_transaction_result(Ok(H256::from("someothertransactionhash".keccak256())))
-            .contract_address_result(contract_address(TEST_DEFAULT_CHAIN_ID));
+            .contract_address_result(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract);
         let send_parameters = blockchain_interface_mock
             .send_transaction_parameters
             .clone();

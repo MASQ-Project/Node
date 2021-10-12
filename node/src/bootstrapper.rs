@@ -1,11 +1,34 @@
+use std::collections::HashMap;
+use std::env::var;
+use std::fmt;
+use std::fmt::{Debug, Display, Error, Formatter};
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::time::Duration;
+use std::vec::Vec;
+
+use futures::try_ready;
+use itertools::Itertools;
+use log::LevelFilter;
+use tokio::prelude::Async;
+use tokio::prelude::Future;
+use tokio::prelude::Stream;
+use tokio::prelude::stream::futures_unordered::FuturesUnordered;
+
+use masq_lib::command::StdStreams;
+use masq_lib::constants::{DEFAULT_UI_PORT, MASQ_URL_PREFIX};
+use masq_lib::crash_point::CrashPoint;
+use masq_lib::multi_config::MultiConfig;
+use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL};
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
-use crate::blockchain::blockchains::{
-    blockchain_from_chain_id, label_from_blockchain, CHAIN_LABEL_DELIMITER,
-};
+use crate::blockchain::blockchains::{CHAIN_LABEL_DELIMITER, Chain};
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -17,10 +40,10 @@ use crate::json_discriminator_factory::JsonDiscriminatorFactory;
 use crate::listener_handler::ListenerHandler;
 use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
+use crate::node_configurator::{DirsWrapper, NodeConfigurator};
 use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
 };
-use crate::node_configurator::{DirsWrapper, NodeConfigurator};
 use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::accountant;
@@ -30,34 +53,12 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
+use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::wallet::Wallet;
-use futures::try_ready;
-use itertools::Itertools;
-use log::LevelFilter;
-use masq_lib::command::StdStreams;
-use masq_lib::constants::{DEFAULT_UI_PORT, MASQ_URL_PREFIX};
-use masq_lib::crash_point::CrashPoint;
-use masq_lib::multi_config::MultiConfig;
-use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
-use std::collections::HashMap;
-use std::env::var;
-use std::fmt;
-use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::time::Duration;
-use std::vec::Vec;
-use tokio::prelude::stream::futures_unordered::FuturesUnordered;
-use tokio::prelude::Async;
-use tokio::prelude::Future;
-use tokio::prelude::Stream;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -505,7 +506,7 @@ impl Bootstrapper {
                 let node_descriptor = NodeDescriptor::from((
                     cryptde.public_key(),
                     &node_addr,
-                    blockchain_from_chain_id(chain_id),
+                    Chain::from_id(chain_id),
                     cryptde,
                 ));
                 node_descriptor.to_string(cryptde)
@@ -513,7 +514,7 @@ impl Bootstrapper {
             None => format!(
                 "{}{}{}{}::",
                 MASQ_URL_PREFIX,
-                label_from_blockchain(blockchain_from_chain_id(chain_id)),
+                Chain::from_id(chain_id).record().chain_label,
                 CHAIN_LABEL_DELIMITER,
                 cryptde.public_key_to_descriptor_fragment(cryptde.public_key())
             ),
@@ -587,8 +588,30 @@ impl Bootstrapper {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::cell::RefCell;
+    use std::io;
+    use std::io::ErrorKind;
+    use std::marker::Sync;
+    use std::net::{IpAddr, SocketAddr};
+    use std::ops::{DerefMut, Not};
+    use std::str::FromStr;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    use actix::Recipient;
+    use actix::System;
+    use crossbeam_channel::unbounded;
+    use lazy_static::lazy_static;
+    use regex::Regex;
+    use tokio;
+    use tokio::prelude::Async;
+
+    use masq_lib::test_utils::environment_guard::ClapGuard;
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID};
+
     use crate::actor_system_factory::ActorFactory;
+    use crate::blockchain::blockchains::Chain;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::{
@@ -596,17 +619,18 @@ mod tests {
     };
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
+    use crate::node_test_utils::{DirsWrapperMock, extract_log, IdWrapperMock};
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
-    use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde::PublicKey;
-    use crate::sub_lib::neighborhood::{Blockchain, NeighborhoodMode, NodeDescriptor};
+    use crate::sub_lib::neighborhood::{NeighborhoodMode, NodeDescriptor};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::stream_connector::ConnectionInfo;
+    use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLog;
     use crate::test_utils::logging::TestLogHandler;
@@ -618,26 +642,8 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::{assert_contains, rate_pack};
-    use actix::Recipient;
-    use actix::System;
-    use crossbeam_channel::unbounded;
-    use lazy_static::lazy_static;
-    use masq_lib::test_utils::environment_guard::ClapGuard;
-    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID};
-    use regex::Regex;
-    use std::cell::RefCell;
-    use std::io;
-    use std::io::ErrorKind;
-    use std::marker::Sync;
-    use std::net::{IpAddr, SocketAddr};
-    use std::ops::{DerefMut, Not};
-    use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    use tokio;
-    use tokio::prelude::Async;
+
+    use super::*;
 
     lazy_static! {
         static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
@@ -1541,7 +1547,7 @@ mod tests {
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                    Blockchain::EthMainnet,
+                    Chain::EthMainnet,
                     cryptde,
                 ))],
                 rate_pack(100),
@@ -1611,7 +1617,7 @@ mod tests {
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                    Blockchain::EthRopsten, //TODO this test used to be wrong, analyze it after first round of changes     TEST_DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                    Chain::EthRopsten, //TODO this test used to be wrong, analyze it after first round of changes     TEST_DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                     cryptde,
                 ))],
                 rate_pack(100),
@@ -1663,7 +1669,7 @@ mod tests {
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                    Blockchain::EthRopsten,
+                    Chain::EthRopsten,
                     cryptde,
                 ))],
                 rate_pack(100),
@@ -1701,7 +1707,7 @@ mod tests {
             mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from((
                 cryptde.public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                Blockchain::EthRopsten,
+                Chain::EthRopsten,
                 cryptde,
             ))]),
         };

@@ -513,7 +513,6 @@ impl RoutingService {
 mod tests {
     use super::*;
     use crate::banned_dao::BAN_CACHE;
-    use crate::blockchain::blockchains::contract_address;
     use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use crate::sub_lib::cryptde::{encodex, PlainData, PublicKey};
@@ -538,6 +537,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::net::SocketAddr;
     use std::str::FromStr;
+    use crate::blockchain::blockchains::Chain;
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
@@ -1088,7 +1088,7 @@ mod tests {
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let next_key = PublicKey::new(&[65, 65, 65]);
-        let contract_address = contract_address(TEST_DEFAULT_CHAIN_ID);
+        let contract_address = Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract;
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&main_cryptde.public_key(), &next_key],
@@ -1184,7 +1184,7 @@ mod tests {
             ),
             main_cryptde,
             Some(paying_wallet.clone()),
-            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
+            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
@@ -1343,7 +1343,7 @@ mod tests {
             &make_request_payload(0, main_cryptde),
         ));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
-        let contract_address = contract_address(TEST_DEFAULT_CHAIN_ID);
+        let contract_address = Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract;
         let live_hops: Vec<LiveHop> = vec![
             LiveHop::new(
                 &public_key,
@@ -1448,7 +1448,7 @@ mod tests {
             &make_request_payload(0, &destination_cryptde),
         ));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
-        let contract_address = contract_address(TEST_DEFAULT_CHAIN_ID);
+        let contract_address = Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract;
         let live_hops: Vec<LiveHop> = vec![
             LiveHop::new(
                 &current_key,
@@ -1538,7 +1538,7 @@ mod tests {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
-        let contract_address = contract_address(TEST_DEFAULT_CHAIN_ID);
+        let contract_address = Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract;
         BAN_CACHE.insert(paying_wallet.clone());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -1615,7 +1615,7 @@ mod tests {
             ),
             main_cryptde,
             Some(paying_wallet.clone()),
-            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
+            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
         )
         .unwrap();
         route.shift(main_cryptde).unwrap();

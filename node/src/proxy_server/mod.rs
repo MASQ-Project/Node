@@ -947,7 +947,6 @@ impl StreamKeyFactory for StreamKeyFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchains::contract_address;
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
@@ -991,6 +990,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::thread;
+    use crate::blockchain::blockchains::Chain;
 
     const STANDARD_CONSUMING_WALLET_BALANCE: i64 = 0;
 
@@ -1981,7 +1981,7 @@ mod tests {
             main_cryptde,
             Some(consuming_wallet),
             1234,
-            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
+            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
         )
         .unwrap();
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
@@ -4144,7 +4144,7 @@ mod tests {
             main_cryptde(),
             Some(make_paying_wallet(b"consuming")),
             1234,
-            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
+            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
         )
         .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(
@@ -4267,7 +4267,7 @@ mod tests {
             main_cryptde(),
             Some(make_paying_wallet(b"consuming")),
             1234,
-            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
+            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
         )
         .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(

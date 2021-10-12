@@ -12,7 +12,7 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
-use node_lib::blockchain::blockchains::{chain_id_from_name, chain_name_from_id};
+use node_lib::blockchain::blockchains::{chain_id_from_name, Chain};
 use node_lib::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -201,7 +201,7 @@ impl NodeStartupConfig {
             args.push(blockchain_service_url.to_string());
         }
         args.push("--chain".to_string());
-        args.push(chain_name_from_id(self.chain_id).to_string());
+        args.push(Chain::from_id(self.chain_id).record().plain_text_name.to_string());
 
         if let Some(ref db_password) = self.db_password_opt {
             args.push("--db-password".to_string());

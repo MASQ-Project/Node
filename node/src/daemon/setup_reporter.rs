@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::apps::app_head;
-use crate::blockchain::blockchains::{chain_id_from_name, chain_name_from_id};
+use crate::blockchain::blockchains::{chain_id_from_name};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
@@ -29,6 +29,7 @@ use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupRespo
 use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
+use crate::blockchain::blockchains::Chain as BlockChain;
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
 use std::collections::HashMap;
@@ -577,7 +578,7 @@ impl ValueRetriever for DataDirectory {
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let real_user = &bootstrapper_config.real_user;
-        let chain_name = chain_name_from_id(bootstrapper_config.blockchain_bridge_config.chain_id);
+        let chain_name = BlockChain::from_id(bootstrapper_config.blockchain_bridge_config.chain_id).record().plain_text_name;
         let data_directory_opt = None;
         Some((
             data_directory_from_context(
@@ -874,7 +875,7 @@ mod tests {
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
-    use crate::sub_lib::neighborhood::Blockchain;
+    use crate::blockchain::blockchains::Chain as Blockchain;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;

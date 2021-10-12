@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchains::{chain_id_from_name, contract_address};
+use crate::blockchain::blockchains::{chain_id_from_name, Chain};
 use crate::blockchain::raw_transaction::RawTransaction;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
@@ -145,7 +145,7 @@ impl Default for BlockchainInterfaceClandestine {
 
 impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn contract_address(&self) -> Address {
-        contract_address(self.chain_id)
+        Chain::from_id(self.chain_id).record().contract
     }
 
     fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> Transactions {
@@ -207,7 +207,7 @@ where
     T: Transport + Debug,
 {
     fn contract_address(&self) -> Address {
-        contract_address(self.chain_id)
+        Chain::from_id(self.chain_id).record().contract
     }
 
     fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
@@ -364,7 +364,7 @@ where
         let web3 = Web3::new(transport);
         let contract = Contract::from_json(
             web3.eth(),
-            contract_address(chain_id),
+            Chain::from_id(chain_id).record().contract,
             CONTRACT_ABI.as_bytes(),
         )
         .expect("Unable to initialize contract.");

@@ -145,7 +145,6 @@ impl Debug for HopperSubs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchains::contract_address;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
@@ -155,6 +154,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::net::IpAddr;
     use std::str::FromStr;
+    use crate::blockchain::blockchains::Chain;
 
     #[test]
     fn hopper_subs_debug() {
@@ -222,7 +222,7 @@ mod tests {
             RouteSegment::new(vec![&key12, &key34, &key56], Component::ProxyClient),
             cryptde,
             Some(paying_wallet),
-            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
+            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
@@ -271,7 +271,7 @@ mod tests {
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),
             cryptde,
             Some(paying_wallet.clone()),
-            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
+            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();

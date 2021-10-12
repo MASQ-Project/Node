@@ -88,10 +88,7 @@ pub mod standard {
 
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchains::{
-        blockchain_from_chain_id, chain_id_from_name, chain_name_from_blockchain,
-        label_from_blockchain,
-    };
+    use crate::blockchain::blockchains::{chain_id_from_name, Chain};
     use crate::bootstrapper::PortConfiguration;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration,
@@ -411,17 +408,17 @@ pub mod standard {
                             |s| match NodeDescriptor::from_str(dummy_cryptde.as_ref(), &s) {
                                 Ok(nd) =>
                                     {
-                                        let desired_chain = blockchain_from_chain_id(chain_id_from_name(chain_name.as_str()));
+                                        let desired_chain = Chain::from_id(chain_id_from_name(chain_name.as_str()));
                                         let descriptor_competence = nd.blockchain;
                                     if desired_chain == descriptor_competence{
                                         Ok(nd)
                                     } else{
                                         Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' [{}{}] with descriptor belonging to '{}' [{}{}]",
-                                                              chain_name,MASQ_URL_PREFIX,
-                                                              label_from_blockchain(desired_chain),
-                                                              chain_name_from_blockchain(descriptor_competence),
-                                                              MASQ_URL_PREFIX,
-                                                              label_from_blockchain(descriptor_competence))))
+                                                                                  chain_name, MASQ_URL_PREFIX,
+                                                                                  desired_chain.record().chain_label,
+                                                                                  descriptor_competence.record().plain_text_name,
+                                                                                  MASQ_URL_PREFIX,
+                                                                                  descriptor_competence.record().chain_label)))
                                     }
                                 }
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
@@ -997,9 +994,7 @@ mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchains::{
-        chain_id_from_name, chain_name_from_id, contract_address,
-    };
+    use crate::blockchain::blockchains::{chain_id_from_name, Chain};
     use crate::bootstrapper::RealUser;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -1606,7 +1601,7 @@ mod tests {
         let payer = bootstrapper_config
             .consuming_wallet
             .unwrap()
-            .as_payer(&public_key, &contract_address(TEST_DEFAULT_CHAIN_ID));
+            .as_payer(&public_key, &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract);
         let cryptdenull = CryptDENull::from(&public_key, TEST_DEFAULT_CHAIN_ID);
         assert!(
             payer.owns_secret_key(&cryptdenull.digest()),
@@ -2604,7 +2599,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            chain_name_from_id(config.blockchain_bridge_config.chain_id),
+            Chain::from_id(config.blockchain_bridge_config.chain_id).record().plain_text_name,
             DEFAULT_CHAIN_NAME
         );
     }

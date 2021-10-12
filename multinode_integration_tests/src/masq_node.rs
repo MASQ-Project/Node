@@ -2,10 +2,7 @@
 use crate::command::Command;
 use base64::STANDARD_NO_PAD;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT, MASQ_URL_PREFIX};
-use node_lib::blockchain::blockchains::{
-    blockchain_from_chain_id, blockchain_from_label_opt, chain_id_from_blockchain,
-    label_from_blockchain, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER,
-};
+use node_lib::blockchain::blockchains::{blockchain_from_label_opt, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER, Chain};
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::RatePack;
@@ -50,9 +47,7 @@ impl FromStr for NodeReference {
             public_key,
             ip_addr,
             port_list,
-            chain_id_from_blockchain(
-                blockchain_from_label_opt(label).expect("chain outside the bounds; unknown"),
-            ),
+            blockchain_from_label_opt(label).expect("chain outside the bounds; unknown").record().num_chain_id,
         ))
     }
 }
@@ -87,7 +82,7 @@ impl fmt::Display for NodeReference {
             f,
             "{}{}{}{}{}{}:{}",
             MASQ_URL_PREFIX,
-            label_from_blockchain(blockchain_from_chain_id(self.chain_id)),
+            Chain::from_id(self.chain_id).record().chain_label,
             CHAIN_LABEL_DELIMITER,
             public_key_string,
             KEY_VS_IP_DELIMITER,
@@ -308,6 +303,7 @@ impl MASQNodeUtils {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
 
     #[test]
     fn cut_off_label_happy_path() {
@@ -429,7 +425,7 @@ mod tests {
 
     #[test]
     fn node_reference_can_display_itself() {
-        let chain_id = 4;
+        let chain_id = TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
         let subject = NodeReference::new(
             PublicKey::new(&b"Booga"[..]),
             Some(IpAddr::from_str("12.34.56.78").unwrap()),

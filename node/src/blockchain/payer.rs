@@ -60,12 +60,12 @@ impl Clone for Payer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchains::contract_address;
     use crate::sub_lib::cryptde;
     use crate::sub_lib::cryptde::PublicKey as SubPublicKey;
     use crate::test_utils::make_payer;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
+    use crate::blockchain::blockchains::Chain;
 
     #[test]
     fn can_pay_validates_payer_owns_wallet_secret_key() {
@@ -75,7 +75,7 @@ mod tests {
 
         let public_key = SubPublicKey::new(&b"sign these bytessign these bytes".to_vec());
         let payer: Payer = make_payer(&secret, &public_key);
-        let digest = cryptde::create_digest(&public_key, &contract_address(TEST_DEFAULT_CHAIN_ID));
+        let digest = cryptde::create_digest(&public_key, &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract);
         assert!(payer.owns_secret_key(&digest));
     }
 
@@ -89,7 +89,7 @@ mod tests {
         let payer: Payer = make_payer(&secret, &public_key);
         let digest = cryptde::create_digest(
             &SubPublicKey::new(&b"wrong key"[..]),
-            &contract_address(TEST_DEFAULT_CHAIN_ID),
+            &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract,
         );
         assert_eq!(payer.owns_secret_key(&digest), false);
     }

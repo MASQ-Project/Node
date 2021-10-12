@@ -1,5 +1,20 @@
+use core::fmt;
+use std::fmt::{Debug, Display, Formatter};
+use std::net::IpAddr;
+use std::str::FromStr;
+
+use actix::Message;
+use actix::Recipient;
+use itertools::Itertools;
+use lazy_static::lazy_static;
+use regex::Regex;
+use serde_derive::{Deserialize, Serialize};
+
+use masq_lib::constants::MASQ_URL_PREFIX;
+use masq_lib::ui_gateway::NodeFromUiMessage;
+
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchains::{blockchain_from_label_opt, label_from_blockchain, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER, CHAINS};
+use crate::blockchain::blockchains::{blockchain_from_label_opt, Chain, CHAIN_LABEL_DELIMITER, CHAINS, KEY_VS_IP_DELIMITER};
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::configurator::NewPasswordMessage;
@@ -13,18 +28,6 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::wallet::Wallet;
-use actix::Message;
-use actix::Recipient;
-use core::fmt;
-use lazy_static::lazy_static;
-use masq_lib::constants::{MASQ_URL_PREFIX};
-use masq_lib::ui_gateway::NodeFromUiMessage;
-use regex::Regex;
-use serde_derive::{Deserialize, Serialize};
-use std::fmt::{Debug, Display, Formatter};
-use std::net::IpAddr;
-use std::str::FromStr;
-use itertools::Itertools;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -120,21 +123,13 @@ impl NeighborhoodMode {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeDescriptor {
-    pub blockchain: Blockchain,
+    pub blockchain: Chain,
     pub encryption_public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-pub enum Blockchain {
-    EthMainnet,
-    EthRopsten,
-    EthRinkeby,
-    Dev,
-}
-
-impl From<(&PublicKey, &NodeAddr, Blockchain, &dyn CryptDE)> for NodeDescriptor {
-    fn from(tuple: (&PublicKey, &NodeAddr, Blockchain, &dyn CryptDE)) -> Self {
+impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE)> for NodeDescriptor {
+    fn from(tuple: (&PublicKey, &NodeAddr, Chain, &dyn CryptDE)) -> Self {
         let (public_key, node_addr, blockchain, cryptde) = tuple;
         NodeDescriptor {
             blockchain,
@@ -148,8 +143,8 @@ impl From<(&PublicKey, &NodeAddr, Blockchain, &dyn CryptDE)> for NodeDescriptor 
     }
 }
 
-impl From<(&PublicKey, Blockchain, &dyn CryptDE)> for NodeDescriptor {
-    fn from(tuple: (&PublicKey, Blockchain, &dyn CryptDE)) -> Self {
+impl From<(&PublicKey, Chain, &dyn CryptDE)> for NodeDescriptor {
+    fn from(tuple: (&PublicKey, Chain, &dyn CryptDE)) -> Self {
         let (public_key, blockchain, cryptde) = tuple;
         NodeDescriptor {
             blockchain,
@@ -163,8 +158,8 @@ impl From<(&PublicKey, Blockchain, &dyn CryptDE)> for NodeDescriptor {
     }
 }
 
-impl From<(&NodeRecord, Blockchain, &dyn CryptDE)> for NodeDescriptor {
-    fn from(tuple: (&NodeRecord, Blockchain, &dyn CryptDE)) -> Self {
+impl From<(&NodeRecord, Chain, &dyn CryptDE)> for NodeDescriptor {
+    fn from(tuple: (&NodeRecord, Chain, &dyn CryptDE)) -> Self {
         let (node_record, blockchain, cryptde) = tuple;
         NodeDescriptor {
             blockchain,
@@ -205,7 +200,7 @@ impl NodeDescriptor {
             Some(node_addr) => node_addr.to_string(),
             None => ":".to_string(),
         };
-        let label = label_from_blockchain(self.blockchain);
+        let label = self.blockchain.record().chain_label;
         format!(
             "{}{}{}{}{}{}",
             MASQ_URL_PREFIX,
@@ -217,7 +212,7 @@ impl NodeDescriptor {
         )
     }
 
-    fn parse(str_descriptor: &str) -> Result<(Blockchain, &str, &str), String> {
+    fn parse(str_descriptor: &str) -> Result<(Chain, &str, &str), String> {
         let without_prefix = if let Some(str) = str_descriptor.strip_prefix(MASQ_URL_PREFIX) {
             str
         } else {
@@ -450,14 +445,18 @@ impl fmt::Display for GossipFailure_0v1 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::str::FromStr;
+
+    use actix::Actor;
+
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+    use masq_lib::utils::localhost;
+
     use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
-    use actix::Actor;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
-    use masq_lib::utils::localhost;
-    use std::str::FromStr;
+
+    use super::*;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
         RatePack {
@@ -499,7 +498,7 @@ mod tests {
 
         assert_eq!(
             result,
-            (Blockchain::EthMainnet, "as45cs5c5", "1.2.3.4:4444")
+            (Chain::EthMainnet, "as45cs5c5", "1.2.3.4:4444")
         )
     }
 
@@ -511,7 +510,7 @@ mod tests {
 
         assert_eq!(
             result,
-            (Blockchain::EthRopsten, "as45cs5c5", "1.2.3.4:4444")
+            (Chain::EthRopsten, "as45cs5c5", "1.2.3.4:4444")
         )
     }
 
@@ -523,7 +522,7 @@ mod tests {
 
         assert_eq!(
             result,
-            (Blockchain::EthRinkeby, "as45cs5c5", "1.2.3.4:4444")
+            (Chain::EthRinkeby, "as45cs5c5", "1.2.3.4:4444")
         )
     }
 
@@ -533,7 +532,7 @@ mod tests {
 
         let result = NodeDescriptor::parse(descriptor).unwrap();
 
-        assert_eq!(result, (Blockchain::Dev, "as45cs5c5", "1.2.3.4:4444"))
+        assert_eq!(result, (Chain::Dev, "as45cs5c5", "1.2.3.4:4444"))
     }
 
     #[test]
@@ -651,7 +650,7 @@ mod tests {
             result.unwrap(),
             NodeDescriptor {
                 encryption_public_key: PublicKey::new(b"GoodKey"),
-                blockchain: Blockchain::EthRopsten,
+                blockchain: Chain::EthRopsten,
                 node_addr_opt: Some(NodeAddr::new(
                     &IpAddr::from_str("1.2.3.4").unwrap(),
                     &[1234, 2345, 3456],
@@ -668,7 +667,7 @@ mod tests {
             result.unwrap(),
             NodeDescriptor {
                 encryption_public_key: PublicKey::new(b"GoodKey"),
-                blockchain: Blockchain::EthMainnet,
+                blockchain: Chain::EthMainnet,
                 node_addr_opt: None
             },
         )
@@ -681,13 +680,13 @@ mod tests {
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
 
         let result =
-            NodeDescriptor::from((&public_key, &node_addr, Blockchain::EthMainnet, cryptde));
+            NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
 
         assert_eq!(
             result,
             NodeDescriptor {
                 encryption_public_key: public_key,
-                blockchain: Blockchain::EthMainnet,
+                blockchain: Chain::EthMainnet,
                 node_addr_opt: Some(node_addr),
             }
         );
@@ -698,13 +697,13 @@ mod tests {
         let cryptde: &dyn CryptDE = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
 
-        let result = NodeDescriptor::from((&public_key, Blockchain::EthMainnet, cryptde));
+        let result = NodeDescriptor::from((&public_key, Chain::EthMainnet, cryptde));
 
         assert_eq!(
             result,
             NodeDescriptor {
                 encryption_public_key: public_key,
-                blockchain: Blockchain::EthMainnet,
+                blockchain: Chain::EthMainnet,
                 node_addr_opt: None,
             }
         );
@@ -719,13 +718,13 @@ mod tests {
             )
             .unwrap();
 
-        let result = NodeDescriptor::from((cryptde.public_key(), Blockchain::EthMainnet, cryptde));
+        let result = NodeDescriptor::from((cryptde.public_key(), Chain::EthMainnet, cryptde));
 
         assert_eq!(
             result,
             NodeDescriptor {
                 encryption_public_key,
-                blockchain: Blockchain::EthMainnet,
+                blockchain: Chain::EthMainnet,
                 node_addr_opt: None,
             }
         );
@@ -737,7 +736,7 @@ mod tests {
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject =
-            NodeDescriptor::from((&public_key, &node_addr, Blockchain::EthMainnet, cryptde));
+            NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
 
         let result = subject.to_string(cryptde);
 
@@ -753,7 +752,7 @@ mod tests {
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject =
-            NodeDescriptor::from((&public_key, &node_addr, Blockchain::EthRopsten, cryptde));
+            NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
 
         let result = subject.to_string(cryptde);
 
@@ -773,7 +772,7 @@ mod tests {
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let required_number_of_characters = 43;
         let descriptor =
-            NodeDescriptor::from((&public_key, &node_addr, Blockchain::EthMainnet, cryptde));
+            NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
         let string_descriptor = descriptor.to_string(cryptde);
 
         let result = string_descriptor
