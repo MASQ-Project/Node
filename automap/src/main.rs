@@ -10,6 +10,26 @@ use log::info;
 use masq_lib::utils::AutomapProtocol;
 
 const SERVER_SOCKET_ADDRESS: &str = "54.212.109.41:8081";
+/*
+If the probe server's virtual machine isn't running, get @BrianSoCal to start it. If it comes up
+on an IP address different from the one above, change SERVER_SOCKET_ADDRESS to contain the IP
+address where the VM lives. If the VM is running, but the probe server isn't, get hold of the
+.pem file for the server, set its permissions to 700, and log onto the probe server's VM like this:
+
+ssh -i masq-sandbox-bert.pem ubuntu@54.212.109.41
+
+where `masq-sandbox-bert.pem` is the path to and name of the .pem file. You may need to correct the
+IP address.
+
+Once you're logged in, start the probe server like this:
+
+nohup ./automap_server 0.0.0.0:8081 &
+
+and log out.
+
+If you decide to change the port the probe server runs on, be sure to open that port through the
+AWS firewall.
+ */
 
 pub fn main() {
     let parameters = AutomapParameters::new(std::env::args(), SERVER_SOCKET_ADDRESS);
