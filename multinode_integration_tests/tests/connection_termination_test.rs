@@ -9,7 +9,7 @@ use multinode_integration_tests_lib::masq_node_server::MASQNodeServer;
 use multinode_integration_tests_lib::masq_real_node::MASQRealNode;
 use multinode_integration_tests_lib::multinode_gossip::{parse_gossip, GossipType};
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
-use node_lib::blockchain::blockchains::contract_address;
+use node_lib::blockchain::blockchains::Chain;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
@@ -327,7 +327,7 @@ fn create_request_icp(
             originating_node.main_cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
             return_route_id,
-            Some(contract_address(chain_id)),
+            Some(Chain::from_id(chain_id).record().contract),
         )
         .unwrap(),
         MessageType::ClientRequest(VersionedData::new(
@@ -372,7 +372,11 @@ fn create_meaningless_icp(
             originating_node.main_cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
             1357,
-            Some(contract_address(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)),
+            Some(
+                Chain::from_id(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
+                    .record()
+                    .contract,
+            ),
         )
         .unwrap(),
         MessageType::ClientRequest(VersionedData::new(
@@ -415,7 +419,11 @@ fn create_server_drop_report(
         originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
-        Some(contract_address(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)),
+        Some(
+            Chain::from_id(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
+                .record()
+                .contract,
+        ),
     )
     .unwrap();
     route
@@ -462,7 +470,11 @@ fn create_client_drop_report(
         originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
-        Some(contract_address(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)),
+        Some(
+            Chain::from_id(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
+                .record()
+                .contract,
+        ),
     )
     .unwrap();
     let payload = MessageType::ClientRequest(VersionedData::new(

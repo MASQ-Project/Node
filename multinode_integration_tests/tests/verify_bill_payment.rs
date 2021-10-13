@@ -15,7 +15,7 @@ use node_lib::blockchain::bip32::Bip32ECKeyPair;
 use node_lib::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceNonClandestine,
 };
-use node_lib::blockchain::blockchains::contract_address;
+use node_lib::blockchain::blockchains::Chain;
 use node_lib::blockchain::raw_transaction::RawTransaction;
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::sub_lib::wallet::Wallet;
@@ -52,7 +52,7 @@ fn verify_bill_payment() {
     let contract_addr = deploy_smart_contract(&contract_owner_wallet, &web3, cluster.chain_id);
     assert_eq!(
         contract_addr,
-        contract_address(cluster.chain_id),
+        Chain::from_id(cluster.chain_id).record().contract,
         "Ganache is not as predictable as we thought: Update blockchain_interface::MULTINODE_CONTRACT_ADDRESS with {:?}",
         contract_addr
     );

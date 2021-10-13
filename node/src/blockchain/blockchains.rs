@@ -107,7 +107,7 @@ impl From<&str> for Chain {
     }
 }
 
-pub fn blockchain_from_label_opt(label: &str) -> Option<Chain> {
+pub fn chain_from_label_opt(label: &str) -> Option<Chain> {
     return_record_opt_standard_impl(Box::new(|b: &&BlockchainRecord| b.chain_label == label))
         .map(|record| record.literal_chain_id)
 }
@@ -230,7 +230,7 @@ mod tests {
                 literal_chain_id: Chain::EthMainnet,
                 plain_text_name: "eth-mainnet",
                 directory_by_platform: "eth",
-                chain_label: "eth",
+                chain_label: "eth-mainnet",
                 contract: MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: MAINNET_CONTRACT_CREATION_BLOCK,
             }
@@ -247,7 +247,7 @@ mod tests {
                 literal_chain_id: Chain::EthRopsten,
                 plain_text_name: "ropsten",
                 directory_by_platform: "eth",
-                chain_label: "eth_t1",
+                chain_label: "eth-ropsten",
                 contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
             }
@@ -264,7 +264,7 @@ mod tests {
                 literal_chain_id: Chain::EthRinkeby,
                 plain_text_name: "rinkeby",
                 directory_by_platform: "eth",
-                chain_label: "eth_t2",
+                chain_label: "eth-rinkeby",
                 contract: RINKEBY_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK
             }
@@ -296,17 +296,17 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_from_label_opt_works() {
-        assert_blockchain_from_label_opt("eth", Some(Chain::EthMainnet));
-        assert_blockchain_from_label_opt("eth_t1", Some(Chain::EthRopsten));
-        assert_blockchain_from_label_opt("eth_t2", Some(Chain::EthRinkeby));
-        assert_blockchain_from_label_opt("dev", Some(Chain::Dev));
-        assert_blockchain_from_label_opt("bitcoin", None);
+    fn chain_from_label_opt_works() {
+        assert_chain_from_label_opt("eth-mainnet", Some(Chain::EthMainnet));
+        assert_chain_from_label_opt("eth-ropsten", Some(Chain::EthRopsten));
+        assert_chain_from_label_opt("eth-rinkeby", Some(Chain::EthRinkeby));
+        assert_chain_from_label_opt("dev", Some(Chain::Dev));
+        assert_chain_from_label_opt("bitcoin", None);
         assert_eq!(CHAINS.len(), 4)
     }
 
-    fn assert_blockchain_from_label_opt(label: &str, expected_blockchain: Option<Chain>) {
-        assert_eq!(blockchain_from_label_opt(label), expected_blockchain)
+    fn assert_chain_from_label_opt(label: &str, expected_blockchain: Option<Chain>) {
+        assert_eq!(chain_from_label_opt(label), expected_blockchain)
     }
 
     fn make_defaulted_blockchain_record() -> BlockchainRecord {

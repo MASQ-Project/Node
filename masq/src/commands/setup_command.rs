@@ -174,7 +174,7 @@ mod tests {
                     UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
                     UiSetupResponseValue::new(
                         "neighbors",
-                        "masq://eth.95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw:13.23.13.23:4545",
+                        "masq://eth-mainnet:95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw:13.23.13.23:4545",
                         Set,
                     ),
                 ],
@@ -217,7 +217,7 @@ mod tests {
 "NAME                   VALUE                                                            STATUS\n\
 chain                  ropsten                                                          Configured\n\
 neighborhood-mode      zero-hop                                                         Set\n\
-neighbors              masq://eth.95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw:13.23.13.23:4545 Set\n\
+neighbors              masq://eth-mainnet:95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw:13.23.13.23:4545 Set\n\
 \n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }

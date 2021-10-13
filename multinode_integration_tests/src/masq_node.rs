@@ -3,7 +3,7 @@ use crate::command::Command;
 use base64::STANDARD_NO_PAD;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT, MASQ_URL_PREFIX};
 use node_lib::blockchain::blockchains::{
-    blockchain_from_label_opt, Chain, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER,
+    chain_from_label_opt, Chain, CENTRAL_DELIMITER, CHAIN_LABEL_DELIMITER,
 };
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -35,26 +35,44 @@ pub struct NodeReference {
 impl FromStr for NodeReference {
     type Err = String;
 
-    //TODO inaccurate - this works only as long as we don't parse the real Node descriptor including its URL prefix which we don't now, see extract_node_reference()
     fn from_str(string_rep: &str) -> Result<Self, <Self as FromStr>::Err> {
-        let pieces: Vec<&str> = string_rep.split(':').collect();
-        if pieces.len() != 3 {
-            return Err(format!("A NodeReference must have the form <chain label>.<public_key>:<IP address>:<port list>, not '{}'", string_rep));
+        let stripped = if let Some(str) = string_rep.strip_prefix(MASQ_URL_PREFIX) {
+            Ok(str)
+        } else {
+            Err("Missing URI prefix".to_string())
+        }?;
+        let pieces: Vec<&str> = stripped.split(CENTRAL_DELIMITER).collect();
+        if pieces.len() != 2 {
+            return Err(format!("A NodeReference must have the form masq://<chain label>:<public_key>@<IP address>:<port list>, not '{}'", string_rep));
         }
         let (label, key_encoded) = Self::extract_label_and_encoded_public_key(pieces[0])?;
         let public_key = Self::extract_public_key(key_encoded)?;
-        let ip_addr = Self::extract_ip_addr(pieces[1])?;
-        let port_list = Self::extract_port_list(pieces[2])?;
+        let (ip_addr_str, ports) = strip_ports(pieces[1]);
+        let ip_addr = Self::extract_ip_addr(ip_addr_str.as_str())?;
+        let port_list = Self::extract_port_list(ports.as_str())?;
         Ok(NodeReference::new(
             public_key,
             ip_addr,
             port_list,
-            blockchain_from_label_opt(label)
+            chain_from_label_opt(label)
                 .expect("chain outside the bounds; unknown")
                 .record()
                 .num_chain_id,
         ))
     }
+}
+
+fn strip_ports(tail_halve: &str) -> (String, String) {
+    let ports = tail_halve
+        .chars()
+        .rev()
+        .take_while(|char| *char != ':')
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
+    let ip_str = tail_halve.replace(&format!(":{}", ports), "");
+    (ip_str, ports)
 }
 
 impl From<&dyn MASQNode> for NodeReference {
@@ -80,7 +98,7 @@ impl fmt::Display for NodeReference {
                 .iter()
                 .map(|port| port.to_string())
                 .collect::<Vec<String>>()
-                .join(","),
+                .join(";"),
             None => String::new(),
         };
         write!(
@@ -90,7 +108,7 @@ impl fmt::Display for NodeReference {
             Chain::from_id(self.chain_id).record().chain_label,
             CHAIN_LABEL_DELIMITER,
             public_key_string,
-            KEY_VS_IP_DELIMITER,
+            CENTRAL_DELIMITER,
             ip_addr_string,
             port_list_string
         )
@@ -131,7 +149,7 @@ impl NodeReference {
         let pieces: Vec<&str> = slice.split(CHAIN_LABEL_DELIMITER).collect();
         if pieces.len() != 2 {
             return Err(format!(
-                "The chain label in the descriptor isn't properly set: '{}'",
+                "Chain label in the descriptor isn't properly set: '{}'",
                 slice
             ));
         }
@@ -157,13 +175,13 @@ impl NodeReference {
             vec![]
         } else {
             String::from(slice)
-                .split(',')
+                .split(';')
                 .map(|x| x.parse::<i64>().unwrap_or(-1))
                 .collect()
         };
         if port_list_numbers.contains(&-1) {
             return Err(format!(
-                "The port list must be a comma-separated sequence of valid numbers, not '{}'",
+                "The port list must be a semicolon-separated sequence of valid numbers, not '{}'",
                 slice
             ));
         }
@@ -311,8 +329,29 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
 
     #[test]
-    fn cut_off_label_happy_path() {
-        let key_including_label = "dev.AQIDBAUGBwg";
+    fn strip_ports_works_single_port() {
+        let tail = "1.2.3.4:4444";
+
+        let result = strip_ports(tail);
+
+        assert_eq!(result, ("1.2.3.4".to_string(), "4444".to_string()))
+    }
+
+    #[test]
+    fn strip_ports_works_multiple_ports() {
+        let tail = "4.3.2.9:4444/1212/11133";
+
+        let result = strip_ports(tail);
+
+        assert_eq!(
+            result,
+            ("4.3.2.9".to_string(), "4444/1212/11133".to_string())
+        )
+    }
+
+    #[test]
+    fn extract_label_and_encoded_public_key_happy_path() {
+        let key_including_label = "dev:AQIDBAUGBwg";
 
         let (label, key_part) =
             NodeReference::extract_label_and_encoded_public_key(key_including_label).unwrap();
@@ -322,32 +361,29 @@ mod tests {
     }
 
     #[test]
-    fn cut_off_label_sad_path() {
+    fn extract_label_and_encoded_public_key_sad_path() {
         let key_including_label = "devAQIDBAUGBwg";
 
         let result = NodeReference::extract_label_and_encoded_public_key(key_including_label);
 
         assert_eq!(
             result,
-            Err(
-                "The chain label in the descriptor isn't properly set: 'devAQIDBAUGBwg'"
-                    .to_string()
-            )
+            Err("Chain label in the descriptor isn't properly set: 'devAQIDBAUGBwg'".to_string())
         )
     }
 
     #[test]
-    fn node_reference_from_string_fails_if_there_are_not_three_fields() {
-        let string = String::from("Only two:fields");
+    fn node_reference_from_string_fails_if_there_are_not_two_fields() {
+        let string = String::from("masq://Only two@fields@nope");
 
         let result = NodeReference::from_str(string.as_str());
 
-        assert_eq! (result, Err (String::from ("A NodeReference must have the form <chain label>.<public_key>:<IP address>:<port list>, not 'Only two:fields'")));
+        assert_eq! (result, Err (String::from ("A NodeReference must have the form masq://<chain label>:<public_key>@<IP address>:<port list>, not 'masq://Only two@fields@nope'")));
     }
 
     #[test]
     fn node_reference_from_string_fails_if_key_is_not_valid_base64() {
-        let string = String::from("dev.;;;:12.34.56.78:1234,2345");
+        let string = String::from("masq://dev:;;;@12.34.56.78:1234;2345");
 
         let result = NodeReference::from_str(string.as_str());
 
@@ -357,7 +393,7 @@ mod tests {
     #[test]
     fn node_reference_from_string_fails_if_ip_address_is_not_valid() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("dev.{}:blippy:1234,2345", key);
+        let string = format!("masq://dev:{}@blippy:1234;2345", key);
 
         let result = NodeReference::from_str(string.as_str());
 
@@ -372,17 +408,17 @@ mod tests {
     #[test]
     fn node_reference_from_string_fails_if_a_port_number_is_not_valid() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("dev.{}:12.34.56.78:weeble,frud", key);
+        let string = format!("masq://dev:{}@12.34.56.78:weeble;frud", key);
 
         let result = NodeReference::from_str(string.as_str());
 
-        assert_eq! (result, Err (String::from ("The port list must be a comma-separated sequence of valid numbers, not 'weeble,frud'")));
+        assert_eq! (result, Err (String::from ("The port list must be a semicolon-separated sequence of valid numbers, not 'weeble;frud'")));
     }
 
     #[test]
     fn node_reference_from_string_fails_if_a_port_number_is_too_big() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("dev.{}:12.34.56.78:1234,65536", key);
+        let string = format!("masq://dev:{}@12.34.56.78:1234;65536", key);
 
         let result = NodeReference::from_str(string.as_str());
 
@@ -397,7 +433,7 @@ mod tests {
     #[test]
     fn node_reference_from_string_happy() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("dev.{}:12.34.56.78:1234,2345", key);
+        let string = format!("masq://dev:{}@12.34.56.78:1234;2345", key);
 
         let result = NodeReference::from_str(string.as_str()).unwrap();
 
@@ -414,7 +450,7 @@ mod tests {
     #[test]
     fn node_reference_from_string_works_if_there_are_no_ports() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("dev.{}:12.34.56.78:", key);
+        let string = format!("masq://dev:{}@12.34.56.78:", key);
 
         let result = NodeReference::from_str(string.as_str()).unwrap();
 
@@ -442,7 +478,7 @@ mod tests {
 
         assert_eq!(
             result,
-            String::from("masq://dev.Qm9vZ2E:12.34.56.78:1234,5678")
+            String::from("masq://dev:Qm9vZ2E@12.34.56.78:1234;5678")
         );
     }
 }

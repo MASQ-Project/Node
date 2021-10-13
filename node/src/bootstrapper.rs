@@ -28,7 +28,7 @@ use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
-use crate::blockchain::blockchains::{Chain, CHAIN_LABEL_DELIMITER};
+use crate::blockchain::blockchains::{Chain, CENTRAL_DELIMITER, CHAIN_LABEL_DELIMITER};
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -512,11 +512,12 @@ impl Bootstrapper {
                 node_descriptor.to_string(cryptde)
             }
             None => format!(
-                "{}{}{}{}::",
+                "{}{}{}{}{}:",
                 MASQ_URL_PREFIX,
                 Chain::from_id(chain_id).record().chain_label,
                 CHAIN_LABEL_DELIMITER,
-                cryptde.public_key_to_descriptor_fragment(cryptde.public_key())
+                cryptde.public_key_to_descriptor_fragment(cryptde.public_key()),
+                CENTRAL_DELIMITER
             ),
         };
         let descriptor_msg = format!("MASQ Node local descriptor: {}", descriptor);
@@ -1244,7 +1245,7 @@ mod tests {
         };
         let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
-            "masq://eth_t1.{}:2.3.4.5:3456;4567",
+            "masq://eth-ropsten:{}@2.3.4.5:3456;4567",
             cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
         );
         let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")
@@ -1301,7 +1302,7 @@ mod tests {
         };
         let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
-            "masq://eth_t1.{}::",
+            "masq://eth-ropsten:{}@:",
             main_cryptde_ref.public_key_to_descriptor_fragment(main_cryptde_ref.public_key())
         );
         let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")

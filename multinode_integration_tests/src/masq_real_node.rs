@@ -1098,9 +1098,12 @@ impl MASQRealNode {
         .expect("Can't add exception to allow input that is respondent to past output");
     }
 
+    fn regex() -> Regex {
+        Regex::new(r"MASQ Node local descriptor: (masq://.+:.+@[\d.]*:[\d,]*)").unwrap()
+    }
+
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
-        let regex =
-            Regex::new(r"MASQ Node local descriptor: masq://([^:]+[:@][\d.]*:[\d,]*)").unwrap();
+        let regex = Self::regex();
         let mut retries_left = 10;
         loop {
             println!("Checking for {} startup", name);
@@ -1411,10 +1414,24 @@ mod tests {
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
                 "--chain",
-                TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME, //TODO this is gonna be awful
+                TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME,
                 "--db-password",
                 "password",
             ))
         );
+    }
+
+    #[test]
+    fn regex_captures_descriptor() {
+        let text = "scajcbakbcskjbcbackjbb MASQ Node local descriptor: masq://dev:BrrLUksswnE8GOQQMpwcAjk2hOX4HEmaTcBloBpPuE0@: jajca[cjscpajpojsc";
+        let regex = MASQRealNode::regex();
+        let captured = regex.captures(text).unwrap();
+
+        let result = captured.get(1).unwrap();
+
+        assert_eq!(
+            result.as_str(),
+            "masq://dev:BrrLUksswnE8GOQQMpwcAjk2hOX4HEmaTcBloBpPuE0@:"
+        )
     }
 }

@@ -851,7 +851,7 @@ pub mod standard {
             let multi_config = make_simplified_multi_config([
                 "MASQNode",
                 "--neighbors",
-                "masq://eth_t1.abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw:12.23.34.45:5678",
+                "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
                 "--chain",
                 DEFAULT_CHAIN_NAME,
             ]);
@@ -862,7 +862,7 @@ pub mod standard {
                 result,
                 ConfiguratorError::required(
                     "neighbors",
-                    "Mismatched chains. You are requiring access to 'eth-mainnet' [masq://eth] with descriptor belonging to 'ropsten' [masq://eth_t1]"
+                    "Mismatched chains. You are requiring access to 'eth-mainnet' [masq://eth-mainnet] with descriptor belonging to 'ropsten' [masq://eth-ropsten]"
                 )
             )
         }
@@ -1061,7 +1061,7 @@ mod tests {
                     .param("--ip", "1.2.3.4")
                     .param(
                         "--neighbors",
-                        "masq://eth.mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4:1.2.3.4:1234;2345,masq://eth.Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk:2.3.4.5:3456;4567",
+                        "masq://eth-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234;2345,masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456;4567",
                     )
                     .into(),
             ))]
@@ -1083,12 +1083,12 @@ mod tests {
                     vec![
                         NodeDescriptor::from_str(
                             &dummy_cryptde,
-                            "masq://eth.mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4:1.2.3.4:1234;2345"
+                            "masq://eth-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234;2345"
                         )
                         .unwrap(),
                         NodeDescriptor::from_str(
                             &dummy_cryptde,
-                            "masq://eth.Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk:2.3.4.5:3456;4567"
+                            "masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456;4567"
                         )
                         .unwrap()
                     ],
@@ -1108,7 +1108,7 @@ mod tests {
                     .param("--neighborhood-mode", "standard")
                     .param(
                         "--neighbors",
-                        "masq://eth.QmlsbA:1.2.3.4:1234;2345,masq://eth.VGVk:2.3.4.5:3456;4567",
+                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345,masq://eth-mainnet:VGVk@2.3.4.5:3456;4567",
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -1142,7 +1142,7 @@ mod tests {
                     .param("--neighborhood-mode", "originate-only")
                     .param(
                         "--neighbors",
-                        "masq://eth.QmlsbA:1.2.3.4:1234;2345,masq://eth.VGVk:2.3.4.5:3456;4567",
+                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345,masq://eth-mainnet:VGVk@2.3.4.5:3456;4567",
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -1164,12 +1164,12 @@ mod tests {
                     vec![
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "masq://eth.QmlsbA:1.2.3.4:1234;2345"
+                            "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345"
                         )
                         .unwrap(),
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "masq://eth.VGVk:2.3.4.5:3456;4567"
+                            "masq://eth-mainnet:VGVk@2.3.4.5:3456;4567"
                         )
                         .unwrap()
                     ],
@@ -1212,7 +1212,7 @@ mod tests {
                     .param("--neighborhood-mode", "consume-only")
                     .param(
                         "--neighbors",
-                        "masq://eth.QmlsbA:1.2.3.4:1234;2345,masq://eth.VGVk:2.3.4.5:3456;4567",
+                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345,masq://eth-mainnet:VGVk@2.3.4.5:3456;4567",
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -1231,10 +1231,16 @@ mod tests {
             result,
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![
-                    NodeDescriptor::from_str(main_cryptde(), "masq://eth.QmlsbA:1.2.3.4:1234;2345")
-                        .unwrap(),
-                    NodeDescriptor::from_str(main_cryptde(), "masq://eth.VGVk:2.3.4.5:3456;4567")
-                        .unwrap()
+                    NodeDescriptor::from_str(
+                        main_cryptde(),
+                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345"
+                    )
+                    .unwrap(),
+                    NodeDescriptor::from_str(
+                        main_cryptde(),
+                        "masq://eth-mainnet:VGVk@2.3.4.5:3456;4567"
+                    )
+                    .unwrap()
                 ],)
             })
         );
@@ -1343,7 +1349,7 @@ mod tests {
                     .param("--neighborhood-mode", "zero-hop")
                     .param(
                         "--neighbors",
-                        "masq://eth.QmlsbA:1.2.3.4:1234;2345,masq://eth.VGVk:2.3.4.5:3456;4567",
+                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345,masq://eth-mainnet:VGVk@2.3.4.5:3456;4567",
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -1501,11 +1507,11 @@ mod tests {
             Some(ConfiguratorError::new(vec![
                 ParamError::new(
                     "neighbors",
-                    "Prefix or more missing. Should be 'masq://<chain label>.<public key>:<node address>', not 'ooga'"
+                    "Prefix or more missing. Should be 'masq://<chain label>:<public key>@<node address>', not 'ooga'"
                 ),
                 ParamError::new(
                     "neighbors",
-                    "Prefix or more missing. Should be 'masq://<chain label>.<public key>:<node address>', not 'booga'"
+                    "Prefix or more missing. Should be 'masq://<chain label>:<public key>@<node address>', not 'booga'"
                 ),
             ]))
         );
@@ -1702,7 +1708,7 @@ mod tests {
             .param("--dns-servers", "12.34.56.78,23.45.67.89")
             .param(
                 "--neighbors",
-                "masq://eth.QmlsbA:1.2.3.4:1234;2345,masq://eth.VGVk:2.3.4.5:3456;4567",
+                "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345,masq://eth-mainnet:VGVk@2.3.4.5:3456;4567",
             )
             .param("--ip", "34.56.78.90")
             .param("--clandestine-port", "1234")
@@ -1758,12 +1764,12 @@ mod tests {
                     vec![
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "masq://eth.QmlsbA:1.2.3.4:1234;2345"
+                            "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345"
                         )
                         .unwrap(),
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "masq://eth.VGVk:2.3.4.5:3456;4567"
+                            "masq://eth-mainnet:VGVk@2.3.4.5:3456;4567"
                         )
                         .unwrap(),
                     ],
@@ -1832,7 +1838,7 @@ mod tests {
             None,
             None,
             None,
-            Some("masq://eth_t1.AQIDBA:1.2.3.4:1234,masq://eth_t1.AgMEBQ:2.3.4.5:2345"),
+            Some("masq://eth-ropsten:AQIDBA@1.2.3.4:1234,masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"),
         )
         .past_neighbors_params(&past_neighbors_params_arc);
 
@@ -1847,9 +1853,9 @@ mod tests {
         assert_eq!(
             config.neighborhood_config.mode.neighbor_configs(),
             &[
-                NodeDescriptor::from_str(main_cryptde(), "masq://eth_t1.AQIDBA:1.2.3.4:1234")
+                NodeDescriptor::from_str(main_cryptde(), "masq://eth-ropsten:AQIDBA@1.2.3.4:1234")
                     .unwrap(),
-                NodeDescriptor::from_str(main_cryptde(), "masq://eth_t1.AgMEBQ:2.3.4.5:2345")
+                NodeDescriptor::from_str(main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345")
                     .unwrap(),
             ]
         );

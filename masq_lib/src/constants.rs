@@ -14,9 +14,9 @@ pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 
 pub const MASQ_PROMPT: &str = "masq> ";
 
-pub const ETH_MAINNET_LABEL: &str = "eth";
-pub const ETH_ROPSTEN_LABEL: &str = "eth_t1";
-pub const ETH_RINKEBY_LABEL: &str = "eth_t2";
+pub const ETH_MAINNET_LABEL: &str = "eth-mainnet";
+pub const ETH_ROPSTEN_LABEL: &str = "eth-ropsten";
+pub const ETH_RINKEBY_LABEL: &str = "eth-rinkeby";
 pub const DEV_LABEL: &str = "dev";
 
 pub const MAINNET_CONTRACT_CREATION_BLOCK: u64 = 9_415_932;
