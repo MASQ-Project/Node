@@ -607,9 +607,9 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::recorder::{make_recorder};
     use crate::test_utils::{alias_cryptde, rate_pack};
     use actix::System;
     use automap_lib::control_layer::automap_control::AutomapChange;
