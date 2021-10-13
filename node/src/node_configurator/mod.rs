@@ -6,6 +6,7 @@ pub mod node_configurator_standard;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
+use crate::blockchain::blockchains::Chain;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::db_config::persistent_configuration::{
@@ -34,7 +35,6 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
-use crate::blockchain::blockchains::Chain;
 
 pub trait NodeConfigurator<T> {
     fn configure(
@@ -227,7 +227,11 @@ pub fn real_user_with_data_directory_opt_and_chain(
     let chain_name =
         value_m!(multi_config, "chain", String).unwrap_or_else(|| DEFAULT_CHAIN_NAME.to_string());
     let data_directory_opt = value_m!(multi_config, "data-directory", PathBuf);
-    (real_user, data_directory_opt, Chain::from(chain_name.as_str()))
+    (
+        real_user,
+        data_directory_opt,
+        Chain::from(chain_name.as_str()),
+    )
 }
 
 pub fn data_directory_from_context(
@@ -281,12 +285,8 @@ pub fn prepare_initialization_mode<'a>(
 
     let (real_user, data_directory_opt, chain) =
         real_user_with_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
-    let directory = data_directory_from_context(
-        &DirsWrapperReal {},
-        &real_user,
-        &data_directory_opt,
-        chain,
-    );
+    let directory =
+        data_directory_from_context(&DirsWrapperReal {}, &real_user, &data_directory_opt, chain);
     let persistent_config_box = initialize_database(&directory, chain.record().num_chain_id);
     Ok((multi_config, persistent_config_box))
 }
@@ -967,8 +967,12 @@ mod tests {
         let data_dir_opt = None;
         let chain_name = "ropsten";
 
-        let result =
-            data_directory_from_context(&dirs_wrapper, &real_user, &data_dir_opt, Chain::from(chain_name));
+        let result = data_directory_from_context(
+            &dirs_wrapper,
+            &real_user,
+            &data_dir_opt,
+            Chain::from(chain_name),
+        );
 
         assert_eq!(
             result,
@@ -1023,12 +1027,8 @@ mod tests {
         let (real_user, data_directory_opt, chain) =
             real_user_with_data_directory_opt_and_chain(&DirsWrapperReal, &multi_config);
 
-        let directory = data_directory_from_context(
-            &DirsWrapperReal,
-            &real_user,
-            &data_directory_opt,
-            chain,
-        );
+        let directory =
+            data_directory_from_context(&DirsWrapperReal, &real_user, &data_directory_opt, chain);
 
         let expected_root = DirsWrapperReal {}.data_dir().unwrap();
         let expected_directory = expected_root

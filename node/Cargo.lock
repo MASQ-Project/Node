@@ -1837,7 +1837,6 @@ dependencies = [
  "trust-dns-proto 0.8.0",
  "trust-dns-resolver 0.12.0",
  "unindent",
- "uriparse",
  "web3",
  "websocket",
  "winreg 0.7.0",
@@ -3653,16 +3652,6 @@ name = "unindent"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f14ee04d9415b52b3aeab06258a3f07093182b88ba0f9b8d203f211a7a7d41c7"
-
-[[package]]
-name = "uriparse"
-version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e515b1ada404168e145ac55afba3c42f04cf972201a8552d42e2abb17c1b7221"
-dependencies = [
- "fnv",
- "lazy_static",
-]
 
 [[package]]
 name = "url"

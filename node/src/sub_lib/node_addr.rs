@@ -9,7 +9,6 @@ use std::fmt::Formatter;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::convert::TryFrom;
 
 #[derive(PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct NodeAddr {
@@ -84,12 +83,27 @@ impl Display for NodeAddr {
     }
 }
 
-impl TryFrom<(IpAddr,&str)> for NodeAddr {
-    type Error = String;
+impl FromStr for NodeAddr {
+    type Err = String;
 
-    fn try_from(input: (IpAddr,&str)) -> Result<NodeAddr, String> {
-        let (ip_addr, str_ports) = input;
-        let ports: Vec<u16> = match str_ports
+    fn from_str(input: &str) -> Result<NodeAddr, String> {
+        let pieces: Vec<&str> = input.split(':').collect();
+        if pieces.len() != 2 {
+            return Err(format!(
+                "NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not '{}'",
+                input
+            ));
+        }
+        let ip_addr = match IpAddr::from_str(pieces[0]) {
+            Err(_) => {
+                return Err(format!(
+                    "NodeAddr must have a valid IP address, not '{}'",
+                    pieces[0]
+                ));
+            }
+            Ok(ip_addr) => ip_addr,
+        };
+        let ports: Vec<u16> = match pieces[1]
             .split(';')
             .map(|s| match s.parse::<u16>() {
                 Err(_) => Err(format!(
@@ -120,7 +134,6 @@ impl TryFrom<(IpAddr,&str)> for NodeAddr {
 mod tests {
     use super::*;
     use std::str::FromStr;
-    use std::net::Ipv4Addr;
 
     #[test]
     fn can_create_from_socket_addr() {
@@ -199,8 +212,32 @@ mod tests {
     }
 
     #[test]
+    fn node_addrs_from_str_needs_two_pieces() {
+        let result = NodeAddr::from_str("Booga");
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not 'Booga'"
+            ))
+        );
+    }
+
+    #[test]
+    fn node_addrs_from_str_needs_good_ip_address() {
+        let result = NodeAddr::from_str("253.254.255.256:1234;2345;3456");
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "NodeAddr must have a valid IP address, not '253.254.255.256'"
+            ))
+        );
+    }
+
+    #[test]
     fn node_addrs_from_str_complains_about_low_port_number() {
-        let result = NodeAddr::try_from((IpAddr::V4(Ipv4Addr::from_str("1.2.3.4").unwrap()),"1023"));
+        let result = NodeAddr::from_str("1.2.3.4:1023");
 
         assert_eq!(
             result,
@@ -212,7 +249,7 @@ mod tests {
 
     #[test]
     fn node_addrs_from_str_complains_about_high_port_number() {
-        let result = NodeAddr::try_from((IpAddr::V4(Ipv4Addr::from_str("1.2.3.4").unwrap()),"65536"));
+        let result = NodeAddr::from_str("1.2.3.4:65536");
 
         assert_eq!(
             result,
@@ -224,7 +261,7 @@ mod tests {
 
     #[test]
     fn node_addrs_from_str_follows_the_happy_path() {
-        let result = NodeAddr::try_from((IpAddr::V4(Ipv4Addr::from_str("1.2.3.4").unwrap()),"1234/2345/3456"));
+        let result = NodeAddr::from_str("1.2.3.4:1234;2345;3456");
 
         assert_eq!(
             result,

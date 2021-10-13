@@ -5,12 +5,12 @@ use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use actix::{Actor, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
 use actix::Recipient;
+use actix::{Actor, System};
 use itertools::Itertools;
 
 use gossip_acceptor::GossipAcceptor;
@@ -24,24 +24,23 @@ use masq_lib::utils::exit_process;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
-use crate::blockchain::blockchains::{Chain};
+use crate::blockchain::blockchains::Chain;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::neighborhood::gossip::{DotGossipEndpoint, Gossip_0v1, GossipNodeRecord};
+use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::configurator::NewPasswordMessage;
-use crate::sub_lib::cryptde::{CryptData, CryptDE, PlainData};
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
@@ -52,6 +51,7 @@ use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
@@ -337,8 +337,8 @@ impl Neighborhood {
             config.earning_wallet.clone(),
             cryptde,
         );
-        let is_mainnet = config.blockchain_bridge_config.chain_id
-            == Chain::EthMainnet.record().num_chain_id;
+        let is_mainnet =
+            config.blockchain_bridge_config.chain_id == Chain::EthMainnet.record().num_chain_id;
         let initial_neighbors: Vec<NodeDescriptor> = neighborhood_config
             .mode
             .neighbor_configs()
@@ -1226,7 +1226,7 @@ pub fn regenerate_signed_gossip(
 mod tests {
     use std::cell::RefCell;
     use std::convert::TryInto;
-    use std::net::{IpAddr, SocketAddr, Ipv4Addr};
+    use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -1239,30 +1239,27 @@ mod tests {
     use serde_cbor;
     use tokio::prelude::Future;
 
-    use masq_lib::constants::{TLS_PORT};
-    use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID
-    };
+    use masq_lib::constants::TLS_PORT;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID};
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::utils::running_test;
 
     use crate::db_config::persistent_configuration::PersistentConfigError;
-    use crate::neighborhood::gossip::Gossip_0v1;
     use crate::neighborhood::gossip::GossipBuilder;
+    use crate::neighborhood::gossip::Gossip_0v1;
     use crate::neighborhood::node_record::NodeRecordInner_0v1;
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
-    use crate::sub_lib::cryptde::{CryptData, decodex, encodex};
+    use crate::sub_lib::cryptde::{decodex, encodex, CryptData};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::{ExpectedServices, NeighborhoodMode};
-    use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, NeighborhoodConfig};
+    use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::versioned_data::VersionedData;
-    use crate::test_utils::{main_cryptde, make_paying_wallet};
     use crate::test_utils::assert_contains;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -1279,6 +1276,7 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::vec_to_set;
+    use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
     use crate::blockchain::blockchains::DEFAULT_CHAIN;
@@ -1536,11 +1534,7 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from((
-                                &one_neighbor_node,
-                                Chain::EthRopsten,
-                                cryptde,
-                            )),
+                            NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde)),
                             NodeDescriptor::from((
                                 &another_neighbor_node,
                                 Chain::EthRopsten,
@@ -2676,7 +2670,7 @@ mod tests {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let public_key = PublicKey::new(&[1, 2, 3, 4]);
-        let node_addr = NodeAddr::try_from((IpAddr::V4(Ipv4Addr::from_str("1.2.3.4").unwrap()),"1234")).unwrap();
+        let node_addr = NodeAddr::from_str("1.2.3.4:1234").unwrap();
         let gossip_acceptor =
             GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Failed(
                 GossipFailure_0v1::NoSuitableNeighbors,

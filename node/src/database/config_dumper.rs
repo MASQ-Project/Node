@@ -299,7 +299,10 @@ mod tests {
         check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
-            &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract_creation_block.to_string()
+            &Chain::from_id(TEST_DEFAULT_CHAIN_ID)
+                .record()
+                .contract_creation_block
+                .to_string(),
         );
         check(
             "exampleEncrypted",
@@ -395,7 +398,10 @@ mod tests {
         check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
-            &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract_creation_block.to_string()
+            &Chain::from_id(TEST_DEFAULT_CHAIN_ID)
+                .record()
+                .contract_creation_block
+                .to_string(),
         );
         let expected_ee_entry = dao.get("example_encrypted").unwrap().value_opt.unwrap();
         let expected_ee_decrypted = Bip39::decrypt_bytes(&expected_ee_entry, "password").unwrap();
@@ -499,7 +505,10 @@ mod tests {
         check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
-            &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract_creation_block.to_string()
+            &Chain::from_id(TEST_DEFAULT_CHAIN_ID)
+                .record()
+                .contract_creation_block
+                .to_string(),
         );
         check(
             "exampleEncrypted",

@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchains::{Chain};
+use crate::blockchain::blockchains::Chain;
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
 use crate::database::db_migrations::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
@@ -211,9 +211,18 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "start_block",
-            Some(&Chain::from_id(chain_id).record().contract_creation_block.to_string()),
+            Some(
+                &Chain::from_id(chain_id)
+                    .record()
+                    .contract_creation_block
+                    .to_string(),
+            ),
             false,
-            format!("{} start block", Chain::from_id(chain_id).record().plain_text_name).as_str()
+            format!(
+                "{} start block",
+                Chain::from_id(chain_id).record().plain_text_name
+            )
+            .as_str(),
         );
         Self::set_config_value(
             conn,
@@ -535,7 +544,7 @@ mod tests {
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-        TEST_DEFAULT_CHAIN_ID
+        TEST_DEFAULT_CHAIN_ID,
     };
     use rusqlite::types::Type::Null;
     use rusqlite::{Error, OpenFlags};
@@ -751,7 +760,11 @@ mod tests {
             "start_block",
             Some(&format!(
                 "{}",
-                &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract_creation_block.to_string())),
+                &Chain::from_id(TEST_DEFAULT_CHAIN_ID)
+                    .record()
+                    .contract_creation_block
+                    .to_string()
+            )),
         );
         assert_eq!(config_vec, vec![]);
     }

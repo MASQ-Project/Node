@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::blockchain::blockchains::Chain;
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::CryptdecError;
@@ -10,7 +11,6 @@ use rand::prelude::*;
 use rustc_hex::ToHex;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
-use crate::blockchain::blockchains::Chain;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]
@@ -143,7 +143,8 @@ impl CryptDENull {
         }
         let private_key = PrivateKey::from(&private_key[..]);
         let public_key = Self::public_from_private(&private_key);
-        let digest = cryptde::create_digest(&public_key, &Chain::from_id(chain_id).record().contract);
+        let digest =
+            cryptde::create_digest(&public_key, &Chain::from_id(chain_id).record().contract);
         Self {
             private_key,
             public_key,
@@ -161,7 +162,8 @@ impl CryptDENull {
     pub fn set_key_pair(&mut self, public_key: &PublicKey, chain_id: u8) {
         self.public_key = public_key.clone();
         self.private_key = CryptDENull::private_from_public(public_key);
-        self.digest = cryptde::create_digest(public_key, &Chain::from_id(chain_id).record().contract);
+        self.digest =
+            cryptde::create_digest(public_key, &Chain::from_id(chain_id).record().contract);
     }
 
     pub fn private_from_public(in_key: &PublicKey) -> PrivateKey {
@@ -675,7 +677,10 @@ mod tests {
         let subject = &main_cryptde();
         let merged = [
             subject.public_key().as_ref(),
-            Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract.as_ref(),
+            Chain::from_id(TEST_DEFAULT_CHAIN_ID)
+                .record()
+                .contract
+                .as_ref(),
         ]
         .concat();
         let expected_digest = merged.keccak256();

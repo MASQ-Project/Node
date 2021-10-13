@@ -7,14 +7,15 @@ use actix::Message;
 use actix::Recipient;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 
 use masq_lib::constants::MASQ_URL_PREFIX;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchains::{blockchain_from_label_opt, Chain, CHAIN_LABEL_DELIMITER, CHAINS, KEY_VS_IP_DELIMITER};
+use crate::blockchain::blockchains::{
+    blockchain_from_label_opt, Chain, CENTRAL_DELIMITER, CHAINS, CHAIN_LABEL_DELIMITER,
+};
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::configurator::NewPasswordMessage;
@@ -28,9 +29,6 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::wallet::Wallet;
-use masq_lib::utils::WrapResult;
-use uriparse::{URI, Host,URIError,AuthorityError,PortError};
-use std::convert::TryFrom;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -122,7 +120,7 @@ impl NeighborhoodMode {
     }
 }
 
-//TODO for sake of optimization we could have our own impl of serde for Blockchain
+//TODO for optimization we could write our own impl of serde for Chain
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeDescriptor {
@@ -178,9 +176,13 @@ impl From<(&NodeRecord, Chain, &dyn CryptDE)> for NodeDescriptor {
 
 impl NodeDescriptor {
     pub fn from_str(cryptde: &dyn CryptDE, str_descriptor: &str) -> Result<NodeDescriptor, String> {
-        let (blockchain, key, addr_data_opt) = Self::parse(str_descriptor)?;
-        let encryption_public_key = cryptde.descriptor_fragment_to_first_contact_public_key(key.as_str())?;
-        let node_addr_opt = if let Some((ip_addr,ports)) = addr_data_opt {Some(NodeAddr::try_from((ip_addr,ports.as_str()))?)} else {None};
+        let (blockchain, key, str_node_addr) = Self::parse(str_descriptor)?;
+        let encryption_public_key = cryptde.descriptor_fragment_to_first_contact_public_key(key)?;
+        let node_addr_opt = if str_node_addr == ":" {
+            None
+        } else {
+            Some(NodeAddr::from_str(str_node_addr)?)
+        };
         Ok(NodeDescriptor {
             blockchain,
             encryption_public_key,
@@ -200,95 +202,112 @@ impl NodeDescriptor {
         };
         let label = self.blockchain.record().chain_label;
         format!(
-            "{}://{}{}{}{}{}",
+            "{}{}{}{}{}{}",
             MASQ_URL_PREFIX,
             label,
             CHAIN_LABEL_DELIMITER,
             contact_public_key_string,
-            KEY_VS_IP_DELIMITER,
+            CENTRAL_DELIMITER,
             node_addr_string
         )
     }
 
-    fn parse(str_descriptor: &str) -> Result<(Chain, String, Option<(IpAddr,String)>), String> {
-        let uri_descriptor = match URI::try_from(str_descriptor){
-            Ok(uri) => uri,
-            Err(URIError::Authority(AuthorityError::Port(PortError::InvalidCharacter))) => return Err("NodeAddr badly formatted; should be expressed as '<IP address>:<port>/<port>'".to_string()),
-            Err(URIError::NotURI) => unimplemented!("Let's fix this"),
-            x => unimplemented!("{:?}",x)
+    fn parse(descriptor: &str) -> Result<(Chain, &str, &str), String> {
+        let without_prefix = strip_prefix(descriptor)?;
+        let halves = separability_assertion(
+            without_prefix,
+            CENTRAL_DELIMITER,
+            DescriptorParsingError::CentralDelimiterProbMissing(descriptor),
+        )?;
+        let _ = approx_position_assertion(descriptor, &halves)?;
+        let (front, tail) = (halves[0], halves[1]);
+        let front_parts = separability_assertion(
+            front,
+            CHAIN_LABEL_DELIMITER,
+            DescriptorParsingError::ChainLabelDelimiter(descriptor),
+        )?;
+        let chain_label = front_parts[0];
+        let chain = if let Some(ch) = blockchain_from_label_opt(chain_label) {
+            ch
+        } else {
+            return Err(DescriptorParsingError::WrongChainLabel(chain_label).to_string());
         };
-        let ports = if uri_descriptor.has_port(){Some(strip_ports(str_descriptor)?)} else {None};
-        let authority = uri_descriptor.authority().ok_or("blah_authority".to_string())?; //TODO Err untested
-        let ip_addr =
-            match authority.host(){
-                Host::IPv4Address(ip) => Some(IpAddr::V4(*ip)),
-                Host::IPv6Address(ip) => unimplemented!(),
-                Host::RegisteredName(name) => if name.as_str().is_empty() {unimplemented!()} else {return Err(format!(
-                    "NodeAddr should be expressed as '<IP address>:<port>/<port>,...', not '{}{}'",name,if let Some(ports) = ports{format!(":{}",ports)} else {"".to_string()}
-                ))} //empty means no ip_addr
-            };
-        let address_opt = match (ip_addr,ports){
-            (Some(ip),None) => unimplemented!(),
-            (Some(ip),Some(ports)) => Some((ip,ports)),
-            (None,_) => unimplemented!()
-        };
-        let schema = uri_descriptor.scheme();
-        if schema != MASQ_URL_PREFIX {return Err(DescriptorParsingError::PrefixMissing(str_descriptor).to_string())}
-        //let halves: Vec<&str> = without_prefix.splitn(2, KEY_VS_IP_DELIMITER).collect();
-        // if halves.len() == 1 {
-        //     return Err(DescriptorParsingError::WrongCentralDelimiter(str_descriptor).to_string());
-        // };
-        //let first_half = halves[0];
-        //let second_half = halves[1];
-        let blockchain_label = authority.username().ok_or("blah_blockchain_label".to_string())?; //TODO Err untested
-        let blockchain = match blockchain_from_label_opt(blockchain_label) {
-            Some(bch) => bch,
-            _ => {
-                return Err(DescriptorParsingError::WrongChainLabel(blockchain_label).to_string())
-            }
-        };
-        // let key_offset = blockchain_label.len() + 1;
-        // if key_offset > first_half.len() {
-        //     return Err(DescriptorParsingError::WrongChainLabelDelimiter(str_descriptor).to_string());
-        // }
-       // let key = &first_half[key_offset..];
-        let key = authority.password().ok_or("blah public key".to_string())?;
-        // let regex = Regex::new(r"\d\.\d").expect("regex initialization failed"); //the ip address contains ':' too, could be confused with the central delimiter
-        // if regex.is_match(key) {
-        //     return Err(DescriptorParsingError::WrongCentralDelimiter(str_descriptor).to_string());
-        // }
-        //i have ip // i have ports
-        Ok((blockchain, key.to_string(),address_opt))
+        let key_offset = chain_label.len() + 1;
+        let key = &front[key_offset..];
+        Ok((chain, key, tail))
     }
 }
 
-fn strip_ports(descriptor:&str)->Result<String,String>{
-    let ports = descriptor.chars().rev().take_while(|char|*char!=':').collect::<String>().chars().rev().collect::<String>();
-    if ports.chars().find(|char|char.is_ascii_alphabetic() || *char == '.' ||*char == '@').is_some(){return Err(format!("Ports '{}' badly formatted; should be numerical values separated by semicolons",ports))}
-    Ok(ports)
+fn strip_prefix(str_descriptor: &str) -> Result<&str, String> {
+    if let Some(str) = str_descriptor.strip_prefix(MASQ_URL_PREFIX) {
+        Ok(str)
+    } else {
+        Err(DescriptorParsingError::PrefixMissing(str_descriptor).to_string())
+    }
 }
 
-enum DescriptorParsingError<'a>{
-    WrongCentralDelimiter(&'a str),
-    WrongChainLabelDelimiter(&'a str),
+fn separability_assertion<'a>(
+    str: &'a str,
+    delimiter: char,
+    error: DescriptorParsingError,
+) -> Result<Vec<&'a str>, String> {
+    let parts = str.splitn(2, delimiter).collect::<Vec<&str>>();
+    if parts.len() == 1 {
+        return Err(error.to_string());
+    }
+    Ok(parts)
+}
+
+fn approx_position_assertion(descriptor: &str, halves: &[&str]) -> Result<(), String> {
+    let purely_numerical = assert_purely_numerical(halves[0]);
+    if purely_numerical {
+        return Err(DescriptorParsingError::CentralDelimOrLabel(descriptor).to_string());
+    }
+    let purely_numerical = assert_purely_numerical(halves[1]);
+    if !purely_numerical {
+        if halves[1].chars().filter(|char| *char == ':').count() < 3
+            || halves[1]
+                .chars()
+                .filter(|char| !char.is_ascii_punctuation())
+                .any(|char| !char.is_ascii_hexdigit())
+        {
+            return Err(DescriptorParsingError::CentralDelimOrNodeAddr(descriptor,halves[1]).to_string());
+        }
+    };
+    Ok(())
+}
+
+fn assert_purely_numerical(string: &str) -> bool {
+    string
+        .chars()
+        .filter(|char| !char.is_ascii_punctuation())
+        .all(|char| !char.is_alphabetic())
+}
+
+enum DescriptorParsingError<'a> {
+    CentralDelimiterProbMissing(&'a str),
+    CentralDelimOrNodeAddr(&'a str,&'a str),
+    CentralDelimOrLabel(&'a str),
+    ChainLabelDelimiter(&'a str),
     PrefixMissing(&'a str),
-    WrongChainLabel(&'a str)
+    WrongChainLabel(&'a str),
 }
 
-impl Display for DescriptorParsingError<'_>{
+impl Display for DescriptorParsingError<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self{
-            Self::WrongCentralDelimiter(descriptor) => write!(f,"Central delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not '{}'",descriptor),
-            Self::WrongChainLabelDelimiter(descriptor) => write!(f,"Chain label delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not '{}'",descriptor),
-            Self::PrefixMissing(descriptor) => write!(f,"Prefix or more missing. Should be 'masq://<chain label>.<public key>:<node address>', not '{}'",descriptor),
-            Self::WrongChainLabel(label) => write!(f,"Chain label '{}' isn't valid; you can have only '{}' while formatted as 'masq://<chain label>.<public key>:<node address>'",
+            Self::CentralDelimiterProbMissing(descriptor) => write!(f, "Delimiter '@' probably missing. Should be 'masq://<chain label>:<public key>@<node address>', not '{}'", descriptor),
+            Self::CentralDelimOrNodeAddr(descriptor,tail) => write!(f, "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not '{}'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as '{}'", descriptor,tail),
+            Self::CentralDelimOrLabel(descriptor) => write!(f, "Either '@' delimiter position or format of chain label is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not '{}'", descriptor),
+            Self::ChainLabelDelimiter(descriptor) => write!(f, "Chain label delimiter mismatch. Should be 'masq://<chain label>:<public key>@<node address>', not '{}'", descriptor),
+            Self::PrefixMissing(descriptor) => write!(f,"Prefix or more missing. Should be 'masq://<chain label>:<public key>@<node address>', not '{}'",descriptor),
+            Self::WrongChainLabel(label) => write!(f,"Chain label '{}' isn't valid; you can have only '{}' while formatted as 'masq://<chain label>:<public key>@<node address>'",
             label,
             CHAINS.iter().map(|record|record.chain_label).filter(|label|*label != "dev").join(", ")
             )
         }
     }
 }
-
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NeighborhoodConfig {
@@ -479,7 +498,6 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
 
     use super::*;
-    use std::net::Ipv4Addr;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
         RatePack {
@@ -514,129 +532,51 @@ mod tests {
     }
 
     #[test]
-    fn strip_ports_work_single_port(){
-        let descriptor = "masq://eth:as45cs5c5@1.2.3.4:4444";
-
-        let result = strip_ports(descriptor).unwrap();
-
-        assert_eq!(result,"4444".to_string())
-    }
-
-    #[test]
-    fn strip_ports_work_multiple_ports(){
-        let descriptor = "masq://eth:ncaac5a6c56a6cv@4.3.2.9:4444/1212/11133";
-
-        let result = strip_ports(descriptor).unwrap();
-
-        assert_eq!(result,"4444/1212/11133".to_string())
-    }
-
-    #[test]
-    fn strip_ports_complains_about_bat_format(){
-        let descriptor = "masq://eth:ncaac5a6c56a6cv@4.3.2.9:444kl;1212;1/133";
-
-        let result = strip_ports(descriptor);
-
-        assert_eq!(result,Err("Ports '444kl;1212;1/133' badly formatted; should be numerical values separated by semicolons".to_string()))
-    }
-
-    #[test]
-    fn parse_needs_both_pieces_of_ip_and_ports() {
-        let descriptor = "masq://eth_t1.as45cs5c5@1.1.1.1:booga";
-
-        let result = NodeDescriptor::parse(descriptor);
-
-        assert_eq!(
-            result,
-            Err(String::from(
-                "NodeAddr badly formatted; should be expressed as '<IP address>:<port>/<port>'"
-            ))
-        );
-    }
-
-    #[test]
-    fn parse_catch_bad_host_address() {
-        let descriptor = "masq://eth_t1:as45cs5c5@booga";
-
-        let result = NodeDescriptor::parse(descriptor);
-
-        assert_eq!(
-            result,
-            Err(String::from(
-                "NodeAddr should be expressed as '<IP address>:<port>/<port>,...', not 'booga'"
-            ))
-        );
-    }
-
-    #[test]
-    fn parse_needs_good_ip_address() {
-        let descriptor = "masq://eth:ncaac5a6c56a6cv@253.254.255.256:1234/2345/3456";
-
-        let result = NodeDescriptor::parse(descriptor);
-
-        assert_eq!(
-            result,
-            Err(String::from(
-                "NodeAddr must have a valid IP address, not '253.254.255.256'"
-            ))
-        );
-    }
-
-    #[test]
     fn parse_works_for_ethereum_mainnet() {
         let descriptor = "masq://eth:as45cs5c5@1.2.3.4:4444";
 
         let result = NodeDescriptor::parse(descriptor).unwrap();
 
-        assert_eq!(
-            result,
-            (Chain::EthMainnet, "as45cs5c5".to_string(), Some((IpAddr::V4(Ipv4Addr::from_str("1.2.3.4").unwrap()),"4444".to_string())))
-        )
+        assert_eq!(result, (Chain::EthMainnet, "as45cs5c5", "1.2.3.4:4444"))
     }
 
     #[test]
     fn parse_works_for_ethereum_testnet_ropsten() {
-        let descriptor = "masq://eth_t1:as45cs5c5@2.22.88.1:11111";
+        let descriptor = "masq://eth_t1:as45cs5c5@1.2.3.4:4444";
 
         let result = NodeDescriptor::parse(descriptor).unwrap();
 
-        assert_eq!(
-            result,
-            (Chain::EthRopsten, "as45cs5c5".to_string(), Some((IpAddr::V4(Ipv4Addr::from_str("2.22.88.1").unwrap()),"11111".to_string())))
-        )
+        assert_eq!(result, (Chain::EthRopsten, "as45cs5c5", "1.2.3.4:4444"))
     }
 
     #[test]
     fn parse_works_for_ethereum_testnet_rinkeby() {
-        let descriptor = "masq://eth_t2:as45cs5c5@120.5.51.5:2222";
+        let descriptor = "masq://eth_t2:as45cs5c5@1.2.3.4:4444";
 
         let result = NodeDescriptor::parse(descriptor).unwrap();
 
-        assert_eq!(
-            result,
-            (Chain::EthRinkeby, "as45cs5c5".to_string(), Some((IpAddr::V4(Ipv4Addr::from_str("120.5.51.5").unwrap()),"2222".to_string())))
-        )
+        assert_eq!(result, (Chain::EthRinkeby, "as45cs5c5", "1.2.3.4:4444"))
     }
 
     #[test]
     fn parse_works_for_dev_chain() {
-        let descriptor = "masq://dev.as45cs5c5:1.2.3.4:4444";
+        let descriptor = "masq://dev:as45cs5c5@1.2.3.4:4444";
 
         let result = NodeDescriptor::parse(descriptor).unwrap();
 
-        assert_eq!(result, (Chain::Dev, "as45cs5c5".to_string(), Some((IpAddr::V4(Ipv4Addr::from_str("1.2.3.4").unwrap()),"4444".to_string()))))
+        assert_eq!(result, (Chain::Dev, "as45cs5c5", "1.2.3.4:4444"))
     }
 
     #[test]
     fn parse_complains_about_url_prefix_not_found() {
-        let descriptor = "https://eth.as45cs5c5:1.2.3.4:4444";
+        let descriptor = "https://eth:as45cs5c5@1.2.3.4:4444";
 
         let result = NodeDescriptor::parse(descriptor);
 
         assert_eq!(
             result,
             Err(
-                "Prefix or more missing. Should be 'masq://<chain label>.<public key>:<node address>', not 'https://eth.as45cs5c5:1.2.3.4:4444'"
+                "Prefix or more missing. Should be 'masq://<chain label>:<public key>@<node address>', not 'https://eth:as45cs5c5@1.2.3.4:4444'"
                     .to_string()
             )
         );
@@ -644,84 +584,130 @@ mod tests {
 
     #[test]
     fn parse_complains_about_unknown_chain_label() {
-        let descriptor = "masq://bitcoin.as45cs5c5:1.2.3.4:4444";
+        let descriptor = "masq://bitcoin:as45cs5c5@1.2.3.4:4444";
 
         let result = NodeDescriptor::parse(descriptor);
 
         assert_eq!(
             result,
             Err(
-                "Chain label 'bitcoin' isn't valid; you can have only 'eth, eth_t1, eth_t2' while formatted as 'masq://<chain label>.<public key>:<node address>'"
+                "Chain label 'bitcoin' isn't valid; you can have only 'eth, eth_t1, eth_t2' while formatted as 'masq://<chain label>:<public key>@<node address>'"
                     .to_string()
             )
         );
     }
 
     #[test]
-    fn parse_complains_about_str_which_it_does_not_know_how_to_halve_because_no_colons_at_all(
-    ) {
-        let descriptor = "masq://dev.as45cs5c5/1.4.4.5:4545";
+    fn parse_complains_about_str_which_it_does_not_know_how_to_halve_because_no_at_sign() {
+        let descriptor = "masq://dev.as45cs5c5/1.4.4.5;4545";
 
         let result = NodeDescriptor::parse(descriptor);
 
         assert_eq!(
             result,
-            Err("Central delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not 'masq://dev.as45cs5c5/1.4.4.5;4545'".to_string())
+            Err("Delimiter '@' probably missing. Should be 'masq://<chain label>:<public key>@<node address>', not 'masq://dev.as45cs5c5/1.4.4.5;4545'".to_string())
         );
     }
 
     #[test]
-    fn parse_complains_about_str_which_must_lack_the_central_colon_though_one_from_ip_addrs_was_falsely_taken(
-    ) {
-        let descriptor = "masq://dev.as45cs5c5/1.4.4.5:4545";
+    fn parse_complains_about_unclear_label_delimiter() {
+        let descriptor = "masq://dev.as45cs5c5@1.4.4.5:4545";
 
         let result = NodeDescriptor::parse(descriptor);
 
         assert_eq!(
             result,
-            Err("Central delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not 'masq://dev.as45cs5c5/1.4.4.5:4545'".to_string())
+            Err("Chain label delimiter mismatch. Should be 'masq://<chain label>:<public key>@<node address>', not 'masq://dev.as45cs5c5@1.4.4.5:4545'".to_string())
         );
     }
 
     #[test]
-    fn parse_complains_about_missing_at_sign(
-    ) {
-        let descriptor = "masq://dev.as45cs5c5/1.4.4.5:4545";
+    fn approx_position_assertion_lets_good_halves_go() {
+        let would_be_descriptor = "whole_descriptor";
+        let halves = &["dev:assd5fa3c5ac4a6", "1.3.4.5:4565;9898"];
 
-        let result = NodeDescriptor::parse(descriptor);
+        let result = approx_position_assertion(would_be_descriptor, halves);
 
-        assert_eq!(
-            result,
-            Err("Generic component mismatch. Should be 'masq://<chain label>:<public key>@<node address>', not 'masq://dev.as45cs5c5/1.4.4.5:4545'".to_string())
-        );
+        assert_eq!(result, Ok(()))
     }
 
     #[test]
-    fn avoiding_byte_index_out_of_bounds_in_key_offset_when_a_colon_used_instead_of_the_label_delimiter(
-    ) {
-        let descriptor = "masq://dev:as45cs5c5:1.4.4.5:4545";
+    fn approx_position_assertion_catches_bad_second_half() {
+        let would_be_descriptor = "whole_descriptor";
+        let halves = &["dev:assd5fa3c5ac", "a1.bf3.4.5:4565;9898"];
 
-        let result = NodeDescriptor::parse(descriptor);
+        let result = approx_position_assertion(would_be_descriptor, halves);
 
-        assert_eq!(
-            result,
-            Err("Chain label delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not 'masq://dev:as45cs5c5:1.4.4.5:4545'".to_string())
-        );
+        assert_eq!(result,Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as 'a1.bf3.4.5:4565;9898'".to_string()))
     }
 
     #[test]
-    fn wrong_chain_label_error_does_not_mention_dev_chain(){
-        assert!(CHAINS.iter().find(|record|record.chain_label == "dev").is_some());
+    fn approx_position_assertion_ignores_potential_ipv6() {
+        let would_be_descriptor = "whole_descriptor";
+        let halves = &["dev:assd5fa3c5ac", "2000:ab3:88f:4565;9898"];
+
+        let result = approx_position_assertion(would_be_descriptor, halves);
+
+        assert_eq!(result, Ok(()))
+    }
+
+    #[test]
+    fn approx_position_assertion_catches_ipv6_with_too_few_colons() {
+        let would_be_descriptor = "whole_descriptor";
+        let halves = &["dev:assd5fa3c5ac", "2000:ab.4.5a.10:4565"];
+
+        let result = approx_position_assertion(would_be_descriptor, halves);
+
+        assert_eq!(result,Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as '2000:ab.4.5a.10:4565'".to_string()))
+    }
+
+    #[test]
+    fn approx_position_assertion_catches_potential_ipv6_with_non_hex_values() {
+        let would_be_descriptor = "whole_descriptor";
+        let halves = &["dev:assd5fa3c5ac", "2000:qd3:88r:4565;9898"];
+
+        let result = approx_position_assertion(would_be_descriptor, halves);
+
+        assert_eq!(result, Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as '2000:qd3:88r:4565;9898'".to_string()))
+    }
+
+    #[test]
+    fn approx_position_assertion_does_not_like_all_numeric_first_half() {
+        let would_be_descriptor = "whole_descriptor";
+        let halves = &["145:4511265", "2000:ad3:88a:4565;9898"];
+
+        let result = approx_position_assertion(would_be_descriptor, halves);
+
+        assert_eq!(result, Err("Either '@' delimiter position or format of chain label is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not 'whole_descriptor'".to_string()))
+    }
+
+    #[test]
+    fn wrong_chain_label_error_does_not_mention_dev_chain() {
+        assert!(CHAINS
+            .iter()
+            .find(|record| record.chain_label == "dev")
+            .is_some());
 
         let result = DescriptorParsingError::WrongChainLabel("blah").to_string();
 
-        assert_eq!(result, "Chain label 'blah' isn't valid; you can have only 'eth, eth_t1, eth_t2' while formatted as 'masq://<chain label>.<public key>:<node address>'")
+        assert_eq!(result, "Chain label 'blah' isn't valid; you can have only 'eth, eth_t1, eth_t2' while formatted as 'masq://<chain label>:<public key>@<node address>'")
+    }
+
+    #[test]
+    fn more_assertion_required_leads_to_another_assertion_and_the_verdict_here_with_correct_ip(){
+        let descriptor = "masq://dev:assd5fa3c5ac@2000:qd3:88r:4565;9898";
+
+        let result = NodeDescriptor::parse(descriptor);
+
+        assert_eq!(result,Err(
+            "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not 'masq://dev:assd5fa3c5ac@2000:qd3:88r:4565;9898'\
+            \nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as '2000:qd3:88r:4565;9898'".to_string()))
     }
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_base_64() {
         let result =
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth:bad_key@1.2.3.4:1234/2345");
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth:bad_key@1.2.3.4:1234;2345");
 
         assert_eq!(
             result,
@@ -731,7 +717,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_complains_about_blank_public_key() {
-        let result = NodeDescriptor::from_str(main_cryptde(), "masq://dev:@1.2.3.4:1234/2345");
+        let result = NodeDescriptor::from_str(main_cryptde(), "masq://dev:@1.2.3.4:1234;2345");
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
@@ -739,16 +725,16 @@ mod tests {
     #[test]
     fn node_descriptor_from_str_complains_about_bad_node_addr() {
         let result =
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth.R29vZEtleQ==:BadNodeAddr");
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth:R29vZEtleQ==@BadNodeAddr");
 
-        assert_eq!(result, Err(String::from("NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not 'BadNodeAddr'")));
+        assert_eq!(result, Err(String::from("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not 'masq://eth:R29vZEtleQ==@BadNodeAddr'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as 'BadNodeAddr'")));
     }
 
     #[test]
     fn node_descriptor_from_str_handles_the_happy_path_with_node_addr() {
         let result = NodeDescriptor::from_str(
             main_cryptde(),
-            "masq://eth_t1.R29vZEtleQ:1.2.3.4:1234;2345;3456",
+            "masq://eth_t1:R29vZEtleQ@1.2.3.4:1234;2345;3456",
         );
 
         assert_eq!(
@@ -766,7 +752,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_handles_the_happy_path_without_node_addr() {
-        let result = NodeDescriptor::from_str(main_cryptde(), "masq://eth.R29vZEtleQ::");
+        let result = NodeDescriptor::from_str(main_cryptde(), "masq://eth:R29vZEtleQ@:");
 
         assert_eq!(
             result.unwrap(),
@@ -784,8 +770,7 @@ mod tests {
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
 
-        let result =
-            NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
+        let result = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
 
         assert_eq!(
             result,
@@ -840,14 +825,13 @@ mod tests {
         let cryptde: &dyn CryptDE = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
-        let subject =
-            NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
+        let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
 
         let result = subject.to_string(cryptde);
 
         assert_eq!(
             result,
-            "masq://eth.AQIDBAUGBwg:123.45.67.89:2345;3456".to_string()
+            "masq://eth:AQIDBAUGBwg@123.45.67.89:2345;3456".to_string()
         );
     }
 
@@ -856,14 +840,13 @@ mod tests {
         let cryptde: &dyn CryptDE = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
-        let subject =
-            NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
+        let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
 
         let result = subject.to_string(cryptde);
 
         assert_eq!(
             result,
-            "masq://eth_t1.AQIDBAUGBwg:123.45.67.89:2345;3456".to_string()
+            "masq://eth_t1:AQIDBAUGBwg@123.45.67.89:2345;3456".to_string()
         );
     }
 
@@ -881,10 +864,12 @@ mod tests {
         let string_descriptor = descriptor.to_string(cryptde);
 
         let result = string_descriptor
+            .strip_prefix(MASQ_URL_PREFIX)
+            .unwrap()
             .chars()
-            .skip_while(|char| char != &'.')
+            .skip_while(|char| char != &CHAIN_LABEL_DELIMITER)
             .skip(1)
-            .position(|l| l == ':')
+            .position(|l| l == CENTRAL_DELIMITER)
             .unwrap();
 
         assert_eq!(result, required_number_of_characters);
@@ -908,9 +893,9 @@ mod tests {
     #[test]
     fn standard_mode_results() {
         let one_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth.AQIDBA:1.2.3.4:1234").unwrap();
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth:AQIDBA@1.2.3.4:1234").unwrap();
         let another_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth.AgMEBQ:2.3.4.5:2345").unwrap();
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth:AgMEBQ@2.3.4.5:2345").unwrap();
         let subject = NeighborhoodMode::Standard(
             NodeAddr::new(&localhost(), &[1234, 2345]),
             vec![one_neighbor.clone(), another_neighbor.clone()],
@@ -937,9 +922,9 @@ mod tests {
     #[test]
     fn originate_only_mode_results() {
         let one_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth_t2.AQIDBA:1.2.3.4:1234").unwrap();
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth_t2:AQIDBA@1.2.3.4:1234").unwrap();
         let another_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth_t2.AgMEBQ:2.3.4.5:2345").unwrap();
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth_t2:AgMEBQ@2.3.4.5:2345").unwrap();
         let subject = NeighborhoodMode::OriginateOnly(
             vec![one_neighbor.clone(), another_neighbor.clone()],
             rate_pack(100),
@@ -962,9 +947,9 @@ mod tests {
     #[test]
     fn consume_only_mode_results() {
         let one_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth.AQIDBA:1.2.3.4:1234").unwrap();
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth:AQIDBA@1.2.3.4:1234").unwrap();
         let another_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth.AgMEBQ:2.3.4.5:2345").unwrap();
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth:AgMEBQ@2.3.4.5:2345").unwrap();
         let subject =
             NeighborhoodMode::ConsumeOnly(vec![one_neighbor.clone(), another_neighbor.clone()]);
 

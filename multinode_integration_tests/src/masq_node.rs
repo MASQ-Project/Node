@@ -2,7 +2,9 @@
 use crate::command::Command;
 use base64::STANDARD_NO_PAD;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT, MASQ_URL_PREFIX};
-use node_lib::blockchain::blockchains::{blockchain_from_label_opt, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER, Chain};
+use node_lib::blockchain::blockchains::{
+    blockchain_from_label_opt, Chain, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER,
+};
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::RatePack;
@@ -47,7 +49,10 @@ impl FromStr for NodeReference {
             public_key,
             ip_addr,
             port_list,
-            blockchain_from_label_opt(label).expect("chain outside the bounds; unknown").record().num_chain_id,
+            blockchain_from_label_opt(label)
+                .expect("chain outside the bounds; unknown")
+                .record()
+                .num_chain_id,
         ))
     }
 }

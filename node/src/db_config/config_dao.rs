@@ -241,8 +241,8 @@ mod tests {
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
     use crate::test_utils::assert_contains;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID};
     use masq_lib::constants::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID};
 
     #[test]
     fn get_all_returns_multiple_results() {

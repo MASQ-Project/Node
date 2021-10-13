@@ -7,16 +7,14 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 use crate::blockchain::blockchains::Chain;
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::bootstrapper::BootstrapperConfig;
-use crate::neighborhood::{AccessibleGossipRecord, Neighborhood};
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1};
-use crate::sub_lib::cryptde::{CryptDE, PlainData};
+use crate::neighborhood::{AccessibleGossipRecord, Neighborhood};
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
-use crate::sub_lib::neighborhood::{
-    NeighborhoodConfig, NeighborhoodMode, NodeDescriptor,
-};
+use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;

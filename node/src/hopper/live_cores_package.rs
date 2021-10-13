@@ -94,6 +94,7 @@ impl LiveCoresPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchains::Chain;
     use crate::sub_lib::cryptde::encodex;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -108,7 +109,6 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
-    use crate::blockchain::blockchains::Chain;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch() {
@@ -159,11 +159,10 @@ mod tests {
             next_hop,
             LiveHop::new(
                 &destination_key,
-                Some(
-                    paying_wallet
-                        .clone()
-                        .as_payer(&relay_key, &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract)
-                ),
+                Some(paying_wallet.clone().as_payer(
+                    &relay_key,
+                    &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract
+                )),
                 Component::Hopper,
             )
         );
@@ -174,10 +173,10 @@ mod tests {
             route.shift(&destination_cryptde).unwrap(),
             LiveHop::new(
                 &public_key,
-                Some(
-                    paying_wallet
-                        .as_payer(&destination_key, &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract)
-                ),
+                Some(paying_wallet.as_payer(
+                    &destination_key,
+                    &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract
+                )),
                 Component::Neighborhood,
             )
         );

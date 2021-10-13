@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::apps::app_head;
+use crate::blockchain::blockchains::{Chain as BlockChain, DEFAULT_CHAIN};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
@@ -28,7 +29,6 @@ use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupRespo
 use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
-use crate::blockchain::blockchains::{Chain as BlockChain, DEFAULT_CHAIN};
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
 use std::collections::HashMap;
@@ -258,7 +258,11 @@ impl SetupReporterReal {
             (Some(ddir_str), Some(_)) => Some(PathBuf::from(&ddir_str)),
             _ => None,
         };
-        Ok((real_user_opt, data_directory_opt, BlockChain::from(chain_name.as_str())))
+        Ok((
+            real_user_opt,
+            data_directory_opt,
+            BlockChain::from(chain_name.as_str()),
+        ))
     }
 
     fn calculate_configured_setup(
@@ -864,6 +868,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchains::{Chain as Blockchain, DEFAULT_CHAIN};
     use crate::bootstrapper::RealUser;
     use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
     use crate::daemon::dns_inspector::DnsInspectionError;
@@ -874,7 +879,6 @@ mod tests {
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
-    use crate::blockchain::blockchains::{Chain as Blockchain, DEFAULT_CHAIN};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
@@ -883,7 +887,10 @@ mod tests {
     use masq_lib::constants::DEFAULT_PLATFORM;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, TEST_DEFAULT_PLATFORM, TEST_DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+        TEST_DEFAULT_PLATFORM,
+    };
     use std::cell::RefCell;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
@@ -1982,7 +1989,7 @@ mod tests {
             &DirsWrapperReal,
             &setup,
             &data_directory,
-            Blockchain::EthMainnet //irrelevant
+            Blockchain::EthMainnet, //irrelevant
         )
         .1
         .unwrap();
@@ -2061,7 +2068,7 @@ mod tests {
             &DirsWrapperReal {},
             &setup,
             &data_directory,
-            Blockchain::EthMainnet //irrelevant
+            Blockchain::EthMainnet, //irrelevant
         )
         .1
         .unwrap();
@@ -2121,13 +2128,18 @@ mod tests {
     #[test]
     fn data_directory_computed_default() {
         let real_user = RealUser::new(None, None, None).populate(&DirsWrapperReal {});
-        let expected =
-            data_directory_from_context(&DirsWrapperReal {}, &real_user, &None, Blockchain::EthMainnet)
-                .to_string_lossy()
-                .to_string();
+        let expected = data_directory_from_context(
+            &DirsWrapperReal {},
+            &real_user,
+            &None,
+            Blockchain::EthMainnet,
+        )
+        .to_string_lossy()
+        .to_string();
         let mut config = BootstrapperConfig::new();
         config.real_user = real_user;
-        config.blockchain_bridge_config.chain_id = Blockchain::from("eth-mainnet").record().num_chain_id;
+        config.blockchain_bridge_config.chain_id =
+            Blockchain::from("eth-mainnet").record().num_chain_id;
 
         let subject = DataDirectory::default();
 

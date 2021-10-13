@@ -17,6 +17,7 @@ pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
+use crate::blockchain::blockchains::Chain;
 use crate::blockchain::payer::Payer;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
@@ -58,7 +59,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use crate::blockchain::blockchains::Chain;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN_ID);
@@ -465,7 +465,10 @@ pub fn dummy_address_to_hex(dummy_address: &str) -> String {
 
 pub fn make_payer(secret: &[u8], public_key: &PublicKey) -> Payer {
     let wallet = make_paying_wallet(secret);
-    wallet.as_payer(public_key, &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract)
+    wallet.as_payer(
+        public_key,
+        &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract,
+    )
 }
 
 pub fn make_paying_wallet(secret: &[u8]) -> Wallet {

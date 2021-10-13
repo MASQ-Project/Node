@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::blockchain::blockchains::Chain;
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::{
     CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey, SymmetricKey,
@@ -11,7 +12,6 @@ use sodiumoxide::crypto::secretbox;
 use sodiumoxide::crypto::sign as signing;
 use sodiumoxide::crypto::{box_ as encryption, hash};
 use sodiumoxide::randombytes::randombytes_into;
-use crate::blockchain::blockchains::Chain;
 
 lazy_static! {
     static ref INITIALIZED: bool = {
@@ -187,7 +187,8 @@ impl CryptDEReal {
         let (e_public, e_secret) = encryption::gen_keypair();
         let (s_public, s_secret) = signing::gen_keypair();
         let public_key = Self::local_public_key_from(&e_public, &s_public);
-        let digest = cryptde::create_digest(&public_key, &Chain::from_id(chain_id).record().contract);
+        let digest =
+            cryptde::create_digest(&public_key, &Chain::from_id(chain_id).record().contract);
         let pre_shared_data = Chain::from_id(chain_id).record().contract.0;
 
         Self {
@@ -590,7 +591,10 @@ mod tests {
         let subject = &CryptDEReal::default();
         let merged = [
             subject.public_key().as_ref(),
-            &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract.as_ref(),
+            &Chain::from_id(TEST_DEFAULT_CHAIN_ID)
+                .record()
+                .contract
+                .as_ref(),
         ]
         .concat();
         let expected_digest = merged.keccak256();

@@ -130,6 +130,7 @@ impl ConsumingService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchains::Chain;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::{Component, InboundClientData};
     use crate::sub_lib::node_addr::NodeAddr;
@@ -144,7 +145,6 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
-    use crate::blockchain::blockchains::Chain;
 
     #[test]
     fn converts_no_lookup_incipient_message_to_live_and_sends_to_dispatcher() {

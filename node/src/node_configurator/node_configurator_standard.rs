@@ -88,7 +88,7 @@ pub mod standard {
 
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchains::{Chain};
+    use crate::blockchain::blockchains::Chain;
     use crate::bootstrapper::PortConfiguration;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration,
@@ -96,7 +96,7 @@ pub mod standard {
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::node_configurator::{
         data_directory_from_context, determine_config_file_path,
-        real_user_with_data_directory_opt_and_chain, real_user_from_multi_config_or_populate,
+        real_user_from_multi_config_or_populate, real_user_with_data_directory_opt_and_chain,
         request_existing_db_password, DirsWrapper,
     };
     use crate::server_initializer::GatheredParams;
@@ -994,7 +994,7 @@ mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchains::{Chain};
+    use crate::blockchain::blockchains::Chain;
     use crate::bootstrapper::RealUser;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -1598,10 +1598,10 @@ mod tests {
         );
 
         let public_key = PublicKey::new(&[1, 2, 3]);
-        let payer = bootstrapper_config
-            .consuming_wallet
-            .unwrap()
-            .as_payer(&public_key, &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract);
+        let payer = bootstrapper_config.consuming_wallet.unwrap().as_payer(
+            &public_key,
+            &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract,
+        );
         let cryptdenull = CryptDENull::from(&public_key, TEST_DEFAULT_CHAIN_ID);
         assert!(
             payer.owns_secret_key(&cryptdenull.digest()),
@@ -2599,7 +2599,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            Chain::from_id(config.blockchain_bridge_config.chain_id).record().plain_text_name,
+            Chain::from_id(config.blockchain_bridge_config.chain_id)
+                .record()
+                .plain_text_name,
             DEFAULT_CHAIN_NAME
         );
     }

@@ -11,10 +11,10 @@ use std::vec::Vec;
 use futures::try_ready;
 use itertools::Itertools;
 use log::LevelFilter;
+use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
-use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 
 use masq_lib::command::StdStreams;
 use masq_lib::constants::{DEFAULT_UI_PORT, MASQ_URL_PREFIX};
@@ -28,7 +28,7 @@ use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
-use crate::blockchain::blockchains::{CHAIN_LABEL_DELIMITER, Chain};
+use crate::blockchain::blockchains::{Chain, CHAIN_LABEL_DELIMITER};
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -40,10 +40,10 @@ use crate::json_discriminator_factory::JsonDiscriminatorFactory;
 use crate::listener_handler::ListenerHandler;
 use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
-use crate::node_configurator::{DirsWrapper, NodeConfigurator};
 use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
 };
+use crate::node_configurator::{DirsWrapper, NodeConfigurator};
 use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::accountant;
@@ -53,8 +53,8 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
 use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
@@ -619,9 +619,9 @@ mod tests {
     };
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
-    use crate::node_test_utils::{DirsWrapperMock, extract_log, IdWrapperMock};
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
+    use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
@@ -630,7 +630,6 @@ mod tests {
     use crate::sub_lib::neighborhood::{NeighborhoodMode, NodeDescriptor};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::stream_connector::ConnectionInfo;
-    use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLog;
     use crate::test_utils::logging::TestLogHandler;
@@ -642,6 +641,7 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
+    use crate::test_utils::{assert_contains, rate_pack};
 
     use super::*;
 

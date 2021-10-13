@@ -43,12 +43,12 @@ impl ConnectionWrapperReal {
 
 #[cfg(test)]
 mod tests {
+    use crate::blockchain::blockchains::Chain;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoRead, ConfigDaoReal};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use crate::blockchain::blockchains::Chain;
 
     #[test]
     fn commit_works() {
