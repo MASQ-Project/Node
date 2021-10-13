@@ -14,15 +14,17 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
-use crate::blockchain::blockchain_interface::{
-    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
+use crate::blockchain::blockchain_interface::{BlockchainInterface, BlockchainInterfaceClandestine,
+    BlockchainInterfaceNonClandestine,
 };
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_initializer::{
     connection_or_panic, DbInitializer, DbInitializerReal, DATABASE_FILE,
 };
 use crate::db_config::config_dao::ConfigDaoReal;
-use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+use crate::db_config::persistent_configuration::{
+    PersistentConfiguration, PersistentConfigurationReal,
+};
 use crate::node_configurator::configurator::Configurator;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
@@ -47,6 +49,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
 use std::path::Path;
 use web3::transports::Http;
+use crate::blockchain::blockchains::Chain;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -399,6 +402,10 @@ impl ActorFactory for ActorFactoryReal {
                 }),
         ));
         let persistent_config = Box::new(PersistentConfigurationReal::new(config_dao));
+        validate_database_chain_correctness(
+            config.blockchain_bridge_config.chain_id,
+            persistent_config.as_ref(),
+        );
         let blockchain_bridge =
             BlockchainBridge::new(config, blockchain_interface, persistent_config);
         let addr: Addr<BlockchainBridge> = blockchain_bridge.start();
@@ -415,6 +422,20 @@ impl ActorFactory for ActorFactoryReal {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
         }
+    }
+}
+
+fn validate_database_chain_correctness(
+    chain_id: u8,
+    persistent_config: &dyn PersistentConfiguration,
+) {
+    let required_chain = Chain::from_id(chain_id).record().plain_text_name.to_string();
+    let chain_in_db = persistent_config.chain_name();
+    if required_chain != chain_in_db {
+        panic!(
+            "Database with the wrong chain name detected; expected: {}, was: {}",
+            required_chain, chain_in_db
+        )
     }
 }
 
@@ -461,6 +482,7 @@ mod tests {
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_wallet;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
@@ -478,6 +500,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use crate::blockchain::blockchains::DEFAULT_CHAIN;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
@@ -1173,5 +1196,26 @@ mod tests {
             .unwrap();
         let result = candidate.decode(&crypt_data).unwrap();
         assert_eq!(result, plain_data);
+    }
+
+    #[test]
+    fn database_chain_validity_happy_path() {
+        let chain_id = DEFAULT_CHAIN.record().num_chain_id;
+        let persistent_config =
+            PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
+
+        let _ = validate_database_chain_correctness(chain_id, &persistent_config);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Database with the wrong chain name detected; expected: ropsten, was: eth-mainnet"
+    )]
+    fn database_chain_validity_sad_path() {
+        let chain_id = TEST_DEFAULT_CHAIN_ID; //Ropsten
+        let persistent_config =
+            PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
+
+        let _ = validate_database_chain_correctness(chain_id, &persistent_config);
     }
 }

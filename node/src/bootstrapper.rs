@@ -1,29 +1,5 @@
-use std::collections::HashMap;
-use std::env::var;
-use std::fmt;
-use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::time::Duration;
-use std::vec::Vec;
-
-use futures::try_ready;
-use itertools::Itertools;
-use log::LevelFilter;
-use tokio::prelude::stream::futures_unordered::FuturesUnordered;
-use tokio::prelude::Async;
-use tokio::prelude::Future;
-use tokio::prelude::Stream;
-
-use masq_lib::command::StdStreams;
-use masq_lib::constants::{DEFAULT_UI_PORT, MASQ_URL_PREFIX};
-use masq_lib::crash_point::CrashPoint;
-use masq_lib::multi_config::MultiConfig;
-use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
-
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
 use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL};
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
@@ -59,6 +35,28 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::wallet::Wallet;
+use std::collections::HashMap;
+use std::env::var;
+use std::fmt;
+use std::fmt::{Debug, Display, Error, Formatter};
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::time::Duration;
+use std::vec::Vec;
+use futures::try_ready;
+use itertools::Itertools;
+use log::LevelFilter;
+use tokio::prelude::stream::futures_unordered::FuturesUnordered;
+use tokio::prelude::Async;
+use tokio::prelude::Future;
+use tokio::prelude::Stream;
+use masq_lib::command::StdStreams;
+use masq_lib::constants::{DEFAULT_UI_PORT, MASQ_URL_PREFIX};
+use masq_lib::crash_point::CrashPoint;
+use masq_lib::multi_config::MultiConfig;
+use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
