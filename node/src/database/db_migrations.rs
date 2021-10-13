@@ -1,12 +1,12 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::blockchains::Chain;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
 use masq_lib::utils::{ExpectValue, WrapResult};
 use rusqlite::{Transaction, NO_PARAMS};
 use std::fmt::Debug;
-use crate::blockchain::blockchains::Chain;
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -340,7 +340,10 @@ pub struct ExternalMigrationParameters {
 impl ExternalMigrationParameters {
     pub fn new(chain_id: u8) -> Self {
         Self {
-            chain_name: Chain::from_id(chain_id).record().plain_text_name.to_string(),
+            chain_name: Chain::from_id(chain_id)
+                .record()
+                .plain_text_name
+                .to_string(),
         }
     }
 }

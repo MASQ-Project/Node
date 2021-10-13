@@ -553,7 +553,10 @@ mod tests {
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use itertools::Itertools;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME};
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
+        TEST_DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+    };
     use rusqlite::types::Type::Null;
     use rusqlite::{Error, OpenFlags};
     use std::fs::File;

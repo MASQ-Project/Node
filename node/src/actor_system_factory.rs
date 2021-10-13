@@ -14,9 +14,10 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
-use crate::blockchain::blockchain_interface::{BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine,
+use crate::blockchain::blockchain_interface::{
+    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
 };
+use crate::blockchain::blockchains::Chain;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_initializer::{
     connection_or_panic, DbInitializer, DbInitializerReal, DATABASE_FILE,
@@ -49,7 +50,6 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
 use std::path::Path;
 use web3::transports::Http;
-use crate::blockchain::blockchains::Chain;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -429,7 +429,10 @@ fn validate_database_chain_correctness(
     chain_id: u8,
     persistent_config: &dyn PersistentConfiguration,
 ) {
-    let required_chain = Chain::from_id(chain_id).record().plain_text_name.to_string();
+    let required_chain = Chain::from_id(chain_id)
+        .record()
+        .plain_text_name
+        .to_string();
     let chain_in_db = persistent_config.chain_name();
     if required_chain != chain_in_db {
         panic!(
@@ -444,6 +447,7 @@ mod tests {
     use super::*;
     use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+    use crate::blockchain::blockchains::DEFAULT_CHAIN;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
@@ -500,7 +504,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use crate::blockchain::blockchains::DEFAULT_CHAIN;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
