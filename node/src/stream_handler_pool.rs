@@ -774,7 +774,7 @@ mod tests {
         });
 
         TestLogHandler::new().await_log_containing(
-            "WARN: StreamWriter for 1.2.3.5:6789: Continuing after write error: other os error",
+            "WARN: StreamWriter for 1.2.3.5:6789: Continuing after write error: other error",
             1000,
         );
 
@@ -1121,7 +1121,7 @@ mod tests {
             system.run();
         });
 
-        TestLogHandler::new().await_log_containing("ERROR: Dispatcher: Stream to 1.2.3.5:7000 does not exist and could not be connected; discarding 5 bytes: other os error", 1000);
+        TestLogHandler::new().await_log_containing("ERROR: Dispatcher: Stream to 1.2.3.5:7000 does not exist and could not be connected; discarding 5 bytes: other error", 1000);
         neighborhood_awaiter.await_message_count(1);
         let remove_neighbor_msg =
             Recording::get::<RemoveNeighborMessage>(&neighborhood_recording_arc, 0);

@@ -416,7 +416,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
-        TestLogHandler::new().await_log_containing("WARN: StreamReader for 1.2.3.4:5678: Continuing after read error on stream between local 1.2.3.5:6789 and peer 1.2.3.4:5678: other os error", 1000);
+        TestLogHandler::new().await_log_containing("WARN: StreamReader for 1.2.3.4:5678: Continuing after read error on stream between local 1.2.3.5:6789 and peer 1.2.3.4:5678: other error", 1000);
 
         let shp_recording = shp_recording_arc.lock().unwrap();
         assert_eq!(shp_recording.len(), 0);

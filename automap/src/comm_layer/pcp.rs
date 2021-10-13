@@ -364,6 +364,7 @@ impl PcpTransactor {
                         ),
                     }
                 }
+                #[allow(clippy::unused_unit)] // Clippy and the formatter argue over this one
                 Err(e)
                     if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
                 {
