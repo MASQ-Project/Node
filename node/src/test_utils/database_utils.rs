@@ -96,11 +96,13 @@ impl DbMigrator for DbMigratorMock {
 }
 
 pub fn assurance_query_for_config_table(
-    conn: &Connection,
+    conn: &dyn ConnectionWrapper,
     stm: &str,
 ) -> (String, Option<String>, u16) {
-    conn.query_row(stm, NO_PARAMS, |r| {
-        Ok((r.get(0).unwrap(), r.get(1).unwrap(), r.get(2).unwrap()))
-    })
-    .unwrap()
+    let mut statement = conn.prepare(stm).unwrap();
+    statement
+        .query_row(NO_PARAMS, |r| {
+            Ok((r.get(0).unwrap(), r.get(1).unwrap(), r.get(2).unwrap()))
+        })
+        .unwrap()
 }

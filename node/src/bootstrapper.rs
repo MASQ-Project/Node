@@ -347,6 +347,7 @@ impl BootstrapperConfig {
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: 3u8, /*DEFAULT_CHAIN_ID*/
+                //TODO this seems wrong, why do we want Ropsten to be a default chain?
                 gas_price: 1,
             },
             port_configurations: HashMap::new(),
