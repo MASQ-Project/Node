@@ -2,7 +2,9 @@
 use crate::command::Command;
 use base64::STANDARD_NO_PAD;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT, MASQ_URL_PREFIX};
-use node_lib::blockchain::blockchains::{Chain, CENTRAL_DELIMITER, chain_from_chain_identifier_opt, CHAIN_IDENTIFIER_DELIMITER};
+use node_lib::blockchain::blockchains::{
+    chain_from_chain_identifier_opt, Chain, CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER,
+};
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::RatePack;
@@ -43,7 +45,8 @@ impl FromStr for NodeReference {
         if pieces.len() != 2 {
             return Err(format!("A NodeReference must have the form masq://<chain identifier>:<public_key>@<IP address>:<port list>, not '{}'", string_rep));
         }
-        let (chain_identifier, key_encoded) = Self::extract_chain_identifier_and_encoded_public_key(pieces[0])?;
+        let (chain_identifier, key_encoded) =
+            Self::extract_chain_identifier_and_encoded_public_key(pieces[0])?;
         let public_key = Self::extract_public_key(key_encoded)?;
         let (ip_addr_str, ports) = strip_ports(pieces[1]);
         let ip_addr = Self::extract_ip_addr(ip_addr_str.as_str())?;
@@ -143,7 +146,9 @@ impl NodeReference {
         }
     }
 
-    fn extract_chain_identifier_and_encoded_public_key(slice: &str) -> Result<(&str, &str), String> {
+    fn extract_chain_identifier_and_encoded_public_key(
+        slice: &str,
+    ) -> Result<(&str, &str), String> {
         let pieces: Vec<&str> = slice.split(CHAIN_IDENTIFIER_DELIMITER).collect();
         if pieces.len() != 2 {
             return Err(format!(
@@ -351,7 +356,10 @@ mod tests {
         let key_including_identifier = "dev:AQIDBAUGBwg";
 
         let (chain_identifier, key_part) =
-            NodeReference::extract_chain_identifier_and_encoded_public_key(key_including_identifier).unwrap();
+            NodeReference::extract_chain_identifier_and_encoded_public_key(
+                key_including_identifier,
+            )
+            .unwrap();
 
         assert_eq!(chain_identifier, "dev");
         assert_eq!(key_part, "AQIDBAUGBwg");
@@ -361,11 +369,16 @@ mod tests {
     fn extract_chain_identifier_and_encoded_public_key_sad_path() {
         let key_including_identifier = "devAQIDBAUGBwg";
 
-        let result = NodeReference::extract_chain_identifier_and_encoded_public_key(key_including_identifier);
+        let result = NodeReference::extract_chain_identifier_and_encoded_public_key(
+            key_including_identifier,
+        );
 
         assert_eq!(
             result,
-            Err("Chain identifier in the descriptor isn't properly set: 'devAQIDBAUGBwg'".to_string())
+            Err(
+                "Chain identifier in the descriptor isn't properly set: 'devAQIDBAUGBwg'"
+                    .to_string()
+            )
         )
     }
 

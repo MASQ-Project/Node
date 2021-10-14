@@ -5,7 +5,11 @@ use crate::blockchain::blockchain_interface::{
     ROPSTEN_TESTNET_CONTRACT_ADDRESS,
 };
 use itertools::Itertools;
-use masq_lib::constants::{MAINNET_CONTRACT_CREATION_BLOCK, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_IDENTIFIER, ETH_ROPSTEN_IDENTIFIER, ETH_RINKEBY_IDENTIFIER, DEV_CHAIN_IDENTIFIER};
+use masq_lib::constants::{
+    DEV_CHAIN_IDENTIFIER, ETH_MAINNET_IDENTIFIER, ETH_RINKEBY_IDENTIFIER, ETH_ROPSTEN_IDENTIFIER,
+    MAINNET_CONTRACT_CREATION_BLOCK, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
+    RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
+};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 use web3::types::Address;
@@ -98,14 +102,16 @@ impl From<&str> for Chain {
             "ropsten" => Chain::EthRopsten,
             "rinkeby" => Chain::EthRinkeby,
             "dev" => Chain::Dev,
-            _ => DEFAULT_CHAIN  //TODO Can we do better than this?
+            _ => DEFAULT_CHAIN, //TODO Can we do better than this?
         }
     }
 }
 
 pub fn chain_from_chain_identifier_opt(identifier: &str) -> Option<Chain> {
-    return_record_opt_standard_impl(Box::new(|b: &&BlockchainRecord| b.chain_identifier == identifier))
-        .map(|record| record.literal_chain_id)
+    return_record_opt_standard_impl(Box::new(|b: &&BlockchainRecord| {
+        b.chain_identifier == identifier
+    }))
+    .map(|record| record.literal_chain_id)
 }
 
 fn return_record_opt_standard_impl<'a, F>(closure: Box<F>) -> Option<&'a BlockchainRecord>
@@ -186,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn undefined_string_for_chain_type_is_dispatched_to_default_chain(){
+    fn undefined_string_for_chain_type_is_dispatched_to_default_chain() {
         assert_eq!(Chain::from("bitcoin"), DEFAULT_CHAIN)
     }
 
@@ -306,8 +312,14 @@ mod tests {
         assert_eq!(CHAINS.len(), 4)
     }
 
-    fn assert_chain_from_chain_identifier_opt(identifier: &str, expected_blockchain: Option<Chain>) {
-        assert_eq!(chain_from_chain_identifier_opt(identifier), expected_blockchain)
+    fn assert_chain_from_chain_identifier_opt(
+        identifier: &str,
+        expected_blockchain: Option<Chain>,
+    ) {
+        assert_eq!(
+            chain_from_chain_identifier_opt(identifier),
+            expected_blockchain
+        )
     }
 
     fn make_defaulted_blockchain_record() -> BlockchainRecord {

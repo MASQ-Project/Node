@@ -1,17 +1,15 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use core::fmt;
-use std::fmt::{Debug, Display, Formatter};
-use std::net::IpAddr;
-use std::str::FromStr;
 use actix::Message;
 use actix::Recipient;
+use core::fmt;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::{Debug, Display, Formatter};
+use std::net::IpAddr;
+use std::str::FromStr;
 
-use masq_lib::constants::MASQ_URL_PREFIX;
-use masq_lib::ui_gateway::NodeFromUiMessage;
 use crate::blockchain::blockchains::{
     chain_from_chain_identifier_opt, Chain, CENTRAL_DELIMITER, CHAINS, CHAIN_IDENTIFIER_DELIMITER,
 };
@@ -28,6 +26,8 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::wallet::Wallet;
+use masq_lib::constants::MASQ_URL_PREFIX;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -228,7 +228,11 @@ impl NodeDescriptor {
         let chain_identifier = front_parts[0];
         let chain = match chain_from_chain_identifier_opt(chain_identifier) {
             Some(ch) => ch,
-            _ => return Err(DescriptorParsingError::WrongChainIdentifier(chain_identifier).to_string()),
+            _ => {
+                return Err(
+                    DescriptorParsingError::WrongChainIdentifier(chain_identifier).to_string(),
+                )
+            }
         };
         let key_offset = chain_identifier.len() + 1;
         let key = &front[key_offset..];
