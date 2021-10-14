@@ -148,7 +148,7 @@ Certain MASQ developers are also empowered as reviewers. They will review PR sub
 test coverage, design, maintainability, conformance to established conventions and standards, and so on.
 
 Before a review can begin, the pull request under review must have `master` merged into it and pass
-a CI build. Once that happens, you should attract he attention of a reviewer and persuade him to look at your PR,
+a CI build. Once that happens, you should attract the attention of a reviewer and persuade him to look at your PR,
 and also get the QA lead to start quality assurance on it.
 
 If the pull request passes review, the reviewer will approve it. If it passes testing, the QA lead will approve it.

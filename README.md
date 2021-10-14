@@ -2,8 +2,9 @@
 
 ![ci-matrix](https://github.com/MASQ-Project/Node/workflows/ci-matrix/badge.svg)
 
-MASQ Node combines the benefits of VPN and Tor technology, to create a superior next-generation privacy software, where users are rewarded for supporting an uncensored, global web.
-Users gain privacy and anonymity, while helping promote Internet Freedom.
+MASQ Node combines the benefits of VPN and Tor technology, to create superior next-generation privacy software, where 
+users are rewarded for supporting an uncensored, global Web.  Users gain privacy and anonymity, while helping promote 
+Internet Freedom.
 
 ## Purpose
 **MASQ Node** forms the foundation of the MASQ Network.
@@ -16,9 +17,10 @@ Because there's no single authority delivering or monitoring content, censorship
 issue on the MASQ Network. It doesn't matter where you live or what content you're accessing, everyone in the world
 sees the exact same content.
 
-MASQ Node software is what the average user runs to earn $MASQ utility tokens and dedicate some of their computers' resources towards the Network - users can be rewarded with $MASQ for each time they serve content.
+MASQ Node software is what the average user runs to earn $MASQ utility tokens and dedicate some of their computers' 
+resources toward the Network - users can be rewarded with $MASQ for each time they serve content.
 
-MASQ Nodes work together through the mesh network to relay CORES packages and content.
+MASQ Nodes work together through the mesh network to relay digital content.
 When a user requests a site, Nodes use a routing algorithm to find the most expedient and secure way to get the
 information to that user. Multiple Nodes work together to route a single request in order to maintain a necessary level of
 anonymity.
@@ -37,8 +39,8 @@ development belongs to Substratum.
 ## Running the MASQ Node
 
 ### MASQ Node Knowledge Base
-A knowledge base and testing resources are being refined for users with various levels of technical ability.
-Please go to [our Knowledge Base](https://docs.masq.ai/masq)
+A [Knowledge Base](https://docs.masq.ai/masq) and testing resources are being refined for users with various 
+levels of technical ability.
 
 There you can find further information, guides and configuration examples for running MASQ Node from:
 - GUI (currently NEO v0.1)
@@ -87,7 +89,7 @@ particular router. Unless you've volunteered to help the MASQ dev team run tests
 ### Running from the Command Line
 
 These instructions assume you have the MASQ Node executable but not the MASQ GUI. (If you do, consult the GUI
-documentation about starting the Node on our [Testing Guides](https://docs.masq.ai/testing-guide) You'll want to run the MASQ programs from wherever you expanded the
+documentation about starting the Node on our [Testing Guides](https://docs.masq.ai/testing-guide)) You'll want to run the MASQ programs from wherever you expanded the
 `/generated/bin` path from the `.zip` file you downloaded.
 
 There are a number of ways to run the Node, but the way you'll probably want to use is to make sure the MASQ Daemon

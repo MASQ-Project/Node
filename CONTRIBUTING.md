@@ -166,6 +166,15 @@ We also encourage you to compose commit messages that make it easy for you to fi
 roll back later in the development process, but that's up to you. Since your individual commits will eventually be
 squashed together, we at MASQ won't be able to make any real use of your commit comments: those are for you, not us.
 
+#### Verify Against the Test Plan
+As the issue was moving through the grooming process, the testing crew will have (should have) added a test plan in
+the comments section that tells them how to proceed with making sure the work you've done satisfies the requirements
+in the issue. (Some issues don't change accessible functionality, and so can't really be tested by the testers, but
+most issues should be testable.) If there isn't a test plan, you may have to write one yourself, hopefully with the
+help or at least supervision of someone from the testing crew. At any rate, once you have a test plan, review it
+carefully to make sure it is still relevant and comprehensive, regarding the changes you have made, and adjust it
+appropriately if it isn't.
+
 #### Merge in `master`
 While you were working on your issue, it's probable that someone else completed an issue of his own and got it merged
 in ahead of you. If that's the case, you'll need to make sure that your code changes work with his before you're ready
@@ -234,7 +243,7 @@ As soon as you create your pull request, the
 begin building your feature branch on Linux, macOS, and Windows platforms. It will also run the multinode integration
 tests on Linux. Track the builds as they proceed, and watch for failures. If there are any, go back to __Complete the Work__
 and fix the problems. Sometimes, especially for failures in multinode integration tests, the reasons for the failures may
-not appear in Pipelines' console logs. In that case, they will be available in Actions after the build completes. 
+not appear in Actions' console logs. In that case, they will be available in Actions after the build completes. 
 Download from there the appropriate `generated-`\<platform\>`.tar.gz` file, pop it open, and look at the files inside.
 
 #### Wait for Approval
