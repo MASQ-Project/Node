@@ -415,10 +415,10 @@ pub mod standard {
                                     } else{
                                         Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' [{}{}] with descriptor belonging to '{}' [{}{}]",
                                                                                   chain_name, MASQ_URL_PREFIX,
-                                                                                  desired_chain.record().chain_label,
+                                                                                  desired_chain.record().chain_identifier,
                                                                                   descriptor_competence.record().plain_text_name,
                                                                                   MASQ_URL_PREFIX,
-                                                                                  descriptor_competence.record().chain_label)))
+                                                                                  descriptor_competence.record().chain_identifier)))
                                     }
                                 }
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
@@ -1507,11 +1507,11 @@ mod tests {
             Some(ConfiguratorError::new(vec![
                 ParamError::new(
                     "neighbors",
-                    "Prefix or more missing. Should be 'masq://<chain label>:<public key>@<node address>', not 'ooga'"
+                    "Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'ooga'"
                 ),
                 ParamError::new(
                     "neighbors",
-                    "Prefix or more missing. Should be 'masq://<chain label>:<public key>@<node address>', not 'booga'"
+                    "Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'booga'"
                 ),
             ]))
         );

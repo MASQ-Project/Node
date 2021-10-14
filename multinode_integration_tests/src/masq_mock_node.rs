@@ -6,7 +6,7 @@ use crate::masq_node::MASQNodeUtils;
 use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
+use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN_ID;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
@@ -187,7 +187,7 @@ impl MASQMockNode {
             rate_pack: DEFAULT_RATE_PACK.clone(),
             cryptde_enum,
             framer,
-            chain: TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID,
+            chain: TEST_DEFAULT_MULTINODE_CHAIN_ID,
         });
         MASQMockNode {
             control_stream,

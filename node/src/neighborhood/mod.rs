@@ -344,7 +344,7 @@ impl Neighborhood {
             .neighbor_configs()
             .iter()
             .map(|nc| {
-                let mainnet_nc = Self::is_mainnet_from_descriptor(nc);
+                let mainnet_nc = Self::is_mainnet_by_descriptor(nc);
                 if mainnet_nc != is_mainnet {
                     panic!(
                         "Neighbor {} is {}on the mainnet blockchain",
@@ -397,7 +397,7 @@ impl Neighborhood {
         }
     }
 
-    fn is_mainnet_from_descriptor(nd: &NodeDescriptor) -> bool {
+    fn is_mainnet_by_descriptor(nd: &NodeDescriptor) -> bool {
         nd.blockchain == Chain::EthMainnet
     }
 
@@ -1279,7 +1279,7 @@ mod tests {
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
-    use crate::blockchain::blockchains::DEFAULT_CHAIN;
+    use crate::blockchain::blockchains::{DEFAULT_CHAIN, CHAINS};
 
     #[test]
     #[should_panic(
@@ -4223,6 +4223,19 @@ mod tests {
         system.run();
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert_eq!(set_past_neighbors_params[0].1, "borkety-bork");
+    }
+
+    #[test]
+    fn is_mainnet_by_descriptor_knows_about_all_mainnets(){
+        let searched_str = "mainnet";
+        assert!(CHAINS.iter().find(|blockchain_record|blockchain_record.plain_text_name.contains(searched_str)).is_some());
+        CHAINS.iter().for_each(|blockchain_record| if blockchain_record.plain_text_name.contains(searched_str){
+            let descriptor = NodeDescriptor{
+                blockchain: blockchain_record.literal_chain_id,
+                encryption_public_key: PublicKey::from(&b"blah"[..]),
+                node_addr_opt: None
+            };
+            assert_eq!(Neighborhood::is_mainnet_by_descriptor(&descriptor),true)})
     }
 
     fn make_standard_subject() -> Neighborhood {

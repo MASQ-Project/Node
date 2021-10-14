@@ -5,18 +5,14 @@ use crate::blockchain::blockchain_interface::{
     ROPSTEN_TESTNET_CONTRACT_ADDRESS,
 };
 use itertools::Itertools;
-use masq_lib::constants::{
-    DEV_LABEL, ETH_MAINNET_LABEL, ETH_RINKEBY_LABEL, ETH_ROPSTEN_LABEL,
-    MAINNET_CONTRACT_CREATION_BLOCK, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
-    RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
-};
+use masq_lib::constants::{MAINNET_CONTRACT_CREATION_BLOCK, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_IDENTIFIER, ETH_ROPSTEN_IDENTIFIER, ETH_RINKEBY_IDENTIFIER, DEV_CHAIN_IDENTIFIER};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 use web3::types::Address;
 pub const DEFAULT_CHAIN: Chain = Chain::EthMainnet;
 
 pub const CENTRAL_DELIMITER: char = '@';
-pub const CHAIN_LABEL_DELIMITER: char = ':';
+pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
 
 pub const CHAINS: [BlockchainRecord; 4] = [
     BlockchainRecord {
@@ -24,7 +20,7 @@ pub const CHAINS: [BlockchainRecord; 4] = [
         num_chain_id: 1,
         plain_text_name: "eth-mainnet",
         directory_by_platform: "eth",
-        chain_label: ETH_MAINNET_LABEL,
+        chain_identifier: ETH_MAINNET_IDENTIFIER,
         contract: MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: MAINNET_CONTRACT_CREATION_BLOCK,
     },
@@ -33,7 +29,7 @@ pub const CHAINS: [BlockchainRecord; 4] = [
         num_chain_id: 3,
         plain_text_name: "ropsten",
         directory_by_platform: "eth",
-        chain_label: ETH_ROPSTEN_LABEL,
+        chain_identifier: ETH_ROPSTEN_IDENTIFIER,
         contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
     },
@@ -42,7 +38,7 @@ pub const CHAINS: [BlockchainRecord; 4] = [
         num_chain_id: 4,
         plain_text_name: "rinkeby",
         directory_by_platform: "eth",
-        chain_label: ETH_RINKEBY_LABEL,
+        chain_identifier: ETH_RINKEBY_IDENTIFIER,
         contract: RINKEBY_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK,
     },
@@ -51,7 +47,7 @@ pub const CHAINS: [BlockchainRecord; 4] = [
         num_chain_id: 5,
         plain_text_name: "dev",
         directory_by_platform: "dev",
-        chain_label: DEV_LABEL,
+        chain_identifier: DEV_CHAIN_IDENTIFIER,
         contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
     },
@@ -63,7 +59,7 @@ pub struct BlockchainRecord {
     pub num_chain_id: u8,
     pub plain_text_name: &'static str,
     pub directory_by_platform: &'static str,
-    pub chain_label: &'static str,
+    pub chain_identifier: &'static str,
     pub contract: Address,
     pub contract_creation_block: u64,
 }
@@ -82,7 +78,7 @@ impl Chain {
             .iter()
             .find(|b| &b.literal_chain_id == self)
             .unwrap_or_else(|| panic!("BlockchainRecord for '{:?}' doesn't exist", self))
-        //untested panic - more secure in general if I don't define an extra Chain to test it
+        //untested panic - generally more strained and secure if I don't decide to define an extra Chain to test this
     }
     pub fn from_id(id: u8) -> Chain {
         match id {
@@ -102,13 +98,13 @@ impl From<&str> for Chain {
             "ropsten" => Chain::EthRopsten,
             "rinkeby" => Chain::EthRinkeby,
             "dev" => Chain::Dev,
-            x => panic!("Undefined chain name '{}' was used", x), //TODO decide testing of this
+            _ => DEFAULT_CHAIN  //TODO Can we do better than this?
         }
     }
 }
 
-pub fn chain_from_label_opt(label: &str) -> Option<Chain> {
-    return_record_opt_standard_impl(Box::new(|b: &&BlockchainRecord| b.chain_label == label))
+pub fn chain_from_chain_identifier_opt(identifier: &str) -> Option<Chain> {
+    return_record_opt_standard_impl(Box::new(|b: &&BlockchainRecord| b.chain_identifier == identifier))
         .map(|record| record.literal_chain_id)
 }
 
@@ -190,6 +186,11 @@ mod tests {
     }
 
     #[test]
+    fn undefined_string_for_chain_type_is_dispatched_to_default_chain(){
+        assert_eq!(Chain::from("bitcoin"), DEFAULT_CHAIN)
+    }
+
+    #[test]
     #[should_panic(expected = "Not unique identifier used to query a BlockchainRecord")]
     fn return_record_opt_panics_if_more_records_meet_the_condition_from_the_closure() {
         let searched_name = "BruhBruh";
@@ -221,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn eth_mainnet_record_is_properly_defined() {
+    fn eth_mainnet_record_is_properly_declared() {
         let examined_chain = return_examined(Chain::EthMainnet);
         assert_eq!(
             examined_chain,
@@ -230,7 +231,7 @@ mod tests {
                 literal_chain_id: Chain::EthMainnet,
                 plain_text_name: "eth-mainnet",
                 directory_by_platform: "eth",
-                chain_label: "eth-mainnet",
+                chain_identifier: "eth-mainnet",
                 contract: MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: MAINNET_CONTRACT_CREATION_BLOCK,
             }
@@ -238,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn ropsten_record_is_properly_defined() {
+    fn ropsten_record_is_properly_declared() {
         let examined_chain = return_examined(Chain::EthRopsten);
         assert_eq!(
             examined_chain,
@@ -247,7 +248,7 @@ mod tests {
                 literal_chain_id: Chain::EthRopsten,
                 plain_text_name: "ropsten",
                 directory_by_platform: "eth",
-                chain_label: "eth-ropsten",
+                chain_identifier: "eth-ropsten",
                 contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
             }
@@ -255,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn rinkeby_record_is_properly_defined() {
+    fn rinkeby_record_is_properly_declared() {
         let examined_chain = return_examined(Chain::EthRinkeby);
         assert_eq!(
             examined_chain,
@@ -264,7 +265,7 @@ mod tests {
                 literal_chain_id: Chain::EthRinkeby,
                 plain_text_name: "rinkeby",
                 directory_by_platform: "eth",
-                chain_label: "eth-rinkeby",
+                chain_identifier: "eth-rinkeby",
                 contract: RINKEBY_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK
             }
@@ -272,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn multinode_testnet_chain_record_is_properly_defined() {
+    fn multinode_testnet_chain_record_is_properly_declared() {
         let examined_chain = return_examined(Chain::Dev);
         assert_eq!(
             examined_chain,
@@ -281,7 +282,7 @@ mod tests {
                 literal_chain_id: Chain::Dev,
                 plain_text_name: "dev",
                 directory_by_platform: "dev",
-                chain_label: "dev",
+                chain_identifier: "dev",
                 contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: 0
             }
@@ -296,17 +297,17 @@ mod tests {
     }
 
     #[test]
-    fn chain_from_label_opt_works() {
-        assert_chain_from_label_opt("eth-mainnet", Some(Chain::EthMainnet));
-        assert_chain_from_label_opt("eth-ropsten", Some(Chain::EthRopsten));
-        assert_chain_from_label_opt("eth-rinkeby", Some(Chain::EthRinkeby));
-        assert_chain_from_label_opt("dev", Some(Chain::Dev));
-        assert_chain_from_label_opt("bitcoin", None);
+    fn chain_from_chain_identifier_opt_works() {
+        assert_chain_from_chain_identifier_opt("eth-mainnet", Some(Chain::EthMainnet));
+        assert_chain_from_chain_identifier_opt("eth-ropsten", Some(Chain::EthRopsten));
+        assert_chain_from_chain_identifier_opt("eth-rinkeby", Some(Chain::EthRinkeby));
+        assert_chain_from_chain_identifier_opt("dev", Some(Chain::Dev));
+        assert_chain_from_chain_identifier_opt("bitcoin", None);
         assert_eq!(CHAINS.len(), 4)
     }
 
-    fn assert_chain_from_label_opt(label: &str, expected_blockchain: Option<Chain>) {
-        assert_eq!(chain_from_label_opt(label), expected_blockchain)
+    fn assert_chain_from_chain_identifier_opt(identifier: &str, expected_blockchain: Option<Chain>) {
+        assert_eq!(chain_from_chain_identifier_opt(identifier), expected_blockchain)
     }
 
     fn make_defaulted_blockchain_record() -> BlockchainRecord {
@@ -315,7 +316,7 @@ mod tests {
             literal_chain_id: Chain::EthMainnet,
             plain_text_name: "",
             directory_by_platform: "",
-            chain_label: "",
+            chain_identifier: "",
             contract: Default::default(),
             contract_creation_block: 0,
         }

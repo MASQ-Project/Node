@@ -3,7 +3,7 @@
 use crate::masq_node::NodeReference;
 use crate::masq_node_cluster::MASQNodeCluster;
 use crossbeam_channel::{unbounded, Receiver};
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
+use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN_ID;
 use masq_lib::utils::find_free_port;
 use node_lib::discriminator::Discriminator;
 use node_lib::discriminator::DiscriminatorFactory;
@@ -140,7 +140,7 @@ impl MASQCoresServer {
                 &self.socket_addr.ip(),
                 &[self.socket_addr.port()],
             )),
-            chain_id: TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID,
+            chain_id: TEST_DEFAULT_MULTINODE_CHAIN_ID,
         }
     }
 

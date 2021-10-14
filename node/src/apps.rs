@@ -84,8 +84,8 @@ const NODE_HELP_TEXT: &str = indoc!(
     indicates the required port needing to be forwarded by the network router. The port is
     the last number in the descriptor, as shown below:
 
-        masq://eth-mainnet:6hXbJTZWUKboREQsEMl9iQxsjRz6LQxh+zGZmGCvA3k:86.75.30.9:1234
-                                                                          ^^^^
+        masq://eth-mainnet:6hXbJTZWUKboREQsEMl9iQxsjRz6LQxh+zGZmGCvA3k@86.75.30.9:1234
+                                                                                  ^^^^
 
     Steps To Forwarding Ports In The Router
         1. Log in to the router.

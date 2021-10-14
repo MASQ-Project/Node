@@ -2,9 +2,7 @@
 use crate::command::Command;
 use base64::STANDARD_NO_PAD;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT, MASQ_URL_PREFIX};
-use node_lib::blockchain::blockchains::{
-    chain_from_label_opt, Chain, CENTRAL_DELIMITER, CHAIN_LABEL_DELIMITER,
-};
+use node_lib::blockchain::blockchains::{Chain, CENTRAL_DELIMITER, chain_from_chain_identifier_opt, CHAIN_IDENTIFIER_DELIMITER};
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::RatePack;
@@ -43,9 +41,9 @@ impl FromStr for NodeReference {
         }?;
         let pieces: Vec<&str> = stripped.split(CENTRAL_DELIMITER).collect();
         if pieces.len() != 2 {
-            return Err(format!("A NodeReference must have the form masq://<chain label>:<public_key>@<IP address>:<port list>, not '{}'", string_rep));
+            return Err(format!("A NodeReference must have the form masq://<chain identifier>:<public_key>@<IP address>:<port list>, not '{}'", string_rep));
         }
-        let (label, key_encoded) = Self::extract_label_and_encoded_public_key(pieces[0])?;
+        let (chain_identifier, key_encoded) = Self::extract_chain_identifier_and_encoded_public_key(pieces[0])?;
         let public_key = Self::extract_public_key(key_encoded)?;
         let (ip_addr_str, ports) = strip_ports(pieces[1]);
         let ip_addr = Self::extract_ip_addr(ip_addr_str.as_str())?;
@@ -54,7 +52,7 @@ impl FromStr for NodeReference {
             public_key,
             ip_addr,
             port_list,
-            chain_from_label_opt(label)
+            chain_from_chain_identifier_opt(chain_identifier)
                 .expect("chain outside the bounds; unknown")
                 .record()
                 .num_chain_id,
@@ -105,8 +103,8 @@ impl fmt::Display for NodeReference {
             f,
             "{}{}{}{}{}{}:{}",
             MASQ_URL_PREFIX,
-            Chain::from_id(self.chain_id).record().chain_label,
-            CHAIN_LABEL_DELIMITER,
+            Chain::from_id(self.chain_id).record().chain_identifier,
+            CHAIN_IDENTIFIER_DELIMITER,
             public_key_string,
             CENTRAL_DELIMITER,
             ip_addr_string,
@@ -145,11 +143,11 @@ impl NodeReference {
         }
     }
 
-    fn extract_label_and_encoded_public_key(slice: &str) -> Result<(&str, &str), String> {
-        let pieces: Vec<&str> = slice.split(CHAIN_LABEL_DELIMITER).collect();
+    fn extract_chain_identifier_and_encoded_public_key(slice: &str) -> Result<(&str, &str), String> {
+        let pieces: Vec<&str> = slice.split(CHAIN_IDENTIFIER_DELIMITER).collect();
         if pieces.len() != 2 {
             return Err(format!(
-                "Chain label in the descriptor isn't properly set: '{}'",
+                "Chain identifier in the descriptor isn't properly set: '{}'",
                 slice
             ));
         }
@@ -229,7 +227,6 @@ pub trait MASQNode: Any {
     fn consuming_wallet(&self) -> Option<Wallet>;
     // The RatePack this Node will use to charge fees.
     fn rate_pack(&self) -> RatePack;
-    // Valid values are "dev, "ropsten", "rinkeby" for now. Add "mainnet" when it's time.
     fn chain_id(&self) -> u8;
     fn accepts_connections(&self) -> bool;
     fn routes_data(&self) -> bool;
@@ -326,7 +323,7 @@ impl MASQNodeUtils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN_ID;
 
     #[test]
     fn strip_ports_works_single_port() {
@@ -339,46 +336,46 @@ mod tests {
 
     #[test]
     fn strip_ports_works_multiple_ports() {
-        let tail = "4.3.2.9:4444/1212/11133";
+        let tail = "4.3.2.9:4444;1212;11133";
 
         let result = strip_ports(tail);
 
         assert_eq!(
             result,
-            ("4.3.2.9".to_string(), "4444/1212/11133".to_string())
+            ("4.3.2.9".to_string(), "4444;1212;11133".to_string())
         )
     }
 
     #[test]
-    fn extract_label_and_encoded_public_key_happy_path() {
-        let key_including_label = "dev:AQIDBAUGBwg";
+    fn extract_chain_identifier_and_encoded_public_key_happy_path() {
+        let key_including_identifier = "dev:AQIDBAUGBwg";
 
-        let (label, key_part) =
-            NodeReference::extract_label_and_encoded_public_key(key_including_label).unwrap();
+        let (chain_identifier, key_part) =
+            NodeReference::extract_chain_identifier_and_encoded_public_key(key_including_identifier).unwrap();
 
-        assert_eq!(label, "dev");
+        assert_eq!(chain_identifier, "dev");
         assert_eq!(key_part, "AQIDBAUGBwg");
     }
 
     #[test]
-    fn extract_label_and_encoded_public_key_sad_path() {
-        let key_including_label = "devAQIDBAUGBwg";
+    fn extract_chain_identifier_and_encoded_public_key_sad_path() {
+        let key_including_identifier = "devAQIDBAUGBwg";
 
-        let result = NodeReference::extract_label_and_encoded_public_key(key_including_label);
+        let result = NodeReference::extract_chain_identifier_and_encoded_public_key(key_including_identifier);
 
         assert_eq!(
             result,
-            Err("Chain label in the descriptor isn't properly set: 'devAQIDBAUGBwg'".to_string())
+            Err("Chain identifier in the descriptor isn't properly set: 'devAQIDBAUGBwg'".to_string())
         )
     }
 
     #[test]
-    fn node_reference_from_string_fails_if_there_are_not_two_fields() {
-        let string = String::from("masq://Only two@fields@nope");
+    fn node_reference_from_string_fails_if_there_are_not_two_fields_to_divide_to() {
+        let string = String::from("masq://two@fields@nope");
 
         let result = NodeReference::from_str(string.as_str());
 
-        assert_eq! (result, Err (String::from ("A NodeReference must have the form masq://<chain label>:<public_key>@<IP address>:<port list>, not 'masq://Only two@fields@nope'")));
+        assert_eq! (result, Err (String::from ("A NodeReference must have the form masq://<chain identifier>:<public_key>@<IP address>:<port list>, not 'masq://two@fields@nope'")));
     }
 
     #[test]
@@ -466,7 +463,7 @@ mod tests {
 
     #[test]
     fn node_reference_can_display_itself() {
-        let chain_id = TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
+        let chain_id = TEST_DEFAULT_MULTINODE_CHAIN_ID;
         let subject = NodeReference::new(
             PublicKey::new(&b"Booga"[..]),
             Some(IpAddr::from_str("12.34.56.78").unwrap()),

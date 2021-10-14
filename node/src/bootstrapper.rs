@@ -4,7 +4,7 @@ use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
-use crate::blockchain::blockchains::{Chain, CENTRAL_DELIMITER, CHAIN_LABEL_DELIMITER};
+use crate::blockchain::blockchains::{Chain, CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER};
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -512,8 +512,8 @@ impl Bootstrapper {
             None => format!(
                 "{}{}{}{}{}:",
                 MASQ_URL_PREFIX,
-                Chain::from_id(chain_id).record().chain_label,
-                CHAIN_LABEL_DELIMITER,
+                Chain::from_id(chain_id).record().chain_identifier,
+                CHAIN_IDENTIFIER_DELIMITER,
                 cryptde.public_key_to_descriptor_fragment(cryptde.public_key()),
                 CENTRAL_DELIMITER
             ),
@@ -1616,7 +1616,7 @@ mod tests {
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                    Chain::EthRopsten, //TODO this test used to be wrong, analyze it after first round of changes     TEST_DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                    Chain::EthRopsten,
                     cryptde,
                 ))],
                 rate_pack(100),

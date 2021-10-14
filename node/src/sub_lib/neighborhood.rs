@@ -1,8 +1,9 @@
+// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
 use core::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
-
 use actix::Message;
 use actix::Recipient;
 use itertools::Itertools;
@@ -11,10 +12,8 @@ use serde_derive::{Deserialize, Serialize};
 
 use masq_lib::constants::MASQ_URL_PREFIX;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::blockchains::{
-    chain_from_label_opt, Chain, CENTRAL_DELIMITER, CHAINS, CHAIN_LABEL_DELIMITER,
+    chain_from_chain_identifier_opt, Chain, CENTRAL_DELIMITER, CHAINS, CHAIN_IDENTIFIER_DELIMITER,
 };
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
@@ -120,7 +119,7 @@ impl NeighborhoodMode {
     }
 }
 
-//TODO for optimization we could write our own impl of serde for Chain
+//TODO we could write our own impl of serde for Chain in order to optimize
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeDescriptor {
@@ -200,12 +199,12 @@ impl NodeDescriptor {
             Some(node_addr) => node_addr.to_string(),
             None => ":".to_string(),
         };
-        let label = self.blockchain.record().chain_label;
+        let chain_identifier = self.blockchain.record().chain_identifier;
         format!(
             "{}{}{}{}{}{}",
             MASQ_URL_PREFIX,
-            label,
-            CHAIN_LABEL_DELIMITER,
+            chain_identifier,
+            CHAIN_IDENTIFIER_DELIMITER,
             contact_public_key_string,
             CENTRAL_DELIMITER,
             node_addr_string
@@ -217,21 +216,21 @@ impl NodeDescriptor {
         let halves = separate_by_delimiter(
             without_prefix,
             CENTRAL_DELIMITER,
-            DescriptorParsingError::CentralDelimiterProbMissing(descriptor),
+            DescriptorParsingError::CentralDelimiterProbablyMissing(descriptor),
         )?;
         let _ = approx_position_assertion(descriptor, &halves)?;
         let (front, tail) = (halves[0], halves[1]);
         let front_parts = separate_by_delimiter(
             front,
-            CHAIN_LABEL_DELIMITER,
-            DescriptorParsingError::ChainLabelDelimiter(descriptor),
+            CHAIN_IDENTIFIER_DELIMITER,
+            DescriptorParsingError::ChainIdentifierDelimiter(descriptor),
         )?;
-        let chain_label = front_parts[0];
-        let chain = match chain_from_label_opt(chain_label) {
+        let chain_identifier = front_parts[0];
+        let chain = match chain_from_chain_identifier_opt(chain_identifier) {
             Some(ch) => ch,
-            _ => return Err(DescriptorParsingError::WrongChainLabel(chain_label).to_string()),
+            _ => return Err(DescriptorParsingError::WrongChainIdentifier(chain_identifier).to_string()),
         };
-        let key_offset = chain_label.len() + 1;
+        let key_offset = chain_identifier.len() + 1;
         let key = &front[key_offset..];
         Ok((chain, key, tail))
     }
@@ -260,7 +259,7 @@ fn separate_by_delimiter<'a>(
 fn approx_position_assertion(descriptor: &str, halves: &[&str]) -> Result<(), String> {
     let purely_numerical = assert_purely_numerical(halves[0]);
     if purely_numerical {
-        return Err(DescriptorParsingError::CentralDelimOrLabel(descriptor).to_string());
+        return Err(DescriptorParsingError::CentralDelimOrIdentifier(descriptor).to_string());
     }
     let purely_numerical = assert_purely_numerical(halves[1]);
     if !purely_numerical && halves[1].chars().filter(|char| *char == ':').count() < 3
@@ -284,25 +283,25 @@ fn assert_purely_numerical(string: &str) -> bool {
 }
 
 enum DescriptorParsingError<'a> {
-    CentralDelimiterProbMissing(&'a str),
+    CentralDelimiterProbablyMissing(&'a str),
     CentralDelimOrNodeAddr(&'a str, &'a str),
-    CentralDelimOrLabel(&'a str),
-    ChainLabelDelimiter(&'a str),
+    CentralDelimOrIdentifier(&'a str),
+    ChainIdentifierDelimiter(&'a str),
     PrefixMissing(&'a str),
-    WrongChainLabel(&'a str),
+    WrongChainIdentifier(&'a str),
 }
 
 impl Display for DescriptorParsingError<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self{
-            Self::CentralDelimiterProbMissing(descriptor) => write!(f, "Delimiter '@' probably missing. Should be 'masq://<chain label>:<public key>@<node address>', not '{}'", descriptor),
-            Self::CentralDelimOrNodeAddr(descriptor,tail) => write!(f, "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not '{}'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as '{}'", descriptor,tail),
-            Self::CentralDelimOrLabel(descriptor) => write!(f, "Either '@' delimiter position or format of chain label is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not '{}'", descriptor),
-            Self::ChainLabelDelimiter(descriptor) => write!(f, "Chain label delimiter mismatch. Should be 'masq://<chain label>:<public key>@<node address>', not '{}'", descriptor),
-            Self::PrefixMissing(descriptor) => write!(f,"Prefix or more missing. Should be 'masq://<chain label>:<public key>@<node address>', not '{}'",descriptor),
-            Self::WrongChainLabel(label) => write!(f,"Chain label '{}' is not valid; possible values are '{}' while formatted as 'masq://<chain label>:<public key>@<node address>'",
-            label,
-            CHAINS.iter().map(|record|record.chain_label).filter(|label|*label != "dev").join(", ")
+            Self::CentralDelimiterProbablyMissing(descriptor) => write!(f, "Delimiter '@' probably missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
+            Self::CentralDelimOrNodeAddr(descriptor,tail) => write!(f, "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as '{}'", descriptor,tail),
+            Self::CentralDelimOrIdentifier(descriptor) => write!(f, "Either '@' delimiter position or format of chain identifier is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
+            Self::ChainIdentifierDelimiter(descriptor) => write!(f, "Chain identifier delimiter mismatch. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
+            Self::PrefixMissing(descriptor) => write!(f,"Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'",descriptor),
+            Self::WrongChainIdentifier(identifier) => write!(f, "Chain identifier '{}' is not valid; possible values are '{}' while formatted as 'masq://<chain identifier>:<public key>@<node address>'",
+                                                             identifier,
+                                                             CHAINS.iter().map(|record|record.chain_identifier).filter(|identifier|*identifier != "dev").join(", ")
             )
         }
     }
@@ -575,14 +574,14 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                "Prefix or more missing. Should be 'masq://<chain label>:<public key>@<node address>', not 'https://eth-mainnet:as45cs5c5@1.2.3.4:4444'"
+                "Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'https://eth-mainnet:as45cs5c5@1.2.3.4:4444'"
                     .to_string()
             )
         );
     }
 
     #[test]
-    fn parse_complains_about_unknown_chain_label() {
+    fn parse_complains_about_unknown_chain_identifier() {
         let descriptor = "masq://bitcoin:as45cs5c5@1.2.3.4:4444";
 
         let result = NodeDescriptor::parse(descriptor);
@@ -590,7 +589,7 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                "Chain label 'bitcoin' is not valid; possible values are 'eth-mainnet, eth-ropsten, eth-rinkeby' while formatted as 'masq://<chain label>:<public key>@<node address>'"
+                "Chain identifier 'bitcoin' is not valid; possible values are 'eth-mainnet, eth-ropsten, eth-rinkeby' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
                     .to_string()
             )
         );
@@ -604,19 +603,19 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Delimiter '@' probably missing. Should be 'masq://<chain label>:<public key>@<node address>', not 'masq://dev.as45cs5c5/1.4.4.5;4545'".to_string())
+            Err("Delimiter '@' probably missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'masq://dev.as45cs5c5/1.4.4.5;4545'".to_string())
         );
     }
 
     #[test]
-    fn parse_complains_about_unclear_label_delimiter() {
+    fn parse_complains_about_unclear_identifier_delimiter() {
         let descriptor = "masq://dev.as45cs5c5@1.4.4.5:4545";
 
         let result = NodeDescriptor::parse(descriptor);
 
         assert_eq!(
             result,
-            Err("Chain label delimiter mismatch. Should be 'masq://<chain label>:<public key>@<node address>', not 'masq://dev.as45cs5c5@1.4.4.5:4545'".to_string())
+            Err("Chain identifier delimiter mismatch. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'masq://dev.as45cs5c5@1.4.4.5:4545'".to_string())
         );
     }
 
@@ -637,7 +636,7 @@ mod tests {
 
         let result = approx_position_assertion(would_be_descriptor, halves);
 
-        assert_eq!(result,Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as 'a1.bf3.4.5:4565;9898'".to_string()))
+        assert_eq!(result,Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as 'a1.bf3.4.5:4565;9898'".to_string()))
     }
 
     #[test]
@@ -657,7 +656,7 @@ mod tests {
 
         let result = approx_position_assertion(would_be_descriptor, halves);
 
-        assert_eq!(result,Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as '2000:ab.4.5a.10:4565'".to_string()))
+        assert_eq!(result,Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as '2000:ab.4.5a.10:4565'".to_string()))
     }
 
     #[test]
@@ -667,7 +666,7 @@ mod tests {
 
         let result = approx_position_assertion(would_be_descriptor, halves);
 
-        assert_eq!(result, Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as '2000:qd3:88r:4565;9898'".to_string()))
+        assert_eq!(result, Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as '2000:qd3:88r:4565;9898'".to_string()))
     }
 
     #[test]
@@ -677,30 +676,19 @@ mod tests {
 
         let result = approx_position_assertion(would_be_descriptor, halves);
 
-        assert_eq!(result, Err("Either '@' delimiter position or format of chain label is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not 'whole_descriptor'".to_string()))
+        assert_eq!(result, Err("Either '@' delimiter position or format of chain identifier is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'whole_descriptor'".to_string()))
     }
 
     #[test]
-    fn wrong_chain_label_error_does_not_mention_dev_chain() {
+    fn wrong_chain_identifier_error_does_not_mention_dev_chain() {
         assert!(CHAINS
             .iter()
-            .find(|record| record.chain_label == "dev")
+            .find(|record| record.chain_identifier == "dev")
             .is_some());
 
-        let result = DescriptorParsingError::WrongChainLabel("blah").to_string();
+        let result = DescriptorParsingError::WrongChainIdentifier("blah").to_string();
 
-        assert_eq!(result, "Chain label 'blah' is not valid; possible values are 'eth-mainnet, eth-ropsten, eth-rinkeby' while formatted as 'masq://<chain label>:<public key>@<node address>'")
-    }
-
-    #[test]
-    fn more_assertion_required_leads_to_another_assertion_and_the_verdict_here_with_correct_ip() {
-        let descriptor = "masq://dev:assd5fa3c5ac@2000:qd3:88r:4565;9898";
-
-        let result = NodeDescriptor::parse(descriptor);
-
-        assert_eq!(result,Err(
-            "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not 'masq://dev:assd5fa3c5ac@2000:qd3:88r:4565;9898'\
-            \nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as '2000:qd3:88r:4565;9898'".to_string()))
+        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'eth-mainnet, eth-ropsten, eth-rinkeby' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
     }
 
     #[test]
@@ -730,7 +718,7 @@ mod tests {
             "masq://eth-mainnet:R29vZEtleQ==@BadNodeAddr",
         );
 
-        assert_eq!(result, Err(String::from("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain label>:<public key>@<node address>', not 'masq://eth-mainnet:R29vZEtleQ==@BadNodeAddr'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as 'BadNodeAddr'")));
+        assert_eq!(result, Err(String::from("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'masq://eth-mainnet:R29vZEtleQ==@BadNodeAddr'\nNodeAddr should be expressed as '<IP address>:<port>;<port>,...', probably not as 'BadNodeAddr'")));
     }
 
     #[test]
@@ -870,7 +858,7 @@ mod tests {
             .strip_prefix(MASQ_URL_PREFIX)
             .unwrap()
             .chars()
-            .skip_while(|char| char != &CHAIN_LABEL_DELIMITER)
+            .skip_while(|char| char != &CHAIN_IDENTIFIER_DELIMITER)
             .skip(1)
             .position(|l| l == CENTRAL_DELIMITER)
             .unwrap();
