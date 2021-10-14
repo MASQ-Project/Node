@@ -25,7 +25,7 @@ use websocket::{ClientBuilder, WebSocketResult};
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
-pub const FALLBACK_TIMEOUT_MILLIS: u64 = 1000; //used to be 500; but we have suspicion that Actions doesn't make it and needs more
+pub const FALLBACK_TIMEOUT_MILLIS: u64 = 5000; //used to be 1000; but we have suspicion that Actions doesn't make it and needs more
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutgoingMessageType {
