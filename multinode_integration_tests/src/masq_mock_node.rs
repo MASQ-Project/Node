@@ -430,7 +430,7 @@ impl MASQMockNode {
             None => MASQNodeUtils::find_project_root(),
         };
         let command_dir = format!("{}/node/target/release", root);
-        let mock_node_args = Self::make_node_args(&node_addr);
+        let mock_node_args = Self::make_node_args(node_addr);
         let docker_command = "docker";
         let ip_addr_string = format!("{}", node_addr.ip_addr());
         let v_param = format!("{}:/node_root/node", command_dir);

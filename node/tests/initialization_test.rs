@@ -8,11 +8,14 @@ use masq_lib::messages::{
 };
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
+use masq_lib::test_utils::utils::node_home_directory;
 use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
 #[cfg(not(target_os = "windows"))]
 use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
+use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use std::fs;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 use utils::CommandConfig;
@@ -64,6 +67,7 @@ fn initialization_sequence_integration() {
         .join("initialization_sequence_integration")
         .to_string_lossy()
         .to_string();
+    let _ = fs::create_dir_all(&data_directory);
     let _: UiSetupRequest = initialization_client
         .transact(UiSetupRequest::new(vec![
             ("dns-servers", Some("1.1.1.1")),
@@ -81,7 +85,7 @@ fn initialization_sequence_integration() {
     let context_id = 1234;
 
     //<UiFinancialsRequest, UiFinancialsResponse>
-    //this is because newly a conversational message which can't reach the Node is returned in the way how it looked when it came
+    //newly a conversational message that can't reach the Node returns transformed into a response of the corresponding kind
     let not_running_financials_response = initialization_client
         .transact_with_context_id::<UiFinancialsRequest, UiFinancialsResponse>(
             financials_request.clone(),
@@ -140,4 +144,40 @@ fn wait_for_process_end(process_id: u32) {
         }
         tools.delay(500);
     }
+}
+
+#[test]
+fn required_chain_name_from_input_meets_different_db_chain_name_and_panics_integration() {
+    let test_name =
+        "required_chain_name_from_input_meets_different_db_chain_name_and_panics_integration";
+    {
+        fdlimit::raise_fd_limit();
+        let port = find_free_port();
+        let mut node = utils::MASQNode::start_standard(
+            test_name,
+            Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+            true,
+        );
+        node.wait_for_log("UIGateway bound", Some(5000));
+        let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
+        let shutdown_request = UiShutdownRequest {};
+        client.send(shutdown_request);
+        node.wait_for_exit();
+    }
+    let db_dir = node_home_directory("integration", test_name);
+    let conn = Connection::open_with_flags(
+        &db_dir.join(DATABASE_FILE),
+        OpenFlags::SQLITE_OPEN_READ_WRITE,
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE config SET value='mainnet' WHERE name='chain_name'",
+        NO_PARAMS,
+    )
+    .unwrap();
+
+    let mut node = MASQNode::start_standard_in_unsterilized_environment(&db_dir);
+
+    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with the wrong chain name detected; expected: ropsten, was: mainnet";
+    node.wait_for_log(regex_pattern, Some(1000));
 }

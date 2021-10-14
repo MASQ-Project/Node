@@ -377,7 +377,7 @@ where
         match self
             .web3
             .eth()
-            .send_raw_transaction(Bytes(tx.sign(&consuming_wallet, self.chain_id)))
+            .send_raw_transaction(Bytes(tx.sign(consuming_wallet, self.chain_id)))
             .wait()
         {
             Ok(result) => Ok(result),
@@ -441,7 +441,9 @@ where
 mod tests {
     use super::*;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::{await_value, make_paying_wallet, make_wallet};
+    use crate::test_utils::make_wallet;
+    use crate::test_utils::{await_value, make_paying_wallet};
+    use crossbeam_channel::unbounded;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use jsonrpc_core as rpc;
@@ -455,7 +457,6 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::rc::Rc;
     use std::str::FromStr;
-    use std::sync::mpsc;
     use std::thread;
     use web3::{transports::Http, Error, RequestId, Transport};
 
@@ -529,7 +530,7 @@ mod tests {
         let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
         let port = find_free_port();
 
-        let (tx, rx) = mpsc::sync_channel(1337);
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             Server::new(move |req, mut rsp| {
                 tx.send(req.body().clone()).unwrap();
@@ -938,11 +939,11 @@ mod tests {
 
     #[test]
     fn to_wei_converts_units_properly_for_max_value() {
-        let converted_wei = to_wei(std::u64::MAX);
+        let converted_wei = to_wei(u64::MAX);
 
         assert_eq!(
             converted_wei,
-            U256::from_dec_str(format!("{}000000000", std::u64::MAX).as_str()).unwrap()
+            U256::from_dec_str(format!("{}000000000", u64::MAX).as_str()).unwrap()
         );
     }
 

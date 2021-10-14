@@ -22,7 +22,7 @@ impl DnsInspector for WinDnsInspector {
         let dns_server_list_csv = self.find_dns_server_list(interfaces)?;
         let ip_vec: Vec<_> = dns_server_list_csv
             .split(',')
-            .flat_map(|ip_str| IpAddr::from_str(&ip_str))
+            .flat_map(|ip_str| IpAddr::from_str(ip_str))
             .collect();
         Ok(ip_vec)
     }
@@ -240,8 +240,7 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io::Error;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn get_default_gateway_sees_dhcp_if_both_are_specified() {

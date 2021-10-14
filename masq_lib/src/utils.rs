@@ -1,10 +1,11 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use lazy_static::lazy_static;
+use std::fmt;
+use std::fmt::Debug;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 #[cfg(not(target_os = "windows"))]
 mod not_win_cfg {
@@ -106,12 +107,12 @@ pub fn running_test() {
     }
 }
 
-pub fn exit_process(code: i32, message: &str) {
+pub fn exit_process(code: i32, message: &str) -> ! {
     if unsafe { RUNNING_TEST } {
         panic!("{}: {}", code, message);
     } else {
         eprintln!("{}", message);
-        ::std::process::exit(code);
+        ::std::process::exit(code)
     }
 }
 
@@ -122,8 +123,75 @@ pub fn exit_process_with_sigterm(message: &str) {
     } else {
         eprintln!("{}", message);
         not_win_cfg::signal::raise(not_win_cfg::signal::SIGTERM).expect("sigterm failure");
-        //This function must not return; so wait for death.
+        //This function must not return, and the process will be terminated by another thread within micro- or milliseconds, so we wait here for death.
         std::thread::sleep(not_win_cfg::Duration::from_secs(600))
+    }
+}
+
+pub trait SliceToVec<T: 'static + Clone> {
+    fn array_of_borrows_to_vec(self) -> Vec<T>;
+}
+
+impl<const N: usize> SliceToVec<String> for [&str; N] {
+    fn array_of_borrows_to_vec(self) -> Vec<String> {
+        self.iter()
+            .map(|item| item.to_string())
+            .collect::<Vec<String>>()
+    }
+}
+
+pub trait ExpectValue<T> {
+    #[track_caller]
+    fn expect_v(self, msg: &str) -> T;
+}
+
+impl<T> ExpectValue<T> for Option<T> {
+    #[inline]
+    fn expect_v(self, subject: &str) -> T {
+        match self {
+            Some(v) => v,
+            None => expect_value_panic(subject, None),
+        }
+    }
+}
+
+impl<T, E: Debug> ExpectValue<T> for Result<T, E> {
+    #[inline]
+    fn expect_v(self, subject: &str) -> T {
+        match self {
+            Ok(v) => v,
+            Err(e) => expect_value_panic(subject, Some(&e)),
+        }
+    }
+}
+
+#[track_caller]
+fn expect_value_panic(subject: &str, found: Option<&dyn fmt::Debug>) -> ! {
+    panic!(
+        "value for '{}' badly prepared{}",
+        subject,
+        found
+            .map(|cause| format!(", got: {:?}", cause))
+            .unwrap_or_else(|| "".to_string())
+    )
+}
+
+pub trait WrapResult {
+    fn wrap_to_ok<E>(self) -> Result<Self, E>
+    where
+        Self: Sized;
+    fn wrap_to_err<T>(self) -> Result<T, Self>
+    where
+        Self: Sized;
+}
+
+impl<T> WrapResult for T {
+    fn wrap_to_ok<E>(self) -> Result<Self, E> {
+        Ok(self)
+    }
+
+    fn wrap_to_err<V>(self) -> Result<V, Self> {
+        Err(self)
     }
 }
 
@@ -144,12 +212,33 @@ macro_rules! intentionally_blank {
     };
 }
 
+#[macro_export]
+macro_rules! as_any_dcl {
+    () => {
+        #[cfg(test)]
+        fn as_any(&self) -> &dyn Any {
+            use masq_lib::intentionally_blank;
+            intentionally_blank!()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! as_any_impl {
+    () => {
+        #[cfg(test)]
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::env::current_dir;
     use std::fmt::Write;
-    use std::fs::{create_dir, File, OpenOptions};
+    use std::fs::{create_dir_all, File, OpenOptions};
     use std::io::Write as FmtWrite;
 
     #[test]
@@ -254,8 +343,8 @@ mod tests {
     #[should_panic(expected = "writeln failed")]
     fn short_writeln_panic_politely_with_a_message() {
         let path = current_dir().unwrap();
-        let path = path.join("test").join("other_tests");
-        create_dir(&path).unwrap_or(()); //can be an error if already exists
+        let path = path.join("tests").join("short_writeln");
+        let _ = create_dir_all(&path);
         let full_path = path.join("short-writeln.txt");
         File::create(&full_path).unwrap();
         let mut read_only_file_handle = OpenOptions::new().read(true).open(full_path).unwrap();
@@ -263,5 +352,39 @@ mod tests {
             read_only_file_handle,
             "This is the first line and others will come...maybe"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "value for 'meaningful code' badly prepared")]
+    fn expect_v_panics_for_none() {
+        let subject: Option<u16> = None;
+
+        let _ = subject.expect_v("meaningful code");
+    }
+
+    #[test]
+    #[should_panic(expected = r#"value for 'safety feature' badly prepared, got: "alarm"#)]
+    fn expect_v_panics_for_error_variant() {
+        let subject: Result<String, String> = Err("alarm".to_string());
+
+        let _ = subject.expect_v("safety feature");
+    }
+
+    #[test]
+    fn expect_v_unwraps_option() {
+        let subject = Some(456);
+
+        let result = subject.expect_v("meaningful code");
+
+        assert_eq!(result, 456)
+    }
+
+    #[test]
+    fn expect_v_unwraps_result() {
+        let subject: Result<String, String> = Ok("all right".to_string());
+
+        let result = subject.expect_v("safety feature");
+
+        assert_eq!(result, "all right".to_string())
     }
 }

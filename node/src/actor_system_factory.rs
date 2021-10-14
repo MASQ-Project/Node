@@ -15,14 +15,17 @@ use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
-    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
+    chain_name_from_id, BlockchainInterface, BlockchainInterfaceClandestine,
+    BlockchainInterfaceNonClandestine,
 };
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_initializer::{
     connection_or_panic, DbInitializer, DbInitializerReal, DATABASE_FILE,
 };
 use crate::db_config::config_dao::ConfigDaoReal;
-use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+use crate::db_config::persistent_configuration::{
+    PersistentConfiguration, PersistentConfigurationReal,
+};
 use crate::node_configurator::configurator::Configurator;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
@@ -42,10 +45,10 @@ use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Addr;
 use actix::Recipient;
 use actix::{Actor, Arbiter};
+use crossbeam_channel::{unbounded, Sender};
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::ExpectValue;
 use std::path::Path;
-use std::sync::mpsc;
-use std::sync::mpsc::Sender;
 use web3::transports::Http;
 
 pub trait ActorSystemFactory: Send {
@@ -66,7 +69,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
     ) -> StreamHandlerPoolSubs {
         let main_cryptde = bootstrapper::main_cryptde_ref();
         let alias_cryptde = bootstrapper::alias_cryptde_ref();
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
 
         ActorSystemFactoryReal::prepare_initial_messages(
             main_cryptde,
@@ -88,7 +91,7 @@ impl ActorSystemFactoryReal {
         actor_factory: Box<dyn ActorFactory>,
         tx: Sender<StreamHandlerPoolSubs>,
     ) {
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
         let proxy_server_subs = actor_factory.make_and_start_proxy_server(
@@ -247,9 +250,10 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
         let crash_point = config.crash_point;
-        let descriptor = config.ui_gateway_config.node_descriptor.clone();
-        let addr: Addr<Dispatcher> =
-            Arbiter::start(move |_| Dispatcher::new(crash_point, descriptor));
+        let descriptor = config.node_descriptor_opt.clone();
+        let addr: Addr<Dispatcher> = Arbiter::start(move |_| {
+            Dispatcher::new(crash_point, descriptor.expect_v("node descriptor"))
+        });
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -398,6 +402,10 @@ impl ActorFactory for ActorFactoryReal {
                 }),
         ));
         let persistent_config = Box::new(PersistentConfigurationReal::new(config_dao));
+        validate_database_chain_correctness(
+            config.blockchain_bridge_config.chain_id,
+            persistent_config.as_ref(),
+        );
         let blockchain_bridge =
             BlockchainBridge::new(config, blockchain_interface, persistent_config);
         let addr: Addr<BlockchainBridge> = blockchain_bridge.start();
@@ -417,11 +425,26 @@ impl ActorFactory for ActorFactoryReal {
     }
 }
 
+fn validate_database_chain_correctness(
+    chain_id: u8,
+    persistent_config: &dyn PersistentConfiguration,
+) {
+    let required_chain = chain_name_from_id(chain_id).to_string();
+    let chain_in_db = persistent_config.chain_name();
+    if required_chain != chain_in_db {
+        panic!(
+            "Database with the wrong chain name detected; expected: {}, was: {}",
+            required_chain, chain_in_db
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
@@ -458,12 +481,15 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
+    use crate::test_utils::main_cryptde;
+    use crate::test_utils::make_wallet;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
-    use crate::test_utils::{main_cryptde, make_wallet};
     use actix::System;
     use log::LevelFilter;
+    use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -473,8 +499,7 @@ mod tests {
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
 
@@ -507,8 +532,13 @@ mod tests {
     impl<'a> ActorFactory for ActorFactoryMock<'a> {
         fn make_and_start_dispatcher(
             &self,
-            _config: &BootstrapperConfig,
+            config: &BootstrapperConfig,
         ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
+            self.parameters
+                .dispatcher_params
+                .lock()
+                .unwrap()
+                .get_or_insert(config.clone());
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.dispatcher);
             let dispatcher_subs = DispatcherSubs {
                 ibcd_sub: recipient!(addr, InboundClientData),
@@ -728,6 +758,7 @@ mod tests {
 
     #[derive(Clone)]
     struct Parameters<'a> {
+        dispatcher_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         proxy_client_params: Arc<Mutex<Option<ProxyClientConfig>>>,
         proxy_server_params:
             Arc<Mutex<Option<(&'a dyn CryptDE, &'a dyn CryptDE, bool, Option<i64>)>>>,
@@ -742,6 +773,7 @@ mod tests {
     impl<'a> Parameters<'a> {
         pub fn new() -> Parameters<'a> {
             Parameters {
+                dispatcher_params: Arc::new(Mutex::new(None)),
                 proxy_client_params: Arc::new(Mutex::new(None)),
                 proxy_server_params: Arc::new(Mutex::new(None)),
                 hopper_params: Arc::new(Mutex::new(None)),
@@ -839,10 +871,7 @@ mod tests {
                 payment_received_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig {
-                ui_port: 5335,
-                node_descriptor: String::from("uninitialized"),
-            },
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -854,6 +883,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
+            node_descriptor_opt: Some("uninitialized".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
@@ -904,10 +934,7 @@ mod tests {
                 payment_received_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig {
-                ui_port: 5335,
-                node_descriptor: String::from("NODE-DESCRIPTOR"),
-            },
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -919,6 +946,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
+            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
@@ -926,7 +954,7 @@ mod tests {
                 mode: NeighborhoodMode::ZeroHop,
             },
         };
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         let system = System::new("MASQNode");
 
         ActorSystemFactoryReal::prepare_initial_messages(
@@ -982,10 +1010,14 @@ mod tests {
         );
         let ui_gateway_config = Parameters::get(parameters.ui_gateway_params);
         assert_eq!(ui_gateway_config.ui_port, 5335);
-        assert_eq!(ui_gateway_config.node_descriptor, "NODE-DESCRIPTOR");
-        let bootstrapper_config = Parameters::get(parameters.blockchain_bridge_params);
+        let dispatcher_param = Parameters::get(parameters.dispatcher_params);
         assert_eq!(
-            bootstrapper_config.blockchain_bridge_config,
+            dispatcher_param.node_descriptor_opt,
+            Some("NODE-DESCRIPTOR".to_string())
+        );
+        let blockchain_bridge_param = Parameters::get(parameters.blockchain_bridge_params);
+        assert_eq!(
+            blockchain_bridge_param.blockchain_bridge_config,
             BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -993,7 +1025,7 @@ mod tests {
             }
         );
         assert_eq!(
-            bootstrapper_config.consuming_wallet,
+            blockchain_bridge_param.consuming_wallet,
             Some(make_wallet("consuming"))
         );
         let _stream_handler_pool_subs = rx.recv().unwrap();
@@ -1013,10 +1045,7 @@ mod tests {
                 payment_received_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig {
-                ui_port: 5335,
-                node_descriptor: String::from("NODE-DESCRIPTOR"),
-            },
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -1028,6 +1057,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
+            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
@@ -1042,7 +1072,7 @@ mod tests {
             alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
-            mpsc::channel().0,
+            unbounded().0,
         );
 
         System::current().stop();
@@ -1073,10 +1103,7 @@ mod tests {
                 payment_received_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig {
-                ui_port: 5335,
-                node_descriptor: String::from("NODE-DESCRIPTOR"),
-            },
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -1088,6 +1115,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: None,
             data_directory: PathBuf::new(),
+            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
@@ -1099,7 +1127,7 @@ mod tests {
                 ),
             },
         };
-        let (tx, _) = mpsc::channel();
+        let (tx, _) = unbounded();
         let system = System::new("MASQNode");
 
         ActorSystemFactoryReal::prepare_initial_messages(
@@ -1169,5 +1197,26 @@ mod tests {
             .unwrap();
         let result = candidate.decode(&crypt_data).unwrap();
         assert_eq!(result, plain_data);
+    }
+
+    #[test]
+    fn database_chain_validity_happy_path() {
+        let chain_id = chain_id_from_name(DEFAULT_CHAIN_NAME); //due to confusing nomenclature in the constants being available // TODO GH-473 may fix this
+        let persistent_config =
+            PersistentConfigurationMock::default().chain_name_result("mainnet".to_string());
+
+        let _ = validate_database_chain_correctness(chain_id, &persistent_config);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Database with the wrong chain name detected; expected: ropsten, was: mainnet"
+    )]
+    fn database_chain_validity_sad_path() {
+        let chain_id = DEFAULT_CHAIN_ID; //Ropsten
+        let persistent_config =
+            PersistentConfigurationMock::default().chain_name_result("mainnet".to_string());
+
+        let _ = validate_database_chain_correctness(chain_id, &persistent_config);
     }
 }

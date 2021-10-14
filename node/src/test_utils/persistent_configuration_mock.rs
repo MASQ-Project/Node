@@ -4,6 +4,7 @@ use crate::db_config::persistent_configuration::{PersistentConfigError, Persiste
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
+use masq_lib::automap_tools::AutomapProtocol;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
@@ -11,6 +12,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone, Default)]
 pub struct PersistentConfigurationMock {
     current_schema_version_results: RefCell<Vec<String>>,
+    chain_name_results: RefCell<Vec<String>>,
     check_password_params: Arc<Mutex<Vec<Option<String>>>>,
     check_password_results: RefCell<Vec<Result<bool, PersistentConfigError>>>,
     change_password_params: Arc<Mutex<Vec<(Option<String>, String)>>>,
@@ -34,6 +36,9 @@ pub struct PersistentConfigurationMock {
     earning_wallet_address_results: RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
     set_wallet_info_params: Arc<Mutex<Vec<(PlainData, String, String, String)>>>,
     set_wallet_info_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    mapping_protocol_results: RefCell<Vec<Result<Option<AutomapProtocol>, PersistentConfigError>>>,
+    set_mapping_protocol_params: Arc<Mutex<Vec<AutomapProtocol>>>,
+    set_mapping_protocol_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     past_neighbors_params: Arc<Mutex<Vec<String>>>,
     past_neighbors_results:
         RefCell<Vec<Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>>>,
@@ -47,6 +52,10 @@ pub struct PersistentConfigurationMock {
 impl PersistentConfiguration for PersistentConfigurationMock {
     fn current_schema_version(&self) -> String {
         Self::result_from(&self.current_schema_version_results)
+    }
+
+    fn chain_name(&self) -> String {
+        self.chain_name_results.borrow_mut().remove(0)
     }
 
     fn check_password(
@@ -165,6 +174,21 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_start_block_params.lock().unwrap().push(value);
         Self::result_from(&self.set_start_block_results)
     }
+
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
+        self.mapping_protocol_results.borrow_mut().pop().unwrap()
+    }
+
+    fn set_mapping_protocol(
+        &mut self,
+        value: AutomapProtocol,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_mapping_protocol_params.lock().unwrap().push(value);
+        self.set_mapping_protocol_results
+            .borrow_mut()
+            .pop()
+            .unwrap()
+    }
 }
 
 impl PersistentConfigurationMock {
@@ -176,6 +200,11 @@ impl PersistentConfigurationMock {
         self.current_schema_version_results
             .borrow_mut()
             .push(result.to_string());
+        self
+    }
+
+    pub fn chain_name_result(self, result: String) -> Self {
+        self.chain_name_results.borrow_mut().push(result);
         self
     }
 
@@ -307,6 +336,30 @@ impl PersistentConfigurationMock {
 
     pub fn set_gas_price_result(self, result: Result<(), PersistentConfigError>) -> Self {
         self.set_gas_price_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn mapping_protocol_result(
+        self,
+        result: Result<Option<AutomapProtocol>, PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.mapping_protocol_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_mapping_protocol_params(
+        mut self,
+        params: &Arc<Mutex<Vec<AutomapProtocol>>>,
+    ) -> PersistentConfigurationMock {
+        self.set_mapping_protocol_params = params.clone();
+        self
+    }
+
+    pub fn set_mapping_protocol_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.set_mapping_protocol_results.borrow_mut().push(result);
         self
     }
 

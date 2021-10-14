@@ -4,6 +4,8 @@
 pub mod channel_wrapper_mocks;
 pub mod data_hunk;
 pub mod data_hunk_framer;
+#[cfg(test)]
+pub mod database_utils;
 pub mod little_tcp_server;
 pub mod logfile_name_guard;
 pub mod logging;
@@ -17,7 +19,6 @@ pub mod tokio_wrapper_mocks;
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::blockchain_interface::contract_address;
 use crate::blockchain::payer::Payer;
-use crate::node_configurator::node_configurator_standard::app;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
@@ -35,14 +36,11 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
-use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
-use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
-use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
 use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
 use regex::Regex;
 use rustc_hex::ToHex;
@@ -57,11 +55,7 @@ use std::iter::repeat;
 use std::net::SocketAddr;
 use std::net::{Shutdown, TcpStream};
 use std::str::FromStr;
-use std::sync::mpsc;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::Sender;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -89,6 +83,14 @@ impl From<ArgsBuilder> for Vec<String> {
     }
 }
 
+impl From<&[String]> for ArgsBuilder {
+    fn from(args: &[String]) -> Self {
+        Self {
+            args: args.to_vec(),
+        }
+    }
+}
+
 impl Default for ArgsBuilder {
     fn default() -> Self {
         ArgsBuilder::new()
@@ -113,9 +115,8 @@ impl ArgsBuilder {
 }
 
 pub fn assert_ends_with(string: &str, suffix: &str) {
-    assert_eq!(
+    assert!(
         string.ends_with(suffix),
-        true,
         "'{}' did not end with '{}'",
         string,
         suffix
@@ -124,9 +125,8 @@ pub fn assert_ends_with(string: &str, suffix: &str) {
 
 pub fn assert_matches(string: &str, regex: &str) {
     let validator = Regex::new(regex).unwrap();
-    assert_eq!(
+    assert!(
         validator.is_match(string),
-        true,
         "'{}' was not matched by '{}'",
         string,
         regex
@@ -134,11 +134,11 @@ pub fn assert_matches(string: &str, regex: &str) {
 }
 
 pub fn to_millis(dur: &Duration) -> u64 {
-    (dur.as_secs() * 1000) + (u64::from(dur.subsec_nanos()) / 1_000_000)
+    dur.as_millis() as u64
 }
 
 pub fn signal() -> (Signaler, Waiter) {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     (Signaler { tx }, Waiter { rx })
 }
 
@@ -202,21 +202,6 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
     )
 }
 
-pub fn make_multi_config<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
-    let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(args.into()))];
-    make_new_multi_config(&app(), vcls, &mut FakeStreamHolder::new().streams()).unwrap()
-}
-
-pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
-    PersistentConfigurationMock::new()
-        .earning_wallet_from_address_result(Ok(None))
-        .consuming_wallet_derivation_path_result(Ok(None))
-        .mnemonic_seed_result(Ok(None))
-        .mnemonic_seed_exists_result(Ok(false))
-        .past_neighbors_result(Ok(None))
-        .gas_price_result(Ok(1))
-}
-
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
     shift_one_hop(zero_hop_route_response(key, cryptde).route, cryptde)
 }
@@ -260,7 +245,7 @@ fn shift_one_hop(mut route: Route, cryptde: &dyn CryptDE) -> Route {
 pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> CryptData {
     let return_route_id_ser = serde_cbor::ser::to_vec(&return_route_id).unwrap();
     cryptde
-        .encode(&cryptde.public_key(), &PlainData::from(return_route_id_ser))
+        .encode(cryptde.public_key(), &PlainData::from(return_route_id_ser))
         .unwrap()
 }
 
@@ -348,6 +333,7 @@ pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc
     }
 }
 
+//must stay without cfg(test) -- used in another crate
 pub fn wait_for<F>(interval_ms: Option<u64>, limit_ms: Option<u64>, mut f: F)
 where
     F: FnMut() -> bool,
@@ -364,6 +350,7 @@ where
     .unwrap();
 }
 
+//must stay without cfg(test) -- used in another crate
 pub fn await_value<F, T, E>(
     interval_and_limit_ms: Option<(u64, u64)>,
     mut f: F,
@@ -399,9 +386,8 @@ pub fn assert_contains<T>(haystack: &[T], needle: &T)
 where
     T: Debug + PartialEq,
 {
-    assert_eq!(
+    assert!(
         haystack.contains(needle),
-        true,
         "\n{:?}\ndoes not contain\n{:?}",
         haystack,
         needle
@@ -433,6 +419,7 @@ where
     set
 }
 
+//must stay without cfg(test) -- used in another crate
 pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
     let mut response: Vec<u8> = vec![];
     let mut buf = [0u8; 16384];
@@ -488,6 +475,7 @@ pub fn make_paying_wallet(secret: &[u8]) -> Wallet {
     )
 }
 
+//must stay without cfg(test) -- used in another crate
 pub fn make_wallet(address: &str) -> Wallet {
     Wallet::from_str(&dummy_address_to_hex(address)).unwrap()
 }
@@ -499,6 +487,81 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
 }
 
 #[cfg(test)]
+pub mod pure_test_utils {
+    use crate::apps::app_node;
+    use crate::daemon::ChannelFactory;
+    use crate::node_test_utils::DirsWrapperMock;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crossbeam_channel::{Receiver, Sender};
+    use masq_lib::multi_config::MultiConfig;
+    use masq_lib::utils::SliceToVec;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
+        let owned_args = args.array_of_borrows_to_vec();
+        let arg_matches = app_node().get_matches_from_safe(owned_args).unwrap();
+        MultiConfig::new_test_only(arg_matches)
+    }
+
+    pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
+        PersistentConfigurationMock::new()
+            .earning_wallet_from_address_result(Ok(None))
+            .consuming_wallet_derivation_path_result(Ok(None))
+            .mnemonic_seed_result(Ok(None))
+            .mnemonic_seed_exists_result(Ok(false))
+            .past_neighbors_result(Ok(None))
+            .gas_price_result(Ok(1))
+    }
+
+    pub struct ChannelFactoryMock {
+        make_results: RefCell<
+            Vec<(
+                Sender<HashMap<String, String>>,
+                Receiver<HashMap<String, String>>,
+            )>,
+        >,
+    }
+
+    impl ChannelFactory for ChannelFactoryMock {
+        fn make(
+            &self,
+        ) -> (
+            Sender<HashMap<String, String>>,
+            Receiver<HashMap<String, String>>,
+        ) {
+            self.make_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl ChannelFactoryMock {
+        pub fn new() -> ChannelFactoryMock {
+            ChannelFactoryMock {
+                make_results: RefCell::new(vec![]),
+            }
+        }
+
+        pub fn make_result(
+            self,
+            sender: Sender<HashMap<String, String>>,
+            receiver: Receiver<HashMap<String, String>>,
+        ) -> Self {
+            self.make_results.borrow_mut().push((sender, receiver));
+            self
+        }
+    }
+
+    pub fn make_pre_populated_mocked_directory_wrapper() -> DirsWrapperMock {
+        DirsWrapperMock::new()
+            .home_dir_result(Some(PathBuf::from("/unexisting_home/unexisting_alice")))
+            .data_dir_result(Some(PathBuf::from(
+                "/unexisting_home/unexisting_alice/mock_directory",
+            )))
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde::CryptData;
@@ -506,8 +569,7 @@ mod tests {
     use crate::sub_lib::neighborhood::ExpectedService;
     use std::borrow::BorrowMut;
     use std::iter;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
 

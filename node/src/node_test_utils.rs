@@ -22,8 +22,7 @@ use actix::Addr;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
@@ -104,12 +103,12 @@ impl IdWrapperMock {
     }
 }
 
-pub struct MockDirsWrapper {
+pub struct DirsWrapperMock {
     data_dir_result: Option<PathBuf>,
     home_dir_result: Option<PathBuf>,
 }
 
-impl DirsWrapper for MockDirsWrapper {
+impl DirsWrapper for DirsWrapperMock {
     fn data_dir(&self) -> Option<PathBuf> {
         self.data_dir_result.clone()
     }
@@ -126,9 +125,9 @@ impl DirsWrapper for MockDirsWrapper {
     }
 }
 
-impl MockDirsWrapper {
+impl DirsWrapperMock {
     pub fn new() -> Self {
-        MockDirsWrapper {
+        DirsWrapperMock {
             data_dir_result: None,
             home_dir_result: None,
         }

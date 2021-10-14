@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use std::ops::Drop;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::process::Output;
+use std::process::{Command, Output};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -110,6 +110,15 @@ impl MASQNode {
     }
 
     #[allow(dead_code)]
+    pub fn start_standard_in_unsterilized_environment(data_dir: &PathBuf) -> MASQNode {
+        let args_extension =
+            CommandConfig::new().pair("--data-directory", data_dir.to_str().unwrap());
+        let command = Self::make_node_command(data_dir, Some(args_extension), false);
+        eprintln!("{:?}", command);
+        Self::spawn_process(command, data_dir.into())
+    }
+
+    #[allow(dead_code)]
     pub fn wait_for_log(&mut self, pattern: &str, limit_ms: Option<u64>) {
         let regex = regex::Regex::new(pattern).unwrap();
         let real_limit_ms = limit_ms.unwrap_or(0xFFFFFFFF);
@@ -189,7 +198,7 @@ impl MASQNode {
         let _ = command.output().expect("Couldn't kill MASQNode.exe");
         self.child.take();
         // Be nice if we could figure out how to populate self.output here
-        Ok(()) //Could it be left like that?
+        Ok(())
     }
 
     pub fn remove_logfile(data_dir: &PathBuf) -> Box<Path> {
@@ -204,7 +213,7 @@ impl MASQNode {
 
     pub fn remove_database(data_dir: &PathBuf) {
         let database = Self::path_to_database(data_dir);
-        match std::fs::remove_file(database.clone()) {
+        match std::fs::remove_file(&database) {
             Ok(_) => (),
             Err(ref e) if e.kind() == io::ErrorKind::NotFound => (),
             Err(e) => panic!(
@@ -214,7 +223,7 @@ impl MASQNode {
         }
     }
 
-    fn start_something<F: FnOnce(&PathBuf, Option<CommandConfig>) -> process::Command>(
+    fn start_something<F: FnOnce(&PathBuf, Option<CommandConfig>, bool) -> process::Command>(
         test_name: &str,
         config_opt: Option<CommandConfig>,
         ensure_start: bool,
@@ -223,19 +232,23 @@ impl MASQNode {
         let data_dir = ensure_node_home_directory_exists("integration", test_name);
         Self::remove_logfile(&data_dir);
         let ui_port = Self::ui_port_from_config_opt(&config_opt);
-        let mut command = command_getter(&data_dir, config_opt);
+        let command = command_getter(&data_dir, config_opt, true);
         eprintln!("{:?}", command);
-        let child = command.spawn().unwrap();
-        let mut result = MASQNode {
-            logfile_contents: String::new(),
-            data_dir,
-            child: Some(child),
-            output: None,
-        };
+        let mut result = Self::spawn_process(command, data_dir);
         if ensure_start {
             result.wait_for_node(ui_port).unwrap();
         }
         result
+    }
+
+    fn spawn_process(mut cmd: Command, data_dir: PathBuf) -> MASQNode {
+        let child = cmd.spawn().unwrap();
+        MASQNode {
+            logfile_contents: String::new(),
+            data_dir,
+            child: Some(child),
+            output: None,
+        }
     }
 
     fn millis_since(started_at: Instant) -> u64 {
@@ -245,8 +258,14 @@ impl MASQNode {
         second_milliseconds + nanosecond_milliseconds
     }
 
-    fn make_daemon_command(data_dir: &PathBuf, config: Option<CommandConfig>) -> process::Command {
-        Self::remove_database(data_dir);
+    fn make_daemon_command(
+        data_dir: &PathBuf,
+        config: Option<CommandConfig>,
+        remove_database: bool,
+    ) -> process::Command {
+        if remove_database {
+            Self::remove_database(data_dir)
+        }
         let mut command = command_to_start();
         let mut args = Self::daemon_args();
         args.extend(match config {
@@ -257,8 +276,14 @@ impl MASQNode {
         command
     }
 
-    fn make_node_command(data_dir: &PathBuf, config: Option<CommandConfig>) -> process::Command {
-        Self::remove_database(data_dir);
+    fn make_node_command(
+        data_dir: &PathBuf,
+        config: Option<CommandConfig>,
+        remove_database: bool,
+    ) -> process::Command {
+        if remove_database {
+            Self::remove_database(data_dir)
+        }
         let mut command = command_to_start();
         let mut args = Self::standard_args();
         args.extend(Self::get_extra_args(data_dir, config));
@@ -270,7 +295,7 @@ impl MASQNode {
     fn make_dump_config_command(data_dir: &PathBuf) -> process::Command {
         Self::remove_database(&data_dir);
         let mut command = command_to_start();
-        let args = Self::dump_config_args();
+        let args = Self::dump_config_args(data_dir.as_path());
         command.args(&args);
         command
     }
@@ -294,9 +319,10 @@ impl MASQNode {
     }
 
     #[allow(dead_code)]
-    fn dump_config_args() -> Vec<String> {
+    fn dump_config_args(data_dir: &Path) -> Vec<String> {
         apply_prefix_parameters(CommandConfig::new())
             .opt("--dump-config")
+            .pair("--data-directory", data_dir.to_str().unwrap())
             .args
     }
 

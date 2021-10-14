@@ -124,8 +124,7 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget};
     use masq_lib::utils::find_free_port;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn inbound_ui_message_is_disseminated_properly() {
@@ -142,7 +141,6 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let subject = UiGateway::new(&UiGatewayConfig {
             ui_port: find_free_port(),
-            node_descriptor: String::from(""),
         });
         let system = System::new("test");
         let subject_addr: Addr<UiGateway> = subject.start();
@@ -198,7 +196,6 @@ mod tests {
             WebSocketSupervisorMock::new().send_msg_parameters(&send_msg_parameters_arc);
         let mut subject = UiGateway::new(&UiGatewayConfig {
             ui_port: find_free_port(),
-            node_descriptor: String::from(""),
         });
         let system = System::new("test");
         subject.websocket_supervisor = Some(Box::new(websocket_supervisor));

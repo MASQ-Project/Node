@@ -67,7 +67,7 @@ impl DynamicStoreDnsInspector {
                 return Err(DnsInspectionError::NotConnected);
             }
         };
-        let primary_service = match self.store.cfpl_to_string(&primary_service_cfpl) {
+        let primary_service = match self.store.cfpl_to_string(primary_service_cfpl) {
             Ok(s) => s,
             Err(_) => {
                 return Err(DnsInspectionError::ConfigValueTypeError(
@@ -81,7 +81,7 @@ impl DynamicStoreDnsInspector {
             None => return Err(DnsInspectionError::NotConnected),
         };
         let mut result: HashMap<String, Vec<String>> = HashMap::new();
-        match self.get_server_addresses(&dns_map, &dns_base_path, &SERVER_ADDRESSES) {
+        match self.get_server_addresses(&dns_map, &dns_base_path, SERVER_ADDRESSES) {
             Err(e) => return Err(e),
             Ok(None) => (),
             Ok(Some(sa)) => {
@@ -106,7 +106,7 @@ impl DynamicStoreDnsInspector {
             Some(sa) => sa,
             None => return Ok(None),
         };
-        let server_address_cfpls = match self.store.cfpl_to_vec(&server_addresses_cfpl) {
+        let server_address_cfpls = match self.store.cfpl_to_vec(server_addresses_cfpl) {
             Ok(sa) => sa,
             Err(_) => {
                 return Err(DnsInspectionError::ConfigValueTypeError(format!(
@@ -167,11 +167,9 @@ impl StoreWrapper for StoreWrapperReal {
         if let Some(cfd) = cf_dictionary_opt {
             let cf_dictionary: CFDictionary = cfd;
             let (keys, values) = cf_dictionary.get_keys_and_values();
-            let keys_and_values: Vec<(*const libc::c_void, *const libc::c_void)> =
-                keys.into_iter().zip(values).collect();
             Some(
-                keys_and_values
-                    .into_iter()
+                keys.into_iter()
+                    .zip(values)
                     .map(|key_and_value| {
                         let (cf_key, cf_value) = key_and_value;
                         let key = unsafe { CFString::from_void(cf_key).to_string() };

@@ -30,7 +30,7 @@ impl Ord for SequencedPacket {
 
 impl PartialOrd for SequencedPacket {
     fn partial_cmp(&self, other: &SequencedPacket) -> Option<Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 

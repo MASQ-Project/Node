@@ -22,8 +22,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::sync::Mutex;
-use std::sync::{Arc, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::reactor::Handle;
 use websocket::client::r#async::Framed;
 use websocket::r#async::MessageCodec;
@@ -168,7 +167,7 @@ impl WebSocketSupervisorReal {
         {
             Self::accept_upgrade_request(upgrade, socket_addr, inner, logger);
         } else {
-            Self::reject_upgrade_request(upgrade, &logger);
+            Self::reject_upgrade_request(upgrade, logger);
         }
     }
 
@@ -355,7 +354,7 @@ impl WebSocketSupervisorReal {
             client_id,
             locked_inner.port
         );
-        Self::close_connection(&mut locked_inner, client_id, socket_addr, &logger);
+        Self::close_connection(&mut locked_inner, client_id, socket_addr, logger);
 
         err::<(), ()>(()) // end the stream
     }
@@ -450,8 +449,7 @@ mod tests {
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::test_utils::wait_for;
-    use crate::test_utils::{assert_contains, await_value};
+    use crate::test_utils::{assert_contains, await_value, wait_for};
     use actix::System;
     use actix::{Actor, Addr};
     use futures::future::lazy;

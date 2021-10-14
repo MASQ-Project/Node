@@ -11,6 +11,7 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, MnemonicType};
+use masq_lib::automap_tools::AutomapProtocol;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
@@ -69,6 +70,7 @@ impl PersistentConfigError {
 
 pub trait PersistentConfiguration {
     fn current_schema_version(&self) -> String;
+    fn chain_name(&self) -> String;
     fn check_password(
         &self,
         db_password_opt: Option<String>,
@@ -110,6 +112,9 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
+    fn set_mapping_protocol(&mut self, value: AutomapProtocol)
+        -> Result<(), PersistentConfigError>;
 }
 
 pub struct PersistentConfigurationReal {
@@ -128,6 +133,16 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 "Can't continue; current schema version is inaccessible: {:?}",
                 e
             ),
+        }
+    }
+
+    fn chain_name(&self) -> String {
+        match self.dao.get("chain_name") {
+            Ok(record) => match record.value_opt {
+                None => panic!("Can't continue; chain name is missing"),
+                Some(chn) => chn,
+            },
+            Err(e) => panic!("Can't continue; chain name is inaccessible: {:?}", e),
         }
     }
 
@@ -316,7 +331,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         )?)?;
         match bytes_opt {
             None => Ok (None),
-            Some (bytes) => Ok(Some(serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(&bytes.as_slice())
+            Some (bytes) => Ok(Some(serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(bytes.as_slice())
                 .expect ("Can't continue; past neighbors configuration is corrupt and cannot be deserialized."))),
         }
     }
@@ -354,6 +369,23 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         writer.set("start_block", encode_u64(Some(value))?)?;
+        Ok(writer.commit()?)
+    }
+
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
+        Ok(self
+            .dao
+            .get("mapping_protocol")?
+            .value_opt
+            .map(|val| val.into()))
+    }
+
+    fn set_mapping_protocol(
+        &mut self,
+        value: AutomapProtocol,
+    ) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        writer.set("mapping_protocol", Some(value.to_string()))?;
         Ok(writer.commit()?)
     }
 }
@@ -503,9 +535,47 @@ mod tests {
 
         let result = subject.current_schema_version();
 
-        assert_eq!("1.2.3".to_string(), result);
+        assert_eq!(result, "1.2.3".to_string());
         let get_params = get_params_arc.lock().unwrap();
         assert_eq!(*get_params, vec!["schema_version".to_string()]);
+    }
+
+    #[test]
+    fn chain_name() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "chain_name",
+                Some("mainnet"),
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.chain_name();
+
+        assert_eq!(result, "mainnet".to_string(),);
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(*get_params, vec!["chain_name".to_string()]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't continue; chain name is inaccessible: NotPresent")]
+    fn chain_name_panics_if_record_is_missing() {
+        let config_dao = ConfigDaoMock::new().get_result(Err(ConfigDaoError::NotPresent));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.chain_name();
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't continue; chain name is missing")]
+    fn chain_name_panics_if_record_is_empty() {
+        let config_dao =
+            ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new("chain_name", None, false)));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.chain_name();
     }
 
     #[test]
@@ -1549,5 +1619,45 @@ mod tests {
         .unwrap();
         assert_eq!(actual_node_descriptors, node_descriptors);
         assert_eq!(set_params.len(), 1);
+    }
+
+    #[test]
+    fn mapping_protocol() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "mapping_protocol",
+                Some("PCP"),
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.mapping_protocol().unwrap();
+
+        assert_eq!(result.unwrap(), AutomapProtocol::Pcp);
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(*get_params, vec!["mapping_protocol".to_string()]);
+    }
+
+    #[test]
+    fn set_mapping_protocol() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoWriteableMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()))
+            .commit_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(
+            ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
+        ));
+
+        let result = subject.set_mapping_protocol(AutomapProtocol::Pmp);
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("mapping_protocol".to_string(), Some("PMP".to_string()))]
+        );
     }
 }

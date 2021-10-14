@@ -169,8 +169,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn stream_writer_returns_not_ready_when_the_stream_is_not_ready() {
@@ -277,7 +276,7 @@ mod tests {
         subject.poll().unwrap();
 
         TestLogHandler::new().exists_log_containing(
-            "WARN: StreamWriter for 1.2.3.4:5678: Continuing after write error: other os error",
+            "WARN: StreamWriter for 1.2.3.4:5678: Continuing after write error: other error",
         );
         assert_eq!(write_params.lock().unwrap().len(), 3);
     }

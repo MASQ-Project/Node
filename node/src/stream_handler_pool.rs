@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
 use crate::bootstrapper::PortConfiguration;
 use crate::discriminator::DiscriminatorFactory;
 use crate::json_masquerader::JsonMasquerader;
@@ -557,9 +558,11 @@ mod tests {
     use crate::sub_lib::dispatcher::InboundClientData;
     use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
     use crate::sub_lib::stream_connector::ConnectionInfo;
+    use crate::test_utils::await_messages;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::main_cryptde;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -568,10 +571,10 @@ mod tests {
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::{await_messages, main_cryptde};
     use actix::Actor;
     use actix::Addr;
     use actix::System;
+    use crossbeam_channel::unbounded;
     use masq_lib::constants::HTTP_PORT;
     use std::io::Error;
     use std::io::ErrorKind;
@@ -579,9 +582,7 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::ops::Deref;
     use std::str::FromStr;
-    use std::sync::mpsc;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Async;
 
@@ -773,7 +774,7 @@ mod tests {
         });
 
         TestLogHandler::new().await_log_containing(
-            "WARN: StreamWriter for 1.2.3.5:6789: Continuing after write error: other os error",
+            "WARN: StreamWriter for 1.2.3.5:6789: Continuing after write error: other error",
             1000,
         );
 
@@ -785,7 +786,7 @@ mod tests {
     #[test]
     fn terminal_packet_is_transmitted_and_then_stream_is_shut_down() {
         init_test_logging();
-        let (sub_tx, sub_rx) = mpsc::channel();
+        let (sub_tx, sub_rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new("test");
@@ -1120,7 +1121,7 @@ mod tests {
             system.run();
         });
 
-        TestLogHandler::new().await_log_containing("ERROR: Dispatcher: Stream to 1.2.3.5:7000 does not exist and could not be connected; discarding 5 bytes: other os error", 1000);
+        TestLogHandler::new().await_log_containing("ERROR: Dispatcher: Stream to 1.2.3.5:7000 does not exist and could not be connected; discarding 5 bytes: other error", 1000);
         neighborhood_awaiter.await_message_count(1);
         let remove_neighbor_msg =
             Recording::get::<RemoveNeighborMessage>(&neighborhood_recording_arc, 0);
@@ -1136,6 +1137,7 @@ mod tests {
 
     #[test]
     fn stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing() {
+        use crossbeam_channel::unbounded;
         let public_key = PublicKey::from(vec![0, 1, 2, 3]);
         let masquerader = JsonMasquerader::new();
         let incoming_unmasked = b"Incoming data".to_vec();
@@ -1147,7 +1149,7 @@ mod tests {
         let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
         let poll_write_params_arc = Arc::new(Mutex::new(vec![]));
         let poll_write_params_arc_a = poll_write_params_arc.clone();
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new(
                 "stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing",
@@ -1258,7 +1260,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
         let (neighborhood, awaiter, recording_arc) = make_recorder();
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new("test");
@@ -1448,7 +1450,7 @@ mod tests {
         };
         let msg_a = msg.clone();
 
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new("test");
@@ -1569,7 +1571,7 @@ mod tests {
             peer_addr: peer_addr_a,
         };
 
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new("test");
@@ -1878,7 +1880,7 @@ mod tests {
         init_test_logging();
         let outgoing_unmasked = b"Outgoing data".to_vec();
         let outgoing_unmasked_len = outgoing_unmasked.len();
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new(
                 "stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing",

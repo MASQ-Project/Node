@@ -236,7 +236,7 @@ impl DebutHandler {
                 None
             }
             // Neighbor of degree 3 or greater, but not less connected than I am
-            Some(ref key)
+            Some(key)
                 if database.gossip_target_degree(key)
                     >= database.gossip_target_degree(database.root().public_key()) =>
             {
@@ -280,7 +280,7 @@ impl DebutHandler {
                 root_mut.increment_version();
                 root_mut.regenerate_signed_gossip(cryptde);
                 trace!(self.logger, "Current database: {}", database.to_dot_graph());
-                if Self::should_not_make_introduction(&debuting_agr) {
+                if Self::should_not_make_introduction(debuting_agr) {
                     let ip_addr_str = match &debuting_agr.node_addr_opt {
                         Some(node_addr) => node_addr.ip_addr().to_string(),
                         None => "?.?.?.?".to_string(),
@@ -290,7 +290,7 @@ impl DebutHandler {
                                               ip_addr_str);
                     Ok(GossipAcceptanceResult::Accepted)
                 } else {
-                    match self.make_introduction(database, &debuting_agr, gossip_source) {
+                    match self.make_introduction(database, debuting_agr, gossip_source) {
                         Some((introduction, target_key, target_node_addr)) => {
                             Ok(GossipAcceptanceResult::Reply(
                                 introduction,
@@ -626,6 +626,7 @@ impl IntroductionHandler {
         }
     }
 
+    #[allow(clippy::branches_sharing_code)]
     fn identify_players(
         mut agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
@@ -903,16 +904,14 @@ impl StandardGossipHandler {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
     ) -> bool {
-        let change_flags: Vec<bool> = agrs
-            .into_iter()
-            .flat_map(|agr| match database.node_by_key(&agr.inner.public_key) {
+        agrs.into_iter().fold(false, |b, agr| {
+            match database.node_by_key(&agr.inner.public_key) {
                 Some(existing_node) if agr.inner.version > existing_node.version() => {
-                    Some(self.update_database_record(database, agr))
+                    self.update_database_record(database, agr) || b
                 }
-                _ => None,
-            })
-            .collect();
-        change_flags.into_iter().any(|f| f)
+                _ => b,
+            }
+        })
     }
 
     fn handle_root_node(

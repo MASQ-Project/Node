@@ -4,8 +4,9 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
+use masq_lib::as_any_impl;
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
@@ -13,6 +14,7 @@ use masq_lib::messages::{
 use masq_lib::shared_schema::shared_app;
 use masq_lib::short_writeln;
 use masq_lib::utils::index_of_from;
+#[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
@@ -46,9 +48,7 @@ impl Command for SetupCommand {
             Err(e) => Err(e),
         }
     }
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+    as_any_impl!();
 }
 
 impl SetupCommand {
@@ -62,7 +62,7 @@ impl SetupCommand {
             .filter(|piece| (*piece).starts_with("--"))
             .map(|piece| piece[2..].to_string())
             .map(|key| {
-                if Self::has_value(&pieces, &key) {
+                if Self::has_value(pieces, &key) {
                     let value = value_t!(matches, &key, String).expect("Value disappeared!");
                     UiSetupRequestValue::new(&key, &value)
                 } else {
@@ -293,7 +293,7 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
         };
         let (stream_factory, handle) = TestStreamFactory::new();
         let (mut stdout, _) = stream_factory.make();
-        let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
         SetupCommand::handle_broadcast(message, &mut stdout, &term_interface);
 

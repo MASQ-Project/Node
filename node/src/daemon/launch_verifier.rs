@@ -12,7 +12,7 @@ use websocket::ClientBuilder;
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
 // because they depend on being able to fail twice and still succeed.
-const DELAY_FOR_RESPONSE_MS: u64 = 1000;
+const DELAY_FOR_RESPONSE_MS: u64 = 10000;
 const RESPONSE_CHECK_INTERVAL_MS: u64 = 250;
 const DELAY_FOR_DEATH_MS: u64 = 1000;
 const DEATH_CHECK_INTERVAL_MS: u64 = 250;
@@ -335,8 +335,9 @@ mod tests {
 
     #[test]
     fn can_connect_to_ui_gateway_handles_success() {
+        use crossbeam_channel::unbounded;
         let port = find_free_port();
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let mut server = Server::bind(SocketAddr::new(localhost(), port)).unwrap();
             tx.send(()).unwrap();

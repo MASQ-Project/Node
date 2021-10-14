@@ -15,16 +15,14 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
+use crossbeam_channel::{unbounded, Receiver};
 use futures::future;
 use futures::future::Future;
 use std::collections::HashMap;
 use std::io;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::mpsc;
-use std::sync::mpsc::Receiver;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tokio::prelude::future::FutureResult;
 use tokio::prelude::future::{err, ok};
 use trust_dns_resolver::error::ResolveError;
@@ -70,8 +68,8 @@ impl StreamHandlerPoolReal {
         exit_service_rate: u64,
         exit_byte_rate: u64,
     ) -> StreamHandlerPoolReal {
-        let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
-        let (stream_adder_tx, stream_adder_rx) = mpsc::channel();
+        let (stream_killer_tx, stream_killer_rx) = unbounded();
+        let (stream_adder_tx, stream_adder_rx) = unbounded();
         StreamHandlerPoolReal {
             inner: Arc::new(Mutex::new(StreamHandlerPoolRealInner {
                 establisher_factory: Box::new(StreamEstablisherFactoryReal {
@@ -342,7 +340,7 @@ impl StreamHandlerPoolReal {
             logger,
             "Found IP addresses for {}: {:?}", target_hostname, &ip_addrs
         );
-        establisher.establish_stream(&payload, ip_addrs, target_hostname)
+        establisher.establish_stream(payload, ip_addrs, target_hostname)
     }
 
     fn make_fqdn(target_hostname: &str) -> String {
@@ -354,7 +352,7 @@ impl StreamHandlerPoolReal {
         inner_arc: &Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) -> Option<Box<dyn SenderWrapper<SequencedPacket>>> {
         let inner = inner_arc.lock().expect("Stream handler pool is poisoned");
-        let sender_wrapper_opt = inner.stream_writer_channels.get(&stream_key);
+        let sender_wrapper_opt = inner.stream_writer_channels.get(stream_key);
         sender_wrapper_opt.map(|sender_wrapper_box_ref| sender_wrapper_box_ref.as_ref().clone())
     }
 
@@ -493,12 +491,12 @@ mod tests {
     use crate::sub_lib::hopper::ExpiredCoresPackage;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::proxy_server::ProxyProtocol;
+    use crate::test_utils::await_messages;
     use crate::test_utils::channel_wrapper_mocks::FuturesChannelFactoryMock;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::make_recorder;
@@ -506,7 +504,7 @@ mod tests {
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::{await_messages, make_wallet};
+    use crate::test_utils::{main_cryptde, make_wallet};
     use actix::System;
     use masq_lib::constants::HTTP_PORT;
     use std::cell::RefCell;
@@ -516,8 +514,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::ops::Deref;
     use std::str::FromStr;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio;
     use tokio::prelude::Async;
@@ -563,8 +560,8 @@ mod tests {
             let logger = Logger::new("dns_resolution_failure_sends_a_message_to_proxy_client");
             let establisher = StreamEstablisher {
                 cryptde,
-                stream_adder_tx: mpsc::channel().0,
-                stream_killer_tx: mpsc::channel().0,
+                stream_adder_tx: unbounded().0,
+                stream_killer_tx: unbounded().0,
                 stream_connector: Box::new(StreamConnectorMock::new()),
                 proxy_client_sub: peer_actors
                     .proxy_client_opt
@@ -795,9 +792,9 @@ mod tests {
                 100,
                 200,
             );
-            let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
+            let (stream_killer_tx, stream_killer_rx) = unbounded();
             subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
+            let (stream_adder_tx, _stream_adder_rx) = unbounded();
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
@@ -904,9 +901,9 @@ mod tests {
                 100,
                 200,
             );
-            let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
+            let (stream_killer_tx, stream_killer_rx) = unbounded();
             subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
+            let (stream_adder_tx, _stream_adder_rx) = unbounded();
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
@@ -1075,9 +1072,9 @@ mod tests {
                 100,
                 200,
             );
-            let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
+            let (stream_killer_tx, stream_killer_rx) = unbounded();
             subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
+            let (stream_adder_tx, _stream_adder_rx) = unbounded();
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
@@ -1172,9 +1169,9 @@ mod tests {
                 100,
                 200,
             );
-            let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
+            let (stream_killer_tx, stream_killer_rx) = unbounded();
             subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
+            let (stream_adder_tx, _stream_adder_rx) = unbounded();
             let establisher = StreamEstablisher {
                 cryptde,
                 stream_adder_tx,
@@ -1217,7 +1214,7 @@ mod tests {
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let (stream_adder_tx, _stream_adder_rx) = mpsc::channel();
+        let (stream_adder_tx, _stream_adder_rx) = unbounded();
 
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -1279,7 +1276,7 @@ mod tests {
                     .unbounded_send_result(make_send_error(sequenced_packet)),
             );
 
-            let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
+            let (stream_killer_tx, stream_killer_rx) = unbounded();
             subject.stream_killer_rx = stream_killer_rx;
 
             {
@@ -1530,7 +1527,7 @@ mod tests {
             0,
             0,
         );
-        let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
+        let (stream_killer_tx, stream_killer_rx) = unbounded();
         subject.stream_killer_rx = stream_killer_rx;
         let stream_key = make_meaningless_stream_key();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -1573,7 +1570,7 @@ mod tests {
             0,
             0,
         );
-        let (stream_killer_tx, stream_killer_rx) = mpsc::channel();
+        let (stream_killer_tx, stream_killer_rx) = unbounded();
         subject.stream_killer_rx = stream_killer_rx;
         let stream_key = make_meaningless_stream_key();
         stream_killer_tx.send((stream_key, 47)).unwrap();

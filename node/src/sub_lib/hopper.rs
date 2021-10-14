@@ -44,7 +44,7 @@ impl NoLookupIncipientCoresPackage {
         node_addr: &NodeAddr,
         payload: MessageType,
     ) -> Result<NoLookupIncipientCoresPackage, String> {
-        let encrypted_payload = match encodex(cryptde, &public_key, &payload) {
+        let encrypted_payload = match encodex(cryptde, public_key, &payload) {
             Ok(p) => p,
             Err(e) => return Err(format!("Could not encrypt payload: {:?}", e)),
         };
@@ -79,7 +79,7 @@ impl IncipientCoresPackage {
         payload: MessageType,
         payload_destination_key: &PublicKey,
     ) -> Result<IncipientCoresPackage, String> {
-        let encrypted_payload = match encodex(cryptde, &payload_destination_key, &payload) {
+        let encrypted_payload = match encodex(cryptde, payload_destination_key, &payload) {
             Ok(p) => p,
             Err(e) => return Err(format!("Could not encrypt payload: {:?}", e)),
         };

@@ -11,9 +11,8 @@ use crate::communications::broadcast_handler::{
 };
 use crate::interactive_mode::go_interactive;
 use crate::non_interactive_clap::{NIClapFactory, NIClapFactoryReal};
-use crate::terminal_interface::TerminalWrapper;
-use masq_lib::command;
-use masq_lib::command::StdStreams;
+use crate::terminal::terminal_interface::TerminalWrapper;
+use masq_lib::command::{Command, StdStreams};
 use masq_lib::short_writeln;
 use std::io::Write;
 use std::ops::Not;
@@ -61,7 +60,7 @@ impl Main {
 
     fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, Option<TerminalWrapper>)
     {
-        (Box::new(BroadcastHandleInactive::new()), None)
+        (Box::new(BroadcastHandleInactive), None)
     }
 
     fn populate_interactive_dependencies(
@@ -80,7 +79,7 @@ impl Main {
     }
 }
 
-impl command::Command for Main {
+impl Command<u8> for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let ui_port = self
             .non_interactive_clap_factory
@@ -169,19 +168,22 @@ mod tests {
     use crate::commands::commands_common::CommandError;
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
-    use crate::line_reader::TerminalEvent;
+    use crate::terminal::line_reader::TerminalEvent;
     use crate::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
         MockCommand, NIClapFactoryMock, TerminalPassiveMock, TestStreamFactory,
     };
-    use masq_lib::command::Command;
     use masq_lib::intentionally_blank;
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::any::Any;
     use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
+
+    #[cfg(target_os = "windows")]
+    mod win_test_import {
+        pub use std::thread;
+        pub use std::time::Duration;
+    }
 
     #[test]
     fn noninteractive_mode_works_when_everything_is_copacetic() {
@@ -397,8 +399,9 @@ mod tests {
 
             assert_eq!(output, "")
         }
-        //because of Win from Actions (theoretically some other platform too)
-        thread::sleep(Duration::from_millis(200));
+        //because of Win from Actions
+        #[cfg(target_os = "windows")]
+        win_test_import::thread::sleep(win_test_import::Duration::from_millis(200));
 
         let output_when_unlocked = test_stream_handle.stdout_so_far();
 
@@ -547,7 +550,7 @@ mod tests {
             .process_result(Ok(()))
             .process_result(Ok(()))
             .process_params(&process_params_arc)
-            .inject_terminal_interface(TerminalWrapper::new(Box::new(terminal_mock)));
+            .inject_terminal_interface(TerminalWrapper::new(Arc::new(terminal_mock)));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
@@ -591,10 +594,9 @@ mod tests {
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let processor = CommandProcessorMock::new()
             .close_params(&close_params_arc)
-            .inject_terminal_interface(TerminalWrapper::new(Box::new(
-                TerminalPassiveMock::new().read_line_result(TerminalEvent::CLError(Some(
-                    "ConnectionRefused".to_string(),
-                ))),
+            .inject_terminal_interface(TerminalWrapper::new(Arc::new(
+                TerminalPassiveMock::new()
+                    .read_line_result(TerminalEvent::Error(Some("ConnectionRefused".to_string()))),
             )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));

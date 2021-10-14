@@ -9,6 +9,7 @@ pub mod messages;
 #[macro_use]
 pub mod utils;
 
+pub mod automap_tools;
 pub mod command;
 pub mod constants;
 pub mod crash_point;
