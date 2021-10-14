@@ -37,8 +37,10 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
                             let ip_addr_maybe_with_scope_id = first_elements[2];
                             let ip_addr_str =
                                 ip_addr_maybe_with_scope_id.split('%').collect::<Vec<_>>()[0];
-                            IpAddr::from_str(ip_addr_str)
-                                .map_err(|_| panic!("Bad syntax from ipconfig /all"))
+                            Some(
+                                IpAddr::from_str(ip_addr_str)
+                                    .expect("Bad syntax from ipconfig /all"),
+                            )
                         }
                     },
                 )
@@ -73,7 +75,7 @@ impl WindowsFindRoutersCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::mocks::FindRoutersCommandMock;
+    use crate::mocks::FindRoutersCommandMock;
     use std::str::FromStr;
 
     #[test]
@@ -379,7 +381,7 @@ Ethernet adapter Ethernet:
 ";
         let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
 
-        let result = windows_find_routers(&find_routers_command);
+        let _ = windows_find_routers(&find_routers_command);
     }
 
     #[test]
