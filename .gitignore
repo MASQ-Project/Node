@@ -2,6 +2,7 @@
 /target/
 /results/
 **/*.rs.bk
+.idea/azure/
 
 ### Node
 node_modules
