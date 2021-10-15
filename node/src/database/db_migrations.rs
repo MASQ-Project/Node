@@ -1,5 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::blockchain_interface::chain_name_from_id;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
@@ -17,6 +18,7 @@ pub trait DbMigrator {
 }
 
 pub struct DbMigratorReal {
+    external: ExternalMigrationParameters,
     logger: Logger,
 }
 
@@ -41,12 +43,6 @@ impl DbMigrator for DbMigratorReal {
     }
 }
 
-impl Default for DbMigratorReal {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 trait DatabaseMigration: Debug {
     fn migrate<'a>(
         &self,
@@ -56,7 +52,9 @@ trait DatabaseMigration: Debug {
 }
 
 trait MigDeclarationUtilities {
-    fn execute_upon_transaction(&self, sql_statements: &[&'static str]) -> rusqlite::Result<()>;
+    fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()>;
+
+    fn external_parameters(&self) -> &ExternalMigrationParameters;
 }
 
 trait DBMigrationUtilities {
@@ -64,7 +62,10 @@ trait DBMigrationUtilities {
 
     fn commit(&mut self) -> Result<(), String>;
 
-    fn make_mig_declaration_utils<'a>(&'a self) -> Box<dyn MigDeclarationUtilities + 'a>;
+    fn make_mig_declaration_utils<'a>(
+        &'a self,
+        external: &'a ExternalMigrationParameters,
+    ) -> Box<dyn MigDeclarationUtilities + 'a>;
 
     fn too_high_schema_panics(&self, mismatched_schema: usize);
 }
@@ -110,9 +111,13 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
             .map_err(|e| e.to_string())
     }
 
-    fn make_mig_declaration_utils<'b>(&'b self) -> Box<dyn MigDeclarationUtilities + 'b> {
+    fn make_mig_declaration_utils<'b>(
+        &'b self,
+        external: &'b ExternalMigrationParameters,
+    ) -> Box<dyn MigDeclarationUtilities + 'b> {
         Box::new(MigDeclarationUtilitiesReal::new(
             self.root_transaction_ref(),
+            external,
         ))
     }
 
@@ -129,18 +134,23 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
 
 struct MigDeclarationUtilitiesReal<'a> {
     root_transaction_ref: &'a Transaction<'a>,
+    external: &'a ExternalMigrationParameters,
 }
 
 impl<'a> MigDeclarationUtilitiesReal<'a> {
-    fn new(root_transaction_ref: &'a Transaction<'a>) -> Self {
+    fn new(
+        root_transaction_ref: &'a Transaction<'a>,
+        external: &'a ExternalMigrationParameters,
+    ) -> Self {
         Self {
             root_transaction_ref,
+            external,
         }
     }
 }
 
 impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
-    fn execute_upon_transaction(&self, sql_statements: &[&'static str]) -> rusqlite::Result<()> {
+    fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()> {
         let transaction = self.root_transaction_ref;
         sql_statements.iter().fold(Ok(()), |so_far, stm| {
             if so_far.is_ok() {
@@ -149,6 +159,10 @@ impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
                 so_far
             }
         })
+    }
+
+    fn external_parameters(&self) -> &ExternalMigrationParameters {
+        self.external
     }
 }
 
@@ -189,17 +203,41 @@ impl DatabaseMigration for Migrate_0_to_1 {
     }
 }
 
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+struct Migrate_1_to_2;
+
+impl DatabaseMigration for Migrate_1_to_2 {
+    fn migrate<'a>(
+        &self,
+        declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
+    ) -> rusqlite::Result<()> {
+        let statement = format!(
+            "INSERT INTO config (name, value, encrypted) VALUES ('chain_name', '{}', 0)",
+            declaration_utils.external_parameters().chain_name
+        );
+        declaration_utils.execute_upon_transaction(&[
+            statement.as_str(), //another statement would follow here
+        ])
+    }
+
+    fn old_version(&self) -> usize {
+        1
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 impl DbMigratorReal {
-    pub fn new() -> Self {
+    pub fn new(external: ExternalMigrationParameters) -> Self {
         Self {
+            external,
             logger: Logger::new("DbMigrator"),
         }
     }
 
     fn list_of_updates<'a>() -> &'a [&'a dyn DatabaseMigration] {
-        &[&Migrate_0_to_1]
+        &[&Migrate_0_to_1, &Migrate_1_to_2]
     }
 
     fn make_updates<'a>(
@@ -217,7 +255,7 @@ impl DbMigratorReal {
         );
         for record in updates_to_process {
             let present_db_version = record.old_version();
-            if let Err(e) = Self::migrate_semi_automated(record, &*migration_utilities) {
+            if let Err(e) = self.migrate_semi_automated(record, &*migration_utilities) {
                 return self.dispatch_bad_news(present_db_version, e);
             }
             self.log_success(present_db_version)
@@ -226,10 +264,11 @@ impl DbMigratorReal {
     }
 
     fn migrate_semi_automated<'a>(
+        &self,
         record: &dyn DatabaseMigration,
         migration_utilities: &'a (dyn DBMigrationUtilities + 'a),
     ) -> rusqlite::Result<()> {
-        record.migrate(migration_utilities.make_mig_declaration_utils())?;
+        record.migrate(migration_utilities.make_mig_declaration_utils(&self.external))?;
         let update_to = record.old_version() + 1;
         migration_utilities.update_schema_version(update_to)
     }
@@ -293,6 +332,19 @@ impl DbMigratorReal {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExternalMigrationParameters {
+    chain_name: String,
+}
+
+impl ExternalMigrationParameters {
+    pub fn new(chain_id: u8) -> Self {
+        Self {
+            chain_name: chain_name_from_id(chain_id).to_string(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
@@ -302,7 +354,7 @@ mod tests {
     };
     use crate::database::db_migrations::{
         DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbMigrator,
-        MigDeclarationUtilities, Migrate_0_to_1,
+        ExternalMigrationParameters, MigDeclarationUtilities, Migrate_0_to_1,
     };
     use crate::database::db_migrations::{DBMigratorConfiguration, DbMigratorReal};
     use crate::test_utils::database_utils::{
@@ -310,19 +362,19 @@ mod tests {
         revive_tables_of_the_version_0_and_return_the_connection_to_the_db,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use lazy_static::lazy_static;
-    use masq_lib::test_utils::utils::{BASE_TEST_DIR, DEFAULT_CHAIN_ID};
+    use masq_lib::constants::DEFAULT_CHAIN_NAME;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
         too_high_found_schema_will_panic_params: Arc<Mutex<Vec<usize>>>,
+        make_mig_declaration_utils_params: Arc<Mutex<Vec<ExternalMigrationParameters>>>,
         make_mig_declaration_utils_results: RefCell<Vec<Box<dyn MigDeclarationUtilities>>>,
         update_schema_version_params: Arc<Mutex<Vec<usize>>>,
         update_schema_version_results: RefCell<Vec<rusqlite::Result<()>>>,
@@ -342,6 +394,14 @@ mod tests {
 
         pub fn commit_result(self, result: Result<(), String>) -> Self {
             self.commit_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn make_mig_declaration_utils_params(
+            mut self,
+            params: &Arc<Mutex<Vec<ExternalMigrationParameters>>>,
+        ) -> Self {
+            self.make_mig_declaration_utils_params = params.clone();
             self
         }
 
@@ -369,7 +429,14 @@ mod tests {
             self.commit_results.borrow_mut().remove(0)
         }
 
-        fn make_mig_declaration_utils<'a>(&'a self) -> Box<dyn MigDeclarationUtilities + 'a> {
+        fn make_mig_declaration_utils<'a>(
+            &'a self,
+            external: &'a ExternalMigrationParameters,
+        ) -> Box<dyn MigDeclarationUtilities + 'a> {
+            self.make_mig_declaration_utils_params
+                .lock()
+                .unwrap()
+                .push(external.clone());
             self.make_mig_declaration_utils_results
                 .borrow_mut()
                 .remove(0)
@@ -407,10 +474,7 @@ mod tests {
     }
 
     impl MigDeclarationUtilities for DBUpdateDeclarationUtilitiesMock {
-        fn execute_upon_transaction(
-            &self,
-            sql_statements: &[&'static str],
-        ) -> rusqlite::Result<()> {
+        fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()> {
             self.execute_upon_transaction_params.lock().unwrap().push(
                 sql_statements
                     .iter()
@@ -419,18 +483,23 @@ mod tests {
             );
             self.execute_upon_transaction_results.borrow_mut().remove(0)
         }
+
+        fn external_parameters(&self) -> &ExternalMigrationParameters {
+            unimplemented!()
+        }
     }
 
-    lazy_static! {
-        static ref TEST_DIRECTORY_FOR_DB_MIGRATION: PathBuf =
-            PathBuf::new().join(BASE_TEST_DIR).join("db_migration");
+    fn make_external_migration_parameters() -> ExternalMigrationParameters {
+        ExternalMigrationParameters {
+            chain_name: DEFAULT_CHAIN_NAME.to_string(),
+        }
     }
 
     #[test]
     fn migrate_database_handles_an_error_from_creating_the_root_transaction() {
-        let subject = DbMigratorReal::new();
+        let subject = DbMigratorReal::new(make_external_migration_parameters());
         let mismatched_schema = 0;
-        let target_version = 5; //not relevant
+        let target_version = 5; //irrelevant
         let connection = ConnectionWrapperMock::default()
             .transaction_result(Err(Error::SqliteSingleThreadedMode)); //hard to find a real-like error for this
 
@@ -452,7 +521,7 @@ mod tests {
         let mig_config = DBMigratorConfiguration::new();
         let migration_utilities =
             DBMigrationUtilitiesReal::new(&mut conn_wrapper, mig_config).unwrap();
-        let subject = DbMigratorReal::default();
+        let subject = DbMigratorReal::new(make_external_migration_parameters());
 
         let captured_panic = catch_unwind(AssertUnwindSafe(|| {
             subject.make_updates(
@@ -576,9 +645,9 @@ mod tests {
             )
             .update_schema_version_result(Err(Error::InvalidQuery))
             .update_schema_version_params(&update_schema_version_params_arc);
+        let subject = DbMigratorReal::new(make_external_migration_parameters());
 
-        let result =
-            DbMigratorReal::migrate_semi_automated(&mut migration_record, &migration_utilities);
+        let result = subject.migrate_semi_automated(&mut migration_record, &migration_utilities);
 
         assert_eq!(result, Err(Error::InvalidQuery));
         let update_schema_version_params = update_schema_version_params_arc.lock().unwrap();
@@ -597,7 +666,7 @@ mod tests {
             .make_mig_declaration_utils_result(Box::new(update_declaration_utils));
         let mismatched_schema = 0;
         let target_version = 5; //not relevant
-        let subject = DbMigratorReal::default();
+        let subject = DbMigratorReal::new(make_external_migration_parameters());
 
         let result = subject.make_updates(
             mismatched_schema,
@@ -621,8 +690,7 @@ mod tests {
     #[test]
     fn execute_upon_transaction_returns_the_first_error_encountered_and_the_transaction_is_canceled(
     ) {
-        let dir_path: PathBuf = TEST_DIRECTORY_FOR_DB_MIGRATION.join("execute_upon_transaction_returns_the_first_error_encountered_and_the_transaction_is_canceled");
-        create_dir_all(&dir_path).unwrap();
+        let dir_path = ensure_node_home_directory_exists("db_migrations","execute_upon_transaction_returns_the_first_error_encountered_and_the_transaction_is_canceled");
         let db_path = dir_path.join("test_database.db");
         let connection = Connection::open(&db_path).unwrap();
         connection
@@ -644,10 +712,12 @@ mod tests {
         ];
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
         let config = DBMigratorConfiguration::new();
+        let chain_id = 1; //irrelevant
+        let external_parameters = ExternalMigrationParameters::new(chain_id);
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
         let result = subject
-            .make_mig_declaration_utils()
+            .make_mig_declaration_utils(&external_parameters)
             .execute_upon_transaction(set_of_sql_statements);
 
         assert_eq!(
@@ -723,7 +793,7 @@ mod tests {
             db_configuration_table: "test".to_string(),
             current_schema_version: 5,
         };
-        let subject = DbMigratorReal::new();
+        let subject = DbMigratorReal::new(make_external_migration_parameters());
         let mismatched_schema = 2;
         let target_version = 5;
 
@@ -806,7 +876,7 @@ mod tests {
             db_configuration_table: "test".to_string(),
             current_schema_version: 5,
         };
-        let subject = DbMigratorReal::new();
+        let subject = DbMigratorReal::new(make_external_migration_parameters());
         let mismatched_schema = 0;
         let target_version = 3;
 
@@ -835,18 +905,20 @@ mod tests {
         init_test_logging();
         let execute_upon_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let update_schema_version_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_mig_declaration_params_arc = Arc::new(Mutex::new(vec![]));
         let outdated_schema = 0;
         let list = &[&Migrate_0_to_1 as &dyn DatabaseMigration];
         let db_update_declaration_utilities = DBUpdateDeclarationUtilitiesMock::default()
             .execute_upon_transaction_params(&execute_upon_transaction_params_arc)
             .execute_upon_transaction_result(Ok(()));
         let migration_utils = DBMigrationUtilitiesMock::default()
+            .make_mig_declaration_utils_params(&make_mig_declaration_params_arc)
             .make_mig_declaration_utils_result(Box::new(db_update_declaration_utilities))
             .update_schema_version_params(&update_schema_version_params_arc)
             .update_schema_version_result(Ok(()))
             .commit_result(Ok(()));
         let target_version = 5; //not relevant
-        let subject = DbMigratorReal::default();
+        let subject = DbMigratorReal::new(make_external_migration_parameters());
 
         let result = subject.make_updates(
             outdated_schema,
@@ -868,6 +940,13 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             "INFO: DbMigrator: Database successfully updated from version 0 to 1",
         );
+        let make_mig_declaration_utils_params = make_mig_declaration_params_arc.lock().unwrap();
+        assert_eq!(
+            *make_mig_declaration_utils_params,
+            vec![ExternalMigrationParameters {
+                chain_name: "mainnet".to_string()
+            }]
+        )
     }
 
     #[test]
@@ -896,7 +975,7 @@ mod tests {
             .update_schema_version_result(Ok(()))
             .update_schema_version_result(Ok(()))
             .commit_result(Err("Committing transaction failed".to_string()));
-        let subject = DbMigratorReal::new();
+        let subject = DbMigratorReal::new(make_external_migration_parameters());
 
         let result = subject.make_updates(0, 2, Box::new(migration_utils), list_of_updates);
 
@@ -909,35 +988,63 @@ mod tests {
 
     #[test]
     fn migration_from_0_to_1_is_properly_set() {
-        let dir_path = TEST_DIRECTORY_FOR_DB_MIGRATION.join("0_to_1");
+        let dir_path = ensure_node_home_directory_exists("db_migrations", "0_to_1");
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join(DATABASE_FILE);
-        let connection =
-            revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
+        let _ = revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
         let subject = DbInitializerReal::default();
 
         let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, 1, true);
 
+        let connection = result.unwrap();
         let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
             assurance_query_for_config_table(
-                &connection,
+                connection.as_ref(),
                 "select name, value, encrypted from config where name = 'mapping_protocol'",
             );
         let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
             assurance_query_for_config_table(
-                &connection,
+                connection.as_ref(),
                 "select name, value, encrypted from config where name = 'schema_version'",
             );
-        assert!(result
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ConnectionWrapperReal>()
-            .is_some());
         assert_eq!(mp_name, "mapping_protocol".to_string());
         assert_eq!(mp_value, None);
         assert_eq!(mp_encrypted, 0);
         assert_eq!(cs_name, "schema_version".to_string());
         assert_eq!(cs_value, Some("1".to_string()));
         assert_eq!(cs_encrypted, 0)
+    }
+
+    #[test]
+    fn migration_from_1_to_2_is_properly_set() {
+        let dir_path = ensure_node_home_directory_exists("db_migrations", "1_to_2");
+        let db_path = dir_path.join(DATABASE_FILE);
+        let _ = revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
+        let subject = DbInitializerReal::default();
+        {
+            subject
+                .initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, 1, true)
+                .unwrap();
+        }
+
+        let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, 2, true);
+
+        let connection = result.unwrap();
+        let (chn_name, chn_value, chn_encrypted): (String, Option<String>, u16) =
+            assurance_query_for_config_table(
+                connection.as_ref(),
+                "select name, value, encrypted from config where name = 'chain_name'",
+            );
+        let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
+            assurance_query_for_config_table(
+                connection.as_ref(),
+                "select name, value, encrypted from config where name = 'schema_version'",
+            );
+        assert_eq!(chn_name, "chain_name".to_string());
+        assert_eq!(chn_value, Some("ropsten".to_string()));
+        assert_eq!(chn_encrypted, 0);
+        assert_eq!(cs_name, "schema_version".to_string());
+        assert_eq!(cs_value, Some("2".to_string()));
+        assert_eq!(cs_encrypted, 0);
     }
 }

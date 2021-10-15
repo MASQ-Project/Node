@@ -10,11 +10,10 @@ use std::net::TcpStream;
 use std::str::FromStr;
 use std::time::Duration;
 
+// 'node' below must not be named '_' alone or disappear, or the MASQNode will be immediately reclaimed.
 #[test]
-#[allow(unused_variables)] // 'node' below must not become '_' or disappear, or the
-                           // MASQNode will be immediately reclaimed.
 fn http_through_node_integration() {
-    let node = utils::MASQNode::start_standard("http_through_node_integration", None, true, false);
+    let _node = utils::MASQNode::start_standard("http_through_node_integration", None, true, false);
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_millis(100)))

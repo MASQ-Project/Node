@@ -13,8 +13,18 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
+use crate::blockchain::blockchain_interface::{
+    chain_name_from_id, BlockchainInterface, BlockchainInterfaceClandestine,
+    BlockchainInterfaceNonClandestine,
+};
 use crate::database::dao_utils::DaoFactoryReal;
-use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
+use crate::database::db_initializer::{
+    connection_or_panic, DbInitializer, DbInitializerReal, DATABASE_FILE,
+};
+use crate::db_config::config_dao::ConfigDaoReal;
+use crate::db_config::persistent_configuration::{
+    PersistentConfiguration, PersistentConfigurationReal,
+};
 use crate::node_configurator::configurator::Configurator;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
@@ -379,6 +389,10 @@ impl ActorFactory for ActorFactoryReal {
                 data_directory,
                 chain_id,
             );
+            validate_database_chain_correctness(
+                chain_id,
+                persistent_config.as_ref(),
+            );
             BlockchainBridge::new(
                 blockchain_interface,
                 persistent_config,
@@ -403,6 +417,20 @@ impl ActorFactory for ActorFactoryReal {
     }
 }
 
+fn validate_database_chain_correctness(
+    chain_id: u8,
+    persistent_config: &dyn PersistentConfiguration,
+) {
+    let required_chain = chain_name_from_id(chain_id).to_string();
+    let chain_in_db = persistent_config.chain_name();
+    if required_chain != chain_in_db {
+        panic!(
+            "Database with the wrong chain name detected; expected: {}, was: {}",
+            required_chain, chain_in_db
+        )
+    }
+}
+
 impl ActorFactoryReal {
     fn find_out_crashable(config: &BootstrapperConfig) -> bool {
         config.crash_point == CrashPoint::Message
@@ -414,6 +442,7 @@ mod tests {
     use super::*;
     use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::neighborhood::gossip::Gossip_0v1;
@@ -451,6 +480,7 @@ mod tests {
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_wallet;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
@@ -460,6 +490,7 @@ mod tests {
     use actix::{Context, Handler, System};
     use crossbeam_channel::{bounded, Sender};
     use log::LevelFilter;
+    use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
@@ -1292,5 +1323,26 @@ mod tests {
             .unwrap();
         let result = candidate.decode(&crypt_data).unwrap();
         assert_eq!(result, plain_data);
+    }
+
+    #[test]
+    fn database_chain_validity_happy_path() {
+        let chain_id = chain_id_from_name(DEFAULT_CHAIN_NAME); //due to confusing nomenclature in the constants being available // TODO GH-473 may fix this
+        let persistent_config =
+            PersistentConfigurationMock::default().chain_name_result("mainnet".to_string());
+
+        let _ = validate_database_chain_correctness(chain_id, &persistent_config);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Database with the wrong chain name detected; expected: ropsten, was: mainnet"
+    )]
+    fn database_chain_validity_sad_path() {
+        let chain_id = DEFAULT_CHAIN_ID; //Ropsten
+        let persistent_config =
+            PersistentConfigurationMock::default().chain_name_result("mainnet".to_string());
+
+        let _ = validate_database_chain_correctness(chain_id, &persistent_config);
     }
 }

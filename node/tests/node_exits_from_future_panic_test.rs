@@ -13,12 +13,14 @@ use std::time::Duration;
 #[test]
 fn node_exits_from_future_panic_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "panic");
+
     let mut node = utils::MASQNode::start_standard(
         "node_exits_from_future_panic_integration",
         Some(panic_config),
         false,
         false,
     );
+
     let success = node.wait_for_exit().unwrap().status.success();
     assert!(!success, "Did not fail as expected");
 }
@@ -26,6 +28,7 @@ fn node_exits_from_future_panic_integration() {
 #[test]
 fn node_logs_panic_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "panic");
+
     let mut node = utils::MASQNode::start_standard(
         "node_logs_panic_integration",
         Some(panic_config),
@@ -34,7 +37,6 @@ fn node_logs_panic_integration() {
     );
 
     node.wait_for_log("std::panicking::", Some(5000));
-    node.kill().unwrap();
 }
 
 #[cfg(target_os = "linux")]
