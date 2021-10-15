@@ -135,7 +135,9 @@ destination: default
                 "gateway",
                 "interface",
                 "flags"
-            ].into_iter().collect::<HashSet<&str>>()
+            ]
+            .into_iter()
+            .collect::<HashSet<&str>>()
         );
     }
 }
