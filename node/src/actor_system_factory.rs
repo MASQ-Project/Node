@@ -389,10 +389,7 @@ impl ActorFactory for ActorFactoryReal {
                 data_directory,
                 chain_id,
             );
-            validate_database_chain_correctness(
-                chain_id,
-                persistent_config.as_ref(),
-            );
+            validate_database_chain_correctness(chain_id, persistent_config.as_ref());
             BlockchainBridge::new(
                 blockchain_interface,
                 persistent_config,
