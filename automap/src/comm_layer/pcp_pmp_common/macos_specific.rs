@@ -128,14 +128,14 @@ destination: default
             .collect::<HashSet<&str>>();
         assert_eq!(
             lines,
-            HashSet::from(vec![
+            vec![
                 "route to",
                 "destination",
                 "mask",
                 "gateway",
                 "interface",
                 "flags"
-            ])
+            ].into_iter().collect::<HashSet<&str>>()
         );
     }
 }
