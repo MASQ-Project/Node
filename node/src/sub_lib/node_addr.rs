@@ -88,7 +88,7 @@ impl FromStr for NodeAddr {
 
     fn from_str(input: &str) -> Result<NodeAddr, String> {
         let pieces: Vec<&str> = input.split(':').collect();
-        if pieces.len() != 2 {
+        if pieces.len() != 2 || pieces[0].is_empty() {
             return Err(format!(
                 "NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not '{}'",
                 input
@@ -219,6 +219,19 @@ mod tests {
             result,
             Err(String::from(
                 "NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not 'Booga'"
+            ))
+        );
+    }
+
+    #[test]
+    fn node_addrs_from_str_complains_about_confusing_situation_with_a_starting_colon_and_no_ports()
+    {
+        let result = NodeAddr::from_str(":192.45.35.8");
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not ':192.45.35.8'"
             ))
         );
     }
