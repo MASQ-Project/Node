@@ -49,7 +49,7 @@ impl MacOsFindRoutersCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::mocks::FindRoutersCommandMock;
+    use crate::mocks::FindRoutersCommandMock;
     use std::collections::HashSet;
     use std::str::FromStr;
 
