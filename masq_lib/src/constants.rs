@@ -14,7 +14,7 @@ pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 
 pub const MASQ_PROMPT: &str = "masq> ";
 
-pub const ETH_MAINNET_IDENTIFIER: &str = "eth-mainnet";
+pub const ETH_MAINNET_IDENTIFIER: &str = DEFAULT_CHAIN_NAME;
 pub const ETH_ROPSTEN_IDENTIFIER: &str = "eth-ropsten";
 pub const ETH_RINKEBY_IDENTIFIER: &str = "eth-rinkeby";
 pub const DEV_CHAIN_IDENTIFIER: &str = "dev";

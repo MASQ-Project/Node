@@ -99,7 +99,7 @@ impl fmt::Display for NodeReference {
                 .iter()
                 .map(|port| port.to_string())
                 .collect::<Vec<String>>()
-                .join(";"),
+                .join(NodeAddr::PORTS_SEPARATOR),
             None => String::new(),
         };
         write!(
@@ -178,7 +178,7 @@ impl NodeReference {
             vec![]
         } else {
             String::from(slice)
-                .split(';')
+                .split(NodeAddr::PORTS_SEPARATOR)
                 .map(|x| x.parse::<i64>().unwrap_or(-1))
                 .collect()
         };
@@ -341,13 +341,13 @@ mod tests {
 
     #[test]
     fn strip_ports_works_multiple_ports() {
-        let tail = "4.3.2.9:4444;1212;11133";
+        let tail = "4.3.2.9:4444/1212/11133";
 
         let result = strip_ports(tail);
 
         assert_eq!(
             result,
-            ("4.3.2.9".to_string(), "4444;1212;11133".to_string())
+            ("4.3.2.9".to_string(), "4444/1212/11133".to_string())
         )
     }
 
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn node_reference_from_string_fails_if_key_is_not_valid_base64() {
-        let string = String::from("masq://dev:;;;@12.34.56.78:1234;2345");
+        let string = String::from("masq://dev:;;;@12.34.56.78:1234/2345");
 
         let result = NodeReference::from_str(string.as_str());
 
@@ -403,7 +403,7 @@ mod tests {
     #[test]
     fn node_reference_from_string_fails_if_ip_address_is_not_valid() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("masq://dev:{}@blippy:1234;2345", key);
+        let string = format!("masq://dev:{}@blippy:1234/2345", key);
 
         let result = NodeReference::from_str(string.as_str());
 
@@ -418,17 +418,17 @@ mod tests {
     #[test]
     fn node_reference_from_string_fails_if_a_port_number_is_not_valid() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("masq://dev:{}@12.34.56.78:weeble;frud", key);
+        let string = format!("masq://dev:{}@12.34.56.78:weeble/frud", key);
 
         let result = NodeReference::from_str(string.as_str());
 
-        assert_eq! (result, Err (String::from ("The port list must be a semicolon-separated sequence of valid numbers, not 'weeble;frud'")));
+        assert_eq! (result, Err (String::from ("The port list must be a semicolon-separated sequence of valid numbers, not 'weeble/frud'")));
     }
 
     #[test]
     fn node_reference_from_string_fails_if_a_port_number_is_too_big() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("masq://dev:{}@12.34.56.78:1234;65536", key);
+        let string = format!("masq://dev:{}@12.34.56.78:1234/65536", key);
 
         let result = NodeReference::from_str(string.as_str());
 
@@ -443,7 +443,7 @@ mod tests {
     #[test]
     fn node_reference_from_string_happy() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("masq://dev:{}@12.34.56.78:1234;2345", key);
+        let string = format!("masq://dev:{}@12.34.56.78:1234/2345", key);
 
         let result = NodeReference::from_str(string.as_str()).unwrap();
 
@@ -488,7 +488,7 @@ mod tests {
 
         assert_eq!(
             result,
-            String::from("masq://dev:Qm9vZ2E@12.34.56.78:1234;5678")
+            String::from("masq://dev:Qm9vZ2E@12.34.56.78:1234/5678")
         );
     }
 }

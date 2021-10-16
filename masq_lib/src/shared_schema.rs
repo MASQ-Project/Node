@@ -147,7 +147,7 @@ pub fn chain_arg<'a>() -> Arg<'a, 'a> {
         .value_name("CHAIN")
         .min_values(0)
         .max_values(1)
-        .possible_values(&[DEFAULT_CHAIN_NAME, "ropsten", "rinkeby", "dev"])
+        .possible_values(&[DEFAULT_CHAIN_NAME, "ropsten", "rinkeby", "dev"]) //TODO one day 'dev' may be left out
         .help(CHAIN_HELP)
 }
 

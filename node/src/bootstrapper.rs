@@ -1243,7 +1243,7 @@ mod tests {
         };
         let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
-            "masq://eth-ropsten:{}@2.3.4.5:3456;4567",
+            "masq://eth-ropsten:{}@2.3.4.5:3456/4567",
             cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
         );
         let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")

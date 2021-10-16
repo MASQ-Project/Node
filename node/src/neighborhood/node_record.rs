@@ -418,7 +418,7 @@ mod tests {
             result,
             NodeDescriptor::from_str(
                 main_cryptde(),
-                "masq://eth-ropsten:AQIDBA@1.2.3.4:1234;2345"
+                "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345"
             )
             .unwrap()
         );

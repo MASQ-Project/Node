@@ -1061,7 +1061,7 @@ mod tests {
                     .param("--ip", "1.2.3.4")
                     .param(
                         "--neighbors",
-                        "masq://eth-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234;2345,masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456;4567",
+                        "masq://eth-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345,masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456/4567",
                     )
                     .into(),
             ))]
@@ -1083,12 +1083,12 @@ mod tests {
                     vec![
                         NodeDescriptor::from_str(
                             &dummy_cryptde,
-                            "masq://eth-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234;2345"
+                            "masq://eth-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345"
                         )
                         .unwrap(),
                         NodeDescriptor::from_str(
                             &dummy_cryptde,
-                            "masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456;4567"
+                            "masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456/4567"
                         )
                         .unwrap()
                     ],
@@ -1108,7 +1108,7 @@ mod tests {
                     .param("--neighborhood-mode", "standard")
                     .param(
                         "--neighbors",
-                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345,masq://eth-mainnet:VGVk@2.3.4.5:3456;4567",
+                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://eth-mainnet:VGVk@2.3.4.5:3456/4567",
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -1142,7 +1142,7 @@ mod tests {
                     .param("--neighborhood-mode", "originate-only")
                     .param(
                         "--neighbors",
-                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345,masq://eth-mainnet:VGVk@2.3.4.5:3456;4567",
+                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://eth-mainnet:VGVk@2.3.4.5:3456/4567",
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -1164,12 +1164,12 @@ mod tests {
                     vec![
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345"
+                            "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345"
                         )
                         .unwrap(),
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "masq://eth-mainnet:VGVk@2.3.4.5:3456;4567"
+                            "masq://eth-mainnet:VGVk@2.3.4.5:3456/4567"
                         )
                         .unwrap()
                     ],
@@ -1212,7 +1212,7 @@ mod tests {
                     .param("--neighborhood-mode", "consume-only")
                     .param(
                         "--neighbors",
-                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345,masq://eth-mainnet:VGVk@2.3.4.5:3456;4567",
+                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://eth-mainnet:VGVk@2.3.4.5:3456/4567",
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -1233,12 +1233,12 @@ mod tests {
                 mode: NeighborhoodMode::ConsumeOnly(vec![
                     NodeDescriptor::from_str(
                         main_cryptde(),
-                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345"
+                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345"
                     )
                     .unwrap(),
                     NodeDescriptor::from_str(
                         main_cryptde(),
-                        "masq://eth-mainnet:VGVk@2.3.4.5:3456;4567"
+                        "masq://eth-mainnet:VGVk@2.3.4.5:3456/4567"
                     )
                     .unwrap()
                 ],)
@@ -1349,7 +1349,7 @@ mod tests {
                     .param("--neighborhood-mode", "zero-hop")
                     .param(
                         "--neighbors",
-                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345,masq://eth-mainnet:VGVk@2.3.4.5:3456;4567",
+                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://eth-mainnet:VGVk@2.3.4.5:3456/4567",
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -1708,7 +1708,7 @@ mod tests {
             .param("--dns-servers", "12.34.56.78,23.45.67.89")
             .param(
                 "--neighbors",
-                "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345,masq://eth-mainnet:VGVk@2.3.4.5:3456;4567",
+                "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://eth-mainnet:VGVk@2.3.4.5:3456/4567",
             )
             .param("--ip", "34.56.78.90")
             .param("--clandestine-port", "1234")
@@ -1764,12 +1764,12 @@ mod tests {
                     vec![
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "masq://eth-mainnet:QmlsbA@1.2.3.4:1234;2345"
+                            "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345"
                         )
                         .unwrap(),
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "masq://eth-mainnet:VGVk@2.3.4.5:3456;4567"
+                            "masq://eth-mainnet:VGVk@2.3.4.5:3456/4567"
                         )
                         .unwrap(),
                     ],
