@@ -14,16 +14,14 @@ use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
-    chain_name_from_id, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine,
+    chain_name_from_id
 };
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_initializer::{
-    connection_or_panic, DbInitializer, DbInitializerReal, DATABASE_FILE,
+    connection_or_panic, DbInitializer, DbInitializerReal
 };
-use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
-    PersistentConfiguration, PersistentConfigurationReal,
+    PersistentConfiguration
 };
 use crate::node_configurator::configurator::Configurator;
 use crate::sub_lib::accountant::AccountantSubs;
@@ -106,7 +104,7 @@ impl ActorSystemFactoryReal {
                         .clone()
                         .exit_service_rate,
                     exit_byte_rate: config.neighborhood_config.mode.rate_pack().exit_byte_rate,
-                    crashable: ActorFactoryReal::find_out_crashable(&config),
+                    crashable: ActorFactoryReal::is_crashable(&config),
                 }),
             )
         } else {
@@ -129,7 +127,7 @@ impl ActorSystemFactoryReal {
                 .clone()
                 .routing_byte_rate,
             is_decentralized: config.neighborhood_config.mode.is_decentralized(),
-            crashable: ActorFactoryReal::find_out_crashable(&config),
+            crashable: ActorFactoryReal::is_crashable(&config),
         });
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(main_cryptde, &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
@@ -239,7 +237,7 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
         let descriptor = config.node_descriptor_opt.clone();
-        let crashable = Self::find_out_crashable(config);
+        let crashable = Self::is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Dispatcher> = arbiter
             .start(move |_| Dispatcher::new(descriptor.expectv("node descriptor"), crashable));
@@ -261,7 +259,7 @@ impl ActorFactory for ActorFactoryReal {
         } else {
             None
         };
-        let crashable = Self::find_out_crashable(config);
+        let crashable = Self::is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<ProxyServer> = arbiter.start(move |_| {
             ProxyServer::new(
@@ -342,7 +340,7 @@ impl ActorFactory for ActorFactoryReal {
     }
 
     fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs {
-        let crashable = Self::find_out_crashable(config);
+        let crashable = Self::is_crashable(config);
         let ui_gateway = UiGateway::new(&config.ui_gateway_config, crashable);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<UiGateway> = arbiter.start(move |_| ui_gateway);
@@ -355,7 +353,7 @@ impl ActorFactory for ActorFactoryReal {
     ) -> StreamHandlerPoolSubs {
         let clandestine_discriminator_factories =
             config.clandestine_discriminator_factories.clone();
-        let crashable = Self::find_out_crashable(config);
+        let crashable = Self::is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<StreamHandlerPool> = arbiter
             .start(move |_| StreamHandlerPool::new(clandestine_discriminator_factories, crashable));
@@ -377,7 +375,7 @@ impl ActorFactory for ActorFactoryReal {
             .blockchain_bridge_config
             .blockchain_service_url
             .clone();
-        let crashable = Self::find_out_crashable(config);
+        let crashable = Self::is_crashable(config);
         let wallet_opt = config.consuming_wallet.clone();
         let data_directory = config.data_directory.clone();
         let chain_id = config.blockchain_bridge_config.chain_id;
@@ -403,7 +401,7 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
         let data_directory = config.data_directory.clone();
         let chain_id = config.blockchain_bridge_config.chain_id;
-        let crashable = Self::find_out_crashable(config);
+        let crashable = Self::is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Configurator> =
             arbiter.start(move |_| Configurator::new(data_directory, chain_id, crashable));
@@ -429,7 +427,7 @@ fn validate_database_chain_correctness(
 }
 
 impl ActorFactoryReal {
-    fn find_out_crashable(config: &BootstrapperConfig) -> bool {
+    fn is_crashable(config: &BootstrapperConfig) -> bool {
         config.crash_point == CrashPoint::Message
     }
 }
@@ -1128,8 +1126,8 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let (_, _, bc) = Parameters::get(parameters.proxy_server_params);
-        assert_eq!(bc.consuming_wallet, None);
+        let (_, _, bootstrapper_config) = Parameters::get(parameters.proxy_server_params);
+        assert_eq!(bootstrapper_config.consuming_wallet, None);
     }
 
     #[test]

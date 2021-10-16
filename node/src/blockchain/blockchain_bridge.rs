@@ -119,13 +119,12 @@ impl BlockchainBridge {
         consuming_wallet_opt: Option<Wallet>,
     ) -> BlockchainBridge {
         BlockchainBridge {
-            //consuming_wallet: config.consuming_wallet.clone(),
             consuming_wallet_opt,
             blockchain_interface,
             persistent_config,
             set_consuming_wallet_subs_opt: None,
             crashable,
-            logger: Logger::new("BlockchainBridge"), //crashable: config.crash_point == CrashPoint::Message,
+            logger: Logger::new("BlockchainBridge")
         }
     }
 
@@ -690,7 +689,7 @@ mod tests {
     #[should_panic(
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
-    fn blockchain_bridge_can_be_crashed_and_resists_to_mismatched_requests_give_the_use_of_crash_request_analyzer(
+fn blockchain_bridge_can_be_crashed_properly_but_not_improperly(
     ) {
         let crashable = true;
         let actor = BlockchainBridge::new(

@@ -4234,7 +4234,7 @@ mod tests {
     #[should_panic(
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
-    fn neighborhood_can_be_crashed_and_resists_to_mismatched_requests_give_the_use_of_crash_request_analyzer(
+fn neighborhood_can_be_crashed_properly_but_not_improperly(
     ) {
         let mut neighborhood = make_standard_subject();
         neighborhood.crashable = true;
