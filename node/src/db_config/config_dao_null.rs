@@ -81,10 +81,10 @@ impl Default for ConfigDaoNull {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::database::db_initializer::DbInitializer;
     use crate::db_config::config_dao::ConfigDaoReal;
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
 
     #[test]
@@ -165,15 +165,20 @@ mod tests {
 
     #[test]
     fn encrypted_rows_constant_is_correct() {
-        let data_dir = ensure_node_home_directory_exists("config_dao_null", "encrypted_rows_constant_is_correct");
+        let data_dir = ensure_node_home_directory_exists(
+            "config_dao_null",
+            "encrypted_rows_constant_is_correct",
+        );
         let db_initializer = DbInitializerReal::default();
-        let conn = db_initializer.initialize(&data_dir, chain_id_from_name("mainnet"), true).unwrap();
-        let real_config_dao = ConfigDaoReal::new (conn);
+        let conn = db_initializer
+            .initialize(&data_dir, chain_id_from_name("mainnet"), true)
+            .unwrap();
+        let real_config_dao = ConfigDaoReal::new(conn);
         let records = real_config_dao.get_all().unwrap();
         let expected_encrypted_names = records
             .into_iter()
             .filter(|record| record.encrypted)
-            .map (|record| record.name.clone())
+            .map(|record| record.name.clone())
             .collect::<HashSet<String>>();
 
         let actual_encrypted_names = ENCRYPTED_ROWS
@@ -181,6 +186,6 @@ mod tests {
             .map(|name| name.to_string())
             .collect::<HashSet<String>>();
 
-        assert_eq! (actual_encrypted_names, expected_encrypted_names);
+        assert_eq!(actual_encrypted_names, expected_encrypted_names);
     }
 }

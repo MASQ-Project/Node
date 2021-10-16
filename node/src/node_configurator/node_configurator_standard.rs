@@ -2183,8 +2183,7 @@ mod tests {
     #[test]
     fn unprivileged_parse_args_with_mapping_protocol_both_on_command_line_and_in_database() {
         running_test();
-        let args = ArgsBuilder::new()
-            .param("--mapping-protocol", "pmp");
+        let args = ArgsBuilder::new().param("--mapping-protocol", "pmp");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
