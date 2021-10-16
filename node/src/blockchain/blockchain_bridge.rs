@@ -124,13 +124,13 @@ impl BlockchainBridge {
             persistent_config,
             set_consuming_wallet_subs_opt: None,
             crashable,
-            logger: Logger::new("BlockchainBridge")
+            logger: Logger::new("BlockchainBridge"),
         }
     }
 
     pub fn make_connections(
         blockchain_service_url: Option<String>,
-        db_initializer: Box<dyn DbInitializer>,
+        db_initializer: &dyn DbInitializer,
         data_directory: PathBuf,
         chain_id: u8,
     ) -> (
@@ -414,7 +414,7 @@ mod tests {
         let blockchain_service_url = Some("http://λ:8545".to_string());
         let _ = BlockchainBridge::make_connections(
             blockchain_service_url,
-            Box::new(DbInitializerMock::default()),
+            &DbInitializerMock::default(),
             data_directory,
             DEFAULT_CHAIN_ID,
         );
@@ -689,8 +689,7 @@ mod tests {
     #[should_panic(
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
-fn blockchain_bridge_can_be_crashed_properly_but_not_improperly(
-    ) {
+    fn blockchain_bridge_can_be_crashed_properly_but_not_improperly() {
         let crashable = true;
         let actor = BlockchainBridge::new(
             Box::new(BlockchainInterfaceMock::default()),

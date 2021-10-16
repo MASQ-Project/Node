@@ -18,7 +18,7 @@ use crate::listener_handler::ListenerHandlerFactoryReal;
 use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
 };
-use crate::node_configurator::{DirsWrapper, NodeConfigurator};
+use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
 use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::accountant;
@@ -437,9 +437,15 @@ impl ConfiguredByPrivilege for Bootstrapper {
             streams,
             self.config.blockchain_bridge_config.chain_id,
         ));
-        let stream_handler_pool_subs = self
-            .actor_system_factory
-            .make_and_start_actors(self.config.clone(), Box::new(ActorFactoryReal {}));
+        let stream_handler_pool_subs = self.actor_system_factory.make_and_start_actors(
+            self.config.clone(),
+            Box::new(ActorFactoryReal {}),
+            initialize_database(
+                &self.config.data_directory,
+                self.config.blockchain_bridge_config.chain_id,
+            )
+            .as_ref(),
+        );
 
         self.listener_handlers
             .iter_mut()
@@ -1862,6 +1868,7 @@ mod tests {
             &self,
             config: BootstrapperConfig,
             _actor_factory: Box<dyn ActorFactory>,
+            _persist_config: &dyn PersistentConfiguration,
         ) -> StreamHandlerPoolSubs {
             let mut parameter_guard = self.dnss.lock().unwrap();
             let parameter_ref = parameter_guard.deref_mut();

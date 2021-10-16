@@ -13,16 +13,10 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
-use crate::blockchain::blockchain_interface::{
-    chain_name_from_id
-};
+use crate::blockchain::blockchain_interface::chain_name_from_id;
 use crate::database::dao_utils::DaoFactoryReal;
-use crate::database::db_initializer::{
-    connection_or_panic, DbInitializer, DbInitializerReal
-};
-use crate::db_config::persistent_configuration::{
-    PersistentConfiguration
-};
+use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
+use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::node_configurator::configurator::Configurator;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
@@ -52,6 +46,7 @@ pub trait ActorSystemFactory: Send {
         &self,
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
+        persist_config: &dyn PersistentConfiguration,
     ) -> StreamHandlerPoolSubs;
 }
 
@@ -62,10 +57,12 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         &self,
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
+        persist_config: &dyn PersistentConfiguration,
     ) -> StreamHandlerPoolSubs {
         let main_cryptde = bootstrapper::main_cryptde_ref();
         let alias_cryptde = bootstrapper::alias_cryptde_ref();
         let (tx, rx) = unbounded();
+        Self::database_chain_assertion(config.blockchain_bridge_config.chain_id, persist_config);
 
         ActorSystemFactoryReal::prepare_initial_messages(
             main_cryptde,
@@ -129,6 +126,7 @@ impl ActorSystemFactoryReal {
             is_decentralized: config.neighborhood_config.mode.is_decentralized(),
             crashable: ActorFactoryReal::is_crashable(&config),
         });
+        let blockchain_bridge_subs = actor_factory.make_and_start_blockchain_bridge(&config);
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(main_cryptde, &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
             &config,
@@ -136,8 +134,6 @@ impl ActorSystemFactoryReal {
             &db_initializer,
             &BannedCacheLoaderReal {},
         );
-        let blockchain_bridge_subs =
-            actor_factory.make_and_start_blockchain_bridge(&config, Box::new(db_initializer));
         let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(&config);
         let stream_handler_pool_subs = actor_factory.make_and_start_stream_handler_pool(&config);
         let configurator_subs = actor_factory.make_and_start_configurator(&config);
@@ -189,6 +185,17 @@ impl ActorSystemFactoryReal {
         //send out the stream handler pool subs (to be bound to listeners)
         tx.send(stream_handler_pool_subs).ok();
     }
+
+    fn database_chain_assertion(chain_id: u8, persistent_config: &dyn PersistentConfiguration) {
+        let requested_chain = chain_name_from_id(chain_id).to_string();
+        let chain_in_db = persistent_config.chain_name();
+        if requested_chain != chain_in_db {
+            panic!(
+                "Database with the wrong chain name detected; expected: {}, was: {}",
+                requested_chain, chain_in_db
+            )
+        }
+    }
 }
 
 pub trait ActorFactory: Send {
@@ -221,11 +228,8 @@ pub trait ActorFactory: Send {
         config: &BootstrapperConfig,
     ) -> StreamHandlerPoolSubs;
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs;
-    fn make_and_start_blockchain_bridge(
-        &self,
-        config: &BootstrapperConfig,
-        db_initializer: Box<dyn DbInitializer + Send>,
-    ) -> BlockchainBridgeSubs;
+    fn make_and_start_blockchain_bridge(&self, config: &BootstrapperConfig)
+        -> BlockchainBridgeSubs;
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs;
 }
 
@@ -369,7 +373,6 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_blockchain_bridge(
         &self,
         config: &BootstrapperConfig,
-        db_initializer: Box<dyn DbInitializer + Send>,
     ) -> BlockchainBridgeSubs {
         let blockchain_service_url = config
             .blockchain_bridge_config
@@ -383,11 +386,10 @@ impl ActorFactory for ActorFactoryReal {
         let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
             let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
                 blockchain_service_url,
-                db_initializer,
+                &DbInitializerReal::default(),
                 data_directory,
                 chain_id,
             );
-            validate_database_chain_correctness(chain_id, persistent_config.as_ref());
             BlockchainBridge::new(
                 blockchain_interface,
                 persistent_config,
@@ -409,20 +411,6 @@ impl ActorFactory for ActorFactoryReal {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
         }
-    }
-}
-
-fn validate_database_chain_correctness(
-    chain_id: u8,
-    persistent_config: &dyn PersistentConfiguration,
-) {
-    let required_chain = chain_name_from_id(chain_id).to_string();
-    let chain_in_db = persistent_config.chain_name();
-    if required_chain != chain_in_db {
-        panic!(
-            "Database with the wrong chain name detected; expected: {}, was: {}",
-            required_chain, chain_in_db
-        )
     }
 }
 
@@ -709,7 +697,6 @@ mod tests {
         fn make_and_start_blockchain_bridge(
             &self,
             config: &BootstrapperConfig,
-            _db_initializer: Box<dyn DbInitializer + Send>,
         ) -> BlockchainBridgeSubs {
             self.parameters
                 .blockchain_bridge_params
@@ -876,6 +863,8 @@ mod tests {
                 ),
             },
         };
+        let persistent_config =
+            PersistentConfigurationMock::default().chain_name_result("ropsten".to_string());
         Bootstrapper::pub_initialize_cryptdes_for_testing(
             &Some(main_cryptde().clone()),
             &Some(alias_cryptde().clone()),
@@ -883,7 +872,7 @@ mod tests {
         let subject = ActorSystemFactoryReal {};
 
         let system = System::new("test");
-        subject.make_and_start_actors(config, Box::new(actor_factory));
+        subject.make_and_start_actors(config, Box::new(actor_factory), &persistent_config);
         System::current().stop();
         system.run();
 
@@ -1321,23 +1310,33 @@ mod tests {
     }
 
     #[test]
-    fn database_chain_validity_happy_path() {
-        let chain_id = chain_id_from_name(DEFAULT_CHAIN_NAME); //due to confusing nomenclature in the constants being available // TODO GH-473 may fix this
+    fn database_chain_assertion_happy_path() {
+        let chain_id = chain_id_from_name(DEFAULT_CHAIN_NAME); //due to confusing nomenclature in the constants being available, GH-473 may fix this
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("mainnet".to_string());
 
-        let _ = validate_database_chain_correctness(chain_id, &persistent_config);
+        let _ = ActorSystemFactoryReal::database_chain_assertion(chain_id, &persistent_config);
     }
 
     #[test]
     #[should_panic(
-        expected = "Database with the wrong chain name detected; expected: ropsten, was: mainnet"
+        expected = "Database with the wrong chain name detected; expected: mainnet, was: ropsten"
     )]
-    fn database_chain_validity_sad_path() {
-        let chain_id = DEFAULT_CHAIN_ID; //Ropsten
+    fn make_and_start_actors_will_not_tolerate_differences_in_setup_chain_and_database_chain() {
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        bootstrapper_config.blockchain_bridge_config.chain_id =
+            chain_id_from_name(DEFAULT_CHAIN_NAME); //GH-473 should fix this embarrassing situation
         let persistent_config =
-            PersistentConfigurationMock::default().chain_name_result("mainnet".to_string());
+            PersistentConfigurationMock::default().chain_name_result("ropsten".to_string());
+        Bootstrapper::pub_initialize_cryptdes_for_testing(
+            &Some(main_cryptde().clone()),
+            &Some(alias_cryptde().clone()),
+        );
 
-        let _ = validate_database_chain_correctness(chain_id, &persistent_config);
+        let _ = ActorSystemFactoryReal {}.make_and_start_actors(
+            bootstrapper_config,
+            Box::new(ActorFactoryReal {}),
+            &persistent_config,
+        );
     }
 }

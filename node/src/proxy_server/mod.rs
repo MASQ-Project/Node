@@ -4470,8 +4470,7 @@ mod tests {
     #[should_panic(
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
-fn proxy_server_can_be_crashed_properly_but_not_improperly(
-    ) {
+    fn proxy_server_can_be_crashed_properly_but_not_improperly() {
         let proxy_server = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, true);
 
         prove_that_crash_request_handler_is_hooked_up(proxy_server, CRASH_KEY);

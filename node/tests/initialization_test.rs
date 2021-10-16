@@ -182,9 +182,8 @@ fn incomplete_node_descriptor_is_refused_integration() {
 }
 
 #[test]
-fn required_chain_name_from_input_meets_different_db_chain_name_and_panics_integration() {
-    let test_name =
-        "required_chain_name_from_input_meets_different_db_chain_name_and_panics_integration";
+fn requested_chain_meets_different_db_chain_and_panics_integration() {
+    let test_name = "requested_chain_meets_different_db_chain_and_panics_integration";
     {
         fdlimit::raise_fd_limit();
         let port = find_free_port();
@@ -192,6 +191,7 @@ fn required_chain_name_from_input_meets_different_db_chain_name_and_panics_integ
             test_name,
             Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
             true,
+            false,
         );
         node.wait_for_log("UIGateway bound", Some(5000));
         let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);

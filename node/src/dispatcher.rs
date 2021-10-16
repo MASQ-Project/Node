@@ -459,8 +459,7 @@ mod tests {
     #[should_panic(
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
-fn dispatcher_can_be_crashed_properly_but_not_improperly(
-    ) {
+    fn dispatcher_can_be_crashed_properly_but_not_improperly() {
         let crashable = true;
         let actor = Dispatcher::new("blah".to_string(), crashable);
 
