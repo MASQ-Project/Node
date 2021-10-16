@@ -56,8 +56,7 @@ fn manual(parameters: AutomapParameters) {
         .collect::<Vec<Result<(), AutomapErrorCause>>>();
     let cumulative_success = results.iter().any(|r| r.is_ok());
 
-    info!("");
-    info!("Verdict{}:", if results.len() == 1 { "" } else { "s" });
+    info!("\nVerdict{}:", if results.len() == 1 { "" } else { "s" });
     parameters
         .protocols
         .iter()

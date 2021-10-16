@@ -184,17 +184,75 @@ fn generate_nonce() -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use std::io::ErrorKind;
+    use super::*;
+    use std::io::{ErrorKind, IoSlice};
 
     use masq_lib::utils::{find_free_port_0000, localhost};
 
     use crate::automap_core_functions::TestStatus;
-    use crate::probe_researcher::mock_tools::{
-        test_stream_acceptor_and_probe, test_stream_acceptor_and_probe_8875_imitator,
-        u16_to_byte_array,
-    };
     use crate::probe_researcher::{deploy_background_listener, generate_nonce};
     use std::net::SocketAddr;
+
+    fn test_stream_acceptor_and_probe_8875_imitator(
+        shutdown_delay_millis: u64,
+        send_probe_socket: SocketAddr,
+    ) {
+        let message = u16_to_byte_array(8875);
+        test_stream_acceptor_and_probe(&message, shutdown_delay_millis, send_probe_socket);
+    }
+
+    fn test_stream_acceptor_and_probe(
+        probe: &[u8],
+        shutdown_delay_millis: u64,
+        send_probe_socket: SocketAddr,
+    ) {
+        let mut connection = TcpStream::connect(send_probe_socket).unwrap();
+        if !probe.is_empty() {
+            connection.write_all(probe).unwrap();
+        } else if shutdown_delay_millis == 0 {
+            connection.shutdown(Shutdown::Both).unwrap();
+        } else {
+            thread::sleep(Duration::from_millis(shutdown_delay_millis));
+        }
+    }
+
+    fn u16_to_byte_array(x: u16) -> [u8; 2] {
+        let b1: u8 = ((x >> 8) & 0xff) as u8;
+        let b2: u8 = (x & 0xff) as u8;
+        [b1, b2]
+    }
+
+    struct MockStream {
+        pub stream: String,
+        pub flush_count: u8,
+    }
+
+    impl Write for MockStream {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            unimplemented!()
+        }
+
+        fn write_vectored(&mut self, _bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
+            unimplemented!()
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flush_count += 1;
+            Ok(())
+        }
+
+        fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+            self.stream.push_str(std::str::from_utf8(buf).unwrap());
+            Ok(())
+        }
+
+        fn by_ref(&mut self) -> &mut Self
+            where
+                Self: Sized,
+        {
+            unimplemented!()
+        }
+    }
 
     #[test]
     fn deploy_background_listener_with_good_probe_works() {
@@ -304,110 +362,5 @@ mod tests {
             let nonce = generate_nonce();
             assert!(10000 > nonce && nonce > 999)
         });
-    }
-}
-
-pub mod mock_tools {
-    use std::io::IoSlice;
-
-    use crate::comm_layer::pmp::PmpTransactor;
-
-    use super::*;
-
-    pub fn mock_router_common_test_finding_ip_and_doing_mapping(
-        _port: u16,
-        _port_is_manual: bool,
-    ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
-        Ok((
-            IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
-            4444,
-            Box::new(PmpTransactor::new()),
-            false,
-        ))
-    }
-
-    pub fn mock_router_common_test_unsuccessful(
-        _port: u16,
-        _port_is_manual: bool,
-    ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
-        Err(String::from("Test ended unsuccessfully"))
-    }
-
-    pub fn mock_router_igdp_test_unsuccessful(
-        _port: u16,
-        _port_is_manual: bool,
-    ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
-        Err(String::from("Test ended unsuccessfully"))
-    }
-
-    pub fn test_stream_acceptor_and_probe_8875_imitator(
-        shutdown_delay_millis: u64,
-        send_probe_socket: SocketAddr,
-    ) {
-        let message = u16_to_byte_array(8875);
-        test_stream_acceptor_and_probe(&message, shutdown_delay_millis, send_probe_socket);
-    }
-
-    pub fn test_stream_acceptor_and_probe(
-        probe: &[u8],
-        shutdown_delay_millis: u64,
-        send_probe_socket: SocketAddr,
-    ) {
-        let mut connection = TcpStream::connect(send_probe_socket).unwrap();
-        if !probe.is_empty() {
-            connection.write_all(probe).unwrap();
-        } else if shutdown_delay_millis == 0 {
-            connection.shutdown(Shutdown::Both).unwrap();
-        } else {
-            thread::sleep(Duration::from_millis(shutdown_delay_millis));
-        }
-    }
-
-    pub fn u16_to_byte_array(x: u16) -> [u8; 2] {
-        let b1: u8 = ((x >> 8) & 0xff) as u8;
-        let b2: u8 = (x & 0xff) as u8;
-        [b1, b2]
-    }
-
-    pub struct MockStream {
-        pub stream: String,
-        pub flush_count: u8,
-    }
-
-    #[allow(clippy::new_without_default)]
-    impl MockStream {
-        pub fn new() -> Self {
-            Self {
-                stream: String::new(),
-                flush_count: 0,
-            }
-        }
-    }
-
-    impl Write for MockStream {
-        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-            unimplemented!()
-        }
-
-        fn write_vectored(&mut self, _bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
-            unimplemented!()
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            self.flush_count += 1;
-            Ok(())
-        }
-
-        fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
-            self.stream.push_str(std::str::from_utf8(buf).unwrap());
-            Ok(())
-        }
-
-        fn by_ref(&mut self) -> &mut Self
-        where
-            Self: Sized,
-        {
-            unimplemented!()
-        }
     }
 }

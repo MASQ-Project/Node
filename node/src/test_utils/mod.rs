@@ -203,11 +203,6 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
     )
 }
 
-// pub fn make_multi_config<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
-//     let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(args.into()))];
-//     make_new_multi_config(&app(), vcls).unwrap()
-// }
-
 pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
     PersistentConfigurationMock::new()
         .earning_wallet_from_address_result(Ok(None))

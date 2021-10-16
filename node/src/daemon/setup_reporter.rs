@@ -468,7 +468,7 @@ impl SetupReporterReal {
                     }
                 }
             }
-            Err(e) => todo!("Couldn't initialize database: {:?}", e),
+            Err(e) => panic!("Couldn't initialize database: {:?}", e),
         }
     }
 }

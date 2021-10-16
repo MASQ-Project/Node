@@ -171,19 +171,19 @@ impl FreePortFactoryMock {
 }
 
 pub struct FindRoutersCommandMock {
-    result: Result<String, String>,
+    execute_result: Result<String, String>,
 }
 
 impl FindRoutersCommand for FindRoutersCommandMock {
     fn execute(&self) -> Result<String, String> {
-        self.result.clone()
+        self.execute_result.clone()
     }
 }
 
 impl FindRoutersCommandMock {
     pub fn new(result: Result<&str, &str>) -> Self {
         Self {
-            result: match result {
+            execute_result: match result {
                 Ok(s) => Ok(s.to_string()),
                 Err(s) => Err(s.to_string()),
             },

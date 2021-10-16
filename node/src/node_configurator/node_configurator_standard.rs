@@ -2157,7 +2157,6 @@ mod tests {
         running_test();
         let args = ArgsBuilder::new();
         let mut config = BootstrapperConfig::new();
-        config.db_password_opt = Some("password".to_string());
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
@@ -2185,10 +2184,8 @@ mod tests {
     fn unprivileged_parse_args_with_mapping_protocol_both_on_command_line_and_in_database() {
         running_test();
         let args = ArgsBuilder::new()
-            .param("--ip", "1.2.3.4") // TODO: Figure out whether this should be removable
             .param("--mapping-protocol", "pmp");
         let mut config = BootstrapperConfig::new();
-        config.db_password_opt = Some("password".to_string());
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
