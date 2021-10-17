@@ -29,6 +29,15 @@ pub const CHAINS: [BlockchainRecord; 4] = [
         contract_creation_block: MAINNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
+        literal_chain_id: Chain::Dev,
+        num_chain_id: 2,
+        plain_text_name: "dev",
+        directory_by_platform: "dev",
+        chain_identifier: DEV_CHAIN_IDENTIFIER,
+        contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
+        contract_creation_block: MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
+    },
+    BlockchainRecord {
         literal_chain_id: Chain::EthRopsten,
         num_chain_id: 3,
         plain_text_name: "ropsten",
@@ -45,16 +54,7 @@ pub const CHAINS: [BlockchainRecord; 4] = [
         chain_identifier: ETH_RINKEBY_IDENTIFIER,
         contract: RINKEBY_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK,
-    },
-    BlockchainRecord {
-        literal_chain_id: Chain::Dev,
-        num_chain_id: 5,
-        plain_text_name: "dev",
-        directory_by_platform: "dev",
-        chain_identifier: DEV_CHAIN_IDENTIFIER,
-        contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
-        contract_creation_block: MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
-    },
+    }
 ];
 
 #[derive(Debug, PartialEq)]
@@ -87,9 +87,9 @@ impl Chain {
     pub fn from_id(id: u8) -> Chain {
         match id {
             1 => Self::EthMainnet,
+            2 => Self::Dev,
             3 => Self::EthRopsten,
             4 => Self::EthRinkeby,
-            5 => Self::Dev,
             x => panic!("Undefined num id '{}' for ChainRecords", x),
         }
     }
@@ -102,7 +102,7 @@ impl From<&str> for Chain {
             "ropsten" => Chain::EthRopsten,
             "rinkeby" => Chain::EthRinkeby,
             "dev" => Chain::Dev,
-            _ => DEFAULT_CHAIN, //TODO Can we do better than this?
+            _ => DEFAULT_CHAIN
         }
     }
 }
@@ -145,21 +145,21 @@ mod tests {
     #[test]
     fn record_returns_an_appropriate_blockchain_record() {
         assert_eq!(Chain::EthMainnet.record().num_chain_id, 1);
+        assert_eq!(Chain::Dev.record().num_chain_id, 2);
         assert_eq!(Chain::EthRopsten.record().num_chain_id, 3);
         assert_eq!(Chain::EthRinkeby.record().num_chain_id, 4);
-        assert_eq!(Chain::Dev.record().num_chain_id, 5);
     }
 
     #[test]
     fn from_id_works() {
         assert_eq!(Chain::from_id(1), Chain::EthMainnet);
+        assert_eq!(Chain::from_id(2), Chain::Dev);
         assert_eq!(Chain::from_id(3), Chain::EthRopsten);
         assert_eq!(Chain::from_id(4), Chain::EthRinkeby);
-        assert_eq!(Chain::from_id(5), Chain::Dev)
     }
 
     #[test]
-    #[should_panic(expected = "Undefined num id '2' for ChainRecords")]
+    #[should_panic(expected = "Undefined num id '5' for ChainRecords")]
     fn from_id_panics_on_undefined_ids() {
         (1u8..).for_each(|num| {
             if find_record(Box::new(|record: &&BlockchainRecord| {
@@ -245,6 +245,23 @@ mod tests {
     }
 
     #[test]
+    fn multinode_testnet_chain_record_is_properly_declared() {
+        let examined_chain = return_examined(Chain::Dev);
+        assert_eq!(
+            examined_chain,
+            &BlockchainRecord {
+                num_chain_id: 2,
+                literal_chain_id: Chain::Dev,
+                plain_text_name: "dev",
+                directory_by_platform: "dev",
+                chain_identifier: "dev",
+                contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
+                contract_creation_block: 0
+            }
+        )
+    }
+
+    #[test]
     fn ropsten_record_is_properly_declared() {
         let examined_chain = return_examined(Chain::EthRopsten);
         assert_eq!(
@@ -274,23 +291,6 @@ mod tests {
                 chain_identifier: "eth-rinkeby",
                 contract: RINKEBY_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK
-            }
-        )
-    }
-
-    #[test]
-    fn multinode_testnet_chain_record_is_properly_declared() {
-        let examined_chain = return_examined(Chain::Dev);
-        assert_eq!(
-            examined_chain,
-            &BlockchainRecord {
-                num_chain_id: 5,
-                literal_chain_id: Chain::Dev,
-                plain_text_name: "dev",
-                directory_by_platform: "dev",
-                chain_identifier: "dev",
-                contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
-                contract_creation_block: 0
             }
         )
     }
