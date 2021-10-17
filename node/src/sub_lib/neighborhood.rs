@@ -299,7 +299,7 @@ impl Display for DescriptorParsingError<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self{
             Self::CentralDelimiterProbablyMissing(descriptor) => write!(f, "Delimiter '@' probably missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
-            Self::CentralDelimOrNodeAddr(descriptor,tail) => write!(f, "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'\nNodeAddr should be expressed as '<IP address>:<port>/<port>,...', probably not as '{}'", descriptor,tail),
+            Self::CentralDelimOrNodeAddr(descriptor,tail) => write!(f, "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as '{}'", descriptor,tail),
             Self::CentralDelimOrIdentifier(descriptor) => write!(f, "Either '@' delimiter position or format of chain identifier is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
             Self::ChainIdentifierDelimiter(descriptor) => write!(f, "Chain identifier delimiter mismatch. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
             Self::PrefixMissing(descriptor) => write!(f,"Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'",descriptor),
@@ -640,7 +640,7 @@ mod tests {
 
         let result = approx_position_assertion(would_be_descriptor, halves);
 
-        assert_eq!(result,Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>/<port>,...', probably not as 'a1.bf3.4.5:4565/9898'".to_string()))
+        assert_eq!(result,Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as 'a1.bf3.4.5:4565/9898'".to_string()))
     }
 
     #[test]
@@ -660,7 +660,7 @@ mod tests {
 
         let result = approx_position_assertion(would_be_descriptor, halves);
 
-        assert_eq!(result,Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>/<port>,...', probably not as '2000:ab.4.5a.10:4565'".to_string()))
+        assert_eq!(result,Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as '2000:ab.4.5a.10:4565'".to_string()))
     }
 
     #[test]
@@ -670,7 +670,7 @@ mod tests {
 
         let result = approx_position_assertion(would_be_descriptor, halves);
 
-        assert_eq!(result, Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>/<port>,...', probably not as '2000:qd3:88r:4565/9898'".to_string()))
+        assert_eq!(result, Err("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'whole_descriptor'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as '2000:qd3:88r:4565/9898'".to_string()))
     }
 
     #[test]
@@ -722,7 +722,7 @@ mod tests {
             "masq://eth-mainnet:R29vZEtleQ==@BadNodeAddr",
         );
 
-        assert_eq!(result, Err(String::from("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'masq://eth-mainnet:R29vZEtleQ==@BadNodeAddr'\nNodeAddr should be expressed as '<IP address>:<port>/<port>,...', probably not as 'BadNodeAddr'")));
+        assert_eq!(result, Err(String::from("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'masq://eth-mainnet:R29vZEtleQ==@BadNodeAddr'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as 'BadNodeAddr'")));
     }
 
     #[test]

@@ -364,7 +364,7 @@ mod tests {
 
         assert_eq!(result, 1);
         let stderr = holder.stderr;
-        assert_eq! (stderr.get_string (), String::from ("Usage: MockNode <IP address>:<port>/<port>/...> where <IP address> is the address MockNode is running on and <port> is between 1025 and 65535\n\n"));
+        assert_eq! (stderr.get_string (), String::from ("Usage: MockNode <IP address>:<port>/<port>/... where <IP address> is the address MockNode is running on and <port> is between 1025 and 65535\n\n"));
     }
 
     #[test]

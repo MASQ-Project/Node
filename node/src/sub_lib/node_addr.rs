@@ -97,7 +97,7 @@ impl FromStr for NodeAddr {
         let pieces: Vec<&str> = input.split(':').collect();
         if pieces.len() != 2 {
             return Err(format!(
-                "NodeAddr should be expressed as '<IP address>:<port>/<port>,...', not '{}'",
+                "NodeAddr should be expressed as '<IP address>:<port>/<port>/...', not '{}'",
                 input
             ));
         }
@@ -225,7 +225,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "NodeAddr should be expressed as '<IP address>:<port>/<port>,...', not 'Booga'"
+                "NodeAddr should be expressed as '<IP address>:<port>/<port>/...', not 'Booga'"
             ))
         );
     }
