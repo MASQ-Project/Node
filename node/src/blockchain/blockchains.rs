@@ -54,7 +54,7 @@ pub const CHAINS: [BlockchainRecord; 4] = [
         chain_identifier: ETH_RINKEBY_IDENTIFIER,
         contract: RINKEBY_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK,
-    }
+    },
 ];
 
 #[derive(Debug, PartialEq)]
@@ -102,7 +102,7 @@ impl From<&str> for Chain {
             "ropsten" => Chain::EthRopsten,
             "rinkeby" => Chain::EthRinkeby,
             "dev" => Chain::Dev,
-            _ => DEFAULT_CHAIN
+            _ => DEFAULT_CHAIN,
         }
     }
 }
