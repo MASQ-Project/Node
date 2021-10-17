@@ -37,12 +37,18 @@ pub const MULTINODE_TESTNET_CONTRACT_ADDRESS: Address = Address {
     ],
 };
 
-pub const MAINNET_CONTRACT_ADDRESS: Address = Address {
+pub const ETH_MAINNET_CONTRACT_ADDRESS: Address = Address {
     0: [
         0x06, 0xF3, 0xC3, 0x23, 0xf0, 0x23, 0x8c, 0x72, 0xBF, 0x35, 0x01, 0x10, 0x71, 0xf2, 0xb5,
         0xB7, 0xF4, 0x3A, 0x05, 0x4c,
     ],
 };
+
+pub const POLYGON_MAINNET_CONTRACT_ADDRESS: Address = Address{
+    0:[0x00;20] //TODO this is just a stub
+};
+
+pub const MUMBAI_TESTNET_CONTRACT_ADDRESS: Address = Address {0:[0x01;20]}; //TODO this is just a stub
 
 pub const CONTRACT_ABI: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
 
