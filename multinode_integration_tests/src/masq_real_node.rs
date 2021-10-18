@@ -123,7 +123,7 @@ pub struct NodeStartupConfig {
     pub memory_opt: Option<String>,
     pub fake_public_key_opt: Option<PublicKey>,
     pub blockchain_service_url_opt: Option<String>,
-    pub chain_id: u8,
+    pub chain_id: u64,
     pub db_password_opt: Option<String>,
 }
 
@@ -380,7 +380,7 @@ pub struct NodeStartupConfigBuilder {
     memory: Option<String>,
     fake_public_key: Option<PublicKey>,
     blockchain_service_url: Option<String>,
-    chain_id: u8,
+    chain_id: u64,
     db_password: Option<String>,
 }
 
@@ -695,7 +695,7 @@ impl MASQNode for MASQRealNode {
         self.guts.rate_pack.clone()
     }
 
-    fn chain_id(&self) -> u8 {
+    fn chain_id(&self) -> u64 {
         self.guts.chain_id
     }
 
@@ -1157,7 +1157,7 @@ struct MASQRealNodeGuts {
     rate_pack: RatePack,
     root_dir: String,
     cryptde_null_pair_opt: Option<CryptDENullPair>,
-    chain_id: u8,
+    chain_id: u64,
     accepts_connections: bool,
     routes_data: bool,
 }

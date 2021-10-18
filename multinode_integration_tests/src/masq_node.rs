@@ -29,7 +29,7 @@ use std::time::Instant;
 pub struct NodeReference {
     pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
-    pub chain_id: u8,
+    pub chain_id: u64,
 }
 
 impl FromStr for NodeReference {
@@ -123,7 +123,7 @@ impl NodeReference {
         public_key: PublicKey,
         ip_addr_opt: Option<IpAddr>,
         ports: Vec<u16>,
-        chain_id: u8,
+        chain_id: u64,
     ) -> NodeReference {
         match ip_addr_opt {
             Some(ip_addr) => NodeReference {
@@ -232,7 +232,7 @@ pub trait MASQNode: Any {
     fn consuming_wallet(&self) -> Option<Wallet>;
     // The RatePack this Node will use to charge fees.
     fn rate_pack(&self) -> RatePack;
-    fn chain_id(&self) -> u8;
+    fn chain_id(&self) -> u64;
     fn accepts_connections(&self) -> bool;
     fn routes_data(&self) -> bool;
 }

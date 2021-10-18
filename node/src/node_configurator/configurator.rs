@@ -97,7 +97,7 @@ impl From<Box<dyn PersistentConfiguration>> for Configurator {
 type MessageError = (u64, String);
 
 impl Configurator {
-    pub fn new(data_directory: PathBuf, chain_id: u8) -> Self {
+    pub fn new(data_directory: PathBuf, chain_id: u64) -> Self {
         let initializer = DbInitializerReal::default();
         let conn = initializer
             .initialize(&data_directory, chain_id, false)

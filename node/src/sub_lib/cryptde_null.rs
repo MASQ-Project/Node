@@ -135,7 +135,7 @@ impl CryptDE for CryptDENull {
 }
 
 impl CryptDENull {
-    pub fn new(chain_id: u8) -> Self {
+    pub fn new(chain_id: u64) -> Self {
         let mut private_key = [0; 32];
         let mut rng = thread_rng();
         for byte in &mut private_key {
@@ -153,13 +153,13 @@ impl CryptDENull {
         }
     }
 
-    pub fn from(public_key: &PublicKey, chain_id: u8) -> CryptDENull {
+    pub fn from(public_key: &PublicKey, chain_id: u64) -> CryptDENull {
         let mut result = CryptDENull::new(chain_id);
         result.set_key_pair(public_key, chain_id);
         result
     }
 
-    pub fn set_key_pair(&mut self, public_key: &PublicKey, chain_id: u8) {
+    pub fn set_key_pair(&mut self, public_key: &PublicKey, chain_id: u64) {
         self.public_key = public_key.clone();
         self.private_key = CryptDENull::private_from_public(public_key);
         self.digest =

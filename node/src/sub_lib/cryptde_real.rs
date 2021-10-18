@@ -183,7 +183,7 @@ impl CryptDE for CryptDEReal {
 }
 
 impl CryptDEReal {
-    pub fn new(chain_id: u8) -> Self {
+    pub fn new(chain_id: u64) -> Self {
         let (e_public, e_secret) = encryption::gen_keypair();
         let (s_public, s_secret) = signing::gen_keypair();
         let public_key = Self::local_public_key_from(&e_public, &s_public);

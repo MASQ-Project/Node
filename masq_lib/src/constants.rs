@@ -19,7 +19,9 @@ pub const ETH_ROPSTEN_IDENTIFIER: &str = "eth-ropsten";
 pub const ETH_RINKEBY_IDENTIFIER: &str = "eth-rinkeby";
 pub const DEV_CHAIN_IDENTIFIER: &str = "dev";
 pub const POLY_MAINNET_IDENTIFIER: &str = "poly-mainnet";
+pub const POLY_MUMBAI_IDENTIFIER: &str = "poly-mumbai";
 
+//TODO we should rename these because it's no longer linked with the creation of the contract
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
 pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
 pub const RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 5_893_771; //TODO what to do with Rinkeby, old data?

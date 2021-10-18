@@ -692,7 +692,7 @@ mod tests {
 
         let result = DescriptorParsingError::WrongChainIdentifier("blah").to_string();
 
-        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'eth-mainnet, eth-ropsten, eth-rinkeby' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
+        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'eth-mainnet, eth-ropsten, eth-rinkeby, poly-mainnet' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
     }
 
     #[test]

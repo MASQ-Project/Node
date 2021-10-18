@@ -44,11 +44,20 @@ pub const ETH_MAINNET_CONTRACT_ADDRESS: Address = Address {
     ],
 };
 
-pub const POLYGON_MAINNET_CONTRACT_ADDRESS: Address = Address{
-    0:[0x00;20] //TODO this is just a stub
+pub const POLYGON_MAINNET_CONTRACT_ADDRESS: Address = Address {
+    0: [
+        0xEe, 0x9A, 0x35, 0x2F, 0x6a, 0xAc, 0x4a, 0xF1, 0xA5, 0xB9, 0xf4, 0x67, 0xF6, 0xa9, 0x3E,
+        0x0f, 0xfB, 0xe9, 0xDd, 0x35,
+    ],
 };
 
-pub const MUMBAI_TESTNET_CONTRACT_ADDRESS: Address = Address {0:[0x01;20]}; //TODO this is just a stub
+// SHRD (Mumbai)
+pub const MUMBAI_TESTNET_CONTRACT_ADDRESS: Address = Address {
+    0: [
+        0x4D, 0xFE, 0xEe, 0x01, 0xf1, 0x7e, 0x23, 0x63, 0x2B, 0x15, 0x85, 0x17, 0x17, 0xb8, 0x11,
+        0x72, 0x0A, 0xf8, 0x2E, 0x0f,
+    ],
+};
 
 pub const CONTRACT_ABI: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
 
@@ -130,11 +139,11 @@ pub trait BlockchainInterface {
 // TODO: This probably should go away
 pub struct BlockchainInterfaceClandestine {
     logger: Logger,
-    chain_id: u8,
+    chain_id: u64,
 }
 
 impl BlockchainInterfaceClandestine {
-    pub fn new(chain_id: u8) -> Self {
+    pub fn new(chain_id: u64) -> Self {
         BlockchainInterfaceClandestine {
             logger: Logger::new("BlockchainInterface"),
             chain_id,
@@ -189,7 +198,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
 
 pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
     logger: Logger,
-    chain_id: u8,
+    chain_id: u64,
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     web3: Web3<T>,
@@ -365,7 +374,7 @@ impl<T> BlockchainInterfaceNonClandestine<T>
 where
     T: Transport + Debug,
 {
-    pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain_id: u8) -> Self {
+    pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain_id: u64) -> Self {
         let web3 = Web3::new(transport);
         let contract = Contract::from_json(
             web3.eth(),

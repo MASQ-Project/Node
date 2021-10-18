@@ -71,7 +71,7 @@ pub struct MASQCoresServer {
 }
 
 impl MASQCoresServer {
-    pub fn new(chain_id: u8) -> MASQCoresServer {
+    pub fn new(chain_id: u64) -> MASQCoresServer {
         let ip_address = Self::find_local_integration_net_ip_address();
         let port = find_free_port();
         let local_addr = SocketAddr::new(ip_address, port);
