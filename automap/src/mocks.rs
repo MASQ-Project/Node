@@ -5,7 +5,7 @@ use crate::comm_layer::pcp_pmp_common::{
 };
 use crate::comm_layer::{AutomapError, LocalIpFinder};
 use std::cell::RefCell;
-use std::io;
+use std::{io, thread};
 use std::io::ErrorKind;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
@@ -47,6 +47,16 @@ impl UdpSocketWrapper for UdpSocketWrapperMock {
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         self.recv_from_params.lock().unwrap().push(());
         if self.recv_from_results.borrow().is_empty() {
+            {
+                let set_read_timeout_params_locked = self.set_read_timeout_params.lock().unwrap();
+                if !set_read_timeout_params_locked.is_empty() {
+                    let duration_opt = &set_read_timeout_params_locked[0];
+                    match &duration_opt {
+                        Some(duration) => thread::sleep(duration.clone()),
+                        None => (),
+                    }
+                }
+            }
             return Err(io::Error::from(ErrorKind::WouldBlock));
         }
         let (result, bytes) = self.recv_from_results.borrow_mut().remove(0);

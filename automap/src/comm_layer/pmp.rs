@@ -1460,6 +1460,7 @@ mod tests {
     fn housekeeping_thread_works() {
         let announcement_port = find_free_port();
         let router_port = find_free_port();
+        let announce_port = find_free_port();
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
         subject.router_port = router_port;
@@ -1491,7 +1492,7 @@ mod tests {
             .unwrap();
         thread::sleep(Duration::from_millis(50)); // wait for first announcement read to time out
         let announcement_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
+        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announce_port)).unwrap();
         announce_socket.set_broadcast(true).unwrap();
         announce_socket
             .connect(SocketAddr::new(announcement_ip, announcement_port))
@@ -1540,6 +1541,7 @@ mod tests {
     fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
         let change_handler_port = find_free_port();
         let router_port = find_free_port();
+        let announce_port = find_free_port();
         let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
@@ -1567,7 +1569,7 @@ mod tests {
         .unwrap();
         assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
+        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announce_port)).unwrap();
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
@@ -1596,6 +1598,7 @@ mod tests {
         init_test_logging();
         let change_handler_port = find_free_port();
         let router_port = find_free_port();
+        let announce_port = find_free_port();
         let router_ip = localhost();
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
@@ -1623,7 +1626,7 @@ mod tests {
         .unwrap();
         assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
+        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announce_port)).unwrap();
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();

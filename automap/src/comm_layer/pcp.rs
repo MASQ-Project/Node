@@ -311,9 +311,14 @@ impl PcpTransactor {
             .set_read_timeout(Some(Duration::from_millis(read_timeout_millis)))
             .expect("Can't set read timeout");
         loop {
+eprintln! ("------ Checking for HousekeepingThreadCommand ------");
             match rx.try_recv() {
-                Ok(HousekeepingThreadCommand::Stop) => break,
+                Ok(HousekeepingThreadCommand::Stop) => {
+eprintln! (" <<<<  Received stop order");
+                    break
+                },
                 Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) => {
+eprintln! (" <<<<  Received SetRemapIntervalMs order: {}", remap_after);
                     match &mut mapping_config_opt {
                         None => {
                             error!(
@@ -333,13 +338,19 @@ impl PcpTransactor {
                     }
                 }
                 Ok(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config)) => {
+eprintln! (" <<<<  Received InitializeMappingConfig order: {}/{:?}/{:?}", mapping_config.hole_port, mapping_config.remap_interval, mapping_config.next_lifetime);
                     mapping_config_opt.replace(mapping_config);
                 }
-                Err(_) => (),
+                Err(_) => {
+eprintln! (" <<<<  None received");
+                    ()
+                },
             }
             // This will block for read_timeout_millis, conserving CPU cycles
+eprintln! ("------ Checking announcement socket ------");
             match announcement_socket.recv_from(&mut buffer) {
                 Ok((len, sender_address)) => {
+eprintln! ("------ Got {} bytes from {}!", len, sender_address);
                     if sender_address.ip() != router_addr.ip() {
                         continue;
                     }
@@ -368,6 +379,7 @@ impl PcpTransactor {
                 Err(e)
                     if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
                 {
+eprintln! ("------ Nope, nothing there");
                     ()
                 }
                 Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
@@ -376,6 +388,7 @@ impl PcpTransactor {
             match &mut mapping_config_opt {
                 None => (),
                 Some(mapping_config) => {
+eprintln! ("------ since_last_remapped: {:?}; remap_interval: {:?} ------", since_last_remapped, mapping_config.remap_interval);
                     if since_last_remapped.gt(&mapping_config.remap_interval) {
                         let inner = inner_arc.lock().expect("PcpTransactor is dead");
                         let requested_lifetime = mapping_config.next_lifetime;
@@ -410,6 +423,7 @@ impl PcpTransactor {
             requested_lifetime_secs = 1;
         }
         mapping_config.next_lifetime = Duration::from_secs(requested_lifetime_secs as u64);
+eprintln! ("------ Transacting ------");
         Ok(inner
             .mapping_transactor
             .transact(&inner.factories, router_addr, mapping_config)?
@@ -724,7 +738,12 @@ mod tests {
                 router_addr,
                 mapping_config.clone(),
             ));
-            self.transact_results.borrow_mut().remove(0)
+            if self.transact_results.borrow().len() > 1 {
+                self.transact_results.borrow_mut().remove(0)
+            }
+            else {
+                self.transact_results.borrow()[0].clone()
+            }
         }
     }
 
@@ -744,6 +763,7 @@ mod tests {
             self
         }
 
+        // Note: the last result supplied will be returned over and over
         fn transact_result(self, result: Result<(u32, MapOpcodeData), AutomapError>) -> Self {
             self.transact_results.borrow_mut().push(result);
             self
@@ -1390,6 +1410,7 @@ mod tests {
     fn housekeeping_thread_works() {
         let change_handler_port = find_free_port();
         let router_port = find_free_port();
+        let announce_port = find_free_port();
         let router_ip = localhost();
         let mut subject = PcpTransactor::default();
         subject.router_port = router_port;
@@ -1415,7 +1436,7 @@ mod tests {
             ))
             .unwrap();
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
+        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announce_port)).unwrap();
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
@@ -1449,7 +1470,7 @@ mod tests {
             .send_to(&buffer[0..len_to_send], remapping_socket_addr)
             .unwrap();
         assert_eq!(sent_len, len_to_send);
-        thread::sleep(Duration::from_millis(1)); // yield timeslice
+        thread::yield_now();
         let _ = subject.stop_housekeeping_thread();
         assert!(subject.housekeeper_commander_opt.is_none());
         let changes = changes_arc.lock().unwrap();
@@ -1463,6 +1484,7 @@ mod tests {
     fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
         let change_handler_port = find_free_port();
         let router_port = find_free_port();
+        let announcement_port = find_free_port();
         let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
         let mut subject = PcpTransactor::default();
         subject.router_port = router_port;
@@ -1479,7 +1501,7 @@ mod tests {
 
         assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
+        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announcement_port)).unwrap();
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
@@ -1950,9 +1972,12 @@ mod tests {
                 .set_read_timeout_result(Ok(()))
                 .recv_from_result(Err(io::Error::from(ErrorKind::TimedOut)), b"".to_vec()),
         );
-        let mapping_transactor = Box::new(MappingTransactorMock::new().transact_result(Err(
-            AutomapError::TemporaryMappingError("NoResources".to_string()),
-        )));
+        let mapping_transactor = Box::new(MappingTransactorMock::new()
+            .transact_result(Err(
+                AutomapError::TemporaryMappingError("NoResources".to_string()),
+            ))
+            .transact_result(Ok((0, MapOpcodeData::default()))) // extra fodder for macOS in Actions
+        );
         let change_opt_arc = Arc::new(Mutex::new(None));
         let change_opt_arc_inner = change_opt_arc.clone();
         let change_handler: ChangeHandler = Box::new(move |change| {

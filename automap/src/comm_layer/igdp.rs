@@ -456,8 +456,8 @@ impl IgdpTransactor {
                 "Public IP changed from {} to {}", old_public_ip, current_public_ip
             );
             inner.public_ip_opt.replace(current_public_ip);
-            *last_remapped = Instant::now().sub(Duration::from_secs(86400)); // a day ago: remap now
-            Self::remap_if_necessary(change_handler, &*inner, last_remapped, mapping_config_opt);
+            Self::remap_if_possible(change_handler, &*inner, mapping_config_opt);
+            *last_remapped = Instant::now();
             change_handler(AutomapChange::NewIp(IpAddr::V4(current_public_ip)));
         } else {
             debug!(
@@ -476,22 +476,32 @@ impl IgdpTransactor {
         mapping_config_opt: &Option<MappingConfig>,
     ) {
         if let Some(mapping_config) = mapping_config_opt {
+            let since_last_remapped = last_remapped.elapsed();
+            if since_last_remapped.gt(&mapping_config.remap_interval) {
+                Self::remap_if_possible(change_handler, inner, mapping_config_opt);
+                *last_remapped = Instant::now();
+            }
+        }
+    }
+
+    fn remap_if_possible(
+        change_handler: &ChangeHandler,
+        inner: &IgdpTransactorInner,
+        mapping_config_opt: &Option<MappingConfig>,
+    ) {
+        if let Some(mapping_config) = mapping_config_opt {
             if mapping_config.next_lifetime.as_secs() > 0 {
                 // if the mapping isn't permanent
-                let since_last_remapped = last_remapped.elapsed();
-                if since_last_remapped.gt(&mapping_config.remap_interval) {
-                    if let Err(e) = Self::remap_port(
-                        inner.mapping_adder.as_ref(),
-                        inner.gateway_opt.as_ref().expect_v("gateway_opt").as_ref(),
-                        mapping_config.hole_port,
-                        mapping_config.remap_interval,
-                        &inner.logger,
-                    ) {
-                        error!(inner.logger, "Remapping failure: {:?}", e);
-                        change_handler(AutomapChange::Error(e));
-                        return;
-                    }
-                    *last_remapped = Instant::now();
+                if let Err(e) = Self::remap_port(
+                    inner.mapping_adder.as_ref(),
+                    inner.gateway_opt.as_ref().expect_v("gateway_opt").as_ref(),
+                    mapping_config.hole_port,
+                    mapping_config.remap_interval,
+                    &inner.logger,
+                ) {
+                    error!(inner.logger, "Remapping failure: {:?}", e);
+                    change_handler(AutomapChange::Error(e));
+                    return;
                 }
             }
         }
@@ -1433,7 +1443,7 @@ mod tests {
         IgdpTransactor::thread_guts_iteration(
             &change_handler,
             &inner_arc,
-            &mut Instant::now().sub(Duration::from_secs(1000)),
+            &mut Instant::now().sub(Duration::from_millis(1000)),
             &Some(mapping_config),
         );
 
