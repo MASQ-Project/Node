@@ -1550,6 +1550,7 @@ dependencies = [
  "serde_json",
  "tiny-hderive",
  "toml",
+ "web3",
  "websocket",
 ]
 

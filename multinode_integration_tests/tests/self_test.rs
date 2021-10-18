@@ -36,7 +36,7 @@ fn establishes_masq_node_cluster_from_nothing() {
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .fake_public_key(&PublicKey::new(&[1, 2, 3, 4]))
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
     cluster.start_mock_node_with_public_key(vec![2345], &PublicKey::new(&[2, 3, 4, 5]));
@@ -65,7 +65,7 @@ fn establishes_masq_node_cluster_from_nothing() {
 fn server_relays_cores_package() {
     let cluster = MASQNodeCluster::start().unwrap();
     let masquerader = JsonMasquerader::new();
-    let server = MASQCoresServer::new(cluster.chain_id);
+    let server = MASQCoresServer::new(cluster.chain);
     let cryptde = server.main_cryptde();
     let mut client = MASQCoresClient::new(server.local_addr(), cryptde);
     let mut route = Route::one_way(
@@ -75,7 +75,7 @@ fn server_relays_cores_package() {
         ),
         cryptde,
         Some(make_paying_wallet(b"consuming")),
-        Some(Chain::from_id(cluster.chain_id).record().contract),
+        Some(Chain::from_id(cluster.chain).record().contract),
     )
     .unwrap();
     let incipient = IncipientCoresPackage::new(
@@ -120,7 +120,7 @@ fn one_mock_node_talks_to_another() {
         ),
         cryptde,
         Some(make_paying_wallet(b"consuming")),
-        Some(Chain::from_id(cluster.chain_id).record().contract),
+        Some(Chain::from_id(cluster.chain).record().contract),
     )
     .unwrap();
     let incipient_cores_package = IncipientCoresPackage::new(

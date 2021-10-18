@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
 use base64::STANDARD_NO_PAD;
-use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT, MASQ_URL_PREFIX};
-use node_lib::blockchain::blockchains::{
-    chain_from_chain_identifier_opt, Chain, CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER,
+use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT, MASQ_URL_PREFIX, CHAIN_IDENTIFIER_DELIMITER, CENTRAL_DELIMITER};
+use masq_lib::blockchains::chains::{
+    chain_from_chain_identifier_opt, Chain,
 };
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -29,7 +29,7 @@ use std::time::Instant;
 pub struct NodeReference {
     pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
-    pub chain_id: u64,
+    pub chain: Chain,
 }
 
 impl FromStr for NodeReference {
@@ -57,8 +57,6 @@ impl FromStr for NodeReference {
             port_list,
             chain_from_chain_identifier_opt(chain_identifier)
                 .expect("chain outside the bounds; unknown")
-                .record()
-                .num_chain_id,
         ))
     }
 }
@@ -81,7 +79,7 @@ impl From<&dyn MASQNode> for NodeReference {
         NodeReference {
             public_key: masq_node.main_public_key().clone(),
             node_addr_opt: Some(masq_node.node_addr()),
-            chain_id: masq_node.chain_id(),
+            chain: masq_node.chain(),
         }
     }
 }
@@ -106,7 +104,7 @@ impl fmt::Display for NodeReference {
             f,
             "{}{}{}{}{}{}:{}",
             MASQ_URL_PREFIX,
-            Chain::from_id(self.chain_id).record().chain_identifier,
+            self.chain.record().chain_identifier,
             CHAIN_IDENTIFIER_DELIMITER,
             public_key_string,
             CENTRAL_DELIMITER,
@@ -123,18 +121,18 @@ impl NodeReference {
         public_key: PublicKey,
         ip_addr_opt: Option<IpAddr>,
         ports: Vec<u16>,
-        chain_id: u64,
+        chain: Chain,
     ) -> NodeReference {
         match ip_addr_opt {
             Some(ip_addr) => NodeReference {
                 public_key,
                 node_addr_opt: Some(NodeAddr::new(&ip_addr, &ports)),
-                chain_id,
+                chain,
             },
             None => NodeReference {
                 public_key,
                 node_addr_opt: None,
-                chain_id,
+                chain,
             },
         }
     }
@@ -232,7 +230,7 @@ pub trait MASQNode: Any {
     fn consuming_wallet(&self) -> Option<Wallet>;
     // The RatePack this Node will use to charge fees.
     fn rate_pack(&self) -> RatePack;
-    fn chain_id(&self) -> u64;
+    fn chain(&self) -> Chain;
     fn accepts_connections(&self) -> bool;
     fn routes_data(&self) -> bool;
 }
@@ -328,7 +326,7 @@ impl MASQNodeUtils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 
     #[test]
     fn strip_ports_works_single_port() {
@@ -476,7 +474,7 @@ mod tests {
 
     #[test]
     fn node_reference_can_display_itself() {
-        let chain_id = TEST_DEFAULT_MULTINODE_CHAIN_ID;
+        let chain_id = TEST_DEFAULT_MULTINODE_CHAIN;
         let subject = NodeReference::new(
             PublicKey::new(&b"Booga"[..]),
             Some(IpAddr::from_str("12.34.56.78").unwrap()),

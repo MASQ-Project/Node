@@ -10,8 +10,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use crate::blockchain::blockchains::{
-    chain_from_chain_identifier_opt, Chain, CENTRAL_DELIMITER, CHAINS, CHAIN_IDENTIFIER_DELIMITER,
+use masq_lib::blockchains::chains::{
+    chain_from_chain_identifier_opt, Chain
 };
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
@@ -26,8 +26,9 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::wallet::Wallet;
-use masq_lib::constants::MASQ_URL_PREFIX;
+use masq_lib::constants::{MASQ_URL_PREFIX, CHAIN_IDENTIFIER_DELIMITER, CENTRAL_DELIMITER};
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::blockchains::blockchain_records::CHAINS;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -492,7 +493,7 @@ mod tests {
 
     use actix::Actor;
 
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::localhost;
 
     use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -787,7 +788,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_key_and_mainnet_flag_works_with_cryptde_real() {
-        let cryptde: &dyn CryptDE = &CryptDEReal::new(TEST_DEFAULT_CHAIN_ID);
+        let cryptde: &dyn CryptDE = &CryptDEReal::new(TEST_DEFAULT_CHAIN);
         let encryption_public_key = cryptde
             .descriptor_fragment_to_first_contact_public_key(
                 &cryptde.public_key_to_descriptor_fragment(cryptde.public_key()),

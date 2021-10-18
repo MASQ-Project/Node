@@ -6,6 +6,7 @@ use ethsign::Signature;
 use ethsign_crypto::Keccak256;
 use rlp::RlpStream;
 use serde_derive::{Deserialize, Serialize};
+use masq_lib::blockchains::chains::Chain;
 
 /// Description of a Transaction, pending or in the chain.
 #[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
@@ -28,7 +29,7 @@ pub struct RawTransaction {
 
 impl RawTransaction {
     /// Signs and returns the RLP-encoded transaction
-    pub fn sign(&self, wallet: &Wallet, chain_id: u64) -> Vec<u8> {
+    pub fn sign(&self, wallet: &Wallet, chain: Chain) -> Vec<u8> {
         unimplemented!()
         // let hash = self.tx_hash(chain_id);
         // let sig = ecdsa_sign(&hash, wallet, chain_id);
@@ -101,7 +102,7 @@ mod tests {
         );
 
         let txs: Vec<(RawTransaction, Signing)> = serde_json::from_str(&text_txs_json).unwrap();
-        let chain_id = 0;
+        let chain = Chain::EthMainnet; //TODO this will change the signature!!
         for (tx, signed) in txs.into_iter() {
             assert_eq!(
                 signed.signed,
@@ -109,7 +110,7 @@ mod tests {
                     &Wallet::from(
                         Bip32ECKeyPair::from_raw_secret(&signed.private_key.0.as_ref()).unwrap()
                     ),
-                    chain_id
+                    chain
                 )
             );
         }
@@ -126,7 +127,7 @@ mod tests {
         );
 
         let txs: Vec<(RawTransaction, Signing)> = serde_json::from_str(&text_txs_json).unwrap();
-        let chain_id = 3;
+        let chain = Chain::EthRopsten;
         for (tx, signed) in txs.into_iter() {
             assert_eq!(
                 signed.signed,
@@ -134,7 +135,7 @@ mod tests {
                     &Wallet::from(
                         Bip32ECKeyPair::from_raw_secret(&signed.private_key.0.as_ref()).unwrap()
                     ),
-                    chain_id
+                    chain
                 )
             );
         }
@@ -150,7 +151,7 @@ mod tests {
         );
 
         let txs: Vec<(RawTransaction, Signing)> = serde_json::from_str(&txt_txs_json).unwrap();
-        let chain_id = 3;
+        let chain = Chain::EthRopsten;
         for (tx, signed) in txs.into_iter() {
             assert_eq!(
                 signed.signed,
@@ -158,7 +159,7 @@ mod tests {
                     &Wallet::from(
                         Bip32ECKeyPair::from_raw_secret(&signed.private_key.0.as_ref()).unwrap()
                     ),
-                    chain_id
+                    chain
                 )
             );
         }
@@ -174,7 +175,7 @@ mod tests {
         );
 
         let txs: Vec<(RawTransaction, Signing)> = serde_json::from_str(&txt_txs_json).unwrap();
-        let chain_id = 1;
+        let chain = Chain::EthMainnet;
         for (tx, signed) in txs.into_iter() {
             assert_eq!(
                 signed.signed,
@@ -182,7 +183,7 @@ mod tests {
                     &Wallet::from(
                         Bip32ECKeyPair::from_raw_secret(&signed.private_key.0.as_ref()).unwrap()
                     ),
-                    chain_id
+                    chain
                 )
             );
         }

@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchains::Chain;
+use masq_lib::blockchains::chains::Chain;
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::{
     CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey, SymmetricKey,
@@ -183,13 +183,13 @@ impl CryptDE for CryptDEReal {
 }
 
 impl CryptDEReal {
-    pub fn new(chain_id: u64) -> Self {
+    pub fn new(chain: Chain) -> Self {
         let (e_public, e_secret) = encryption::gen_keypair();
         let (s_public, s_secret) = signing::gen_keypair();
         let public_key = Self::local_public_key_from(&e_public, &s_public);
         let digest =
-            cryptde::create_digest(&public_key, &Chain::from_id(chain_id).record().contract);
-        let pre_shared_data = Chain::from_id(chain_id).record().contract.0;
+            cryptde::create_digest(&public_key, &chain.record().contract);
+        let pre_shared_data = chain.record().contract.0;
 
         Self {
             public_key,
@@ -230,11 +230,11 @@ impl CryptDEReal {
 mod tests {
     use super::*;
     use ethsign_crypto::Keccak256;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 
     impl Default for CryptDEReal {
         fn default() -> Self {
-            Self::new(TEST_DEFAULT_CHAIN_ID)
+            Self::new(TEST_DEFAULT_CHAIN)
         }
     }
 
@@ -591,7 +591,7 @@ mod tests {
         let subject = &CryptDEReal::default();
         let merged = [
             subject.public_key().as_ref(),
-            &Chain::from_id(TEST_DEFAULT_CHAIN_ID)
+            &TEST_DEFAULT_CHAIN
                 .record()
                 .contract
                 .as_ref(),

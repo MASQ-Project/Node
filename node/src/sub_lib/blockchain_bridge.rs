@@ -9,11 +9,12 @@ use actix::Recipient;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
+use masq_lib::blockchains::chains::Chain;
 
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct BlockchainBridgeConfig {
     pub blockchain_service_url_opt: Option<String>,
-    pub chain_id: u64,
+    pub chain: Chain,
     pub gas_price: u64,
 }
 

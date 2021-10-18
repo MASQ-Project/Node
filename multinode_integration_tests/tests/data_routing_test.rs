@@ -26,7 +26,7 @@ fn http_end_to_end_routing_test() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let first_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
 
@@ -35,7 +35,7 @@ fn http_end_to_end_routing_test() {
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
                     .neighbor(first_node.node_reference())
-                    .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+                    .chain(Chain::from_id(cluster.chain).record().plain_text_name)
                     .build(),
             )
         })
@@ -47,7 +47,7 @@ fn http_end_to_end_routing_test() {
         NodeStartupConfigBuilder::standard()
             .neighbor(nodes.last().unwrap().node_reference())
             .consuming_wallet_info(make_consuming_wallet_info("last_node"))
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             // This line is commented out because for some reason the installation of iptables-persistent hangs forever on
             // bullseye-slim. Its absence means that the NodeStartupConfigBuilder::open_firewall_port() function won't work, but
             // at the time of this comment it's used only in this one place, where it adds no value. So we decided to
@@ -75,19 +75,19 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let first_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
     let _second_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .neighbor(first_node.node_reference())
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::consume_only()
             .neighbor(first_node.node_reference())
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
     let _potential_exit_nodes = vec![0, 1, 2, 3, 4]
@@ -96,7 +96,7 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
             cluster.start_real_node(
                 NodeStartupConfigBuilder::originate_only()
                     .neighbor(first_node.node_reference())
-                    .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+                    .chain(Chain::from_id(cluster.chain).record().plain_text_name)
                     .build(),
             )
         })
@@ -122,13 +122,13 @@ fn consume_only_mode_rejects_dns_servers_parameter() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let first_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
     let config = NodeStartupConfigBuilder::consume_only()
         .dns_servers(vec![IpAddr::from_str("1.1.1.1").unwrap()])
         .neighbor(first_node.node_reference())
-        .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+        .chain(Chain::from_id(cluster.chain).record().plain_text_name)
         .build();
 
     let _ = cluster.start_real_node(config);
@@ -139,7 +139,7 @@ fn tls_end_to_end_routing_test() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let first_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
 
@@ -149,7 +149,7 @@ fn tls_end_to_end_routing_test() {
                 NodeStartupConfigBuilder::standard()
                     .consuming_wallet_info(make_consuming_wallet_info(&format!("{}", n)))
                     .neighbor(first_node.node_reference())
-                    .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+                    .chain(Chain::from_id(cluster.chain).record().plain_text_name)
                     .build(),
             )
         })
@@ -222,14 +222,14 @@ fn http_routing_failure_produces_internal_error_response() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let neighbor_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .consuming_wallet_info(default_consuming_wallet_info())
             .neighbor(neighbor_node.node_reference())
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
     thread::sleep(Duration::from_millis(1000));
@@ -256,14 +256,14 @@ fn tls_routing_failure_produces_internal_error_response() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let neighbor = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .consuming_wallet_info(default_consuming_wallet_info())
             .neighbor(neighbor.node_reference())
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
     let mut client = originating_node.make_client(8443);
@@ -310,7 +310,7 @@ fn multiple_stream_zero_hop_test() {
     let zero_hop_node = cluster.start_real_node(
         NodeStartupConfigBuilder::zero_hop()
             .consuming_wallet_info(default_consuming_wallet_info())
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
     let mut one_client = zero_hop_node.make_client(8080);

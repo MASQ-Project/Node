@@ -947,7 +947,6 @@ impl StreamKeyFactory for StreamKeyFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchains::Chain;
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
@@ -985,7 +984,7 @@ mod tests {
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::cell::RefCell;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -1981,7 +1980,7 @@ mod tests {
             main_cryptde,
             Some(consuming_wallet),
             1234,
-            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
+            Some(TEST_DEFAULT_CHAIN.record().contract),
         )
         .unwrap();
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
@@ -4118,7 +4117,7 @@ mod tests {
         let affected_stream_key =
             StreamKey::new(main_cryptde().public_key().clone(), affected_socket_addr);
         let affected_cryptde =
-            CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN_ID);
+            CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN);
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -4144,7 +4143,7 @@ mod tests {
             main_cryptde(),
             Some(make_paying_wallet(b"consuming")),
             1234,
-            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
+            Some(TEST_DEFAULT_CHAIN.record().contract),
         )
         .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(
@@ -4241,7 +4240,7 @@ mod tests {
         let affected_stream_key =
             StreamKey::new(main_cryptde().public_key().clone(), affected_socket_addr);
         let affected_cryptde =
-            CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN_ID);
+            CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN);
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -4267,7 +4266,7 @@ mod tests {
             main_cryptde(),
             Some(make_paying_wallet(b"consuming")),
             1234,
-            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
+            Some(TEST_DEFAULT_CHAIN.record().contract),
         )
         .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(

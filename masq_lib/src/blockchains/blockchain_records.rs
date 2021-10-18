@@ -1,25 +1,14 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_interface::{
-    ETH_MAINNET_CONTRACT_ADDRESS, MULTINODE_TESTNET_CONTRACT_ADDRESS,
-    MUMBAI_TESTNET_CONTRACT_ADDRESS, POLYGON_MAINNET_CONTRACT_ADDRESS,
-    ROPSTEN_TESTNET_CONTRACT_ADDRESS,
-};
-use itertools::Itertools;
-use masq_lib::constants::{
+use crate::constants::{
     DEV_CHAIN_IDENTIFIER, ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_IDENTIFIER,
     ETH_ROPSTEN_IDENTIFIER, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
     MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     POLY_MAINNET_IDENTIFIER, POLY_MUMBAI_IDENTIFIER,
     ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
 };
-use serde_derive::{Deserialize, Serialize};
-use std::fmt::Debug;
 use web3::types::Address;
-pub const DEFAULT_CHAIN: Chain = Chain::EthMainnet;
-
-pub const CENTRAL_DELIMITER: char = '@';
-pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
+use crate::blockchains::chains::Chain;
 
 //chains are ordered by their significance for the community of users (the order reflects in some error or help messages)
 pub const CHAINS: [BlockchainRecord; 5] = [
@@ -81,78 +70,43 @@ pub struct BlockchainRecord {
     pub contract_creation_block: u64,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-pub enum Chain {
-    EthMainnet,
-    EthRopsten,
-    PolyMainnet,
-    PolyMumbai,
-    Dev,
-}
+// SHRD (Ropsten)
+const ROPSTEN_TESTNET_CONTRACT_ADDRESS: Address = Address {
+    0: [
+        0x38, 0x4d, 0xec, 0x25, 0xe0, 0x3f, 0x94, 0x93, 0x17, 0x67, 0xce, 0x4c, 0x35, 0x56, 0x16,
+        0x84, 0x68, 0xba, 0x24, 0xc3,
+    ],
+};
 
-impl From<&str> for Chain {
-    fn from(str: &str) -> Self {
-        match str {
-            "poly-mainnet" => Chain::PolyMainnet,
-            "eth-mainnet" => Chain::EthMainnet,
-            "mumbai" => Chain::PolyMumbai,
-            "ropsten" => Chain::EthRopsten,
-            "dev" => Chain::Dev,
-            _ => DEFAULT_CHAIN,
-        }
-    }
-}
+const MULTINODE_TESTNET_CONTRACT_ADDRESS: Address = Address {
+    0: [
+        0x59, 0x88, 0x2e, 0x4a, 0x8f, 0x5d, 0x24, 0x64, 0x3d, 0x4d, 0xda, 0x42, 0x29, 0x22, 0xa8,
+        0x70, 0xf1, 0xb3, 0xe6, 0x64,
+    ],
+};
 
-impl Chain {
-    pub fn record(&self) -> &BlockchainRecord {
-        CHAINS
-            .iter()
-            .find(|b| &b.literal_chain_id == self)
-            .unwrap_or_else(|| panic!("BlockchainRecord for '{:?}' doesn't exist", self))
-        //untested panic - but works as expect()
-    }
-    pub fn from_id(id: u64) -> Chain {
-        match id {
-            1 => Self::EthMainnet,
-            2 => Self::Dev,
-            3 => Self::EthRopsten,
-            137 => Self::PolyMainnet,
-            80001 => Self::PolyMumbai,
-            x => panic!("Undefined num id '{}' for ChainRecords", x),
-        }
-    }
-}
+const ETH_MAINNET_CONTRACT_ADDRESS: Address = Address {
+    0: [
+        0x06, 0xF3, 0xC3, 0x23, 0xf0, 0x23, 0x8c, 0x72, 0xBF, 0x35, 0x01, 0x10, 0x71, 0xf2, 0xb5,
+        0xB7, 0xF4, 0x3A, 0x05, 0x4c,
+    ],
+};
 
-pub fn chain_from_chain_identifier_opt(identifier: &str) -> Option<Chain> {
-    return_record_opt_standard_impl(Box::new(|b: &&BlockchainRecord| {
-        b.chain_identifier == identifier
-    }))
-    .map(|record| record.literal_chain_id)
-}
+const POLYGON_MAINNET_CONTRACT_ADDRESS: Address = Address {
+    0: [
+        0xEe, 0x9A, 0x35, 0x2F, 0x6a, 0xAc, 0x4a, 0xF1, 0xA5, 0xB9, 0xf4, 0x67, 0xF6, 0xa9, 0x3E,
+        0x0f, 0xfB, 0xe9, 0xDd, 0x35,
+    ],
+};
 
-fn return_record_opt_standard_impl<'a, F>(closure: Box<F>) -> Option<&'a BlockchainRecord>
-where
-    F: FnMut(&&BlockchainRecord) -> bool,
-{
-    return_record_opt_body(closure, &CHAINS)
-}
+// SHRD (Mumbai)
+const MUMBAI_TESTNET_CONTRACT_ADDRESS: Address = Address {
+    0: [
+        0x4D, 0xFE, 0xEe, 0x01, 0xf1, 0x7e, 0x23, 0x63, 0x2B, 0x15, 0x85, 0x17, 0x17, 0xb8, 0x11,
+        0x72, 0x0A, 0xf8, 0x2E, 0x0f,
+    ],
+};
 
-fn return_record_opt_body<F>(
-    closure: Box<F>,
-    collection_of_chains: &[BlockchainRecord],
-) -> Option<&BlockchainRecord>
-where
-    F: FnMut(&&BlockchainRecord) -> bool,
-{
-    let mut filtered = collection_of_chains.iter().filter(closure).collect_vec();
-    filtered.pop().map(|first| {
-        if filtered.pop() != None {
-            panic!("Not unique identifier used to query a BlockchainRecord")
-        } else {
-            first
-        }
-    })
-}
 
 #[cfg(test)]
 mod tests {
@@ -164,6 +118,8 @@ mod tests {
         MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     };
     use std::panic::catch_unwind;
+    use masq_lib::chains::{chain_from_chain_identifier_opt};
+    use crate::blockchains::chains::DEFAULT_CHAIN;
 
     #[test]
     fn record_returns_correct_blockchain_record() {
@@ -197,22 +153,6 @@ mod tests {
     fn assert_from_id(id: u64, chain: Chain) -> Chain {
         assert_eq!(Chain::from_id(id), chain);
         chain
-    }
-
-    #[test]
-    fn from_id_panics_on_undefined_ids() {
-        let index = (1u64..)
-            .find(|num| {
-                find_record_opt(&|record: &&BlockchainRecord| record.num_chain_id == *num).is_none()
-            })
-            .unwrap();
-        let caught_panic = catch_unwind(|| {
-            Chain::from_id(index);
-        })
-        .unwrap_err();
-        let caught_panic = caught_panic.downcast_ref::<String>().unwrap();
-        let expected_panic = format!("Undefined num id '{}' for ChainRecords", index);
-        assert_eq!(caught_panic, &expected_panic)
     }
 
     #[test]
@@ -263,7 +203,7 @@ mod tests {
                 return_record_opt_standard_impl(Box::new(
                     |b: &&BlockchainRecord| b.num_chain_id == record.num_chain_id
                 ))
-                .unwrap()
+                    .unwrap()
             )
         });
     }
@@ -428,13 +368,13 @@ mod tests {
         CHAINS.iter().for_each(|chain_record| {
             let found = test_array.iter()
                 .fold(init, |so_far, chain| match so_far {
-                (Some(chain_found), None) => (Some(chain_found), None),
-                (None, _) => match *chain == chain_record.literal_chain_id {
-                    true => (Some(chain), None),
-                    false => (None, Some(chain)),
-                },
-                x => panic!("Should not happen!: {:?}", x),
-            });
+                    (Some(chain_found), None) => (Some(chain_found), None),
+                    (None, _) => match *chain == chain_record.literal_chain_id {
+                        true => (Some(chain), None),
+                        false => (None, Some(chain)),
+                    },
+                    x => panic!("Should not happen!: {:?}", x),
+                });
             assert!(
                 found.0.is_some(),
                 "Assertion for '{:?}' is missing",

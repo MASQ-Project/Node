@@ -6,7 +6,7 @@ pub mod node_configurator_standard;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
-use crate::blockchain::blockchains::Chain;
+use masq_lib::blockchains::chains::Chain;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::db_config::persistent_configuration::{
@@ -20,7 +20,6 @@ use bip39::Language;
 use clap::{value_t, App, Arg};
 use dirs::{data_local_dir, home_dir};
 use masq_lib::command::StdStreams;
-use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
@@ -35,6 +34,7 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
+use masq_lib::constants::DEFAULT_CHAIN;
 
 pub trait NodeConfigurator<T> {
     fn configure(
@@ -180,10 +180,10 @@ pub fn create_wallet(
 
 pub fn initialize_database(
     data_directory: &Path,
-    chain_id: u64,
+    chain: Chain,
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory, chain_id, true)
+        .initialize(data_directory, chain, true)
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
@@ -225,7 +225,7 @@ pub fn real_user_with_data_directory_opt_and_chain(
 ) -> (RealUser, Option<PathBuf>, Chain) {
     let real_user = real_user_from_multi_config_or_populate(multi_config, dirs_wrapper);
     let chain_name =
-        value_m!(multi_config, "chain", String).unwrap_or_else(|| DEFAULT_CHAIN_NAME.to_string());
+        value_m!(multi_config, "chain", String).unwrap_or_else(|| DEFAULT_CHAIN.record().plain_text_name.to_string());
     let data_directory_opt = value_m!(multi_config, "data-directory", PathBuf);
     (
         real_user,
@@ -287,7 +287,7 @@ pub fn prepare_initialization_mode<'a>(
         real_user_with_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
     let directory =
         data_directory_from_context(&DirsWrapperReal {}, &real_user, &data_directory_opt, chain);
-    let persistent_config_box = initialize_database(&directory, chain.record().num_chain_id);
+    let persistent_config_box = initialize_database(&directory, chain);
     Ok((multi_config, persistent_config_box))
 }
 
@@ -733,17 +733,16 @@ mod tests {
     use crate::test_utils::pure_test_utils::make_simplified_multi_config;
     use crate::test_utils::ArgsBuilder;
     use bip39::{Mnemonic, Seed};
-    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_PLATFORM};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::{db_password_arg, ParamError};
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
     use masq_lib::utils::{find_free_port, running_test};
     use std::io::Cursor;
     use std::net::{SocketAddr, TcpListener};
     use std::sync::{Arc, Mutex};
     use tiny_hderive::bip44::DerivationPath;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 
     #[test]
     fn validate_ethereum_address_requires_an_address_that_is_42_characters_long() {
@@ -929,7 +928,7 @@ mod tests {
             String::from(""),
             data_directory_default(
                 &DirsWrapperMock::new().data_dir_result(None),
-                TEST_DEFAULT_CHAIN_NAME
+                TEST_DEFAULT_CHAIN.record().plain_text_name
             )
         );
     }
@@ -938,11 +937,11 @@ mod tests {
     fn data_directory_default_works() {
         let mock_dirs_wrapper = DirsWrapperMock::new().data_dir_result(Some("mocked/path".into()));
 
-        let result = data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN_NAME);
+        let result = data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN.record().plain_text_name);
 
         let expected = PathBuf::from("mocked/path")
             .join("MASQ")
-            .join(DEFAULT_CHAIN_NAME);
+            .join(DEFAULT_CHAIN.record().plain_text_name);
         assert_eq!(result, expected.as_path().to_str().unwrap().to_string());
     }
 
@@ -1033,10 +1032,10 @@ mod tests {
         let expected_root = DirsWrapperReal {}.data_dir().unwrap();
         let expected_directory = expected_root
             .join("MASQ")
-            .join(DEFAULT_PLATFORM)
-            .join(DEFAULT_CHAIN_NAME);
+            .join(DEFAULT_CHAIN.record().directory_by_platform)
+            .join(DEFAULT_CHAIN.record().plain_text_name);
         assert_eq!(directory, expected_directory);
-        assert_eq!(chain.record().plain_text_name, DEFAULT_CHAIN_NAME);
+        assert_eq!(chain.record().plain_text_name, DEFAULT_CHAIN.record().plain_text_name);
     }
 
     #[test]

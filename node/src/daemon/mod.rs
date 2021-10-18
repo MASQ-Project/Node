@@ -449,7 +449,7 @@ mod tests {
     };
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageTarget::AllExcept;
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
     use std::cell::RefCell;
@@ -754,7 +754,7 @@ mod tests {
                             "data-directory",
                             format!("{:?}", home_dir).as_str(),
                         ),
-                        UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME),
+                        UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN.record().plain_text_name),
                         UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                     ],
                 }
@@ -781,7 +781,7 @@ mod tests {
         assert_eq!(
             actual_pairs.contains(&(
                 "chain".to_string(),
-                UiSetupResponseValue::new("chain", TEST_DEFAULT_CHAIN_NAME, Set)
+                UiSetupResponseValue::new("chain", TEST_DEFAULT_CHAIN.record().plain_text_name, Set)
             )),
             true
         );
@@ -810,7 +810,7 @@ mod tests {
             body: UiSetupRequest {
                 values: vec![
                     UiSetupRequestValue::new("data-directory", data_dir.to_str().unwrap()),
-                    UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME),
+                    UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN.record().plain_text_name),
                     UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                 ],
             }
@@ -837,7 +837,7 @@ mod tests {
                 .map(|value| (value.name, value.value))
                 .collect();
             assert_eq!(
-                actual_pairs.contains(&("chain".to_string(), TEST_DEFAULT_CHAIN_NAME.to_string())),
+                actual_pairs.contains(&("chain".to_string(), TEST_DEFAULT_CHAIN.record().plain_text_name.to_string())),
                 true
             );
             assert_eq!(errors, vec![]);

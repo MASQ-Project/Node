@@ -131,7 +131,6 @@ impl Hopper {
 mod tests {
     use super::live_cores_package::LiveCoresPackage;
     use super::*;
-    use crate::blockchain::blockchains::Chain;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::Component;
@@ -144,7 +143,7 @@ mod tests {
     };
     use actix::Actor;
     use actix::System;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::SocketAddr;
     use std::str::FromStr;
 
@@ -207,7 +206,7 @@ mod tests {
             ),
             main_cryptde,
             Some(paying_wallet),
-            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
+            Some(TEST_DEFAULT_CHAIN.record().contract),
         )
         .unwrap();
         let incipient_package = IncipientCoresPackage::new(

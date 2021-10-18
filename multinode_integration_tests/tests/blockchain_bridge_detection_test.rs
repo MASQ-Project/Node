@@ -17,7 +17,7 @@ fn blockchain_bridge_logs_when_started() {
     let subject = cluster.start_real_node(
         NodeStartupConfigBuilder::zero_hop()
             .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(private_key.to_string()))
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     );
 

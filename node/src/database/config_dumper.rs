@@ -27,16 +27,17 @@ use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 use std::any::Any;
+use masq_lib::blockchains::chains::Chain;
 
 pub struct DumpConfigRunnerReal;
 
 impl DumpConfigRunner for DumpConfigRunnerReal {
     fn go(&self, streams: &mut StdStreams, args: &[String]) -> Result<(), ConfiguratorError> {
-        let (real_user, data_directory, chain_id, password_opt) =
+        let (real_user, data_directory, chain, password_opt) =
             distill_args(&DirsWrapperReal {}, args)?;
-        let cryptde = CryptDEReal::new(chain_id);
+        let cryptde = CryptDEReal::new(chain);
         PrivilegeDropperReal::new().drop_privileges(&real_user);
-        let config_dao = make_config_dao(&data_directory, chain_id);
+        let config_dao = make_config_dao(&data_directory, chain);
         let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
         let json = configuration_to_json(configuration, password_opt, &cryptde);
         write_string(streams, json);
@@ -108,9 +109,9 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
     }
 }
 
-fn make_config_dao(data_directory: &Path, chain_id: u64) -> ConfigDaoReal {
+fn make_config_dao(data_directory: &Path, chain: Chain) -> ConfigDaoReal {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory, chain_id, true) // TODO: Probably should be false
+        .initialize(data_directory, chain, true) // TODO: Probably should be false
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
@@ -124,7 +125,7 @@ fn make_config_dao(data_directory: &Path, chain_id: u64) -> ConfigDaoReal {
 fn distill_args(
     dirs_wrapper: &dyn DirsWrapper,
     args: &[String],
-) -> Result<(RealUser, PathBuf, u64, Option<String>), ConfiguratorError> {
+) -> Result<(RealUser, PathBuf, Chain, Option<String>), ConfiguratorError> {
     let app = app_config_dumper();
     let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
         Box::new(CommandLineVcl::new(args.to_vec())),
@@ -139,7 +140,7 @@ fn distill_args(
     Ok((
         real_user,
         directory,
-        chain.record().num_chain_id,
+        chain,
         password_opt,
     ))
 }
@@ -148,7 +149,6 @@ fn distill_args(
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
-    use crate::blockchain::blockchains::Chain;
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,
@@ -161,8 +161,7 @@ mod tests {
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
-        TEST_DEFAULT_PLATFORM,
+        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN
     };
     use masq_lib::utils::derivation_path;
 
@@ -173,13 +172,13 @@ mod tests {
             "dump_config_creates_database_if_nonexistent",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_PLATFORM)
-        .join(TEST_DEFAULT_CHAIN_NAME);
+        .join(TEST_DEFAULT_CHAIN.record().directory_by_platform)
+        .join(TEST_DEFAULT_CHAIN.record().plain_text_name);
         let mut holder = FakeStreamHolder::new();
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN.record().plain_text_name)
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
@@ -194,7 +193,7 @@ mod tests {
             other => panic!("Was expecting Value::Object, got {:?} instead", other),
         };
         let expected_value = json!({
-           "chainName": TEST_DEFAULT_CHAIN_NAME.to_string(),
+           "chainName": TEST_DEFAULT_CHAIN.record().plain_text_name.to_string(),
            "clandestinePort": actual_map.get ("clandestinePort"),
            "consumingWalletDerivationPath": null,
            "consumingWalletPublicKey": null,
@@ -205,7 +204,7 @@ mod tests {
            "pastNeighbors": null,
            "schemaVersion": CURRENT_SCHEMA_VERSION.to_string(),
            "seed": null,
-           "startBlock": &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract_creation_block.to_string(),
+           "startBlock": &TEST_DEFAULT_CHAIN.record().contract_creation_block.to_string(),
         });
         assert_eq!(actual_value, expected_value);
         assert!(output.ends_with("\n}\n"))
@@ -219,8 +218,8 @@ mod tests {
             "dump_config_dumps_existing_database_without_password",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_PLATFORM)
-        .join(TEST_DEFAULT_CHAIN_NAME);
+        .join(TEST_DEFAULT_CHAIN.record().directory_by_platform)
+        .join(TEST_DEFAULT_CHAIN.record().plain_text_name);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -228,7 +227,7 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
-                .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, true)
+                .initialize(&data_dir, TEST_DEFAULT_CHAIN, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -262,7 +261,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN.record().plain_text_name)
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
@@ -276,7 +275,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, false)
+            .initialize(&data_dir, TEST_DEFAULT_CHAIN, false)
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
         let check = |key: &str, expected_value: &str| {
@@ -300,7 +299,7 @@ mod tests {
         check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
-            &Chain::from_id(TEST_DEFAULT_CHAIN_ID)
+            &TEST_DEFAULT_CHAIN
                 .record()
                 .contract_creation_block
                 .to_string(),
@@ -320,8 +319,8 @@ mod tests {
             "dump_config_dumps_existing_database_with_correct_password",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_PLATFORM)
-        .join(TEST_DEFAULT_CHAIN_NAME);
+        .join(TEST_DEFAULT_CHAIN.record().directory_by_platform)
+        .join(TEST_DEFAULT_CHAIN.record().plain_text_name);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -329,7 +328,7 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
-                .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, true)
+                .initialize(&data_dir, TEST_DEFAULT_CHAIN, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -363,7 +362,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN.record().plain_text_name)
             .param("--db-password", "password")
             .opt("--dump-config")
             .into();
@@ -378,7 +377,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, false)
+            .initialize(&data_dir, TEST_DEFAULT_CHAIN, false)
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         let check = |key: &str, expected_value: &str| {
@@ -399,7 +398,7 @@ mod tests {
         check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
-            &Chain::from_id(TEST_DEFAULT_CHAIN_ID)
+            &TEST_DEFAULT_CHAIN
                 .record()
                 .contract_creation_block
                 .to_string(),
@@ -424,8 +423,8 @@ mod tests {
             "dump_config_dumps_existing_database_with_incorrect_password",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_PLATFORM)
-        .join(TEST_DEFAULT_CHAIN_NAME);
+        .join(TEST_DEFAULT_CHAIN.record().directory_by_platform)
+        .join(TEST_DEFAULT_CHAIN.record().plain_text_name);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -433,7 +432,7 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
-                .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, true)
+                .initialize(&data_dir, TEST_DEFAULT_CHAIN, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -467,7 +466,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN.record().plain_text_name)
             .param("--db-password", "incorrect")
             .opt("--dump-config")
             .into();
@@ -482,7 +481,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, false)
+            .initialize(&data_dir, TEST_DEFAULT_CHAIN, false)
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         let check = |key: &str, expected_value: &str| {
@@ -506,7 +505,7 @@ mod tests {
         check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
-            &Chain::from_id(TEST_DEFAULT_CHAIN_ID)
+            &TEST_DEFAULT_CHAIN
                 .record()
                 .contract_creation_block
                 .to_string(),

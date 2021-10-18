@@ -37,13 +37,13 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     );
 
     // get all payables from originating node
-    let payables = non_pending_payables(&originating_node, cluster.chain_id);
+    let payables = non_pending_payables(&originating_node, cluster.chain);
 
     // get all receivables from all other nodes
     let receivable_balances = non_originating_nodes
         .iter()
         .flat_map(|node| {
-            receivables(node, cluster.chain_id)
+            receivables(node, cluster.chain)
                 .into_iter()
                 .map(move |receivable_account| (node.earning_wallet(), receivable_account.balance))
         })
@@ -111,7 +111,7 @@ pub fn start_lonely_real_node(cluster: &mut MASQNodeCluster) -> MASQRealNode {
         NodeStartupConfigBuilder::standard()
             .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
             .consuming_wallet_info(make_consuming_wallet_info(&index.to_string()))
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     )
 }
@@ -122,7 +122,7 @@ pub fn start_real_node(cluster: &mut MASQNodeCluster, neighbor: NodeReference) -
         NodeStartupConfigBuilder::standard()
             .neighbor(neighbor)
             .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
-            .chain(Chain::from_id(cluster.chain_id).record().plain_text_name)
+            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
             .build(),
     )
 }

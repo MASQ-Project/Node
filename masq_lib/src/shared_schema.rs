@@ -1,7 +1,4 @@
-use crate::constants::{
-    DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HIGHEST_USABLE_PORT,
-    LOWEST_USABLE_INSECURE_PORT,
-};
+use crate::constants::{DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT, DEFAULT_CHAIN};
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
 use lazy_static::lazy_static;
@@ -149,7 +146,7 @@ pub fn chain_arg<'a>() -> Arg<'a, 'a> {
         .value_name("CHAIN")
         .min_values(0)
         .max_values(1)
-        .possible_values(&[DEFAULT_CHAIN_NAME, "ropsten", "rinkeby", "dev"]) //TODO one day 'dev' may be left out
+        .possible_values(&[DEFAULT_CHAIN.record().plain_text_name, "ropsten", "rinkeby", "dev"]) //TODO one day 'dev' may be left out
         .help(CHAIN_HELP)
 }
 

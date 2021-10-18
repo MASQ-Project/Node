@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchains::Chain;
+use masq_lib::blockchains::chains::Chain;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
@@ -13,7 +13,7 @@ use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDes
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -74,7 +74,7 @@ pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
         node.public_key(),
         node.into(),
         node.earning_wallet(),
-        &CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN_ID),
+        &CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN),
     )
 }
 
@@ -160,26 +160,26 @@ impl NodeRecord {
             accepts_connections,
             routes_data,
             0,
-            &CryptDENull::from(public_key, TEST_DEFAULT_CHAIN_ID),
+            &CryptDENull::from(public_key, TEST_DEFAULT_CHAIN),
         );
         if let Some(node_addr) = node_addr_opt {
             node_record.set_node_addr(node_addr).unwrap();
         }
         node_record.signed_gossip =
             PlainData::from(serde_cbor::ser::to_vec(&node_record.inner).unwrap());
-        node_record.regenerate_signed_gossip(&CryptDENull::from(public_key, TEST_DEFAULT_CHAIN_ID));
+        node_record.regenerate_signed_gossip(&CryptDENull::from(public_key, TEST_DEFAULT_CHAIN));
         node_record
     }
 
     pub fn resign(&mut self) {
-        let cryptde = CryptDENull::from(self.public_key(), TEST_DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(self.public_key(), TEST_DEFAULT_CHAIN);
         self.regenerate_signed_gossip(&cryptde);
     }
 }
 
 impl AccessibleGossipRecord {
     pub fn resign(&mut self) {
-        let cryptde = CryptDENull::from(&self.inner.public_key, TEST_DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(&self.inner.public_key, TEST_DEFAULT_CHAIN);
         self.regenerate_signed_gossip(&cryptde);
     }
 }

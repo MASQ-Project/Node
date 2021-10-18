@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchains::Chain;
+use masq_lib::blockchains::chains::Chain;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
@@ -338,9 +338,9 @@ pub struct ExternalMigrationParameters {
 }
 
 impl ExternalMigrationParameters {
-    pub fn new(chain_id: u64) -> Self {
+    pub fn new(chain: Chain) -> Self {
         Self {
-            chain_name: Chain::from_id(chain_id)
+            chain_name: chain
                 .record()
                 .plain_text_name
                 .to_string(),
@@ -365,14 +365,15 @@ mod tests {
         revive_tables_of_the_version_0_and_return_the_connection_to_the_db,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::constants::DEFAULT_CHAIN_NAME;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
+    use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::DEFAULT_CHAIN;
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
@@ -494,7 +495,7 @@ mod tests {
 
     fn make_external_migration_parameters() -> ExternalMigrationParameters {
         ExternalMigrationParameters {
-            chain_name: DEFAULT_CHAIN_NAME.to_string(),
+            chain_name: DEFAULT_CHAIN.record().plain_text_name.to_string(),
         }
     }
 
@@ -715,8 +716,8 @@ mod tests {
         ];
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
         let config = DBMigratorConfiguration::new();
-        let chain_id = 1; //irrelevant
-        let external_parameters = ExternalMigrationParameters::new(chain_id);
+        let chain = Chain::EthMainnet; //irrelevant
+        let external_parameters = ExternalMigrationParameters::new(chain);
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
         let result = subject
@@ -997,7 +998,7 @@ mod tests {
         let _ = revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize_to_version(&dir_path, TEST_DEFAULT_CHAIN_ID, 1, true);
+        let result = subject.initialize_to_version(&dir_path, TEST_DEFAULT_CHAIN, 1, true);
 
         let connection = result.unwrap();
         let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
@@ -1026,11 +1027,11 @@ mod tests {
         let subject = DbInitializerReal::default();
         {
             subject
-                .initialize_to_version(&dir_path, TEST_DEFAULT_CHAIN_ID, 1, true)
+                .initialize_to_version(&dir_path, TEST_DEFAULT_CHAIN, 1, true)
                 .unwrap();
         }
 
-        let result = subject.initialize_to_version(&dir_path, TEST_DEFAULT_CHAIN_ID, 2, true);
+        let result = subject.initialize_to_version(&dir_path, TEST_DEFAULT_CHAIN, 2, true);
 
         let connection = result.unwrap();
         let (chn_name, chn_value, chn_encrypted): (String, Option<String>, u16) =

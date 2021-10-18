@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN_ID;
+use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, PortSelector};
@@ -44,7 +44,7 @@ const HTTP_RESPONSE: &[u8] =
 fn actual_client_drop() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
-    let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain_id);
+    let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain);
     let mut client = real_node.make_client(8080);
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
@@ -76,7 +76,7 @@ fn actual_client_drop() {
 fn reported_server_drop() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
-    let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain_id);
+    let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain);
     let mut client = real_node.make_client(8080);
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
@@ -121,7 +121,7 @@ fn actual_server_drop() {
                 stream_key,
                 return_route_id,
                 &server,
-                cluster.chain_id,
+                cluster.chain,
             ),
             &masquerader,
             real_node.main_public_key(),
@@ -183,7 +183,7 @@ fn reported_client_drop() {
                 stream_key,
                 return_route_id,
                 &server,
-                cluster.chain_id,
+                cluster.chain,
             ),
             &masquerader,
             real_node.main_public_key(),
@@ -373,7 +373,7 @@ fn create_meaningless_icp(
             originating_node.consuming_wallet(),
             1357,
             Some(
-                Chain::from_id(TEST_DEFAULT_MULTINODE_CHAIN_ID)
+                Chain::from_id(TEST_DEFAULT_MULTINODE_CHAIN)
                     .record()
                     .contract,
             ),
@@ -420,7 +420,7 @@ fn create_server_drop_report(
         originating_node.consuming_wallet(),
         return_route_id,
         Some(
-            Chain::from_id(TEST_DEFAULT_MULTINODE_CHAIN_ID)
+            Chain::from_id(TEST_DEFAULT_MULTINODE_CHAIN)
                 .record()
                 .contract,
         ),
@@ -471,7 +471,7 @@ fn create_client_drop_report(
         originating_node.consuming_wallet(),
         return_route_id,
         Some(
-            Chain::from_id(TEST_DEFAULT_MULTINODE_CHAIN_ID)
+            Chain::from_id(TEST_DEFAULT_MULTINODE_CHAIN)
                 .record()
                 .contract,
         ),

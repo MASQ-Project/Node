@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
-use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN.record().plain_text_name};
 use masq_lib::utils::localhost;
 use node_lib::test_utils::await_value;
 use std::env;
@@ -313,7 +313,7 @@ impl MASQNode {
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )
-            .pair("--chain", TEST_DEFAULT_CHAIN_NAME)
+            .pair("--chain", TEST_DEFAULT_CHAIN.record().plain_text_name)
             .pair("--log-level", "trace")
             .args
     }

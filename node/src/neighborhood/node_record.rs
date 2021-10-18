@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchains::Chain;
+use masq_lib::blockchains::chains::Chain;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord};
@@ -95,8 +95,8 @@ impl NodeRecord {
         self.metadata.node_addr_opt.clone()
     }
 
-    pub fn node_descriptor(&self, chain_id: u64, cryptde: &dyn CryptDE) -> NodeDescriptor {
-        NodeDescriptor::from((self, Chain::from_id(chain_id), cryptde))
+    pub fn node_descriptor(&self, chain: Chain, cryptde: &dyn CryptDE) -> NodeDescriptor {
+        NodeDescriptor::from((self, chain, cryptde))
     }
 
     pub fn set_node_addr(
@@ -351,7 +351,7 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
     use crate::test_utils::{assert_contains, main_cryptde, rate_pack};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
 
@@ -412,7 +412,7 @@ mod tests {
             &[1234, 2345],
         ));
 
-        let result = subject.node_descriptor(TEST_DEFAULT_CHAIN_ID, cryptde);
+        let result = subject.node_descriptor(TEST_DEFAULT_CHAIN, cryptde);
 
         assert_eq!(
             result,
@@ -429,7 +429,7 @@ mod tests {
         let cryptde: &dyn CryptDE = main_cryptde();
         let subject: NodeRecord = make_node_record(1234, false);
 
-        let result = subject.node_descriptor(TEST_DEFAULT_CHAIN_ID, cryptde);
+        let result = subject.node_descriptor(TEST_DEFAULT_CHAIN, cryptde);
 
         assert_eq!(
             result,
@@ -972,7 +972,7 @@ mod tests {
     #[test]
     fn regenerate_signed_data_regenerates_signed_gossip_and_resigns() {
         let mut subject = make_node_record(1234, true);
-        let cryptde = CryptDENull::from(subject.public_key(), TEST_DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(subject.public_key(), TEST_DEFAULT_CHAIN);
         let initial_signed_gossip = subject.signed_gossip().clone();
         subject.increment_version();
 

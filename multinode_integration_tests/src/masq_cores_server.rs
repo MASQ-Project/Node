@@ -3,7 +3,7 @@
 use crate::masq_node::NodeReference;
 use crate::masq_node_cluster::MASQNodeCluster;
 use crossbeam_channel::{unbounded, Receiver};
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN_ID;
+use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::find_free_port;
 use node_lib::discriminator::Discriminator;
 use node_lib::discriminator::DiscriminatorFactory;
@@ -28,6 +28,7 @@ use std::net::TcpListener;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use masq_lib::blockchains::chains::Chain;
 
 // TODO: Cover this with tests and put it in the production tree.
 pub struct DiscriminatorCluster {
@@ -71,16 +72,16 @@ pub struct MASQCoresServer {
 }
 
 impl MASQCoresServer {
-    pub fn new(chain_id: u64) -> MASQCoresServer {
+    pub fn new(chain: Chain) -> MASQCoresServer {
         let ip_address = Self::find_local_integration_net_ip_address();
         let port = find_free_port();
         let local_addr = SocketAddr::new(ip_address, port);
         let listener = TcpListener::bind(local_addr)
             .unwrap_or_else(|_| panic!("Couldn't start server on {}", local_addr));
-        let main_cryptde = CryptDENull::new(chain_id);
+        let main_cryptde = CryptDENull::new(chain);
         let mut key = main_cryptde.public_key().as_slice().to_vec();
         key.reverse();
-        let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain_id);
+        let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain);
         let (io_tx, io_rx) = unbounded();
         let join_handle = thread::spawn(move || loop {
             let (mut stream, _) = match listener.accept() {
@@ -140,7 +141,7 @@ impl MASQCoresServer {
                 &self.socket_addr.ip(),
                 &[self.socket_addr.port()],
             )),
-            chain_id: TEST_DEFAULT_MULTINODE_CHAIN_ID,
+            chain: TEST_DEFAULT_MULTINODE_CHAIN,
         }
     }
 

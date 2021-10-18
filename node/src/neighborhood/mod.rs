@@ -24,7 +24,7 @@ use masq_lib::utils::exit_process;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
-use crate::blockchain::blockchains::Chain;
+use masq_lib::blockchains::chains::Chain;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
@@ -88,7 +88,7 @@ pub struct Neighborhood {
     consuming_wallet_opt: Option<Wallet>,
     next_return_route_id: u32,
     initial_neighbors: Vec<NodeDescriptor>,
-    chain_id: u64,
+    chain: Chain,
     data_directory: PathBuf,
     persistent_config_opt: Option<Box<dyn PersistentConfiguration>>,
     db_password_opt: Option<String>,
@@ -338,7 +338,7 @@ impl Neighborhood {
             cryptde,
         );
         let is_mainnet =
-            config.blockchain_bridge_config.chain_id == Chain::EthMainnet.record().num_chain_id;
+            config.blockchain_bridge_config.chain == Chain::EthMainnet;
         let initial_neighbors: Vec<NodeDescriptor> = neighborhood_config
             .mode
             .neighbor_configs()
@@ -369,7 +369,7 @@ impl Neighborhood {
             consuming_wallet_opt: config.consuming_wallet.clone(),
             next_return_route_id: 0,
             initial_neighbors,
-            chain_id: config.blockchain_bridge_config.chain_id,
+            chain: config.blockchain_bridge_config.chain,
             data_directory: config.data_directory.clone(),
             persistent_config_opt: None,
             db_password_opt: config.db_password_opt.clone(),
@@ -434,7 +434,7 @@ impl Neighborhood {
         if self.persistent_config_opt.is_none() {
             let db_initializer = DbInitializerReal::default();
             let conn = db_initializer
-                .initialize(&self.data_directory, self.chain_id, true) // TODO: Probably should be false
+                .initialize(&self.data_directory, self.chain, true) // TODO: Probably should be false
                 .expect("Neighborhood could not connect to database");
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
         }
@@ -575,7 +575,7 @@ impl Neighborhood {
                     self.neighborhood_database
                         .node_by_key(k)
                         .expect("Node disappeared"),
-                    Chain::from_id(self.chain_id),
+                    self.chain,
                     self.cryptde,
                 ))
             })
@@ -842,7 +842,7 @@ impl Neighborhood {
                 self.cryptde,
                 self.consuming_wallet_opt.clone(),
                 return_route_id,
-                Some(Chain::from_id(self.chain_id).record().contract),
+                Some(self.chain.record().contract),
             )
             .expect("Internal error: bad route"),
             expected_services: ExpectedServices::RoundTrip(
@@ -1239,8 +1239,8 @@ mod tests {
     use serde_cbor;
     use tokio::prelude::Future;
 
-    use masq_lib::constants::TLS_PORT;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID};
+    use masq_lib::constants::{TLS_PORT, DEFAULT_CHAIN};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::utils::running_test;
@@ -1279,7 +1279,7 @@ mod tests {
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
-    use crate::blockchain::blockchains::{CHAINS, DEFAULT_CHAIN};
+    use masq_lib::blockchains::blockchain_records::CHAINS;
 
     #[test]
     #[should_panic(
@@ -1300,7 +1300,7 @@ mod tests {
             None,
             "cant_create_mainnet_neighborhood_with_non_mainnet_neighbors",
         );
-        bc.blockchain_bridge_config.chain_id = DEFAULT_CHAIN.record().num_chain_id;
+        bc.blockchain_bridge_config.chain = DEFAULT_CHAIN;
 
         let _ = Neighborhood::new(cryptde, &bc);
     }
@@ -1324,7 +1324,7 @@ mod tests {
             None,
             "cant_create_non_mainnet_neighborhood_with_mainnet_neighbors",
         );
-        bc.blockchain_bridge_config.chain_id = TEST_DEFAULT_CHAIN_ID;
+        bc.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
 
         let _ = Neighborhood::new(cryptde, &bc);
     }
@@ -1364,7 +1364,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::OriginateOnly(
-                        vec![neighbor.node_descriptor(TEST_DEFAULT_CHAIN_ID, cryptde)],
+                        vec![neighbor.node_descriptor(TEST_DEFAULT_CHAIN, cryptde)],
                         DEFAULT_RATE_PACK.clone(),
                     ),
                 },
@@ -2045,7 +2045,7 @@ mod tests {
         system.run();
 
         let result = data_route.wait().unwrap().unwrap();
-        let contract_address = Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
                 segment(&[p, q, r], &Component::ProxyClient),
@@ -2268,7 +2268,7 @@ mod tests {
             cryptde,
             Some(make_paying_wallet(b"consuming")),
             0,
-            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
+            Some(TEST_DEFAULT_CHAIN.record().contract),
         )
         .unwrap();
         let expected_after_route = Route::round_trip(
@@ -2277,7 +2277,7 @@ mod tests {
             cryptde,
             Some(expected_new_wallet.clone()),
             1,
-            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
+            Some(TEST_DEFAULT_CHAIN.record().contract),
         )
         .unwrap();
 
@@ -2508,7 +2508,7 @@ mod tests {
         });
 
         let other_neighbor_cryptde =
-            CryptDENull::from(other_neighbor.public_key(), TEST_DEFAULT_CHAIN_ID);
+            CryptDENull::from(other_neighbor.public_key(), TEST_DEFAULT_CHAIN);
         hopper_awaiter.await_message_count(1);
         let locked_recording = hopper_recording.lock().unwrap();
         let package: &IncipientCoresPackage = locked_recording.get_record(0);
@@ -2656,7 +2656,7 @@ mod tests {
         assert_eq!(1, hopper_recording.len());
         assert_eq!(introduction_target_node.public_key(), &package.public_key);
         let gossip = match decodex::<MessageType>(
-            &CryptDENull::from(introduction_target_node.public_key(), TEST_DEFAULT_CHAIN_ID),
+            &CryptDENull::from(introduction_target_node.public_key(), TEST_DEFAULT_CHAIN),
             &package.payload,
         ) {
             Ok(MessageType::Gossip(vd)) => Gossip_0v1::try_from(vd).unwrap(),
@@ -2693,7 +2693,7 @@ mod tests {
         assert_eq!(1, hopper_recording.len());
         assert_eq!(package.node_addr, node_addr);
         let payload = decodex::<MessageType>(
-            &CryptDENull::from(&public_key, TEST_DEFAULT_CHAIN_ID),
+            &CryptDENull::from(&public_key, TEST_DEFAULT_CHAIN),
             &package.payload,
         )
         .unwrap();
@@ -2908,7 +2908,7 @@ mod tests {
             &neighbors,
             &NodeDescriptor::from((
                 &old_neighbor,
-                Chain::from_id(TEST_DEFAULT_CHAIN_ID),
+                TEST_DEFAULT_CHAIN,
                 cryptde,
             )),
         );
@@ -2916,7 +2916,7 @@ mod tests {
             &neighbors,
             &NodeDescriptor::from((
                 &new_neighbor,
-                Chain::from_id(TEST_DEFAULT_CHAIN_ID),
+                TEST_DEFAULT_CHAIN,
                 cryptde,
             )),
         );
@@ -3222,7 +3222,7 @@ mod tests {
         assert_eq!(
             debut_gossip,
             match decodex::<MessageType>(
-                &CryptDENull::from(debut_node.public_key(), TEST_DEFAULT_CHAIN_ID),
+                &CryptDENull::from(debut_node.public_key(), TEST_DEFAULT_CHAIN),
                 &package.payload,
             ) {
                 Ok(MessageType::Gossip(vd)) => Gossip_0v1::try_from(vd).unwrap(),
@@ -3459,7 +3459,7 @@ mod tests {
         system.run();
         let locked_recording = hopper_recording.lock().unwrap();
         let package_ref: &NoLookupIncipientCoresPackage = locked_recording.get_record(0);
-        let neighbor_node_cryptde = CryptDENull::from(neighbor.public_key(), TEST_DEFAULT_CHAIN_ID);
+        let neighbor_node_cryptde = CryptDENull::from(neighbor.public_key(), TEST_DEFAULT_CHAIN);
         let decrypted_payload = neighbor_node_cryptde.decode(&package_ref.payload).unwrap();
         let gossip = match serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap() {
             MessageType::Gossip(vd) => Gossip_0v1::try_from(vd).unwrap(),
@@ -3940,8 +3940,8 @@ mod tests {
         });
 
         let next_door_neighbor_cryptde =
-            CryptDENull::from(&next_door_neighbor.public_key(), TEST_DEFAULT_CHAIN_ID);
-        let exit_node_cryptde = CryptDENull::from(&exit_node.public_key(), TEST_DEFAULT_CHAIN_ID);
+            CryptDENull::from(&next_door_neighbor.public_key(), TEST_DEFAULT_CHAIN);
+        let exit_node_cryptde = CryptDENull::from(&exit_node.public_key(), TEST_DEFAULT_CHAIN);
 
         let hops = result.clone().unwrap().route.hops;
         let actual_keys: Vec<PublicKey> = match hops.as_slice() {

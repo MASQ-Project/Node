@@ -345,11 +345,10 @@ pub enum RouteError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchains::Chain;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::make_wallet;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use serde_cbor;
 
     #[test]
@@ -377,8 +376,8 @@ mod tests {
 
     #[test]
     fn id_returns_error_when_the_id_fails_to_decrypt() {
-        let cryptde1 = CryptDENull::from(&PublicKey::new(b"key a"), TEST_DEFAULT_CHAIN_ID);
-        let cryptde2 = CryptDENull::from(&PublicKey::new(b"key b"), TEST_DEFAULT_CHAIN_ID);
+        let cryptde1 = CryptDENull::from(&PublicKey::new(b"key a"), TEST_DEFAULT_CHAIN);
+        let cryptde2 = CryptDENull::from(&PublicKey::new(b"key b"), TEST_DEFAULT_CHAIN);
 
         let subject = Route {
             hops: vec![Route::encrypt_return_route_id(42, &cryptde1)],
@@ -398,7 +397,7 @@ mod tests {
             RouteSegment::new(vec![], Component::ProxyClient),
             cryptde,
             Some(paying_wallet.clone()),
-            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
+            Some(TEST_DEFAULT_CHAIN.record().contract),
         )
         .err()
         .unwrap();
@@ -424,7 +423,7 @@ mod tests {
             cryptde,
             Some(paying_wallet.clone()),
             0,
-            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
+            Some(TEST_DEFAULT_CHAIN.record().contract),
         )
         .err()
         .unwrap();
@@ -468,7 +467,7 @@ mod tests {
         let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let return_route_id = 4321;
-        let contract_address = Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
 
         let subject = Route::round_trip(
             RouteSegment::new(vec![&a_key, &b_key, &c_key, &d_key], Component::ProxyClient),
@@ -578,7 +577,7 @@ mod tests {
         let b_key = PublicKey::new(&[66, 66, 66]);
         let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
-        let contract_address = Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
 
         let subject = Route::one_way(
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),
@@ -617,7 +616,7 @@ mod tests {
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
-        let contract_address = Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
         let subject = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::Neighborhood),
             cryptde,
@@ -672,7 +671,7 @@ mod tests {
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
-        let contract_address = Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
         let mut subject = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::Neighborhood),
             cryptde,
@@ -749,7 +748,7 @@ mod tests {
             cryptde,
             Some(paying_wallet),
             1234,
-            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
+            Some(TEST_DEFAULT_CHAIN.record().contract),
         )
         .unwrap();
 
@@ -770,14 +769,14 @@ mod tests {
             RouteSegment::new(vec![&key1, &key2, &key3], Component::Neighborhood),
             main_cryptde(),
             Some(paying_wallet),
-            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
+            Some(TEST_DEFAULT_CHAIN.record().contract),
         )
         .unwrap();
 
         let result = subject.to_string(vec![
-            &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN_ID),
-            &CryptDENull::from(&key2, TEST_DEFAULT_CHAIN_ID),
-            &CryptDENull::from(&key3, TEST_DEFAULT_CHAIN_ID),
+            &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN),
+            &CryptDENull::from(&key2, TEST_DEFAULT_CHAIN),
+            &CryptDENull::from(&key3, TEST_DEFAULT_CHAIN),
         ]);
 
         assert_eq!(
@@ -801,20 +800,20 @@ Encrypted with AwQFBg: LiveHop { public_key: , payer: Some(Payer { wallet: Walle
         let subject = Route::round_trip(
             RouteSegment::new(vec![&key1, &key2, &key3], Component::ProxyClient),
             RouteSegment::new(vec![&key3, &key2, &key1], Component::ProxyServer),
-            &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN_ID),
+            &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN),
             Some(paying_wallet),
             1234,
-            Some(Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract),
+            Some(TEST_DEFAULT_CHAIN.record().contract),
         )
         .unwrap();
 
         let result = subject.to_string(vec![
-            &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN_ID),
-            &CryptDENull::from(&key2, TEST_DEFAULT_CHAIN_ID),
-            &CryptDENull::from(&key3, TEST_DEFAULT_CHAIN_ID),
-            &CryptDENull::from(&key2, TEST_DEFAULT_CHAIN_ID),
-            &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN_ID),
-            &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN_ID),
+            &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN),
+            &CryptDENull::from(&key2, TEST_DEFAULT_CHAIN),
+            &CryptDENull::from(&key3, TEST_DEFAULT_CHAIN),
+            &CryptDENull::from(&key2, TEST_DEFAULT_CHAIN),
+            &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN),
+            &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN),
         ]);
 
         assert_eq!(

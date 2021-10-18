@@ -15,7 +15,7 @@ use std::time::Duration;
 fn neighborhood_notified_of_newly_missing_node() {
     // Set up three-Node network, and add a mock witness Node.
     let mut cluster = MASQNodeCluster::start().unwrap();
-    let chain_name = Chain::from_id(cluster.chain_id).record().plain_text_name;
+    let chain_name = Chain::from_id(cluster.chain).record().plain_text_name;
     let neighbor = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .fake_public_key(&PublicKey::new(&[1, 2, 3, 4]))

@@ -2,12 +2,13 @@
 
 use std::fs;
 use std::path::PathBuf;
+use crate::blockchains::chains::Chain;
 
-pub const TEST_DEFAULT_CHAIN_ID: u64 = 3;
-pub const TEST_DEFAULT_MULTINODE_CHAIN_ID: u64 = 2;
-pub const TEST_DEFAULT_CHAIN_NAME: &str = "ropsten";
-pub const TEST_DEFAULT_PLATFORM: &str = "eth";
-pub const TEST_DEFAULT_MULTINODE_CHAIN_NAME: &str = "dev";
+pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
+pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
+// pub const TEST_DEFAULT_CHAIN.record().plain_text_name: &str = "ropsten";
+// pub const TEST_DEFAULT_CHAIN.record().directory_by_platform: &str = "eth";
+// pub const TEST_DEFAULT_MULTINODE_CHAIN_NAME: &str = "dev";
 pub const BASE_TEST_DIR: &str = "generated/test";
 
 pub fn node_home_directory(module: &str, name: &str) -> PathBuf {

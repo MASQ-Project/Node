@@ -1,11 +1,13 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchains::chains::Chain;
+
+pub const DEFAULT_CHAIN: Chain = Chain::EthMainnet;
+
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
 pub const HTTP_PORT: u16 = 80;
 pub const TLS_PORT: u16 = 443;
 pub const MASQ_URL_PREFIX: &str = "masq://";
-pub const DEFAULT_CHAIN_NAME: &str = "eth-mainnet";
-pub const DEFAULT_PLATFORM: &str = "eth";
 pub const DEFAULT_GAS_PRICE: &str = "1";
 pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
 pub const HIGHEST_USABLE_PORT: u16 = 65535;
@@ -14,11 +16,13 @@ pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 
 pub const MASQ_PROMPT: &str = "masq> ";
 
-pub const ETH_MAINNET_IDENTIFIER: &str = DEFAULT_CHAIN_NAME;
+pub const ETH_MAINNET_IDENTIFIER: &str = "eth-mainnet";
 pub const ETH_ROPSTEN_IDENTIFIER: &str = "eth-ropsten";
 pub const DEV_CHAIN_IDENTIFIER: &str = "dev";
 pub const POLY_MAINNET_IDENTIFIER: &str = "poly-mainnet";
 pub const POLY_MUMBAI_IDENTIFIER: &str = "poly-mumbai";
+pub const CENTRAL_DELIMITER: char = '@';
+pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
 
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
 pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;

@@ -56,7 +56,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
-            self.privileged_config.blockchain_bridge_config.chain_id,
+            self.privileged_config.blockchain_bridge_config.chain,
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         standard::unprivileged_parse_args(
@@ -88,7 +88,7 @@ pub mod standard {
 
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchains::Chain;
+    use masq_lib::blockchains::chains::Chain;
     use crate::bootstrapper::PortConfiguration;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration,
@@ -112,12 +112,10 @@ pub mod standard {
     use crate::sub_lib::wallet::Wallet;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use itertools::Itertools;
-    use masq_lib::constants::{
-        DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT, HTTP_PORT, MASQ_URL_PREFIX, TLS_PORT,
-    };
+    use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, MASQ_URL_PREFIX, TLS_PORT, DEFAULT_CHAIN};
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::WrapResult;
     use rustc_hex::FromHex;
     use std::ops::Deref;
@@ -185,7 +183,7 @@ pub mod standard {
             data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
         privileged_config.real_user = real_user;
         privileged_config.data_directory = directory;
-        privileged_config.blockchain_bridge_config.chain_id = chain.record().num_chain_id;
+        privileged_config.blockchain_bridge_config.chain = chain;
 
         let joined_dns_servers_opt = value_m!(multi_config, "dns-servers", String);
         privileged_config.dns_servers = match joined_dns_servers_opt {
@@ -222,11 +220,11 @@ pub mod standard {
             };
             let main_cryptde_null = CryptDENull::from(
                 &main_public_key,
-                privileged_config.blockchain_bridge_config.chain_id,
+                privileged_config.blockchain_bridge_config.chain,
             );
             let alias_cryptde_null = CryptDENull::from(
                 &alias_public_key,
-                privileged_config.blockchain_bridge_config.chain_id,
+                privileged_config.blockchain_bridge_config.chain,
             );
             privileged_config.main_cryptde_null_opt = Some(main_cryptde_null);
             privileged_config.alias_cryptde_null_opt = Some(alias_cryptde_null);
@@ -394,13 +392,13 @@ pub mod standard {
                 } else {
                     let dummy_cryptde: Box<dyn CryptDE> = {
                         if value_m!(multi_config, "fake-public-key", String) == None {
-                            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN_ID))
+                            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN))
                         } else {
-                            Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN_ID))
+                            Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))
                         }
                     };
                     let chain_name = value_m!(multi_config, "chain", String)
-                        .unwrap_or_else(|| DEFAULT_CHAIN_NAME.to_string());
+                        .unwrap_or_else(|| DEFAULT_CHAIN.record().plain_text_name.to_string());
                     let results =
                     cli_configs
                         .into_iter()
@@ -853,7 +851,7 @@ pub mod standard {
                 "--neighbors",
                 "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
                 "--chain",
-                DEFAULT_CHAIN_NAME,
+                DEFAULT_CHAIN.record().plain_text_name,
             ]);
 
             let result = standard::convert_ci_configs(&multi_config).err().unwrap();
@@ -994,7 +992,7 @@ mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchains::Chain;
+    use masq_lib::blockchains::chains::Chain;
     use crate::bootstrapper::RealUser;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -1022,7 +1020,7 @@ mod tests {
         make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
-    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT};
+    use masq_lib::constants::{DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEFAULT_CHAIN};
     use masq_lib::multi_config::{
         CommandLineVcl, ConfigFileVcl, NameValueVclArg, VclArg, VirtualCommandLine,
     };
@@ -1030,7 +1028,7 @@ mod tests {
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN
     };
     use masq_lib::utils::{running_test, SliceToVec};
     use rustc_hex::FromHex;
@@ -1042,9 +1040,6 @@ mod tests {
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-
-    #[cfg(not(target_os = "windows"))]
-    use masq_lib::constants::DEFAULT_PLATFORM;
 
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")
@@ -1074,7 +1069,7 @@ mod tests {
             &mut BootstrapperConfig::new(),
         );
 
-        let dummy_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN_ID);
+        let dummy_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);
         assert_eq!(
             result,
             Ok(NeighborhoodConfig {
@@ -1555,7 +1550,7 @@ mod tests {
         );
         let mut persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir.clone(), TEST_DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir.clone(), TEST_DEFAULT_CHAIN, true)
                 .unwrap(),
         )));
         let consuming_private_key =
@@ -1606,9 +1601,9 @@ mod tests {
         let public_key = PublicKey::new(&[1, 2, 3]);
         let payer = bootstrapper_config.consuming_wallet.unwrap().as_payer(
             &public_key,
-            &Chain::from_id(TEST_DEFAULT_CHAIN_ID).record().contract,
+            &TEST_DEFAULT_CHAIN.record().contract,
         );
-        let cryptdenull = CryptDENull::from(&public_key, TEST_DEFAULT_CHAIN_ID);
+        let cryptdenull = CryptDENull::from(&public_key, TEST_DEFAULT_CHAIN);
         assert!(
             payer.owns_secret_key(&cryptdenull.digest()),
             "Neighborhood config should have a WalletKind::KeyPair wallet"
@@ -1695,7 +1690,7 @@ mod tests {
         );
         let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir.clone(), TEST_DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir.clone(), TEST_DEFAULT_CHAIN, true)
                 .unwrap(),
         ));
         let consuming_private_key_text =
@@ -1909,16 +1904,16 @@ mod tests {
         assert_eq!(
             config.data_directory,
             PathBuf::from("/home/booga/.local/share/MASQ")
-                .join(DEFAULT_PLATFORM)
-                .join(DEFAULT_CHAIN_NAME)
+                .join(DEFAULT_CHAIN.record().directory_by_platform)
+                .join(DEFAULT_CHAIN.record().plain_text_name)
         );
 
         #[cfg(target_os = "macos")]
         assert_eq!(
             config.data_directory,
             PathBuf::from("/home/booga/Library/Application Support/MASQ")
-                .join(DEFAULT_PLATFORM)
-                .join(DEFAULT_CHAIN_NAME)
+                .join(DEFAULT_CHAIN.record().directory_by_platform)
+                .join(DEFAULT_CHAIN.record().plain_text_name)
         );
     }
 
@@ -2560,8 +2555,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            config.blockchain_bridge_config.chain_id,
-            Chain::from("dev").record().num_chain_id
+            config.blockchain_bridge_config.chain,
+            Chain::from("dev")
         );
     }
 
@@ -2574,7 +2569,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--chain",
-            TEST_DEFAULT_CHAIN_NAME,
+            TEST_DEFAULT_CHAIN.record().plain_text_name,
         ];
 
         let config = subject
@@ -2585,8 +2580,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            config.blockchain_bridge_config.chain_id,
-            TEST_DEFAULT_CHAIN_ID
+            config.blockchain_bridge_config.chain,
+            TEST_DEFAULT_CHAIN
         );
     }
 
@@ -2605,10 +2600,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            Chain::from_id(config.blockchain_bridge_config.chain_id)
+            config.blockchain_bridge_config.chain
                 .record()
                 .plain_text_name,
-            DEFAULT_CHAIN_NAME
+            DEFAULT_CHAIN.record().plain_text_name
         );
     }
 
@@ -2621,7 +2616,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--chain",
-            TEST_DEFAULT_CHAIN_NAME,
+            TEST_DEFAULT_CHAIN.record().plain_text_name,
         ];
 
         let bootstrapper_config = subject
@@ -2631,8 +2626,8 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            bootstrapper_config.blockchain_bridge_config.chain_id,
-            TEST_DEFAULT_CHAIN_ID
+            bootstrapper_config.blockchain_bridge_config.chain,
+            TEST_DEFAULT_CHAIN
         );
     }
 
