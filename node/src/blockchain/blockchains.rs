@@ -3,14 +3,14 @@
 use crate::blockchain::blockchain_interface::{
     ETH_MAINNET_CONTRACT_ADDRESS, MULTINODE_TESTNET_CONTRACT_ADDRESS,
     MUMBAI_TESTNET_CONTRACT_ADDRESS, POLYGON_MAINNET_CONTRACT_ADDRESS,
-    RINKEBY_TESTNET_CONTRACT_ADDRESS, ROPSTEN_TESTNET_CONTRACT_ADDRESS,
+    ROPSTEN_TESTNET_CONTRACT_ADDRESS,
 };
 use itertools::Itertools;
 use masq_lib::constants::{
     DEV_CHAIN_IDENTIFIER, ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_IDENTIFIER,
-    ETH_RINKEBY_IDENTIFIER, ETH_ROPSTEN_IDENTIFIER, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
+    ETH_ROPSTEN_IDENTIFIER, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
     MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
-    POLY_MAINNET_IDENTIFIER, POLY_MUMBAI_IDENTIFIER, RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK,
+    POLY_MAINNET_IDENTIFIER, POLY_MUMBAI_IDENTIFIER,
     ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
 };
 use serde_derive::{Deserialize, Serialize};
@@ -22,7 +22,7 @@ pub const CENTRAL_DELIMITER: char = '@';
 pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
 
 //chains are ordered by their significance for the community of users (the order reflects in some error or help messages)
-pub const CHAINS: [BlockchainRecord; 6] = [
+pub const CHAINS: [BlockchainRecord; 5] = [
     BlockchainRecord {
         literal_chain_id: Chain::PolyMainnet,
         num_chain_id: 137,
@@ -68,15 +68,6 @@ pub const CHAINS: [BlockchainRecord; 6] = [
         contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
     },
-    BlockchainRecord {
-        literal_chain_id: Chain::EthRinkeby,
-        num_chain_id: 4,
-        plain_text_name: "rinkeby",
-        directory_by_platform: "eth",
-        chain_identifier: ETH_RINKEBY_IDENTIFIER,
-        contract: RINKEBY_TESTNET_CONTRACT_ADDRESS,
-        contract_creation_block: RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK,
-    },
 ];
 
 #[derive(Debug, PartialEq)]
@@ -94,7 +85,6 @@ pub struct BlockchainRecord {
 pub enum Chain {
     EthMainnet,
     EthRopsten,
-    EthRinkeby,
     PolyMainnet,
     PolyMumbai,
     Dev,
@@ -107,7 +97,6 @@ impl From<&str> for Chain {
             "eth-mainnet" => Chain::EthMainnet,
             "mumbai" => Chain::PolyMumbai,
             "ropsten" => Chain::EthRopsten,
-            "rinkeby" => Chain::EthRinkeby,
             "dev" => Chain::Dev,
             _ => DEFAULT_CHAIN,
         }
@@ -127,7 +116,6 @@ impl Chain {
             1 => Self::EthMainnet,
             2 => Self::Dev,
             3 => Self::EthRopsten,
-            4 => Self::EthRinkeby,
             137 => Self::PolyMainnet,
             80001 => Self::PolyMumbai,
             x => panic!("Undefined num id '{}' for ChainRecords", x),
@@ -183,7 +171,6 @@ mod tests {
             assert_returns_correct_record(Chain::EthMainnet, 1),
             assert_returns_correct_record(Chain::Dev, 2),
             assert_returns_correct_record(Chain::EthRopsten, 3),
-            assert_returns_correct_record(Chain::EthRinkeby, 4),
             assert_returns_correct_record(Chain::PolyMainnet, 137),
             assert_returns_correct_record(Chain::PolyMumbai, 80001),
         ];
@@ -201,7 +188,6 @@ mod tests {
             assert_from_id(1, Chain::EthMainnet),
             assert_from_id(2, Chain::Dev),
             assert_from_id(3, Chain::EthRopsten),
-            assert_from_id(4, Chain::EthRinkeby),
             assert_from_id(137, Chain::PolyMainnet),
             assert_from_id(80001, Chain::PolyMumbai),
         ];
@@ -236,7 +222,6 @@ mod tests {
             assert_from_str(Chain::PolyMumbai),
             assert_from_str(Chain::EthMainnet),
             assert_from_str(Chain::EthRopsten),
-            assert_from_str(Chain::EthRinkeby),
             assert_from_str(Chain::Dev),
         ];
         assert_if_exhaustive(&test_array)
@@ -355,24 +340,6 @@ mod tests {
     }
 
     #[test]
-    fn rinkeby_record_is_properly_declared() {
-        let examined_chain = Chain::EthRinkeby;
-        let chain_record = return_examined(examined_chain);
-        assert_eq!(
-            chain_record,
-            &BlockchainRecord {
-                num_chain_id: 4,
-                literal_chain_id: examined_chain,
-                plain_text_name: "rinkeby",
-                directory_by_platform: "eth",
-                chain_identifier: "eth-rinkeby",
-                contract: RINKEBY_TESTNET_CONTRACT_ADDRESS,
-                contract_creation_block: RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK
-            }
-        )
-    }
-
-    #[test]
     fn polygon_mainnet_record_is_properly_declared() {
         let examined_chain = Chain::PolyMainnet;
         let chain_record = return_examined(examined_chain);
@@ -417,7 +384,6 @@ mod tests {
         let test_array = [
             assert_chain_from_chain_identifier_opt("eth-mainnet", Some(Chain::EthMainnet)),
             assert_chain_from_chain_identifier_opt("eth-ropsten", Some(Chain::EthRopsten)),
-            assert_chain_from_chain_identifier_opt("eth-rinkeby", Some(Chain::EthRinkeby)),
             assert_chain_from_chain_identifier_opt("dev", Some(Chain::Dev)),
             assert_chain_from_chain_identifier_opt("poly-mainnet", Some(Chain::PolyMainnet)),
             assert_chain_from_chain_identifier_opt("poly-mumbai", Some(Chain::PolyMumbai)),
@@ -467,7 +433,7 @@ mod tests {
                     true => (Some(chain), None),
                     false => (None, Some(chain)),
                 },
-                x => panic!("Should not happen!"),
+                x => panic!("Should not happen!: {:?}", x),
             });
             assert!(
                 found.0.is_some(),

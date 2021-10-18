@@ -1609,7 +1609,7 @@ mod tests {
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
                             &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
-                            Chain::EthRinkeby,
+                            Chain::EthRopsten,
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -3554,7 +3554,7 @@ mod tests {
         NodeDescriptor::from((
             &node_record_ref.public_key().clone(),
             &node_record_ref.node_addr_opt().unwrap().clone(),
-            Chain::EthRinkeby,
+            Chain::EthRopsten,
             cryptde,
         ))
     }
