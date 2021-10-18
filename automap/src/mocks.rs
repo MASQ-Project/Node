@@ -5,11 +5,11 @@ use crate::comm_layer::pcp_pmp_common::{
 };
 use crate::comm_layer::{AutomapError, LocalIpFinder};
 use std::cell::RefCell;
-use std::{io, thread};
 use std::io::ErrorKind;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::{io, thread};
 
 pub struct LocalIpFinderMock {
     find_results: RefCell<Vec<Result<IpAddr, AutomapError>>>,
