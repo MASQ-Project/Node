@@ -305,7 +305,7 @@ impl Display for DescriptorParsingError<'_> {
             Self::PrefixMissing(descriptor) => write!(f,"Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'",descriptor),
             Self::WrongChainIdentifier(identifier) => write!(f, "Chain identifier '{}' is not valid; possible values are '{}' while formatted as 'masq://<chain identifier>:<public key>@<node address>'",
                                                              identifier,
-                                                             CHAINS.iter().map(|record|record.chain_identifier).filter(|identifier|*identifier != "dev").join(", ")
+                                                             CHAINS.iter().map(|record|record.chain_identifier).filter(|identifier|*identifier != "dev").join("', '")
             )
         }
     }
@@ -552,15 +552,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_works_for_ethereum_testnet_rinkeby() {
-        let descriptor = "masq://eth-rinkeby:as45cs5c5@1.2.3.4:4444";
-
-        let result = NodeDescriptor::parse(descriptor).unwrap();
-
-        assert_eq!(result, (Chain::EthRinkeby, "as45cs5c5", "1.2.3.4:4444"))
-    }
-
-    #[test]
     fn parse_works_for_dev_chain() {
         let descriptor = "masq://dev:as45cs5c5@1.2.3.4:4444";
 
@@ -593,7 +584,7 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                "Chain identifier 'bitcoin' is not valid; possible values are 'eth-mainnet, eth-ropsten, eth-rinkeby' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
+                "Chain identifier 'bitcoin' is not valid; possible values are 'poly-mainnet', 'eth-mainnet', 'poly-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
                     .to_string()
             )
         );
@@ -692,7 +683,7 @@ mod tests {
 
         let result = DescriptorParsingError::WrongChainIdentifier("blah").to_string();
 
-        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'eth-mainnet, eth-ropsten, eth-rinkeby' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
+        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'poly-mainnet', 'eth-mainnet', 'poly-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
     }
 
     #[test]
@@ -922,7 +913,7 @@ mod tests {
             NodeDescriptor::from_str(main_cryptde(), "masq://eth-ropsten:AQIDBA@1.2.3.4:1234")
                 .unwrap();
         let another_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth-rinkeby:AgMEBQ@2.3.4.5:2345")
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345")
                 .unwrap();
         let subject = NeighborhoodMode::OriginateOnly(
             vec![one_neighbor.clone(), another_neighbor.clone()],

@@ -22,14 +22,6 @@ pub const ROPSTEN_TESTNET_CONTRACT_ADDRESS: Address = Address {
     ],
 };
 
-// SHRD (Rinkeby)
-pub const RINKEBY_TESTNET_CONTRACT_ADDRESS: Address = Address {
-    0: [
-        0x02, 0xba, 0x9b, 0x52, 0x84, 0x25, 0xf9, 0xde, 0x08, 0xf9, 0x61, 0xb8, 0x8a, 0x10, 0xb0,
-        0x3b, 0xe8, 0xb8, 0xb9, 0x98,
-    ],
-};
-
 pub const MULTINODE_TESTNET_CONTRACT_ADDRESS: Address = Address {
     0: [
         0x59, 0x88, 0x2e, 0x4a, 0x8f, 0x5d, 0x24, 0x64, 0x3d, 0x4d, 0xda, 0x42, 0x29, 0x22, 0xa8,
@@ -37,10 +29,25 @@ pub const MULTINODE_TESTNET_CONTRACT_ADDRESS: Address = Address {
     ],
 };
 
-pub const MAINNET_CONTRACT_ADDRESS: Address = Address {
+pub const ETH_MAINNET_CONTRACT_ADDRESS: Address = Address {
     0: [
         0x06, 0xF3, 0xC3, 0x23, 0xf0, 0x23, 0x8c, 0x72, 0xBF, 0x35, 0x01, 0x10, 0x71, 0xf2, 0xb5,
         0xB7, 0xF4, 0x3A, 0x05, 0x4c,
+    ],
+};
+
+pub const POLYGON_MAINNET_CONTRACT_ADDRESS: Address = Address {
+    0: [
+        0xEe, 0x9A, 0x35, 0x2F, 0x6a, 0xAc, 0x4a, 0xF1, 0xA5, 0xB9, 0xf4, 0x67, 0xF6, 0xa9, 0x3E,
+        0x0f, 0xfB, 0xe9, 0xDd, 0x35,
+    ],
+};
+
+// SHRD (Mumbai)
+pub const MUMBAI_TESTNET_CONTRACT_ADDRESS: Address = Address {
+    0: [
+        0x4D, 0xFE, 0xEe, 0x01, 0xf1, 0x7e, 0x23, 0x63, 0x2B, 0x15, 0x85, 0x17, 0x17, 0xb8, 0x11,
+        0x72, 0x0A, 0xf8, 0x2E, 0x0f,
     ],
 };
 
@@ -124,11 +131,11 @@ pub trait BlockchainInterface {
 // TODO: This probably should go away
 pub struct BlockchainInterfaceClandestine {
     logger: Logger,
-    chain_id: u8,
+    chain_id: u64,
 }
 
 impl BlockchainInterfaceClandestine {
-    pub fn new(chain_id: u8) -> Self {
+    pub fn new(chain_id: u64) -> Self {
         BlockchainInterfaceClandestine {
             logger: Logger::new("BlockchainInterface"),
             chain_id,
@@ -183,7 +190,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
 
 pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
     logger: Logger,
-    chain_id: u8,
+    chain_id: u64,
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     web3: Web3<T>,
@@ -359,7 +366,7 @@ impl<T> BlockchainInterfaceNonClandestine<T>
 where
     T: Transport + Debug,
 {
-    pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain_id: u8) -> Self {
+    pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain_id: u64) -> Self {
         let web3 = Web3::new(transport);
         let contract = Contract::from_json(
             web3.eth(),

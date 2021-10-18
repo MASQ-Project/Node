@@ -125,7 +125,7 @@ impl MASQNode for MASQMockNode {
         self.guts.rate_pack.clone()
     }
 
-    fn chain_id(&self) -> u8 {
+    fn chain_id(&self) -> u64 {
         self.guts.chain
     }
 
@@ -144,7 +144,7 @@ impl MASQMockNode {
         index: usize,
         host_node_parent_dir: Option<String>,
         public_key: &PublicKey,
-        chain_id: u8,
+        chain_id: u64,
     ) -> MASQMockNode {
         let main_cryptde = CryptDENull::from(public_key, chain_id);
         let mut key = public_key.as_slice().to_vec();
@@ -158,7 +158,7 @@ impl MASQMockNode {
         ports: Vec<u16>,
         index: usize,
         host_node_parent_dir: Option<String>,
-        chain_id: u8,
+        chain_id: u64,
     ) -> MASQMockNode {
         let cryptde_enum = CryptDEEnum::Real(CryptDEReal::new(chain_id));
         Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
@@ -494,7 +494,7 @@ struct MASQMockNodeGuts {
     rate_pack: RatePack,
     cryptde_enum: CryptDEEnum,
     framer: RefCell<DataHunkFramer>,
-    chain: u8,
+    chain: u64,
 }
 
 impl Drop for MASQMockNodeGuts {

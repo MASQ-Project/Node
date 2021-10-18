@@ -95,7 +95,7 @@ impl NodeRecord {
         self.metadata.node_addr_opt.clone()
     }
 
-    pub fn node_descriptor(&self, chain_id: u8, cryptde: &dyn CryptDE) -> NodeDescriptor {
+    pub fn node_descriptor(&self, chain_id: u64, cryptde: &dyn CryptDE) -> NodeDescriptor {
         NodeDescriptor::from((self, Chain::from_id(chain_id), cryptde))
     }
 

@@ -108,7 +108,7 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
     }
 }
 
-fn make_config_dao(data_directory: &Path, chain_id: u8) -> ConfigDaoReal {
+fn make_config_dao(data_directory: &Path, chain_id: u64) -> ConfigDaoReal {
     let conn = DbInitializerReal::default()
         .initialize(data_directory, chain_id, true) // TODO: Probably should be false
         .unwrap_or_else(|e| {
@@ -124,7 +124,7 @@ fn make_config_dao(data_directory: &Path, chain_id: u8) -> ConfigDaoReal {
 fn distill_args(
     dirs_wrapper: &dyn DirsWrapper,
     args: &[String],
-) -> Result<(RealUser, PathBuf, u8, Option<String>), ConfiguratorError> {
+) -> Result<(RealUser, PathBuf, u64, Option<String>), ConfiguratorError> {
     let app = app_config_dumper();
     let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
         Box::new(CommandLineVcl::new(args.to_vec())),

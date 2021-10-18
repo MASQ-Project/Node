@@ -309,7 +309,7 @@ impl From<&Vec<AccessibleGossipRecord>> for Standard {
 impl Standard {}
 
 pub struct StandardBuilder {
-    chain_id: u8,
+    chain_id: u64,
     agrs: Vec<AccessibleGossipRecord>,
 }
 
@@ -359,7 +359,7 @@ impl StandardBuilder {
             .half_neighbors(another, one)
     }
 
-    pub fn chain_id(mut self, chain_id: u8) -> Self {
+    pub fn chain_id(mut self, chain_id: u64) -> Self {
         self.chain_id = chain_id;
         self
     }

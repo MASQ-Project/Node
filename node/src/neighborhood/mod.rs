@@ -88,7 +88,7 @@ pub struct Neighborhood {
     consuming_wallet_opt: Option<Wallet>,
     next_return_route_id: u32,
     initial_neighbors: Vec<NodeDescriptor>,
-    chain_id: u8,
+    chain_id: u64,
     data_directory: PathBuf,
     persistent_config_opt: Option<Box<dyn PersistentConfiguration>>,
     db_password_opt: Option<String>,
@@ -398,7 +398,7 @@ impl Neighborhood {
     }
 
     fn is_mainnet_by_descriptor(nd: &NodeDescriptor) -> bool {
-        nd.blockchain == Chain::EthMainnet
+        nd.blockchain == Chain::EthMainnet || nd.blockchain == Chain::PolyMainnet
     }
 
     fn handle_start_message(&mut self) {
@@ -1609,7 +1609,7 @@ mod tests {
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
                             &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
-                            Chain::EthRinkeby,
+                            Chain::EthRopsten,
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -3554,7 +3554,7 @@ mod tests {
         NodeDescriptor::from((
             &node_record_ref.public_key().clone(),
             &node_record_ref.node_addr_opt().unwrap().clone(),
-            Chain::EthRinkeby,
+            Chain::EthRopsten,
             cryptde,
         ))
     }

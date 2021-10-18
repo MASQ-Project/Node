@@ -426,7 +426,7 @@ impl ActorFactory for ActorFactoryReal {
 }
 
 fn validate_database_chain_correctness(
-    chain_id: u8,
+    chain_id: u64,
     persistent_config: &dyn PersistentConfiguration,
 ) {
     let required_chain = Chain::from_id(chain_id)

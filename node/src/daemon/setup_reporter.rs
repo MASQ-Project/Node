@@ -390,7 +390,7 @@ impl SetupReporterReal {
         dirs_wrapper: &dyn DirsWrapper,
         multi_config: &MultiConfig,
         data_directory: &Path,
-        chain_id: u8,
+        chain_id: u64,
     ) -> (
         (BootstrapperConfig, Option<Box<dyn PersistentConfiguration>>),
         Option<ConfiguratorError>,

@@ -24,12 +24,12 @@ pub fn from_time_t(time_t: i64) -> SystemTime {
 
 pub struct DaoFactoryReal {
     pub data_directory: PathBuf,
-    pub chain_id: u8,
+    pub chain_id: u64,
     pub create_if_necessary: bool,
 }
 
 impl DaoFactoryReal {
-    pub fn new(data_directory: &Path, chain_id: u8, create_if_necessary: bool) -> Self {
+    pub fn new(data_directory: &Path, chain_id: u64, create_if_necessary: bool) -> Self {
         Self {
             data_directory: data_directory.to_path_buf(),
             chain_id,

@@ -338,7 +338,7 @@ pub struct ExternalMigrationParameters {
 }
 
 impl ExternalMigrationParameters {
-    pub fn new(chain_id: u8) -> Self {
+    pub fn new(chain_id: u64) -> Self {
         Self {
             chain_name: Chain::from_id(chain_id)
                 .record()

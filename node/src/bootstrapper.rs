@@ -476,7 +476,7 @@ impl Bootstrapper {
     fn initialize_cryptdes<'a, 'b>(
         main_cryptde_null_opt: &Option<CryptDENull>,
         alias_cryptde_null_opt: &Option<CryptDENull>,
-        chain_id: u8,
+        chain_id: u64,
     ) -> (&'a dyn CryptDE, &'b dyn CryptDE) {
         match main_cryptde_null_opt {
             Some(cryptde_null) => unsafe {
@@ -497,7 +497,7 @@ impl Bootstrapper {
         cryptde: &dyn CryptDE,
         node_addr_opt: Option<NodeAddr>,
         streams: &mut StdStreams<'_>,
-        chain_id: u8,
+        chain_id: u64,
     ) -> String {
         let descriptor = match node_addr_opt {
             Some(node_addr) => {

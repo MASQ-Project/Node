@@ -33,14 +33,14 @@ pub trait DbInitializer {
     fn initialize(
         &self,
         path: &Path,
-        chain_id: u8,
+        chain_id: u64,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 
     fn initialize_to_version(
         &self,
         path: &Path,
-        chain_id: u8,
+        chain_id: u64,
         target_version: usize,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
@@ -62,7 +62,7 @@ impl DbInitializer for DbInitializerReal {
     fn initialize(
         &self,
         path: &Path,
-        chain_id: u8,
+        chain_id: u64,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         self.initialize_to_version(path, chain_id, CURRENT_SCHEMA_VERSION, create_if_necessary)
@@ -71,7 +71,7 @@ impl DbInitializer for DbInitializerReal {
     fn initialize_to_version(
         &self,
         path: &Path,
-        chain_id: u8,
+        chain_id: u64,
         target_version: usize,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
@@ -139,7 +139,7 @@ impl DbInitializerReal {
         }
     }
 
-    fn create_database_tables(&self, conn: &Connection, chain_id: u8) {
+    fn create_database_tables(&self, conn: &Connection, chain_id: u64) {
         self.create_config_table(conn);
         self.initialize_config(conn, chain_id);
         self.create_payable_table(conn);
@@ -164,7 +164,7 @@ impl DbInitializerReal {
         .expect("Can't create config name index");
     }
 
-    fn initialize_config(&self, conn: &Connection, chain_id: u8) {
+    fn initialize_config(&self, conn: &Connection, chain_id: u64) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
             conn,
@@ -427,7 +427,7 @@ impl DbInitializerReal {
 pub fn connection_or_panic(
     db_initializer: &dyn DbInitializer,
     path: &Path,
-    chain_id: u8,
+    chain_id: u64,
     create_if_necessary: bool,
 ) -> Box<dyn ConnectionWrapper> {
     db_initializer
@@ -452,7 +452,7 @@ pub mod test_utils {
 
     #[derive(Debug, Default)]
     pub struct ConnectionWrapperMock<'b, 'a: 'b> {
-        prepare_parameters: Arc<Mutex<Vec<String>>>,
+        prepare_params: Arc<Mutex<Vec<String>>>,
         prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
         transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
     }
@@ -473,7 +473,7 @@ pub mod test_utils {
 
     impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
         fn prepare(&self, query: &str) -> Result<Statement, Error> {
-            self.prepare_parameters
+            self.prepare_params
                 .lock()
                 .unwrap()
                 .push(String::from(query));
@@ -487,7 +487,7 @@ pub mod test_utils {
 
     #[derive(Default)]
     pub struct DbInitializerMock {
-        pub initialize_parameters: Arc<Mutex<Vec<(PathBuf, u8, bool)>>>,
+        pub initialize_params: Arc<Mutex<Vec<(PathBuf, u64, bool)>>>,
         pub initialize_results:
             RefCell<Vec<Result<Box<dyn ConnectionWrapper>, InitializationError>>>,
     }
@@ -496,10 +496,10 @@ pub mod test_utils {
         fn initialize(
             &self,
             path: &Path,
-            chain_id: u8,
+            chain_id: u64,
             create_if_necessary: bool,
         ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-            self.initialize_parameters.lock().unwrap().push((
+            self.initialize_params.lock().unwrap().push((
                 path.to_path_buf(),
                 chain_id,
                 create_if_necessary,
@@ -511,7 +511,7 @@ pub mod test_utils {
         fn initialize_to_version(
             &self,
             path: &Path,
-            chain_id: u8,
+            chain_id: u64,
             target_version: usize,
             create_if_necessary: bool,
         ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
@@ -529,9 +529,9 @@ pub mod test_utils {
 
         pub fn initialize_parameters(
             mut self,
-            parameters: Arc<Mutex<Vec<(PathBuf, u8, bool)>>>,
+            parameters: Arc<Mutex<Vec<(PathBuf, u64, bool)>>>,
         ) -> DbInitializerMock {
-            self.initialize_parameters = parameters;
+            self.initialize_params = parameters;
             self
         }
 

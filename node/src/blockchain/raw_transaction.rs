@@ -28,17 +28,18 @@ pub struct RawTransaction {
 
 impl RawTransaction {
     /// Signs and returns the RLP-encoded transaction
-    pub fn sign(&self, wallet: &Wallet, chain_id: u8) -> Vec<u8> {
-        let hash = self.tx_hash(chain_id);
-        let sig = ecdsa_sign(&hash, wallet, chain_id);
-        let mut tx = RlpStream::new();
-        tx.begin_unbounded_list();
-        self.encode(&mut tx);
-        tx.append(&sig.v);
-        tx.append(&sig.r.to_vec());
-        tx.append(&sig.s.to_vec());
-        tx.finalize_unbounded_list();
-        tx.out()
+    pub fn sign(&self, wallet: &Wallet, chain_id: u64) -> Vec<u8> {
+        unimplemented!()
+        // let hash = self.tx_hash(chain_id);
+        // let sig = ecdsa_sign(&hash, wallet, chain_id);
+        // let mut tx = RlpStream::new();
+        // tx.begin_unbounded_list();
+        // self.encode(&mut tx);
+        // tx.append(&sig.v);
+        // tx.append(&sig.r.to_vec());
+        // tx.append(&sig.s.to_vec());
+        // tx.finalize_unbounded_list();
+        // tx.out()
     }
 
     fn tx_hash(&self, chain_id: u8) -> Vec<u8> {
@@ -100,7 +101,7 @@ mod tests {
         );
 
         let txs: Vec<(RawTransaction, Signing)> = serde_json::from_str(&text_txs_json).unwrap();
-        let chain_id = 0u8;
+        let chain_id = 0;
         for (tx, signed) in txs.into_iter() {
             assert_eq!(
                 signed.signed,
@@ -125,7 +126,7 @@ mod tests {
         );
 
         let txs: Vec<(RawTransaction, Signing)> = serde_json::from_str(&text_txs_json).unwrap();
-        let chain_id = 3u8;
+        let chain_id = 3;
         for (tx, signed) in txs.into_iter() {
             assert_eq!(
                 signed.signed,
@@ -149,7 +150,7 @@ mod tests {
         );
 
         let txs: Vec<(RawTransaction, Signing)> = serde_json::from_str(&txt_txs_json).unwrap();
-        let chain_id = 3u8;
+        let chain_id = 3;
         for (tx, signed) in txs.into_iter() {
             assert_eq!(
                 signed.signed,
@@ -173,7 +174,7 @@ mod tests {
         );
 
         let txs: Vec<(RawTransaction, Signing)> = serde_json::from_str(&txt_txs_json).unwrap();
-        let chain_id = 1u8;
+        let chain_id = 1;
         for (tx, signed) in txs.into_iter() {
             assert_eq!(
                 signed.signed,

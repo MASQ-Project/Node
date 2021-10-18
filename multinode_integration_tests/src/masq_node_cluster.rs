@@ -17,7 +17,7 @@ pub struct MASQNodeCluster {
     mock_nodes: HashMap<String, MASQMockNode>,
     host_node_parent_dir: Option<String>,
     next_index: usize,
-    pub chain_id: u8,
+    pub chain_id: u64,
 }
 
 impl MASQNodeCluster {
