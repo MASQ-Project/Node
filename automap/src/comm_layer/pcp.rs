@@ -348,7 +348,6 @@ impl PcpTransactor {
                 }
                 Err(_) => {
                     eprintln!(" <<<<  None received");
-                    ()
                 }
             }
             // This will block for read_timeout_millis, conserving CPU cycles

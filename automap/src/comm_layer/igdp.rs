@@ -18,7 +18,7 @@ use masq_lib::utils::{AutomapProtocol, ExpectValue};
 use masq_lib::warning;
 use std::any::Any;
 use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
-use std::ops::{Add, Sub};
+use std::ops::Add;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::thread::JoinHandle;
