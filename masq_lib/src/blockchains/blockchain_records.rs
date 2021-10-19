@@ -15,7 +15,7 @@ pub const CHAINS: [BlockchainRecord; 5] = [
         literal_chain_id: Chain::PolyMainnet,
         num_chain_id: 137,
         plain_text_name: "polygon-mainnet",
-        directory_by_platform: "poly",
+        directory_by_platform: "polygon",
         chain_identifier: POLY_MAINNET_IDENTIFIER,
         contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
@@ -33,7 +33,7 @@ pub const CHAINS: [BlockchainRecord; 5] = [
         literal_chain_id: Chain::PolyMumbai,
         num_chain_id: 80001,
         plain_text_name: "mumbai",
-        directory_by_platform: "poly",
+        directory_by_platform: "polygon",
         chain_identifier: POLY_MUMBAI_IDENTIFIER,
         contract: MUMBAI_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
@@ -241,8 +241,8 @@ mod tests {
                 num_chain_id: 137,
                 literal_chain_id: examined_chain,
                 plain_text_name: "polygon-mainnet",
-                directory_by_platform: "poly",
-                chain_identifier: "poly-mainnet",
+                directory_by_platform: "polygon",
+                chain_identifier: "polygon-mainnet",
                 contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK
             }
@@ -259,8 +259,8 @@ mod tests {
                 num_chain_id: 80001,
                 literal_chain_id: examined_chain,
                 plain_text_name: "mumbai",
-                directory_by_platform: "poly",
-                chain_identifier: "poly-mumbai",
+                directory_by_platform: "polygon",
+                chain_identifier: "polygon-mumbai",
                 contract: MUMBAI_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK
             }
