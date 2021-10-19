@@ -17,7 +17,6 @@ use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
 };
-use masq_lib::blockchains::chains::Chain;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_initializer::{
     connection_or_panic, DbInitializer, DbInitializerReal, DATABASE_FILE,
@@ -46,6 +45,7 @@ use actix::Addr;
 use actix::Recipient;
 use actix::{Actor, Arbiter};
 use crossbeam_channel::{unbounded, Sender};
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
 use std::path::Path;
@@ -303,32 +303,20 @@ impl ActorFactory for ActorFactoryReal {
     ) -> AccountantSubs {
         let cloned_config = config.clone();
         let chain = config.blockchain_bridge_config.chain;
-        let payable_dao_factory = DaoFactoryReal::new(
-            data_directory,
-            config.blockchain_bridge_config.chain,
-            false,
-        );
-        let receivable_dao_factory = DaoFactoryReal::new(
-            data_directory,
-            config.blockchain_bridge_config.chain,
-            false,
-        );
-        let banned_dao_factory = DaoFactoryReal::new(
-            data_directory,
-            config.blockchain_bridge_config.chain,
-            false,
-        );
+        let payable_dao_factory =
+            DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
+        let receivable_dao_factory =
+            DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
+        let banned_dao_factory =
+            DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
         banned_cache_loader.load(connection_or_panic(
             db_initializer,
             data_directory,
             chain,
             false,
         ));
-        let config_dao_factory = DaoFactoryReal::new(
-            data_directory,
-            config.blockchain_bridge_config.chain,
-            false,
-        );
+        let config_dao_factory =
+            DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
         let addr: Addr<Accountant> = Arbiter::start(move |_| {
             Accountant::new(
                 &cloned_config,
@@ -429,10 +417,7 @@ fn validate_database_chain_correctness(
     chain: Chain,
     persistent_config: &dyn PersistentConfiguration,
 ) {
-    let required_chain = chain
-        .record()
-        .plain_text_name
-        .to_string();
+    let required_chain = chain.record().plain_text_name.to_string();
     let chain_in_db = persistent_config.chain_name();
     if required_chain != chain_in_db {
         panic!(
@@ -491,6 +476,7 @@ mod tests {
     use crate::test_utils::{alias_cryptde, rate_pack};
     use actix::System;
     use log::LevelFilter;
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -503,7 +489,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use masq_lib::constants::DEFAULT_CHAIN;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {

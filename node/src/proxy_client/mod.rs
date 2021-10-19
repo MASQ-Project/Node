@@ -346,6 +346,7 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::*;
     use actix::System;
+    use masq_lib::blockchains::chains::Chain;
     use std::cell::RefCell;
     use std::net::IpAddr;
     use std::net::SocketAddr;
@@ -353,7 +354,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
-    use masq_lib::blockchains::chains::Chain;
 
     fn dnss() -> Vec<SocketAddr> {
         vec![SocketAddr::from_str("8.8.8.8:53").unwrap()]

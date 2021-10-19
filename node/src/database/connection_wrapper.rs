@@ -43,11 +43,11 @@ impl ConnectionWrapperReal {
 
 #[cfg(test)]
 mod tests {
-    use masq_lib::blockchains::chains::Chain;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoRead, ConfigDaoReal};
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 
     #[test]

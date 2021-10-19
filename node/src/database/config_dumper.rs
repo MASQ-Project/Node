@@ -25,9 +25,9 @@ use serde_json::json;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
+use masq_lib::blockchains::chains::Chain;
 #[cfg(test)]
 use std::any::Any;
-use masq_lib::blockchains::chains::Chain;
 
 pub struct DumpConfigRunnerReal;
 
@@ -137,12 +137,7 @@ fn distill_args(
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
     let password_opt = value_m!(multi_config, "db-password", String);
-    Ok((
-        real_user,
-        directory,
-        chain,
-        password_opt,
-    ))
+    Ok((real_user, directory, chain, password_opt))
 }
 
 #[cfg(test)]
@@ -160,9 +155,7 @@ mod tests {
     use bip39::{Language, MnemonicType, Seed};
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN
-    };
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::derivation_path;
 
     #[test]

@@ -4116,8 +4116,7 @@ mod tests {
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let affected_stream_key =
             StreamKey::new(main_cryptde().public_key().clone(), affected_socket_addr);
-        let affected_cryptde =
-            CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN);
+        let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN);
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -4239,8 +4238,7 @@ mod tests {
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let affected_stream_key =
             StreamKey::new(main_cryptde().public_key().clone(), affected_socket_addr);
-        let affected_cryptde =
-            CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN);
+        let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN);
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);

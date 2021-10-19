@@ -74,10 +74,7 @@ mod tests {
 
         let public_key = SubPublicKey::new(&b"sign these bytessign these bytes".to_vec());
         let payer: Payer = make_payer(&secret, &public_key);
-        let digest = cryptde::create_digest(
-            &public_key,
-            &TEST_DEFAULT_CHAIN.record().contract,
-        );
+        let digest = cryptde::create_digest(&public_key, &TEST_DEFAULT_CHAIN.record().contract);
         assert!(payer.owns_secret_key(&digest));
     }
 

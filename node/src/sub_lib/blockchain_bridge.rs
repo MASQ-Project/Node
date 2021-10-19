@@ -6,10 +6,10 @@ use crate::blockchain::blockchain_interface::BlockchainResult;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
-use masq_lib::blockchains::chains::Chain;
 
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct BlockchainBridgeConfig {

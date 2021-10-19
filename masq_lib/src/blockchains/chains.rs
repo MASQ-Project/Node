@@ -1,8 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use serde_derive::{Deserialize, Serialize};
 use crate::blockchains::blockchain_records::{BlockchainRecord, CHAINS};
 use crate::constants::DEFAULT_CHAIN;
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum Chain {
@@ -13,7 +13,7 @@ pub enum Chain {
     Dev,
 }
 
-impl Default for Chain{
+impl Default for Chain {
     fn default() -> Self {
         DEFAULT_CHAIN
     }
@@ -46,12 +46,12 @@ pub fn chain_from_chain_identifier_opt(identifier: &str) -> Option<Chain> {
     return_record_opt_standard_impl(Box::new(|b: &&BlockchainRecord| {
         b.chain_identifier == identifier
     }))
-        .map(|record| record.literal_chain_id)
+    .map(|record| record.literal_chain_id)
 }
 
 fn return_record_opt_standard_impl<'a, F>(closure: Box<F>) -> Option<&'a BlockchainRecord>
-    where
-        F: FnMut(&&BlockchainRecord) -> bool,
+where
+    F: FnMut(&&BlockchainRecord) -> bool,
 {
     return_record_opt_body(closure, &CHAINS)
 }
@@ -60,11 +60,13 @@ fn return_record_opt_body<F>(
     closure: Box<F>,
     collection_of_chains: &[BlockchainRecord],
 ) -> Option<&BlockchainRecord>
-    where
-        F: FnMut(&&BlockchainRecord) -> bool,
+where
+    F: FnMut(&&BlockchainRecord) -> bool,
 {
     let mut filtered = collection_of_chains
-        .iter().filter(closure).collect::<Vec<&BlockchainRecord>>();
+        .iter()
+        .filter(closure)
+        .collect::<Vec<&BlockchainRecord>>();
     filtered.pop().map(|first| {
         if filtered.pop() != None {
             panic!("Not unique identifier used to query a BlockchainRecord")
@@ -75,7 +77,7 @@ fn return_record_opt_body<F>(
 }
 
 #[cfg(test)]
-mod tests{
+mod tests {
     use super::*;
 
     #[test]
@@ -104,7 +106,7 @@ mod tests{
                 return_record_opt_standard_impl(Box::new(
                     |b: &&BlockchainRecord| b.num_chain_id == record.num_chain_id
                 ))
-                    .unwrap()
+                .unwrap()
             )
         });
     }

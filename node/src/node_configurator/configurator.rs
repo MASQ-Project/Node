@@ -29,6 +29,7 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::wallet::{Wallet, WalletError};
 use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     ALREADY_INITIALIZED_ERROR, BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR,
     CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR, EARLY_QUESTIONING_ABOUT_DATA,
@@ -37,7 +38,6 @@ use masq_lib::constants::{
 };
 use rustc_hex::ToHex;
 use std::str::FromStr;
-use masq_lib::blockchains::chains::Chain;
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,

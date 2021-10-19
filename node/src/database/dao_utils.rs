@@ -2,10 +2,10 @@
 use crate::accountant::jackass_unsigned_to_signed;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
+use masq_lib::blockchains::chains::Chain;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::SystemTime;
-use masq_lib::blockchains::chains::Chain;
 
 pub fn to_time_t(system_time: SystemTime) -> i64 {
     match system_time.duration_since(SystemTime::UNIX_EPOCH) {

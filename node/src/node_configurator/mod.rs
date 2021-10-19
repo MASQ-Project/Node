@@ -6,7 +6,6 @@ pub mod node_configurator_standard;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
-use masq_lib::blockchains::chains::Chain;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::db_config::persistent_configuration::{
@@ -19,7 +18,9 @@ use crate::sub_lib::wallet::Wallet;
 use bip39::Language;
 use clap::{value_t, App, Arg};
 use dirs::{data_local_dir, home_dir};
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
+use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
@@ -34,7 +35,6 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
-use masq_lib::constants::DEFAULT_CHAIN;
 
 pub trait NodeConfigurator<T> {
     fn configure(
@@ -224,8 +224,8 @@ pub fn real_user_with_data_directory_opt_and_chain(
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, Chain) {
     let real_user = real_user_from_multi_config_or_populate(multi_config, dirs_wrapper);
-    let chain_name =
-        value_m!(multi_config, "chain", String).unwrap_or_else(|| DEFAULT_CHAIN.record().plain_text_name.to_string());
+    let chain_name = value_m!(multi_config, "chain", String)
+        .unwrap_or_else(|| DEFAULT_CHAIN.record().plain_text_name.to_string());
     let data_directory_opt = value_m!(multi_config, "data-directory", PathBuf);
     (
         real_user,
@@ -737,12 +737,12 @@ mod tests {
     use masq_lib::shared_schema::{db_password_arg, ParamError};
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{find_free_port, running_test};
     use std::io::Cursor;
     use std::net::{SocketAddr, TcpListener};
     use std::sync::{Arc, Mutex};
     use tiny_hderive::bip44::DerivationPath;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 
     #[test]
     fn validate_ethereum_address_requires_an_address_that_is_42_characters_long() {
@@ -937,7 +937,8 @@ mod tests {
     fn data_directory_default_works() {
         let mock_dirs_wrapper = DirsWrapperMock::new().data_dir_result(Some("mocked/path".into()));
 
-        let result = data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN.record().plain_text_name);
+        let result =
+            data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN.record().plain_text_name);
 
         let expected = PathBuf::from("mocked/path")
             .join("MASQ")
@@ -1035,7 +1036,10 @@ mod tests {
             .join(DEFAULT_CHAIN.record().directory_by_platform)
             .join(DEFAULT_CHAIN.record().plain_text_name);
         assert_eq!(directory, expected_directory);
-        assert_eq!(chain.record().plain_text_name, DEFAULT_CHAIN.record().plain_text_name);
+        assert_eq!(
+            chain.record().plain_text_name,
+            DEFAULT_CHAIN.record().plain_text_name
+        );
     }
 
     #[test]

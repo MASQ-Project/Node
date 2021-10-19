@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use masq_lib::blockchains::chains::Chain;
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
 use crate::database::db_migrations::{DbMigrator, DbMigratorReal, ExternalMigrationParameters};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -219,18 +219,9 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "start_block",
-            Some(
-                &chain
-                    .record()
-                    .contract_creation_block
-                    .to_string(),
-            ),
+            Some(&chain.record().contract_creation_block.to_string()),
             false,
-            format!(
-                "{} start block",
-                chain.record().plain_text_name
-            )
-            .as_str(),
+            format!("{} start block", chain.record().plain_text_name).as_str(),
         );
         Self::set_config_value(
             conn,
@@ -444,12 +435,12 @@ pub fn connection_or_panic(
 pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::{DbInitializer, InitializationError};
+    use masq_lib::blockchains::chains::Chain;
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
-    use masq_lib::blockchains::chains::Chain;
 
     #[derive(Debug, Default)]
     pub struct ConnectionWrapperMock<'b, 'a: 'b> {
@@ -556,7 +547,7 @@ mod tests {
     use itertools::Itertools;
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-        TEST_DEFAULT_CHAIN
+        TEST_DEFAULT_CHAIN,
     };
     use rusqlite::types::Type::Null;
     use rusqlite::{Error, OpenFlags};
@@ -755,7 +746,11 @@ mod tests {
             value
         };
 
-        verify(&mut config_vec, "chain_name", Some(TEST_DEFAULT_CHAIN.record().plain_text_name));
+        verify(
+            &mut config_vec,
+            "chain_name",
+            Some(TEST_DEFAULT_CHAIN.record().plain_text_name),
+        );
         let clandestine_port_str_opt = verify_name(&mut config_vec, "clandestine_port");
         let clandestine_port: u16 = clandestine_port_str_opt.unwrap().parse().unwrap();
         assert!(clandestine_port >= 1025);

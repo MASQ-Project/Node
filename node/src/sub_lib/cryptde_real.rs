@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use masq_lib::blockchains::chains::Chain;
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::{
     CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey, SymmetricKey,
 };
 use lazy_static::lazy_static;
+use masq_lib::blockchains::chains::Chain;
 use sodiumoxide::crypto::box_::curve25519xsalsa20poly1305 as cxsp;
 use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305::SEALBYTES;
 use sodiumoxide::crypto::sealedbox::{open, seal};
@@ -187,8 +187,7 @@ impl CryptDEReal {
         let (e_public, e_secret) = encryption::gen_keypair();
         let (s_public, s_secret) = signing::gen_keypair();
         let public_key = Self::local_public_key_from(&e_public, &s_public);
-        let digest =
-            cryptde::create_digest(&public_key, &chain.record().contract);
+        let digest = cryptde::create_digest(&public_key, &chain.record().contract);
         let pre_shared_data = chain.record().contract.0;
 
         Self {
@@ -591,10 +590,7 @@ mod tests {
         let subject = &CryptDEReal::default();
         let merged = [
             subject.public_key().as_ref(),
-            &TEST_DEFAULT_CHAIN
-                .record()
-                .contract
-                .as_ref(),
+            &TEST_DEFAULT_CHAIN.record().contract.as_ref(),
         ]
         .concat();
         let expected_digest = merged.keccak256();

@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::masq_node::MASQNode;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::neighborhood::gossip::{GossipNodeRecord, Gossip_0v1};
 use node_lib::neighborhood::AccessibleGossipRecord;
@@ -9,7 +10,6 @@ use node_lib::test_utils::vec_to_set;
 use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
 use std::net::IpAddr;
-use masq_lib::blockchains::chains::Chain;
 
 #[derive(PartialEq, Clone, Debug)]
 #[allow(clippy::large_enum_variant)]

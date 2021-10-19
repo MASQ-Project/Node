@@ -158,10 +158,11 @@ mod tests {
             next_hop,
             LiveHop::new(
                 &destination_key,
-                Some(paying_wallet.clone().as_payer(
-                    &relay_key,
-                    &TEST_DEFAULT_CHAIN.record().contract
-                )),
+                Some(
+                    paying_wallet
+                        .clone()
+                        .as_payer(&relay_key, &TEST_DEFAULT_CHAIN.record().contract)
+                ),
                 Component::Hopper,
             )
         );
@@ -172,10 +173,9 @@ mod tests {
             route.shift(&destination_cryptde).unwrap(),
             LiveHop::new(
                 &public_key,
-                Some(paying_wallet.as_payer(
-                    &destination_key,
-                    &TEST_DEFAULT_CHAIN.record().contract
-                )),
+                Some(
+                    paying_wallet.as_payer(&destination_key, &TEST_DEFAULT_CHAIN.record().contract)
+                ),
                 Component::Neighborhood,
             )
         );

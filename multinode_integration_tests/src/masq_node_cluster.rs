@@ -4,13 +4,13 @@ use crate::masq_mock_node::MASQMockNode;
 use crate::masq_node::{MASQNode, MASQNodeUtils};
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::NodeStartupConfig;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr};
-use masq_lib::blockchains::chains::Chain;
 
 pub struct MASQNodeCluster {
     startup_configs: HashMap<(String, usize), NodeStartupConfig>,
@@ -110,12 +110,9 @@ impl MASQNodeCluster {
                 public_key,
                 self.chain,
             ),
-            None => MASQMockNode::start(
-                ports,
-                index,
-                self.host_node_parent_dir.clone(),
-                self.chain,
-            ),
+            None => {
+                MASQMockNode::start(ports, index, self.host_node_parent_dir.clone(), self.chain)
+            }
         };
         let name = node.name().to_string();
         self.mock_nodes.insert(name.clone(), node);

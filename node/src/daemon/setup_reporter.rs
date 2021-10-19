@@ -1,7 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::apps::app_head;
-use masq_lib::blockchains::chains::{Chain as BlockChain};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
@@ -22,7 +21,9 @@ use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
 use clap::value_t;
 use itertools::Itertools;
+use masq_lib::blockchains::chains::Chain as BlockChain;
 use masq_lib::command::StdStreams;
+use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
 use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupResponseValueStatus};
 use masq_lib::multi_config::{
@@ -33,7 +34,6 @@ use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter}
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use masq_lib::constants::DEFAULT_CHAIN;
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
@@ -279,12 +279,8 @@ impl SetupReporterReal {
                 Ok(mc) => mc,
                 Err(ce) => return (HashMap::new(), Some(ce)),
             };
-        let ((bootstrapper_config, persistent_config_opt), error_opt) = Self::run_configuration(
-            dirs_wrapper,
-            &multi_config,
-            data_directory,
-            chain,
-        );
+        let ((bootstrapper_config, persistent_config_opt), error_opt) =
+            Self::run_configuration(dirs_wrapper, &multi_config, data_directory, chain);
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
@@ -869,7 +865,6 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
 mod tests {
     use super::*;
     use crate::bootstrapper::RealUser;
-    use masq_lib::blockchains::chains::Chain as Blockchain;
     use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
     use crate::daemon::dns_inspector::DnsInspectionError;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -884,11 +879,11 @@ mod tests {
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use masq_lib::blockchains::chains::Chain as Blockchain;
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN,
-    };
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use std::cell::RefCell;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
@@ -897,7 +892,6 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use masq_lib::constants::DEFAULT_CHAIN;
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -1334,9 +1328,15 @@ mod tests {
                 .data_dir_result(Some(data_root.clone())),
         ));
 
-        let params = vec![UiSetupRequestValue::new("chain", DEFAULT_CHAIN.record().plain_text_name)];
+        let params = vec![UiSetupRequestValue::new(
+            "chain",
+            DEFAULT_CHAIN.record().plain_text_name,
+        )];
         let existing_setup = subject.get_modified_setup(HashMap::new(), params).unwrap();
-        let params = vec![UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN.record().plain_text_name)];
+        let params = vec![UiSetupRequestValue::new(
+            "chain",
+            TEST_DEFAULT_CHAIN.record().plain_text_name,
+        )];
 
         let result = subject.get_modified_setup(existing_setup, params).unwrap();
 
@@ -1360,7 +1360,11 @@ mod tests {
                 &ropsten_dir.to_string_lossy().to_string(),
                 Default,
             ),
-            ("db-password", TEST_DEFAULT_CHAIN.record().plain_text_name, Configured),
+            (
+                "db-password",
+                TEST_DEFAULT_CHAIN.record().plain_text_name,
+                Configured,
+            ),
             ("dns-servers", "8.7.6.5", Configured),
             (
                 "earning-wallet",
@@ -1520,7 +1524,9 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_data_directory_depends_on_new_chain_on_success",
         );
-        let current_data_dir = base_dir.join("MASQ").join(DEFAULT_CHAIN.record().plain_text_name);
+        let current_data_dir = base_dir
+            .join("MASQ")
+            .join(DEFAULT_CHAIN.record().plain_text_name);
         let existing_setup = setup_cluster_from(vec![
             ("neighborhood-mode", "zero-hop", Set),
             ("chain", DEFAULT_CHAIN.record().plain_text_name, Default),
@@ -1568,7 +1574,9 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_data_directory_depends_on_new_chain_on_error",
         );
-        let current_data_dir = base_dir.join("MASQ").join(DEFAULT_CHAIN.record().plain_text_name);
+        let current_data_dir = base_dir
+            .join("MASQ")
+            .join(DEFAULT_CHAIN.record().plain_text_name);
         let existing_setup = setup_cluster_from(vec![
             ("blockchain-service-url", "", Required),
             ("chain", DEFAULT_CHAIN.record().plain_text_name, Default),
@@ -2082,7 +2090,10 @@ mod tests {
 
         let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
 
-        assert_eq!(result, Some((DEFAULT_CHAIN.record().plain_text_name.to_string(), Default)));
+        assert_eq!(
+            result,
+            Some((DEFAULT_CHAIN.record().plain_text_name.to_string(), Default))
+        );
     }
 
     #[test]
@@ -2137,8 +2148,7 @@ mod tests {
         .to_string();
         let mut config = BootstrapperConfig::new();
         config.real_user = real_user;
-        config.blockchain_bridge_config.chain =
-            Blockchain::from("eth-mainnet");
+        config.blockchain_bridge_config.chain = Blockchain::from("eth-mainnet");
 
         let subject = DataDirectory::default();
 

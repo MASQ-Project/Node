@@ -59,12 +59,8 @@ mod tests {
 
         let subject = LiveHop::new(
             &key,
-            Some(make_paying_wallet(b"wallet")).map(|w| {
-                w.as_payer(
-                    &key,
-                    &TEST_DEFAULT_CHAIN.record().contract,
-                )
-            }),
+            Some(make_paying_wallet(b"wallet"))
+                .map(|w| w.as_payer(&key, &TEST_DEFAULT_CHAIN.record().contract)),
             Component::Neighborhood,
         );
 
@@ -92,10 +88,7 @@ mod tests {
         let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let encode_key = cryptde.public_key();
-        let contract_address = &TEST_DEFAULT_CHAIN
-            .record()
-            .contract
-            .clone();
+        let contract_address = &TEST_DEFAULT_CHAIN.record().contract.clone();
         let hopper_hop = LiveHop::new(
             &PublicKey::new(&[4, 3, 2, 1]),
             Some(paying_wallet.clone())

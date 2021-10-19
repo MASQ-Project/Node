@@ -464,10 +464,7 @@ pub fn dummy_address_to_hex(dummy_address: &str) -> String {
 
 pub fn make_payer(secret: &[u8], public_key: &PublicKey) -> Payer {
     let wallet = make_paying_wallet(secret);
-    wallet.as_payer(
-        public_key,
-        &TEST_DEFAULT_CHAIN.record().contract,
-    )
+    wallet.as_payer(public_key, &TEST_DEFAULT_CHAIN.record().contract)
 }
 
 pub fn make_paying_wallet(secret: &[u8]) -> Wallet {

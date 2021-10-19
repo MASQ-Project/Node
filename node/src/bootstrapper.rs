@@ -4,7 +4,6 @@ use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
-use masq_lib::blockchains::chains::{Chain};
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -38,8 +37,11 @@ use crate::sub_lib::wallet::Wallet;
 use futures::try_ready;
 use itertools::Itertools;
 use log::LevelFilter;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::{DEFAULT_UI_PORT, MASQ_URL_PREFIX, CHAIN_IDENTIFIER_DELIMITER, CENTRAL_DELIMITER};
+use masq_lib::constants::{
+    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, DEFAULT_UI_PORT, MASQ_URL_PREFIX,
+};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
@@ -501,12 +503,8 @@ impl Bootstrapper {
     ) -> String {
         let descriptor = match node_addr_opt {
             Some(node_addr) => {
-                let node_descriptor = NodeDescriptor::from((
-                    cryptde.public_key(),
-                    &node_addr,
-                    chain,
-                    cryptde,
-                ));
+                let node_descriptor =
+                    NodeDescriptor::from((cryptde.public_key(), &node_addr, chain, cryptde));
                 node_descriptor.to_string(cryptde)
             }
             None => format!(
@@ -610,7 +608,6 @@ mod tests {
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 
     use crate::actor_system_factory::ActorFactory;
-    use masq_lib::blockchains::chains::Chain;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::{
@@ -641,6 +638,7 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use crate::test_utils::{assert_contains, rate_pack};
+    use masq_lib::blockchains::chains::Chain;
 
     use super::*;
 
@@ -1196,8 +1194,7 @@ mod tests {
     #[test]
     fn initialize_cryptde_without_cryptde_null_uses_cryptde_real() {
         let _lock = INITIALIZATION.lock();
-        let (cryptde_init, _) =
-            Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+        let (cryptde_init, _) = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
 
         assert_eq!(main_cryptde_ref().public_key(), cryptde_init.public_key());
         // Brittle assertion: this may not be true forever
@@ -1536,8 +1533,7 @@ mod tests {
             "bootstrapper",
             "establish_clandestine_port_handles_specified_port",
         );
-        let cryptde_actual =
-            CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
+        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {
@@ -1602,8 +1598,7 @@ mod tests {
 
     #[test]
     fn set_up_clandestine_port_handles_unspecified_port_in_standard_mode() {
-        let cryptde_actual =
-            CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
+        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1653,8 +1648,7 @@ mod tests {
 
     #[test]
     fn set_up_clandestine_port_handles_originate_only() {
-        let cryptde_actual =
-            CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
+        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1692,8 +1686,7 @@ mod tests {
 
     #[test]
     fn set_up_clandestine_port_handles_consume_only() {
-        let cryptde_actual =
-            CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
+        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",

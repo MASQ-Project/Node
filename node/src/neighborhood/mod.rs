@@ -24,7 +24,6 @@ use masq_lib::utils::exit_process;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
-use masq_lib::blockchains::chains::Chain;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
@@ -62,6 +61,7 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
+use masq_lib::blockchains::chains::Chain;
 
 mod dot_graph;
 pub mod gossip;
@@ -337,8 +337,7 @@ impl Neighborhood {
             config.earning_wallet.clone(),
             cryptde,
         );
-        let is_mainnet =
-            config.blockchain_bridge_config.chain == Chain::EthMainnet;
+        let is_mainnet = config.blockchain_bridge_config.chain == Chain::EthMainnet;
         let initial_neighbors: Vec<NodeDescriptor> = neighborhood_config
             .mode
             .neighbor_configs()
@@ -1239,7 +1238,7 @@ mod tests {
     use serde_cbor;
     use tokio::prelude::Future;
 
-    use masq_lib::constants::{TLS_PORT, DEFAULT_CHAIN};
+    use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
@@ -2906,19 +2905,11 @@ mod tests {
         let neighbors = neighbors_opt.unwrap();
         assert_contains(
             &neighbors,
-            &NodeDescriptor::from((
-                &old_neighbor,
-                TEST_DEFAULT_CHAIN,
-                cryptde,
-            )),
+            &NodeDescriptor::from((&old_neighbor, TEST_DEFAULT_CHAIN, cryptde)),
         );
         assert_contains(
             &neighbors,
-            &NodeDescriptor::from((
-                &new_neighbor,
-                TEST_DEFAULT_CHAIN,
-                cryptde,
-            )),
+            &NodeDescriptor::from((&new_neighbor, TEST_DEFAULT_CHAIN, cryptde)),
         );
         assert_eq!(neighbors.len(), 2);
         assert_eq!(db_password, "password".to_string());

@@ -1,11 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use masq_lib::blockchains::chains::{Chain};
 use crate::blockchain::raw_transaction::RawTransaction;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use futures::{future, Future};
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::DEFAULT_CHAIN;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -13,7 +14,6 @@ use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
 use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, H256, U256};
 use web3::{Transport, Web3};
-use masq_lib::constants::DEFAULT_CHAIN;
 
 pub const CONTRACT_ABI: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
 
@@ -154,7 +154,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
 
 pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
     logger: Logger,
-    chain:Chain,
+    chain: Chain,
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     web3: Web3<T>,
@@ -332,12 +332,9 @@ where
 {
     pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
         let web3 = Web3::new(transport);
-        let contract = Contract::from_json(
-            web3.eth(),
-            chain.record().contract,
-            CONTRACT_ABI.as_bytes(),
-        )
-        .expect("Unable to initialize contract.");
+        let contract =
+            Contract::from_json(web3.eth(), chain.record().contract, CONTRACT_ABI.as_bytes())
+                .expect("Unable to initialize contract.");
         Self {
             logger: Logger::new("BlockchainInterface"),
             chain,

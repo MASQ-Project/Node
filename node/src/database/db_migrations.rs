@@ -1,9 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use masq_lib::blockchains::chains::Chain;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::{ExpectValue, WrapResult};
 use rusqlite::{Transaction, NO_PARAMS};
 use std::fmt::Debug;
@@ -340,10 +340,7 @@ pub struct ExternalMigrationParameters {
 impl ExternalMigrationParameters {
     pub fn new(chain: Chain) -> Self {
         Self {
-            chain_name: chain
-                .record()
-                .plain_text_name
-                .to_string(),
+            chain_name: chain.record().plain_text_name.to_string(),
         }
     }
 }
@@ -365,6 +362,8 @@ mod tests {
         revive_tables_of_the_version_0_and_return_the_connection_to_the_db,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
     use std::cell::RefCell;
@@ -372,8 +371,6 @@ mod tests {
     use std::fs::create_dir_all;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
-    use masq_lib::blockchains::chains::Chain;
-    use masq_lib::constants::DEFAULT_CHAIN;
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {

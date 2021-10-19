@@ -1,14 +1,13 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchains::chains::Chain;
 use crate::constants::{
     DEV_CHAIN_IDENTIFIER, ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_IDENTIFIER,
     ETH_ROPSTEN_IDENTIFIER, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
     MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
-    POLY_MAINNET_IDENTIFIER, POLY_MUMBAI_IDENTIFIER,
-    ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
+    POLY_MAINNET_IDENTIFIER, POLY_MUMBAI_IDENTIFIER, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
 };
 use web3::types::Address;
-use crate::blockchains::chains::Chain;
 
 //chains are ordered by their significance for the community of users (the order reflects in some error or help messages)
 pub const CHAINS: [BlockchainRecord; 5] = [
@@ -109,15 +108,14 @@ const MUMBAI_TESTNET_CONTRACT_ADDRESS: Address = Address {
     ],
 };
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchains::chains::chain_from_chain_identifier_opt;
+    use crate::constants::DEFAULT_CHAIN;
     use crate::constants::{
         MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     };
-    use crate::constants::{DEFAULT_CHAIN};
-    use crate::blockchains::chains::chain_from_chain_identifier_opt;
 
     #[test]
     fn record_returns_correct_blockchain_record() {
@@ -171,7 +169,11 @@ mod tests {
     }
 
     fn assert_chain_significance(idx: usize, chain: Chain) -> Chain {
-        assert_eq!(CHAINS[idx].literal_chain_id, chain,"Error at index {}",idx);
+        assert_eq!(
+            CHAINS[idx].literal_chain_id, chain,
+            "Error at index {}",
+            idx
+        );
         chain
     }
 
@@ -316,15 +318,14 @@ mod tests {
         );
         let init = (None, None);
         CHAINS.iter().for_each(|chain_record| {
-            let found = test_array.iter()
-                .fold(init, |so_far, chain| match so_far {
-                    (Some(chain_found), None) => (Some(chain_found), None),
-                    (None, _) => match *chain == chain_record.literal_chain_id {
-                        true => (Some(chain), None),
-                        false => (None, Some(chain)),
-                    },
-                    x => panic!("Should not happen!: {:?}", x),
-                });
+            let found = test_array.iter().fold(init, |so_far, chain| match so_far {
+                (Some(chain_found), None) => (Some(chain_found), None),
+                (None, _) => match *chain == chain_record.literal_chain_id {
+                    true => (Some(chain), None),
+                    false => (None, Some(chain)),
+                },
+                x => panic!("Should not happen!: {:?}", x),
+            });
             assert!(
                 found.0.is_some(),
                 "Assertion for '{:?}' is missing",

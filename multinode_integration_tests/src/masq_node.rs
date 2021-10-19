@@ -1,9 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
 use base64::STANDARD_NO_PAD;
-use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT, MASQ_URL_PREFIX, CHAIN_IDENTIFIER_DELIMITER, CENTRAL_DELIMITER};
-use masq_lib::blockchains::chains::{
-    chain_from_chain_identifier_opt, Chain,
+use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
+use masq_lib::constants::{
+    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT,
+    MASQ_URL_PREFIX,
 };
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -56,7 +57,7 @@ impl FromStr for NodeReference {
             ip_addr,
             port_list,
             chain_from_chain_identifier_opt(chain_identifier)
-                .expect("chain outside the bounds; unknown")
+                .expect("chain outside the bounds; unknown"),
         ))
     }
 }

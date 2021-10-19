@@ -88,7 +88,6 @@ pub mod standard {
 
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use masq_lib::blockchains::chains::Chain;
     use crate::bootstrapper::PortConfiguration;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration,
@@ -112,7 +111,10 @@ pub mod standard {
     use crate::sub_lib::wallet::Wallet;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use itertools::Itertools;
-    use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, MASQ_URL_PREFIX, TLS_PORT, DEFAULT_CHAIN};
+    use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::{
+        DEFAULT_CHAIN, DEFAULT_UI_PORT, HTTP_PORT, MASQ_URL_PREFIX, TLS_PORT,
+    };
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -992,7 +994,6 @@ mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use masq_lib::blockchains::chains::Chain;
     use crate::bootstrapper::RealUser;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -1020,16 +1021,15 @@ mod tests {
         make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
-    use masq_lib::constants::{DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEFAULT_CHAIN};
+    use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT};
     use masq_lib::multi_config::{
         CommandLineVcl, ConfigFileVcl, NameValueVclArg, VclArg, VirtualCommandLine,
     };
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
-    use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN
-    };
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::{running_test, SliceToVec};
     use rustc_hex::FromHex;
     use std::fs::File;
@@ -1599,10 +1599,10 @@ mod tests {
         );
 
         let public_key = PublicKey::new(&[1, 2, 3]);
-        let payer = bootstrapper_config.consuming_wallet.unwrap().as_payer(
-            &public_key,
-            &TEST_DEFAULT_CHAIN.record().contract,
-        );
+        let payer = bootstrapper_config
+            .consuming_wallet
+            .unwrap()
+            .as_payer(&public_key, &TEST_DEFAULT_CHAIN.record().contract);
         let cryptdenull = CryptDENull::from(&public_key, TEST_DEFAULT_CHAIN);
         assert!(
             payer.owns_secret_key(&cryptdenull.digest()),
@@ -2554,10 +2554,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            config.blockchain_bridge_config.chain,
-            Chain::from("dev")
-        );
+        assert_eq!(config.blockchain_bridge_config.chain, Chain::from("dev"));
     }
 
     #[test]
@@ -2579,10 +2576,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            config.blockchain_bridge_config.chain,
-            TEST_DEFAULT_CHAIN
-        );
+        assert_eq!(config.blockchain_bridge_config.chain, TEST_DEFAULT_CHAIN);
     }
 
     #[test]
@@ -2600,7 +2594,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            config.blockchain_bridge_config.chain
+            config
+                .blockchain_bridge_config
+                .chain
                 .record()
                 .plain_text_name,
             DEFAULT_CHAIN.record().plain_text_name
