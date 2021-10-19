@@ -311,14 +311,11 @@ impl PcpTransactor {
             .set_read_timeout(Some(Duration::from_millis(read_timeout_millis)))
             .expect("Can't set read timeout");
         loop {
-            eprintln!("------ Checking for HousekeepingThreadCommand ------");
             match rx.try_recv() {
                 Ok(HousekeepingThreadCommand::Stop) => {
-                    eprintln!(" <<<<  Received stop order");
                     break;
                 }
                 Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) => {
-                    eprintln!(" <<<<  Received SetRemapIntervalMs order: {}", remap_after);
                     match &mut mapping_config_opt {
                         None => {
                             error!(
@@ -338,23 +335,13 @@ impl PcpTransactor {
                     }
                 }
                 Ok(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config)) => {
-                    eprintln!(
-                        " <<<<  Received InitializeMappingConfig order: {}/{:?}/{:?}",
-                        mapping_config.hole_port,
-                        mapping_config.remap_interval,
-                        mapping_config.next_lifetime
-                    );
                     mapping_config_opt.replace(mapping_config);
                 }
-                Err(_) => {
-                    eprintln!(" <<<<  None received");
-                }
+                Err(_) => (),
             }
             // This will block for read_timeout_millis, conserving CPU cycles
-            eprintln!("------ Checking announcement socket ------");
             match announcement_socket.recv_from(&mut buffer) {
                 Ok((len, sender_address)) => {
-                    eprintln!("------ Got {} bytes from {}!", len, sender_address);
                     if sender_address.ip() != router_addr.ip() {
                         continue;
                     }
@@ -383,7 +370,6 @@ impl PcpTransactor {
                 Err(e)
                     if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
                 {
-                    eprintln!("------ Nope, nothing there");
                     ()
                 }
                 Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
@@ -392,10 +378,6 @@ impl PcpTransactor {
             match &mut mapping_config_opt {
                 None => (),
                 Some(mapping_config) => {
-                    eprintln!(
-                        "------ since_last_remapped: {:?}; remap_interval: {:?} ------",
-                        since_last_remapped, mapping_config.remap_interval
-                    );
                     if since_last_remapped.gt(&mapping_config.remap_interval) {
                         let inner = inner_arc.lock().expect("PcpTransactor is dead");
                         let requested_lifetime = mapping_config.next_lifetime;
@@ -430,7 +412,6 @@ impl PcpTransactor {
             requested_lifetime_secs = 1;
         }
         mapping_config.next_lifetime = Duration::from_secs(requested_lifetime_secs as u64);
-        eprintln!("------ Transacting ------");
         Ok(inner
             .mapping_transactor
             .transact(&inner.factories, router_addr, mapping_config)?

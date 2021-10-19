@@ -1,13 +1,13 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use lazy_static::lazy_static;
-use std::fmt;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::io::ErrorKind;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::{fmt, io};
 
 #[cfg(not(target_os = "windows"))]
 mod not_win_cfg {
@@ -94,18 +94,39 @@ pub fn find_free_port_0000() -> u16 {
 }
 
 fn find_free_port_for_ip_addr(ip_addr: IpAddr) -> u16 {
-    let mut candidate = FIND_FREE_PORT_NEXT.lock().unwrap();
+    let mut current_port = FIND_FREE_PORT_NEXT.lock().unwrap();
     loop {
-        match TcpListener::bind(SocketAddr::new(ip_addr, *candidate)) {
-            Err(ref e) if e.kind() == ErrorKind::AddrInUse => *candidate = next_port(*candidate),
-            Err(e) => panic!("Couldn't find free port: {:?}", e),
-            Ok(_listener) => {
-                let result = *candidate;
-                *candidate = next_port(*candidate);
-                return result;
-            }
+        let candidate = *current_port;
+        *current_port = next_port(*current_port);
+        if port_is_free_for_ip_addr(ip_addr, candidate) {
+            return candidate;
         }
     }
+}
+
+fn port_is_free_for_ip_addr(ip_addr: IpAddr, port: u16) -> bool {
+    let test_address = SocketAddr::new(ip_addr, port);
+    fn result_checker<T>(result: io::Result<T>) -> bool {
+        match result {
+            Err(ref e)
+                if (e.kind() == ErrorKind::AddrInUse)
+                    || (e.kind() == ErrorKind::AddrNotAvailable) =>
+            {
+                false
+            }
+            Err(e) => panic!("Couldn't find free port: {:?}", e),
+            Ok(_) => true,
+        }
+    }
+    let result = TcpListener::bind(test_address);
+    if !result_checker(result) {
+        return false;
+    }
+    let result = UdpSocket::bind(test_address);
+    if !result_checker(result) {
+        return false;
+    }
+    true
 }
 
 pub fn localhost() -> IpAddr {
@@ -528,5 +549,55 @@ mod tests {
         let result = subject.expect_v("safety feature");
 
         assert_eq!(result, "all right".to_string())
+    }
+
+    fn find_test_port_from(port: u16) -> u16 {
+        if super::port_is_free_for_ip_addr(localhost(), port) {
+            port
+        } else {
+            find_test_port_from(port - 1)
+        }
+    }
+
+    #[test]
+    fn port_is_free_for_ip_addr() {
+        let test_port = find_test_port_from(FIND_FREE_PORT_LOWEST - 1);
+        // port_is_free_for_ip_addr claims this port is free for both; let's check
+        {
+            let result = UdpSocket::bind(SocketAddr::new(localhost(), test_port));
+            match result {
+                Ok(_) => (),
+                x => panic!("{:?}", x),
+            }
+        }
+        {
+            let result = TcpListener::bind(SocketAddr::new(localhost(), test_port));
+            match result {
+                Ok(_) => (),
+                x => panic!("{:?}", x),
+            }
+        }
+
+        // Claim it for UDP and see if port_is_free_for_ip_addr can tell
+        {
+            let _socket = UdpSocket::bind(SocketAddr::new(localhost(), test_port)).unwrap();
+            let result = super::port_is_free_for_ip_addr(localhost(), test_port);
+            assert_eq!(result, false);
+        }
+
+        // Claim it for TCP and see if port_is_free_for_ip_addr can tell
+        {
+            let _listener = TcpListener::bind(SocketAddr::new(localhost(), test_port)).unwrap();
+            let result = super::port_is_free_for_ip_addr(localhost(), test_port);
+            assert_eq!(result, false);
+        }
+
+        // Claim it for both and see if port_is_free_for_ip_addr can tell
+        {
+            let _socket = UdpSocket::bind(SocketAddr::new(localhost(), test_port)).unwrap();
+            let _listener = TcpListener::bind(SocketAddr::new(localhost(), test_port)).unwrap();
+            let result = super::port_is_free_for_ip_addr(localhost(), test_port);
+            assert_eq!(result, false);
+        }
     }
 }

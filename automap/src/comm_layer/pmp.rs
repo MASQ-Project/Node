@@ -1736,8 +1736,8 @@ mod tests {
         let mapping_adder: Box<dyn MappingAdder> = Box::new(MappingAdderMock::new()); // no results specified
         let mapping_config = MappingConfig {
             hole_port: 0,
-            next_lifetime: Duration::from_secs(2),
-            remap_interval: Duration::from_secs(1),
+            next_lifetime: Duration::from_secs(20),
+            remap_interval: Duration::from_secs(10),
         };
         let transactor = PmpTransactor::new();
         let mut subject = ThreadGuts::new(
@@ -1753,13 +1753,12 @@ mod tests {
             mapping_config,
         ))
         .unwrap();
-        tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000))
+        tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(10000))
             .unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
-        let handle = subject.go();
+        let _ = subject.thread_guts();
 
-        let _ = handle.join();
         TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port");
     }
 
