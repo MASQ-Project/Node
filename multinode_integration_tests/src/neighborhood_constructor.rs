@@ -67,7 +67,7 @@ pub fn construct_neighborhood(
             .consuming_wallet_info(make_consuming_wallet_info(
                 model_db.root().public_key().to_string().as_str(),
             ))
-            .chain(cluster.chain.record().plain_text_name)
+            .chain(cluster.chain)
             .build(),
     );
     let (mock_node_map, adjacent_mock_node_keys) =

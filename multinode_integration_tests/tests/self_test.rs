@@ -8,7 +8,6 @@ use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::PortSelector;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::NodeStartupConfigBuilder;
-use node_lib::blockchain::blockchains::Chain;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::dispatcher::Component;
@@ -36,7 +35,7 @@ fn establishes_masq_node_cluster_from_nothing() {
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .fake_public_key(&PublicKey::new(&[1, 2, 3, 4]))
-            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
+            .chain(cluster.chain)
             .build(),
     );
     cluster.start_mock_node_with_public_key(vec![2345], &PublicKey::new(&[2, 3, 4, 5]));
@@ -75,7 +74,7 @@ fn server_relays_cores_package() {
         ),
         cryptde,
         Some(make_paying_wallet(b"consuming")),
-        Some(Chain::from_id(cluster.chain).record().contract),
+        Some(cluster.chain.record().contract),
     )
     .unwrap();
     let incipient = IncipientCoresPackage::new(
@@ -120,7 +119,7 @@ fn one_mock_node_talks_to_another() {
         ),
         cryptde,
         Some(make_paying_wallet(b"consuming")),
-        Some(Chain::from_id(cluster.chain).record().contract),
+        Some(cluster.chain.record().contract),
     )
     .unwrap();
     let incipient_cores_package = IncipientCoresPackage::new(

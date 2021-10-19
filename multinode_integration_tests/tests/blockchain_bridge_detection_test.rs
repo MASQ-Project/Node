@@ -6,7 +6,6 @@ use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, NodeStartupConfigBuilder,
 };
-use node_lib::blockchain::blockchains::Chain;
 use regex::escape;
 use std::time::Duration;
 
@@ -17,7 +16,7 @@ fn blockchain_bridge_logs_when_started() {
     let subject = cluster.start_real_node(
         NodeStartupConfigBuilder::zero_hop()
             .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(private_key.to_string()))
-            .chain(Chain::from_id(cluster.chain).record().plain_text_name)
+            .chain(cluster.chain)
             .build(),
     );
 
