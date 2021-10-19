@@ -382,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn node_reference_from_string_fails_if_there_are_not_two_fields_to_divide_to() {
+    fn node_reference_from_str_fails_if_there_are_not_two_fields_to_divide_to() {
         let string = String::from("masq://two@fields@nope");
 
         let result = NodeReference::from_str(string.as_str());
@@ -391,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn node_reference_from_string_fails_if_key_is_not_valid_base64() {
+    fn node_reference_from_str_fails_if_key_is_not_valid_base64() {
         let string = String::from("masq://dev:;;;@12.34.56.78:1234/2345");
 
         let result = NodeReference::from_str(string.as_str());
@@ -400,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn node_reference_from_string_fails_if_ip_address_is_not_valid() {
+    fn node_reference_from_str_fails_if_ip_address_is_not_valid() {
         let key = PublicKey::new(&b"Booga"[..]);
         let string = format!("masq://dev:{}@blippy:1234/2345", key);
 
@@ -415,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn node_reference_from_string_fails_if_a_port_number_is_not_valid() {
+    fn node_reference_from_str_fails_if_a_port_number_is_not_valid() {
         let key = PublicKey::new(&b"Booga"[..]);
         let string = format!("masq://dev:{}@12.34.56.78:weeble/frud", key);
 
@@ -425,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn node_reference_from_string_fails_if_a_port_number_is_too_big() {
+    fn node_reference_from_str_fails_if_a_port_number_is_too_big() {
         let key = PublicKey::new(&b"Booga"[..]);
         let string = format!("masq://dev:{}@12.34.56.78:1234/65536", key);
 
@@ -440,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn node_reference_from_string_happy() {
+    fn node_reference_from_str_happy_path() {
         let key = PublicKey::new(&b"Booga"[..]);
         let string = format!("masq://dev:{}@12.34.56.78:1234/2345", key);
 

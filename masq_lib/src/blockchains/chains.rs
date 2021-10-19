@@ -22,7 +22,7 @@ impl Default for Chain {
 impl From<&str> for Chain {
     fn from(str: &str) -> Self {
         match str {
-            "poly-mainnet" => Chain::PolyMainnet,
+            "polygon-mainnet" => Chain::PolyMainnet,
             "eth-mainnet" => Chain::EthMainnet,
             "mumbai" => Chain::PolyMumbai,
             "ropsten" => Chain::EthRopsten,

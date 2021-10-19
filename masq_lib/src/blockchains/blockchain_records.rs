@@ -14,7 +14,7 @@ pub const CHAINS: [BlockchainRecord; 5] = [
     BlockchainRecord {
         literal_chain_id: Chain::PolyMainnet,
         num_chain_id: 137,
-        plain_text_name: "poly-mainnet",
+        plain_text_name: "polygon-mainnet",
         directory_by_platform: "poly",
         chain_identifier: POLY_MAINNET_IDENTIFIER,
         contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
@@ -240,7 +240,7 @@ mod tests {
             &BlockchainRecord {
                 num_chain_id: 137,
                 literal_chain_id: examined_chain,
-                plain_text_name: "poly-mainnet",
+                plain_text_name: "polygon-mainnet",
                 directory_by_platform: "poly",
                 chain_identifier: "poly-mainnet",
                 contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
@@ -277,8 +277,8 @@ mod tests {
             assert_chain_from_chain_identifier_opt("eth-mainnet", Some(Chain::EthMainnet)),
             assert_chain_from_chain_identifier_opt("eth-ropsten", Some(Chain::EthRopsten)),
             assert_chain_from_chain_identifier_opt("dev", Some(Chain::Dev)),
-            assert_chain_from_chain_identifier_opt("poly-mainnet", Some(Chain::PolyMainnet)),
-            assert_chain_from_chain_identifier_opt("poly-mumbai", Some(Chain::PolyMumbai)),
+            assert_chain_from_chain_identifier_opt("polygon-mainnet", Some(Chain::PolyMainnet)),
+            assert_chain_from_chain_identifier_opt("polygon-mumbai", Some(Chain::PolyMumbai)),
         ];
         assert_eq!(
             test_array.len(),

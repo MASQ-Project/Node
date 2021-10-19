@@ -542,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_works_for_ethereum_testnet_ropsten() {
+    fn parse_works_for_ropsten() {
         let descriptor = "masq://eth-ropsten:as45cs5c5@1.2.3.4:4444";
 
         let result = NodeDescriptor::parse(descriptor).unwrap();
@@ -557,6 +557,24 @@ mod tests {
         let result = NodeDescriptor::parse(descriptor).unwrap();
 
         assert_eq!(result, (Chain::Dev, "as45cs5c5", "1.2.3.4:4444"))
+    }
+
+    #[test]
+    fn parse_works_for_polygon_mainnet() {
+        let descriptor = "masq://polygon-mainnet:as45cs5c5@1.2.3.4:4444";
+
+        let result = NodeDescriptor::parse(descriptor).unwrap();
+
+        assert_eq!(result, (Chain::PolyMainnet, "as45cs5c5", "1.2.3.4:4444"))
+    }
+
+    #[test]
+    fn parse_works_for_mumbai() {
+        let descriptor = "masq://polygon-mumbai:as45cs5c5@1.2.3.4:4444";
+
+        let result = NodeDescriptor::parse(descriptor).unwrap();
+
+        assert_eq!(result, (Chain::PolyMumbai, "as45cs5c5", "1.2.3.4:4444"))
     }
 
     #[test]
@@ -583,7 +601,7 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                "Chain identifier 'bitcoin' is not valid; possible values are 'poly-mainnet', 'eth-mainnet', 'poly-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
+                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
                     .to_string()
             )
         );
@@ -682,7 +700,7 @@ mod tests {
 
         let result = DescriptorParsingError::WrongChainIdentifier("blah").to_string();
 
-        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'poly-mainnet', 'eth-mainnet', 'poly-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
+        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
     }
 
     #[test]

@@ -19,8 +19,8 @@ pub const MASQ_PROMPT: &str = "masq> ";
 pub const ETH_MAINNET_IDENTIFIER: &str = "eth-mainnet";
 pub const ETH_ROPSTEN_IDENTIFIER: &str = "eth-ropsten";
 pub const DEV_CHAIN_IDENTIFIER: &str = "dev";
-pub const POLY_MAINNET_IDENTIFIER: &str = "poly-mainnet";
-pub const POLY_MUMBAI_IDENTIFIER: &str = "poly-mumbai";
+pub const POLY_MAINNET_IDENTIFIER: &str = "polygon-mainnet";
+pub const POLY_MUMBAI_IDENTIFIER: &str = "polygon-mumbai";
 pub const CENTRAL_DELIMITER: char = '@';
 pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
 

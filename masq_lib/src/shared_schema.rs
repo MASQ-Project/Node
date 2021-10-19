@@ -1,5 +1,5 @@
 use crate::constants::{
-    DEFAULT_CHAIN, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HIGHEST_USABLE_PORT,
+    DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HIGHEST_USABLE_PORT,
     LOWEST_USABLE_INSECURE_PORT,
 };
 use crate::crash_point::CrashPoint;
@@ -9,7 +9,8 @@ use lazy_static::lazy_static;
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
-     https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID).";
+     https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+     https://polygon-mainnet.infura.io/v3/27f13764ccaf4dc09268d0h813a37qe6";
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
     Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.";
@@ -56,9 +57,9 @@ pub const LOG_LEVEL_HELP: &str =
      persistent logs being kept on your computer: if your Node crashes, it's good to know why.";
 pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in the MASQ \
      Network to which you'd like your Node to connect on startup. A Node descriptor looks similar to one of these:\n\n\
-          masq://poly-mainnet:d2U3Dv1BqtS5t/Zz3mt9/sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\n\
+          masq://polygon-mainnet:d2U3Dv1BqtS5t/Zz3mt9/sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\n\
           masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ@86.75.30.9:5542\n\
-          masq://poly-mumbai:A6PGHT3rRjaeFpD/rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+          masq://polygon-mumbai:A6PGHT3rRjaeFpD/rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
           masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342\n\n\
      Notice of different chain identifiers behind the masq protocol prefix, they determine a family of chains \
      and also the exact chain the descriptor belongs to.\n\n\
@@ -150,9 +151,10 @@ pub fn chain_arg<'a>() -> Arg<'a, 'a> {
         .min_values(0)
         .max_values(1)
         .possible_values(&[
-            DEFAULT_CHAIN.record().plain_text_name,
+            "poly-mainnet",
+            "eth-mainnet",
+            "mumbai",
             "ropsten",
-            "rinkeby",
             "dev",
         ]) //TODO one day 'dev' may be left out
         .help(CHAIN_HELP)
