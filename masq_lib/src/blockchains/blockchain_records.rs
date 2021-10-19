@@ -92,6 +92,7 @@ const ETH_MAINNET_CONTRACT_ADDRESS: Address = Address {
     ],
 };
 
+#[allow(clippy::mixed_case_hex_literals)]
 const POLYGON_MAINNET_CONTRACT_ADDRESS: Address = Address {
     0: [
         0xEe, 0x9A, 0x35, 0x2F, 0x6a, 0xAc, 0x4a, 0xF1, 0xA5, 0xB9, 0xf4, 0x67, 0xF6, 0xa9, 0x3E,
@@ -100,6 +101,7 @@ const POLYGON_MAINNET_CONTRACT_ADDRESS: Address = Address {
 };
 
 // SHRD (Mumbai)
+#[allow(clippy::mixed_case_hex_literals)]
 const MUMBAI_TESTNET_CONTRACT_ADDRESS: Address = Address {
     0: [
         0x4D, 0xFE, 0xEe, 0x01, 0xf1, 0x7e, 0x23, 0x63, 0x2B, 0x15, 0x85, 0x17, 0x17, 0xb8, 0x11,
@@ -111,15 +113,11 @@ const MUMBAI_TESTNET_CONTRACT_ADDRESS: Address = Address {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::{
-        MUMBAI_TESTNET_CONTRACT_ADDRESS, POLYGON_MAINNET_CONTRACT_ADDRESS,
-    };
-    use masq_lib::constants::{
+    use crate::constants::{
         MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     };
-    use std::panic::catch_unwind;
-    use masq_lib::chains::{chain_from_chain_identifier_opt};
-    use crate::blockchains::chains::DEFAULT_CHAIN;
+    use crate::constants::{DEFAULT_CHAIN};
+    use crate::blockchains::chains::chain_from_chain_identifier_opt;
 
     #[test]
     fn record_returns_correct_blockchain_record() {
@@ -135,23 +133,6 @@ mod tests {
 
     fn assert_returns_correct_record(chain: Chain, expected_id: u64) -> Chain {
         assert_eq!(chain.record().num_chain_id, expected_id);
-        chain
-    }
-
-    #[test]
-    fn from_id_works() {
-        let test_array = [
-            assert_from_id(1, Chain::EthMainnet),
-            assert_from_id(2, Chain::Dev),
-            assert_from_id(3, Chain::EthRopsten),
-            assert_from_id(137, Chain::PolyMainnet),
-            assert_from_id(80001, Chain::PolyMumbai),
-        ];
-        assert_if_exhaustive(&test_array)
-    }
-
-    fn assert_from_id(id: u64, chain: Chain) -> Chain {
-        assert_eq!(Chain::from_id(id), chain);
         chain
     }
 
@@ -175,37 +156,6 @@ mod tests {
     #[test]
     fn undefined_string_for_chain_type_is_dispatched_to_default_chain() {
         assert_eq!(Chain::from("bitcoin"), DEFAULT_CHAIN)
-    }
-
-    #[test]
-    #[should_panic(expected = "Not unique identifier used to query a BlockchainRecord")]
-    fn return_record_opt_panics_if_more_records_meet_the_condition_from_the_closure() {
-        let searched_name = "BruhBruh";
-        let mut record_one = make_defaulted_blockchain_record();
-        record_one.plain_text_name = searched_name;
-        let mut record_two = make_defaulted_blockchain_record();
-        record_two.plain_text_name = "Jooodooo";
-        let mut record_three = make_defaulted_blockchain_record();
-        record_three.plain_text_name = searched_name;
-        let collection = [record_one, record_two, record_three];
-
-        let _ = return_record_opt_body(
-            Box::new(|b: &&BlockchainRecord| b.plain_text_name == searched_name),
-            &collection,
-        );
-    }
-
-    #[test]
-    fn return_record_opt_standard_impl_uses_the_right_collection_of_chains() {
-        CHAINS.iter().for_each(|record| {
-            assert_eq!(
-                record,
-                return_record_opt_standard_impl(Box::new(
-                    |b: &&BlockchainRecord| b.num_chain_id == record.num_chain_id
-                ))
-                    .unwrap()
-            )
-        });
     }
 
     #[test]
@@ -381,17 +331,5 @@ mod tests {
                 found.1.unwrap()
             )
         })
-    }
-
-    fn make_defaulted_blockchain_record() -> BlockchainRecord {
-        BlockchainRecord {
-            num_chain_id: 0,
-            literal_chain_id: Chain::EthMainnet,
-            plain_text_name: "",
-            directory_by_platform: "",
-            chain_identifier: "",
-            contract: Default::default(),
-            contract_creation_block: 0,
-        }
     }
 }
