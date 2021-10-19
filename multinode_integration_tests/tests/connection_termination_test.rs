@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
@@ -30,7 +31,6 @@ use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
-use masq_lib::blockchains::chains::Chain;
 
 const HTTP_REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: booga.com\r\n\r\n";
 const HTTP_RESPONSE: &[u8] =
@@ -372,11 +372,7 @@ fn create_meaningless_icp(
             originating_node.main_cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
             1357,
-            Some(
-                TEST_DEFAULT_MULTINODE_CHAIN
-                    .record()
-                    .contract,
-            ),
+            Some(TEST_DEFAULT_MULTINODE_CHAIN.record().contract),
         )
         .unwrap(),
         MessageType::ClientRequest(VersionedData::new(
@@ -419,11 +415,7 @@ fn create_server_drop_report(
         originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
-        Some(
-            TEST_DEFAULT_MULTINODE_CHAIN
-                .record()
-                .contract,
-        ),
+        Some(TEST_DEFAULT_MULTINODE_CHAIN.record().contract),
     )
     .unwrap();
     route
@@ -470,11 +462,7 @@ fn create_client_drop_report(
         originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
-        Some(
-            TEST_DEFAULT_MULTINODE_CHAIN
-                .record()
-                .contract,
-        ),
+        Some(TEST_DEFAULT_MULTINODE_CHAIN.record().contract),
     )
     .unwrap();
     let payload = MessageType::ClientRequest(VersionedData::new(

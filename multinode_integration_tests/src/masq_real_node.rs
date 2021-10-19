@@ -7,6 +7,7 @@ use crate::masq_node::PortSelector;
 use crate::masq_node_client::MASQNodeClient;
 use crate::masq_node_server::MASQNodeServer;
 use bip39::{Language, Mnemonic, Seed};
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::CURRENT_LOGFILE_NAME;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
@@ -31,7 +32,6 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::thread;
 use std::time::Duration;
-use masq_lib::blockchains::chains::Chain;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
 
@@ -588,7 +588,7 @@ impl NodeStartupConfigBuilder {
         self
     }
 
-    pub fn chain(mut self, chain:Chain) -> Self {
+    pub fn chain(mut self, chain: Chain) -> Self {
         self.chain = chain;
         self
     }

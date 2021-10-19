@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use masq_lib::blockchains::chains::Chain;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, NodeReference};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
@@ -11,7 +12,6 @@ use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
-use masq_lib::blockchains::chains::Chain;
 
 #[test]
 fn provided_and_consumed_services_are_recorded_in_databases() {
