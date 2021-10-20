@@ -723,6 +723,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
+    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
 
     lazy_static! {
         static ref ROUTER_ADDR: SocketAddr = SocketAddr::from_str("1.2.3.4:5351").unwrap();
@@ -1458,6 +1459,7 @@ mod tests {
 
     #[test]
     fn housekeeping_thread_works() {
+        let _ = EnvironmentGuard::new();
         let announcement_port = find_free_port();
         let router_port = find_free_port();
         let announce_port = find_free_port();
@@ -1539,14 +1541,15 @@ mod tests {
 
     #[test]
     fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
-        let change_handler_port = find_free_port();
+        let _ = EnvironmentGuard::new();
+        let announcement_receive_port = find_free_port();
         let router_port = find_free_port();
-        let announce_port = find_free_port();
+        let announcement_send_port = find_free_port();
         let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
         subject.router_port = router_port;
-        subject.listen_port = change_handler_port;
+        subject.listen_port = announcement_receive_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
         let mapping_config = MappingConfig {
             hole_port: 1234,
@@ -1568,14 +1571,14 @@ mod tests {
         ))
         .unwrap();
         assert!(subject.housekeeper_commander_opt.is_some());
-        let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announce_port)).unwrap();
-        announce_socket
+        let announcement_receive_ip = IpAddr::from_str("224.0.0.1").unwrap();
+        let announcement_send_socket = UdpSocket::bind(SocketAddr::new(localhost(), announcement_send_port)).unwrap();
+        announcement_send_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
-        announce_socket.set_broadcast(true).unwrap();
-        announce_socket
-            .connect(SocketAddr::new(change_handler_ip, change_handler_port))
+        announcement_send_socket.set_broadcast(true).unwrap();
+        announcement_send_socket
+            .connect(SocketAddr::new(announcement_receive_ip, announcement_receive_port))
             .unwrap();
         let mut packet = PmpPacket::default();
         packet.opcode = Opcode::Get;
@@ -1584,7 +1587,7 @@ mod tests {
         packet.opcode_data = make_get_response(0, Ipv4Addr::from_str("1.2.3.4").unwrap());
         let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
+        let sent_len = announcement_send_socket.send(&buffer[0..len_to_send]).unwrap();
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
         let _ = subject.stop_housekeeping_thread();
@@ -1595,6 +1598,7 @@ mod tests {
 
     #[test]
     fn housekeeping_thread_rejects_data_that_causes_parse_errors() {
+        let _ = EnvironmentGuard::new();
         init_test_logging();
         let change_handler_port = find_free_port();
         let router_port = find_free_port();

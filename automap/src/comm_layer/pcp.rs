@@ -683,6 +683,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
+    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -1395,6 +1396,7 @@ mod tests {
 
     #[test]
     fn housekeeping_thread_works() {
+        let _ = EnvironmentGuard::new();
         let change_handler_port = find_free_port();
         let router_port = find_free_port();
         let announce_port = find_free_port();
@@ -1469,6 +1471,7 @@ mod tests {
 
     #[test]
     fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
+        let _ = EnvironmentGuard::new();
         let change_handler_port = find_free_port();
         let router_port = find_free_port();
         let announcement_port = find_free_port();
