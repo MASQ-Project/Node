@@ -27,7 +27,7 @@ impl From<&str> for Chain {
             "mumbai" => Chain::PolyMumbai,
             "ropsten" => Chain::EthRopsten,
             "dev" => Chain::Dev,
-            _ => DEFAULT_CHAIN,
+            x => panic!("Clap let in a wrong value for chain: '{}'", x),
         }
     }
 }
@@ -43,37 +43,29 @@ impl Chain {
 }
 
 pub fn chain_from_chain_identifier_opt(identifier: &str) -> Option<Chain> {
-    return_record_opt_standard_impl(Box::new(|b: &&BlockchainRecord| {
-        b.chain_identifier == identifier
-    }))
-    .map(|record| record.literal_chain_id)
+    return_record_opt_standard_impl(&|b: &&BlockchainRecord| b.chain_identifier == identifier)
+        .map(|record| record.literal_chain_id)
 }
 
-fn return_record_opt_standard_impl<'a, F>(closure: Box<F>) -> Option<&'a BlockchainRecord>
-where
-    F: FnMut(&&BlockchainRecord) -> bool,
-{
+fn return_record_opt_standard_impl(
+    closure: &dyn Fn(&&BlockchainRecord) -> bool,
+) -> Option<&BlockchainRecord> {
     return_record_opt_body(closure, &CHAINS)
 }
 
-fn return_record_opt_body<F>(
-    closure: Box<F>,
-    collection_of_chains: &[BlockchainRecord],
-) -> Option<&BlockchainRecord>
-where
-    F: FnMut(&&BlockchainRecord) -> bool,
-{
-    let mut filtered = collection_of_chains
+fn return_record_opt_body<'a>(
+    closure: &dyn Fn(&&'a BlockchainRecord) -> bool,
+    collection_of_chains: &'a [BlockchainRecord],
+) -> Option<&'a BlockchainRecord> {
+    let filtered = collection_of_chains
         .iter()
         .filter(closure)
         .collect::<Vec<&BlockchainRecord>>();
-    filtered.pop().map(|first| {
-        if filtered.pop() != None {
-            panic!("Not unique identifier used to query a BlockchainRecord")
-        } else {
-            first
-        }
-    })
+    match filtered.len() {
+        0 => None,
+        1 => Some(filtered[0]),
+        _ => panic!("Non-unique identifier used to query a BlockchainRecord"),
+    }
 }
 
 #[cfg(test)]
@@ -81,7 +73,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[should_panic(expected = "Not unique identifier used to query a BlockchainRecord")]
+    #[should_panic(expected = "Non-unique identifier used to query a BlockchainRecord")]
     fn return_record_opt_panics_if_more_records_meet_the_condition_from_the_closure() {
         let searched_name = "BruhBruh";
         let mut record_one = make_defaulted_blockchain_record();
@@ -93,7 +85,7 @@ mod tests {
         let collection = [record_one, record_two, record_three];
 
         let _ = return_record_opt_body(
-            Box::new(|b: &&BlockchainRecord| b.plain_text_name == searched_name),
+            &|b: &&BlockchainRecord| b.plain_text_name == searched_name,
             &collection,
         );
     }
@@ -103,9 +95,9 @@ mod tests {
         CHAINS.iter().for_each(|record| {
             assert_eq!(
                 record,
-                return_record_opt_standard_impl(Box::new(
-                    |b: &&BlockchainRecord| b.num_chain_id == record.num_chain_id
-                ))
+                return_record_opt_standard_impl(
+                    &|b: &&BlockchainRecord| b.num_chain_id == record.num_chain_id
+                )
                 .unwrap()
             )
         });

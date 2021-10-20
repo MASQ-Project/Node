@@ -58,7 +58,7 @@ pub const CHAINS: [BlockchainRecord; 5] = [
     },
 ];
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct BlockchainRecord {
     pub literal_chain_id: Chain,
     pub num_chain_id: u64,
@@ -116,6 +116,8 @@ mod tests {
     use crate::constants::{
         MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     };
+    use std::collections::HashSet;
+    use std::iter::FromIterator;
 
     #[test]
     fn record_returns_correct_blockchain_record() {
@@ -126,7 +128,7 @@ mod tests {
             assert_returns_correct_record(Chain::PolyMainnet, 137),
             assert_returns_correct_record(Chain::PolyMumbai, 80001),
         ];
-        assert_if_exhaustive(&test_array)
+        assert_exhaustive(&test_array)
     }
 
     fn assert_returns_correct_record(chain: Chain, expected_id: u64) -> Chain {
@@ -143,7 +145,7 @@ mod tests {
             assert_from_str(Chain::EthRopsten),
             assert_from_str(Chain::Dev),
         ];
-        assert_if_exhaustive(&test_array)
+        assert_exhaustive(&test_array)
     }
 
     fn assert_from_str(chain: Chain) -> Chain {
@@ -152,8 +154,9 @@ mod tests {
     }
 
     #[test]
-    fn undefined_string_for_chain_type_is_dispatched_to_default_chain() {
-        assert_eq!(Chain::from("bitcoin"), DEFAULT_CHAIN)
+    #[should_panic(expected = "Clap let in a wrong value for chain: 'bitcoin'")]
+    fn undefined_str_causes_a_panic() {
+        let _ = Chain::from("bitcoin");
     }
 
     #[test]
@@ -165,7 +168,7 @@ mod tests {
             assert_chain_significance(3, Chain::EthRopsten),
             assert_chain_significance(4, Chain::Dev),
         ];
-        assert_if_exhaustive(&test_array)
+        assert_exhaustive(&test_array)
     }
 
     fn assert_chain_significance(idx: usize, chain: Chain) -> Chain {
@@ -280,26 +283,23 @@ mod tests {
             assert_chain_from_chain_identifier_opt("polygon-mainnet", Some(Chain::PolyMainnet)),
             assert_chain_from_chain_identifier_opt("polygon-mumbai", Some(Chain::PolyMumbai)),
         ];
-        assert_eq!(
-            test_array.len(),
-            CHAINS.len(),
-            "More chain records than assertions"
-        )
+        assert_exhaustive(&test_array)
     }
 
     #[test]
     fn chain_from_chain_identifier_returns_none_if_unknown_identifier() {
-        assert_chain_from_chain_identifier_opt("bitcoin", None)
+        let _ = assert_chain_from_chain_identifier_opt("bitcoin", None);
     }
 
     fn assert_chain_from_chain_identifier_opt(
         identifier: &str,
         expected_blockchain: Option<Chain>,
-    ) {
+    ) -> Chain {
         assert_eq!(
             chain_from_chain_identifier_opt(identifier),
             expected_blockchain
-        )
+        );
+        expected_blockchain.unwrap_or(DEFAULT_CHAIN) //just filling; we never get here if something wrong
     }
 
     fn find_record_opt(
@@ -308,29 +308,15 @@ mod tests {
         CHAINS.iter().find(closure)
     }
 
-    fn assert_if_exhaustive(test_array: &[Chain]) {
-        let test_array_length = test_array.len();
-        let chains_length = CHAINS.len();
-        assert_eq!(
-            test_array_length, chains_length,
-            "Tested chains in total: {}, defined chains in total: {}",
-            test_array_length, chains_length
-        );
-        let init = (None, None);
-        CHAINS.iter().for_each(|chain_record| {
-            let found = test_array.iter().fold(init, |so_far, chain| match so_far {
-                (Some(chain_found), None) => (Some(chain_found), None),
-                (None, _) => match *chain == chain_record.literal_chain_id {
-                    true => (Some(chain), None),
-                    false => (None, Some(chain)),
-                },
-                x => panic!("Should not happen!: {:?}", x),
-            });
-            assert!(
-                found.0.is_some(),
-                "Assertion for '{:?}' is missing",
-                found.1.unwrap()
-            )
-        })
+    fn assert_exhaustive(test_array: &[Chain]) {
+        let full_set: HashSet<&Chain> =
+            HashSet::from_iter(CHAINS.iter().map(|record| &record.literal_chain_id));
+        let test_array_set = HashSet::from_iter(test_array.iter());
+        let diff = full_set.difference(&test_array_set).collect::<Vec<_>>();
+        assert!(
+            diff.is_empty(),
+            "These chains weren't included in the test: {:?}",
+            diff
+        )
     }
 }

@@ -62,17 +62,18 @@ impl FromStr for NodeReference {
     }
 }
 
-fn strip_ports(tail_halve: &str) -> (String, String) {
-    let ports = tail_halve
-        .chars()
-        .rev()
-        .take_while(|char| *char != ':')
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect::<String>();
-    let ip_str = tail_halve.replace(&format!(":{}", ports), "");
-    (ip_str, ports)
+fn strip_ports(tail_half: &str) -> (String, String) {
+    let idx_opt = tail_half.chars().rev().position(|char| char == ':');
+    if let Some(idx) = idx_opt {
+        let lenght = tail_half.len();
+        let reversed_idx = lenght - idx;
+        return (
+            tail_half[..reversed_idx - 1].to_string(),
+            tail_half[reversed_idx..].to_string(),
+        );
+    } else {
+        (tail_half.to_string(), String::new())
+    }
 }
 
 impl From<&dyn MASQNode> for NodeReference {

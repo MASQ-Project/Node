@@ -6,9 +6,6 @@ use std::path::PathBuf;
 
 pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
-// pub const TEST_DEFAULT_CHAIN.record().plain_text_name: &str = "ropsten";
-// pub const TEST_DEFAULT_CHAIN.record().directory_by_platform: &str = "eth";
-// pub const TEST_DEFAULT_MULTINODE_CHAIN_NAME: &str = "dev";
 pub const BASE_TEST_DIR: &str = "generated/test";
 
 pub fn node_home_directory(module: &str, name: &str) -> PathBuf {

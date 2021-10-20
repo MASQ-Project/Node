@@ -9,7 +9,7 @@ pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
      https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
-     https://polygon-mainnet.infura.io/v3/27f13764ccaf4dc09268d0h813a37qe6";
+     https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID";
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
     Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.";
@@ -59,7 +59,7 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
           masq://polygon-mainnet:d2U3Dv1BqtS5t/Zz3mt9/sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\n\
           masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ@86.75.30.9:5542\n\
           masq://polygon-mumbai:A6PGHT3rRjaeFpD/rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-          masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342\n\n\
+          masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642\n\n\
      Notice of different chain identifiers behind the masq protocol prefix, they determine a family of chains \
      and also the exact chain the descriptor belongs to.\n\n\
      If you have more than one descriptor, separate them with commas (but no spaces). There is no default value; \
@@ -67,7 +67,7 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
      --neighbors is meaningless in --neighborhood-mode zero-hop.";
 
-// generated for future needs
+// generated valid encoded keys for future needs
 // UJNoZW5p/PDVqEjpr3b+8jZ/93yPG8i5dOAgE1bhK+A
 // ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk
 // BE1ZIbcxwGTQjzzkkq3qSAK6YKsu8ncVzUfMxTdw5fc
