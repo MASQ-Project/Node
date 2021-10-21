@@ -409,16 +409,14 @@ pub mod standard {
                                 Ok(nd) =>
                                     {
                                         let desired_chain = Chain::from(chain_name.as_str());
-                                        let descriptor_competence = nd.blockchain;
-                                    if desired_chain == descriptor_competence{
+                                        let competence_from_descriptor = nd.blockchain;
+                                    if desired_chain == competence_from_descriptor {
                                         Ok(nd)
                                     } else{
-                                        Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' [{}{}] with descriptor belonging to '{}' [{}{}]",
+                                        Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
                                                                                   chain_name, MASQ_URL_PREFIX,
                                                                                   desired_chain.record().chain_identifier,
-                                                                                  descriptor_competence.record().plain_text_name,
-                                                                                  MASQ_URL_PREFIX,
-                                                                                  descriptor_competence.record().chain_identifier)))
+                                                                                  competence_from_descriptor.record().plain_text_name)))
                                     }
                                 }
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
@@ -851,7 +849,7 @@ pub mod standard {
             let multi_config = make_simplified_multi_config([
                 "MASQNode",
                 "--neighbors",
-                "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+                "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678",
                 "--chain",
                 DEFAULT_CHAIN.record().plain_text_name,
             ]);
@@ -862,7 +860,7 @@ pub mod standard {
                 result,
                 ConfiguratorError::required(
                     "neighbors",
-                    "Mismatched chains. You are requiring access to 'eth-mainnet' [masq://eth-mainnet] with descriptor belonging to 'ropsten' [masq://eth-ropsten]"
+                    "Mismatched chains. You are requiring access to 'eth-mainnet' (masq://eth-mainnet:<public key>@<node address>) with descriptor belonging to 'ropsten'"
                 )
             )
         }
@@ -1056,7 +1054,7 @@ mod tests {
                     .param("--ip", "1.2.3.4")
                     .param(
                         "--neighbors",
-                        "masq://eth-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345,masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456/4567",
+                        "masq://eth-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345,masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567",
                     )
                     .into(),
             ))]
@@ -1083,7 +1081,7 @@ mod tests {
                         .unwrap(),
                         NodeDescriptor::from_str(
                             &dummy_cryptde,
-                            "masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456/4567"
+                            "masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567"
                         )
                         .unwrap()
                     ],

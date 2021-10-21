@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use base64::STANDARD_NO_PAD;
+use base64::URL_SAFE_NO_PAD;
 use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
 use masq_lib::constants::{
     CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT,
@@ -88,7 +88,7 @@ impl From<&dyn MASQNode> for NodeReference {
 
 impl fmt::Display for NodeReference {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let public_key_string = base64::encode_config(&self.public_key.as_slice(), STANDARD_NO_PAD);
+        let public_key_string = base64::encode_config(&self.public_key.as_slice(), URL_SAFE_NO_PAD);
         let ip_addr_string = match &self.node_addr_opt {
             Some(node_addr) => format!("{}", node_addr.ip_addr()),
             None => String::new(),
@@ -140,7 +140,7 @@ impl NodeReference {
     }
 
     fn extract_public_key(slice: &str) -> Result<PublicKey, String> {
-        match base64::decode(slice) {
+        match base64::decode_config(slice,URL_SAFE_NO_PAD) {
             Ok (data) => Ok (PublicKey::new (&data[..])),
             Err (_) => Err (format!("The public key of a NodeReference must be represented as a valid Base64 string, not '{}'", slice))
         }
@@ -328,6 +328,7 @@ impl MASQNodeUtils {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{decode_config, STANDARD_NO_PAD};
     use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 
     #[test]
@@ -458,6 +459,34 @@ mod tests {
     }
 
     #[test]
+    fn node_reference_from_str_complains_about_slash_in_the_key() {
+        let result = NodeReference::from_str(
+            "masq://dev:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+        );
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "The public key of a NodeReference must be represented as a valid Base64 string, not 'abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw'"
+            ))
+        );
+    }
+
+    #[test]
+    fn node_reference_from_str_complains_about_plus_in_the_key() {
+        let result = NodeReference::from_str(
+            "masq://dev:abJ5XvhVbmVy+GejkYUmftF09pmGZGKgkPzRNnWQxFw@12.23.34.45:5678",
+        );
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "The public key of a NodeReference must be represented as a valid Base64 string, not 'abJ5XvhVbmVy+GejkYUmftF09pmGZGKgkPzRNnWQxFw'"
+            ))
+        );
+    }
+
+    #[test]
     fn node_reference_from_string_works_if_there_are_no_ports() {
         let key = PublicKey::new(&b"Booga"[..]);
         let string = format!("masq://dev:{}@12.34.56.78:", key);
@@ -490,5 +519,17 @@ mod tests {
             result,
             String::from("masq://dev:Qm9vZ2E@12.34.56.78:1234/5678")
         );
+    }
+
+    #[test]
+    fn display_works_with_base64_as_url_safe_no_pad() {
+        let public_key_badly_encoded = "abJ5XvhVbmVy+GejkYUmftF/9pmGZGKgkPzRNnWQxFw";
+        let decoded_key_bytes = decode_config(public_key_badly_encoded, STANDARD_NO_PAD).unwrap();
+        let decoded_key = PublicKey::new(&decoded_key_bytes);
+        let node_reference = NodeReference::new(decoded_key, None, vec![], Chain::Dev);
+
+        let str_form = node_reference.to_string();
+
+        assert!(str_form.contains("abJ5XvhVbmVy-GejkYUmftF_9pmGZGKgkPzRNnWQxFw"))
     }
 }

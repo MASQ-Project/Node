@@ -211,32 +211,39 @@ impl NodeDescriptor {
     }
 
     fn parse(descriptor: &str) -> Result<(Chain, &str, &str), String> {
-        let without_prefix = strip_prefix(descriptor)?;
-        let halves = separate_by_delimiter(
-            without_prefix,
-            CENTRAL_DELIMITER,
-            DescriptorParsingError::CentralDelimiterProbablyMissing(descriptor),
-        )?;
-        let _ = approx_position_assertion(descriptor, &halves)?;
-        let (front, tail) = (halves[0], halves[1]);
-        let front_parts = separate_by_delimiter(
-            front,
-            CHAIN_IDENTIFIER_DELIMITER,
-            DescriptorParsingError::ChainIdentifierDelimiter(descriptor),
-        )?;
-        let chain_identifier = front_parts[0];
-        let chain = match chain_from_chain_identifier_opt(chain_identifier) {
-            Some(ch) => ch,
-            _ => {
-                return Err(
-                    DescriptorParsingError::WrongChainIdentifier(chain_identifier).to_string(),
-                )
-            }
-        };
-        let key_offset = chain_identifier.len() + 1;
-        let key = &front[key_offset..];
+        let (front_end, tail) = first_dividing(descriptor)?;
+        let (chain, key) = second_dividing(front_end, descriptor)?;
         Ok((chain, key, tail))
     }
+}
+
+fn first_dividing(descriptor: &str) -> Result<(&str, &str), String> {
+    let without_prefix = strip_prefix(descriptor)?;
+    let halves = separate_by_delimiter(
+        without_prefix,
+        CENTRAL_DELIMITER,
+        DescriptorParsingError::CentralDelimiterProbablyMissing(descriptor),
+    )?;
+    let _ = approx_position_assertion(descriptor, &halves)?;
+    Ok((halves[0], halves[1]))
+}
+
+fn second_dividing<'a>(front: &'a str, descriptor: &str) -> Result<(Chain, &'a str), String> {
+    let front_parts = separate_by_delimiter(
+        front,
+        CHAIN_IDENTIFIER_DELIMITER,
+        DescriptorParsingError::ChainIdentifierDelimiter(descriptor),
+    )?;
+    let chain_identifier = front_parts[0];
+    let chain = match chain_from_chain_identifier_opt(chain_identifier) {
+        Some(ch) => ch,
+        _ => {
+            return Err(DescriptorParsingError::WrongChainIdentifier(chain_identifier).to_string())
+        }
+    };
+    let key_offset = chain_identifier.len() + 1;
+    let key = &front[key_offset..];
+    Ok((chain, key))
 }
 
 fn strip_prefix(str_descriptor: &str) -> Result<&str, String> {
@@ -487,18 +494,15 @@ impl fmt::Display for GossipFailure_0v1 {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use actix::Actor;
-
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use masq_lib::utils::localhost;
-
+    use super::*;
     use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
-
-    use super::*;
+    use actix::Actor;
+    use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::utils::localhost;
+    use std::str::FromStr;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
         RatePack {
@@ -704,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn node_descriptor_from_str_complains_about_bad_base_64() {
+    fn from_str_complains_about_bad_base_64() {
         let result = NodeDescriptor::from_str(
             main_cryptde(),
             "masq://eth-mainnet:bad_key@1.2.3.4:1234;2345",
@@ -717,14 +721,44 @@ mod tests {
     }
 
     #[test]
-    fn node_descriptor_from_str_complains_about_blank_public_key() {
+    fn from_str_complains_about_slash_in_the_key() {
+        let result = NodeDescriptor::from_str(
+            &CryptDEReal::new(TEST_DEFAULT_CHAIN),
+            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+        );
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Invalid Base64 value for public key: abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw"
+            ))
+        );
+    }
+
+    #[test]
+    fn from_str_complains_about_plus_in_the_key() {
+        let result = NodeDescriptor::from_str(
+            &CryptDEReal::new(DEFAULT_CHAIN),
+            "masq://eth-ropsten:abJ5XvhVbmVy+GejkYUmftF09pmGZGKgkPzRNnWQxFw@12.23.34.45:5678",
+        );
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Invalid Base64 value for public key: abJ5XvhVbmVy+GejkYUmftF09pmGZGKgkPzRNnWQxFw"
+            ))
+        );
+    }
+
+    #[test]
+    fn from_str_complains_about_blank_public_key() {
         let result = NodeDescriptor::from_str(main_cryptde(), "masq://dev:@1.2.3.4:1234/2345");
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
 
     #[test]
-    fn node_descriptor_from_str_complains_about_bad_node_addr() {
+    fn from_str_complains_about_bad_node_addr() {
         let result = NodeDescriptor::from_str(
             main_cryptde(),
             "masq://eth-mainnet:R29vZEtleQ==@BadNodeAddr",
@@ -734,7 +768,7 @@ mod tests {
     }
 
     #[test]
-    fn node_descriptor_from_str_handles_the_happy_path_with_node_addr() {
+    fn from_str_handles_the_happy_path_with_node_addr() {
         let result = NodeDescriptor::from_str(
             main_cryptde(),
             "masq://eth-ropsten:R29vZEtleQ@1.2.3.4:1234/2345/3456",
@@ -754,7 +788,7 @@ mod tests {
     }
 
     #[test]
-    fn node_descriptor_from_str_handles_the_happy_path_without_node_addr() {
+    fn from_str_handles_the_happy_path_without_node_addr() {
         let result = NodeDescriptor::from_str(main_cryptde(), "masq://eth-mainnet:R29vZEtleQ@:");
 
         assert_eq!(

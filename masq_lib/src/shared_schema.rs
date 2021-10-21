@@ -56,9 +56,9 @@ pub const LOG_LEVEL_HELP: &str =
      persistent logs being kept on your computer: if your Node crashes, it's good to know why.";
 pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in the MASQ \
      Network to which you'd like your Node to connect on startup. A Node descriptor looks similar to one of these:\n\n\
-          masq://polygon-mainnet:d2U3Dv1BqtS5t/Zz3mt9/sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\n\
-          masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ@86.75.30.9:5542\n\
-          masq://polygon-mumbai:A6PGHT3rRjaeFpD/rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+          masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\n\
+          masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
+          masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
           masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642\n\n\
      Notice of different chain identifiers behind the masq protocol prefix, they determine a family of chains \
      and also the exact chain the descriptor belongs to.\n\n\
