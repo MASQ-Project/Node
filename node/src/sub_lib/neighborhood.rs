@@ -174,7 +174,7 @@ impl From<(&NodeRecord, Chain, &dyn CryptDE)> for NodeDescriptor {
 
 impl NodeDescriptor {
     pub fn from_str(cryptde: &dyn CryptDE, str_descriptor: &str) -> Result<NodeDescriptor, String> {
-        let (blockchain, key, str_node_addr) = Self::parse(str_descriptor)?;
+        let (blockchain, key, str_node_addr) = Self::parse_url(str_descriptor)?;
         let encryption_public_key = cryptde.descriptor_fragment_to_first_contact_public_key(key)?;
         let node_addr_opt = if str_node_addr == ":" {
             None
@@ -210,7 +210,7 @@ impl NodeDescriptor {
         )
     }
 
-    fn parse(descriptor: &str) -> Result<(Chain, &str, &str), String> {
+    pub fn parse_url(descriptor: &str) -> Result<(Chain, &str, &str), String> {
         let (front_end, tail) = first_dividing(descriptor)?;
         let (chain, key) = second_dividing(front_end, descriptor)?;
         Ok((chain, key, tail))
@@ -540,7 +540,7 @@ mod tests {
     fn parse_works_for_ethereum_mainnet() {
         let descriptor = "masq://eth-mainnet:as45cs5c5@1.2.3.4:4444";
 
-        let result = NodeDescriptor::parse(descriptor).unwrap();
+        let result = NodeDescriptor::parse_url(descriptor).unwrap();
 
         assert_eq!(result, (Chain::EthMainnet, "as45cs5c5", "1.2.3.4:4444"))
     }
@@ -549,7 +549,7 @@ mod tests {
     fn parse_works_for_ropsten() {
         let descriptor = "masq://eth-ropsten:as45cs5c5@1.2.3.4:4444";
 
-        let result = NodeDescriptor::parse(descriptor).unwrap();
+        let result = NodeDescriptor::parse_url(descriptor).unwrap();
 
         assert_eq!(result, (Chain::EthRopsten, "as45cs5c5", "1.2.3.4:4444"))
     }
@@ -558,7 +558,7 @@ mod tests {
     fn parse_works_for_dev_chain() {
         let descriptor = "masq://dev:as45cs5c5@1.2.3.4:4444";
 
-        let result = NodeDescriptor::parse(descriptor).unwrap();
+        let result = NodeDescriptor::parse_url(descriptor).unwrap();
 
         assert_eq!(result, (Chain::Dev, "as45cs5c5", "1.2.3.4:4444"))
     }
@@ -567,7 +567,7 @@ mod tests {
     fn parse_works_for_polygon_mainnet() {
         let descriptor = "masq://polygon-mainnet:as45cs5c5@1.2.3.4:4444";
 
-        let result = NodeDescriptor::parse(descriptor).unwrap();
+        let result = NodeDescriptor::parse_url(descriptor).unwrap();
 
         assert_eq!(result, (Chain::PolyMainnet, "as45cs5c5", "1.2.3.4:4444"))
     }
@@ -576,7 +576,7 @@ mod tests {
     fn parse_works_for_mumbai() {
         let descriptor = "masq://polygon-mumbai:as45cs5c5@1.2.3.4:4444";
 
-        let result = NodeDescriptor::parse(descriptor).unwrap();
+        let result = NodeDescriptor::parse_url(descriptor).unwrap();
 
         assert_eq!(result, (Chain::PolyMumbai, "as45cs5c5", "1.2.3.4:4444"))
     }
@@ -585,7 +585,7 @@ mod tests {
     fn parse_complains_about_url_prefix_not_found() {
         let descriptor = "https://eth-mainnet:as45cs5c5@1.2.3.4:4444";
 
-        let result = NodeDescriptor::parse(descriptor);
+        let result = NodeDescriptor::parse_url(descriptor);
 
         assert_eq!(
             result,
@@ -600,7 +600,7 @@ mod tests {
     fn parse_complains_about_unknown_chain_identifier() {
         let descriptor = "masq://bitcoin:as45cs5c5@1.2.3.4:4444";
 
-        let result = NodeDescriptor::parse(descriptor);
+        let result = NodeDescriptor::parse_url(descriptor);
 
         assert_eq!(
             result,
@@ -615,7 +615,7 @@ mod tests {
     fn parse_complains_about_str_which_it_does_not_know_how_to_halve_because_no_at_sign() {
         let descriptor = "masq://dev.as45cs5c5/1.4.4.5;4545";
 
-        let result = NodeDescriptor::parse(descriptor);
+        let result = NodeDescriptor::parse_url(descriptor);
 
         assert_eq!(
             result,
@@ -627,7 +627,7 @@ mod tests {
     fn parse_complains_about_unclear_identifier_delimiter() {
         let descriptor = "masq://dev.as45cs5c5@1.4.4.5:4545";
 
-        let result = NodeDescriptor::parse(descriptor);
+        let result = NodeDescriptor::parse_url(descriptor);
 
         assert_eq!(
             result,

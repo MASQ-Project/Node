@@ -1,14 +1,14 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
 use base64::URL_SAFE_NO_PAD;
-use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT,
     MASQ_URL_PREFIX,
 };
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::neighborhood::RatePack;
+use node_lib::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
@@ -36,29 +36,13 @@ pub struct NodeReference {
 impl FromStr for NodeReference {
     type Err = String;
 
-    fn from_str(string_rep: &str) -> Result<Self, <Self as FromStr>::Err> {
-        let stripped = if let Some(str) = string_rep.strip_prefix(MASQ_URL_PREFIX) {
-            Ok(str)
-        } else {
-            Err("Missing URI prefix".to_string())
-        }?;
-        let pieces: Vec<&str> = stripped.split(CENTRAL_DELIMITER).collect();
-        if pieces.len() != 2 {
-            return Err(format!("A NodeReference must have the form masq://<chain identifier>:<public_key>@<IP address>:<port list>, not '{}'", string_rep));
-        }
-        let (chain_identifier, key_encoded) =
-            Self::extract_chain_identifier_and_encoded_public_key(pieces[0])?;
-        let public_key = Self::extract_public_key(key_encoded)?;
-        let (ip_addr_str, ports) = strip_ports(pieces[1]);
+    fn from_str(node_ref_str: &str) -> Result<Self, <Self as FromStr>::Err> {
+        let (chain, key, tail) = NodeDescriptor::parse_url(node_ref_str)?;
+        let public_key = Self::extract_public_key(key)?;
+        let (ip_addr_str, ports) = strip_ports(tail);
         let ip_addr = Self::extract_ip_addr(ip_addr_str.as_str())?;
         let port_list = Self::extract_port_list(ports.as_str())?;
-        Ok(NodeReference::new(
-            public_key,
-            ip_addr,
-            port_list,
-            chain_from_chain_identifier_opt(chain_identifier)
-                .expect("chain outside the bounds; unknown"),
-        ))
+        Ok(NodeReference::new(public_key, ip_addr, port_list, chain))
     }
 }
 
@@ -144,19 +128,6 @@ impl NodeReference {
             Ok (data) => Ok (PublicKey::new (&data[..])),
             Err (_) => Err (format!("The public key of a NodeReference must be represented as a valid Base64 string, not '{}'", slice))
         }
-    }
-
-    fn extract_chain_identifier_and_encoded_public_key(
-        slice: &str,
-    ) -> Result<(&str, &str), String> {
-        let pieces: Vec<&str> = slice.split(CHAIN_IDENTIFIER_DELIMITER).collect();
-        if pieces.len() != 2 {
-            return Err(format!(
-                "Chain identifier in the descriptor isn't properly set: '{}'",
-                slice
-            ));
-        }
-        Ok((pieces[0], pieces[1]))
     }
 
     fn extract_ip_addr(slice: &str) -> Result<Option<IpAddr>, String> {
@@ -353,43 +324,12 @@ mod tests {
     }
 
     #[test]
-    fn extract_chain_identifier_and_encoded_public_key_happy_path() {
-        let key_including_identifier = "dev:AQIDBAUGBwg";
-
-        let (chain_identifier, key_part) =
-            NodeReference::extract_chain_identifier_and_encoded_public_key(
-                key_including_identifier,
-            )
-            .unwrap();
-
-        assert_eq!(chain_identifier, "dev");
-        assert_eq!(key_part, "AQIDBAUGBwg");
-    }
-
-    #[test]
-    fn extract_chain_identifier_and_encoded_public_key_sad_path() {
-        let key_including_identifier = "devAQIDBAUGBwg";
-
-        let result = NodeReference::extract_chain_identifier_and_encoded_public_key(
-            key_including_identifier,
-        );
-
-        assert_eq!(
-            result,
-            Err(
-                "Chain identifier in the descriptor isn't properly set: 'devAQIDBAUGBwg'"
-                    .to_string()
-            )
-        )
-    }
-
-    #[test]
     fn node_reference_from_str_fails_if_there_are_not_two_fields_to_divide_to() {
         let string = String::from("masq://two@fields@nope");
 
         let result = NodeReference::from_str(string.as_str());
 
-        assert_eq! (result, Err (String::from ("A NodeReference must have the form masq://<chain identifier>:<public_key>@<IP address>:<port list>, not 'masq://two@fields@nope'")));
+        assert_eq! (result, Err (String::from ("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'masq://two@fields@nope'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as 'fields@nope'")));
     }
 
     #[test]
@@ -411,7 +351,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "The IP address of a NodeReference must be valid, not 'blippy'"
+                "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'masq://dev:Qm9vZ2E@blippy:1234/2345'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as 'blippy:1234/2345'"
             ))
         );
     }
@@ -423,7 +363,7 @@ mod tests {
 
         let result = NodeReference::from_str(string.as_str());
 
-        assert_eq! (result, Err (String::from ("The port list must be a semicolon-separated sequence of valid numbers, not 'weeble/frud'")));
+        assert_eq! (result, Err (String::from("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'masq://dev:Qm9vZ2E@12.34.56.78:weeble/frud'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as '12.34.56.78:weeble/frud'")));
     }
 
     #[test]
