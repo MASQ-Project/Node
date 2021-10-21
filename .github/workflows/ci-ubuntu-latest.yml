@@ -43,7 +43,7 @@ jobs:
           ./ci/collect_results.sh
         shell: bash
         
-      - name: Publishubuntu-latest
+      - name: Publish ubuntu-latest
         uses: actions/upload-artifact@v1
         with:
           name: Build Results ubuntu-latest
