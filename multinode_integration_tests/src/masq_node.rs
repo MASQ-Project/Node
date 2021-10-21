@@ -67,10 +67,10 @@ fn strip_ports(tail_half: &str) -> (String, String) {
     if let Some(idx) = idx_opt {
         let lenght = tail_half.len();
         let reversed_idx = lenght - idx;
-        return (
+        (
             tail_half[..reversed_idx - 1].to_string(),
             tail_half[reversed_idx..].to_string(),
-        );
+        )
     } else {
         (tail_half.to_string(), String::new())
     }

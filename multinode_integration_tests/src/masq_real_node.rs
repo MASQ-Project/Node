@@ -488,7 +488,7 @@ impl NodeStartupConfigBuilder {
             memory: config.memory_opt.clone(),
             fake_public_key: config.fake_public_key_opt.clone(),
             blockchain_service_url: config.blockchain_service_url_opt.clone(),
-            chain: config.chain.clone(),
+            chain: config.chain,
             db_password: config.db_password_opt.clone(),
         }
     }
