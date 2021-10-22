@@ -70,6 +70,7 @@ impl PersistentConfigError {
 
 pub trait PersistentConfiguration {
     fn current_schema_version(&self) -> String;
+    fn chain_name(&self) -> String;
     fn check_password(
         &self,
         db_password_opt: Option<String>,
@@ -132,6 +133,16 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 "Can't continue; current schema version is inaccessible: {:?}",
                 e
             ),
+        }
+    }
+
+    fn chain_name(&self) -> String {
+        match self.dao.get("chain_name") {
+            Ok(record) => match record.value_opt {
+                None => panic!("Can't continue; chain name is missing"),
+                Some(chn) => chn,
+            },
+            Err(e) => panic!("Can't continue; chain name is inaccessible: {:?}", e),
         }
     }
 
@@ -524,9 +535,47 @@ mod tests {
 
         let result = subject.current_schema_version();
 
-        assert_eq!("1.2.3".to_string(), result);
+        assert_eq!(result, "1.2.3".to_string());
         let get_params = get_params_arc.lock().unwrap();
         assert_eq!(*get_params, vec!["schema_version".to_string()]);
+    }
+
+    #[test]
+    fn chain_name() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "chain_name",
+                Some("mainnet"),
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.chain_name();
+
+        assert_eq!(result, "mainnet".to_string(),);
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(*get_params, vec!["chain_name".to_string()]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't continue; chain name is inaccessible: NotPresent")]
+    fn chain_name_panics_if_record_is_missing() {
+        let config_dao = ConfigDaoMock::new().get_result(Err(ConfigDaoError::NotPresent));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.chain_name();
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't continue; chain name is missing")]
+    fn chain_name_panics_if_record_is_empty() {
+        let config_dao =
+            ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new("chain_name", None, false)));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.chain_name();
     }
 
     #[test]

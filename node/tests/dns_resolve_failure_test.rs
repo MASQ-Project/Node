@@ -10,7 +10,7 @@ use std::time::Duration;
 
 #[test]
 fn dns_resolve_failure_http_response_integration() {
-    let mut _node_to_test_against = utils::MASQNode::start_standard(
+    let _node_to_test_against = utils::MASQNode::start_standard(
         "dns_resolve_failure_http_response_integration",
         None,
         true,
@@ -30,7 +30,7 @@ fn dns_resolve_failure_http_response_integration() {
 
 #[test]
 fn dns_resolve_failure_tls_response_integration() {
-    let mut _node_to_test_against =
+    let _node_to_test_against =
         utils::MASQNode::start_standard("dns_resolve_failure_tls_response_integration", None, true);
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).unwrap();
     stream

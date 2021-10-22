@@ -1,9 +1,9 @@
 # Card Wall Columns and Procedures
 
 ### Card Wall
-Our [Card Wall](https://github.com/orgs/MASQ/projects/1) is the most dynamic public indication of the immediate
+Our [Card Wall](https://github.com/orgs/MASQ-Project/projects/1) is the most dynamic public indication of the immediate
 status of our project, as well as the best source of short-term information about our past accomplishments and future
-plans. Longer-term information is made publicly available every iteration at Show & Tell and more statically in various
+plans. Longer-term information is made publicly available on our Discord server and more statically in various
 published blogs and other documents. But the Card Wall is a lot like the scoreboard for a football game: a glance at it
 won't tell you much about the team's overall prospects for the season, but it'll tell you which direction they're
 going right now, whether they're in trouble or not, and whether things appear to be getting better or worse.
@@ -14,9 +14,7 @@ columns.
 
 * Awaiting columns can contain any number of cards. The cards in an Awaiting column are in no particular order, other
 than perhaps a vague sort of grouping by general subject. As the type name implies, they're waiting for something to
-happen to them that hasn't happened yet, and they'll stay in their column until that something happens. Our
-[Cadence document](https://github.com/MASQ/Node/blob/master/CADENCE.md) offers explanations of some
-of the things that have to happen to cards in particular Awaiting columns to get them to move down the board.
+happen to them that hasn't happened yet, and they'll stay in their column until that something happens.
 
 * Prioritized columns are also places where cards wait, but there's an important difference.  Prioritized columns 
 contain cards in a definite order. The card at the top of the column is most important and should be addressed first; 
@@ -70,20 +68,15 @@ exist:
 * Ready for Development
 * Awaiting Development
 * Development In Progress
-* Awaiting Review
-* Review In Progress
-* Awaiting Quality Assurance
 * Quality Assurance In Progress
-* Done Since Standup
-* Done This Iteration
+* Done
 
 Descriptions are below.
 
 #### New
 This is where almost all new cards go. It's an Awaiting column, so it can hold any number of cards.
 
-Cards move out of the "New" column during the first part of a Grooming meeting (see the
-[Cadence document](https://github.com/MASQ/Node/blob/master/CADENCE.md)) into either the "Backlog"
+Cards move out of the "New" column during the first part of a Grooming meeting into either the "Backlog"
 column or the "Ready for Development" column. The "New" column should be completely emptied by every Grooming meeting.
 
 Occasionally, an urgent new card that cannot wait for the next Grooming meeting may be created in another column, but
@@ -117,7 +110,7 @@ but he shouldn't pull new cards into "Awaiting Development" without either a Gro
 team know what's going on so that they understand the situation.
 
 Cards are taken out of "Awaiting Development" from the top, as developers or dev pairs finish their WIP cards. When
-that happens, the dev or pair will move the WIP card on to "Awaiting Review," pull the top card from "Awaiting Development"
+that happens, the dev or pair will move the WIP card on to "QA In Progress," pull the top card from "Awaiting Development"
 into the "Development In Progress" column, and assign it appropriately.
 
 #### Development In Progress
@@ -131,53 +124,17 @@ speed them up. Third, if a card is "Development In Progress," then there is most
 with changes associated with it. The longer this feature branch exists, the further away from it the codebase will
 drift and the harder and more time-consuming and error-prone the merge process will be.
 
-Cards move out of the "Development In Progress" column when they result in a pull request that has passed CI and is
-ready for review. Once that happens, they should move into "Awaiting Review." Since "Awaiting Review" is a Prioritized
-column, the card should take up a position in it roughly analogous to the position it held in "Awaiting Development."
-
-#### Awaiting Review
-This is a Prioritized column containing cards that have produced pull requests with green CI builds. Team members with
-Reviewer status will pick up cards in this column, move them into "Review In Progress," and assign them to themselves.
-
-There will be a temptation to ignore cards that pop up in this column, at least temporarily, because the reviewers will
-more than likely be concentrating on a "Development In Progress" card. This temptation should be resisted. Since the
-"Awaiting Review" column is to the right of the "Development In Progress" column, any card in this column is more
-valuable than any card in that column, and should therefore take precedence.
-
-The Product Owner may at any point reorganize the cards in this column to reflect changing priorities.
-
-#### Review In Progress
-This is a WIP column containing cards whose pull requests are currently under review. 
-
-A pull-request review will result in either acceptance or rejection. If the PR is accepted, the reviewer will move the 
-card into the "Awaiting Quality Assurance" column. If the PR is rejected, the reviewer will make comments in the 
-Conversation tab of the pull request explaining the rejection, and then move the card back up the board into the
-"Awaiting Development" column.
-
-Note: This process can be shortcut for small pull requests. If the PR is small, and the attention of a reviewer can be
-seized immediately, the author can wait while the request is reviewed (rather than pulling another card from "Awaiting
-Development"), or perhaps actively guide the reviewer through the PR, and then, upon rejection, immediately resume
-work on the same card, rather than being distracted by a different card.
-
-#### Awaiting Quality Assurance
-This is a Prioritized column where cards whose feature branches have been merged into master wait to be engaged by the
-QA team. The Product Owner may at any point reorganize the cards in this column to reflect changing priorities.
+Cards move out of the "Development In Progress" column when they result in a pull request that has passed CI and a
+review by at least one other developer. Once that happens, they should move into "QA In Progress."
 
 #### Quality Assurance In Progress
 This is a WIP column containing cards that are currently in Quality Assurance.
 
 The tester will do whatever automated and exploratory testing is required for a card, and the card will either be
-accepted or rejected. If the card is accepted, it's moved to the "Done Since Standup" column. If it fails, the
+accepted or rejected. If the card is accepted, the QA Lead should inform a developer with merge privileges, who
+will merge the feature branch into `master` and move the card to the "Done" column. If it fails, the
 dev or pair should be notified, the failure explained, and the card moved back to the "Awaiting Development" column.
 
-#### Done Since Standup
-This is an Awaiting column that accumulates a day's worth of cards solely so that they can be addressed at the next
-Standup meeting. During the Standup meeting, once these cards are addressed they're moved to "Done This Iteration."
-
-It turns out to be a good idea to indicate in some way at that time whether the card can be Shown, or whether the
-people who worked on it are reduced to merely being able to Tell about it. Shows are better than Tells, but not
-everything can be Shown.
-
-#### Done This Iteration
+#### Done
 This is an Awaiting column where cards accumulate for the next Show & Tell. After Show & Tell, this column is emptied,
 and the cards are no longer needed.
