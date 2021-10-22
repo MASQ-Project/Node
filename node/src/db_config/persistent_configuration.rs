@@ -71,8 +71,8 @@ impl PersistentConfigError {
 }
 
 pub trait PersistentConfiguration {
-    fn blockchain_service_url(&self) -> Result<Option<String>,PersistentConfigError>;
-    fn set_blockchain_service_url(&mut self,url:&str) -> Result<(),PersistentConfigError>;
+    fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError>;
+    fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError>;
     fn current_schema_version(&self) -> String;
     fn chain_name(&self) -> String;
     fn check_password(
@@ -128,15 +128,15 @@ pub struct PersistentConfigurationReal {
 
 impl PersistentConfiguration for PersistentConfigurationReal {
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
-        match self.dao.get("blockchain_service_url")?.value_opt{
+        match self.dao.get("blockchain_service_url")?.value_opt {
             None => Ok(None),
-            Some(url) => Ok(Some(url))
+            Some(url) => Ok(Some(url)),
         }
     }
 
-    fn set_blockchain_service_url(&mut self,url:&str) -> Result<(), PersistentConfigError> {
+    fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
-        Url::parse(url).map_err(|e|PersistentConfigError::InvalidUrl(e.to_string()))?;
+        Url::parse(url).map_err(|e| PersistentConfigError::InvalidUrl(e.to_string()))?;
         writer.set("blockchain_service_url", Some(url.to_string()))?;
         Ok(writer.commit()?)
     }
@@ -673,13 +673,12 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_service_success(){
-        let config_dao = ConfigDaoMock::new()
-            .get_result(Ok(ConfigDaoRecord::new(
-                "blockchain_service_url",
-                Some("https://ifura.io/ID"),
-                false,
-            )));
+    fn blockchain_service_success() {
+        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "blockchain_service_url",
+            Some("https://ifura.io/ID"),
+            false,
+        )));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         let result = subject.blockchain_service_url().unwrap();
@@ -688,13 +687,12 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_service_allows_none_value(){
-        let config_dao = ConfigDaoMock::new()
-            .get_result(Ok(ConfigDaoRecord::new(
-                "blockchain_service_url",
-                None,
-                false,
-            )));
+    fn blockchain_service_allows_none_value() {
+        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "blockchain_service_url",
+            None,
+            false,
+        )));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         let result = subject.blockchain_service_url().unwrap();
@@ -720,7 +718,10 @@ mod tests {
         let set_params = set_params_arc.lock().unwrap();
         assert_eq!(
             *set_params,
-            vec![("blockchain_service_url".to_string(), Some("https://ifura.io/ID".to_string()))]
+            vec![(
+                "blockchain_service_url".to_string(),
+                Some("https://ifura.io/ID".to_string())
+            )]
         );
     }
 
@@ -736,7 +737,12 @@ mod tests {
 
         let result = subject.set_blockchain_service_url("https.ifura.io");
 
-        assert_eq!(result, Err(PersistentConfigError::InvalidUrl("relative URL without a base".to_string())));
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::InvalidUrl(
+                "relative URL without a base".to_string()
+            ))
+        );
     }
 
     #[test]

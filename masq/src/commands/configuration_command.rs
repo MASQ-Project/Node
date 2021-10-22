@@ -79,7 +79,8 @@ impl ConfigurationCommand {
             "Blockchain service URL:",
             &configuration
                 .blockchain_service_url
-                .unwrap_or_else(|| "[?]".to_string()));
+                .unwrap_or_else(|| "[?]".to_string()),
+        );
         Self::dump_configuration_line(
             stream,
             "Current schema version:",
@@ -90,7 +91,7 @@ impl ConfigurationCommand {
             "Clandestine port:",
             &configuration.clandestine_port.to_string(),
         );
-        Self::dump_configuration_line(stream,"Chain",&configuration.chain_name);
+        Self::dump_configuration_line(stream, "Chain", &configuration.chain_name);
         Self::dump_configuration_line(stream, "Gas price:", &configuration.gas_price.to_string());
         Self::dump_configuration_line(
             stream,

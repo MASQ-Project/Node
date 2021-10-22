@@ -4,7 +4,7 @@
 #[macro_use]
 pub mod sub_lib;
 
-#[cfg_attr(test, macro_use)]
+//#[cfg_attr(test, macro_use)]
 extern crate clap;
 
 #[macro_use]

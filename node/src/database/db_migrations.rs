@@ -216,9 +216,7 @@ impl DatabaseMigration for Migrate_1_to_2 {
             "INSERT INTO config (name, value, encrypted) VALUES ('chain_name', '{}', 0)",
             declaration_utils.external_parameters().chain_name
         );
-        declaration_utils.execute_upon_transaction(&[
-            statement.as_str(),
-        ])
+        declaration_utils.execute_upon_transaction(&[statement.as_str()])
     }
 
     fn old_version(&self) -> usize {
@@ -238,9 +236,7 @@ impl DatabaseMigration for Migrate_2_to_3 {
         let statement = format!(
             "INSERT INTO config (name, value, encrypted) VALUES ('blockchain_service_url', null, 0)",
         );
-        declaration_utils.execute_upon_transaction(&[
-            statement.as_str(),
-        ])
+        declaration_utils.execute_upon_transaction(&[statement.as_str()])
     }
 
     fn old_version(&self) -> usize {

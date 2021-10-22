@@ -168,7 +168,13 @@ impl DbInitializerReal {
 
     fn initialize_config(&self, conn: &Connection, chain_id: u8) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
-        Self::set_config_value(conn,"blockchain_service_url",None,false,"url of a blockchain service to interact with the blockchain");
+        Self::set_config_value(
+            conn,
+            "blockchain_service_url",
+            None,
+            false,
+            "url of a blockchain service to interact with the blockchain",
+        );
         Self::set_config_value(
             conn,
             "clandestine_port",

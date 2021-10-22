@@ -253,7 +253,9 @@ mod tests {
                     "password",
                 )
                 .unwrap();
-            persistent_config.set_blockchain_service_url("https://infura.io/ID").unwrap()
+            persistent_config
+                .set_blockchain_service_url("https://infura.io/ID")
+                .unwrap()
         }
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
@@ -282,14 +284,14 @@ mod tests {
             };
             assert_eq!(actual_value, expected_value);
         };
-        check("blockchainServiceUrl","https://infura.io/ID");
+        check("blockchainServiceUrl", "https://infura.io/ID");
         check("clandestinePort", "3456");
         check("consumingWalletDerivationPath", &derivation_path(4, 4));
         check(
             "earningWalletAddress",
             "0x0123456789012345678901234567890123456789",
         );
-        check("chainName","ropsten");
+        check("chainName", "ropsten");
         check("gasPrice", "1");
         check(
             "pastNeighbors",
@@ -354,7 +356,9 @@ mod tests {
                     "password",
                 )
                 .unwrap();
-            persistent_config.set_blockchain_service_url("https://infura.io/ID").unwrap()
+            persistent_config
+                .set_blockchain_service_url("https://infura.io/ID")
+                .unwrap()
         }
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
@@ -384,14 +388,14 @@ mod tests {
             };
             assert_eq!(actual_value, expected_value);
         };
-        check("blockchainServiceUrl","https://infura.io/ID");
+        check("blockchainServiceUrl", "https://infura.io/ID");
         check("clandestinePort", "3456");
         check("consumingWalletDerivationPath", &derivation_path(4, 4));
         check(
             "earningWalletAddress",
             "0x0123456789012345678901234567890123456789",
         );
-        check("chainName","ropsten");
+        check("chainName", "ropsten");
         check("gasPrice", "1");
         check("pastNeighbors", "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345");
         check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
@@ -458,7 +462,9 @@ mod tests {
                     "password",
                 )
                 .unwrap();
-            persistent_config.set_blockchain_service_url("https://infura.io/ID").unwrap()
+            persistent_config
+                .set_blockchain_service_url("https://infura.io/ID")
+                .unwrap()
         }
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
@@ -471,7 +477,7 @@ mod tests {
 
         let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
-        assert!(result.is_ok(),"{:?}",result);
+        assert!(result.is_ok(), "{:?}", result);
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
             Value::Object(map) => map,

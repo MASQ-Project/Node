@@ -10,7 +10,7 @@ use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::node_configurator::node_configurator_standard::standard::{
+use crate::node_configurator::node_configurator_standard::{
     privileged_parse_args, unprivileged_parse_args,
 };
 use crate::node_configurator::{
