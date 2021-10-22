@@ -206,4 +206,4 @@ There are three or four types of Gossip, depending on how you count them.
 
 Copyright (c) 2019-2021, MASQ Network
 
-Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
