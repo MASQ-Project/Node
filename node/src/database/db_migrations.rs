@@ -217,12 +217,34 @@ impl DatabaseMigration for Migrate_1_to_2 {
             declaration_utils.external_parameters().chain_name
         );
         declaration_utils.execute_upon_transaction(&[
-            statement.as_str(), //another statement would follow here
+            statement.as_str(),
         ])
     }
 
     fn old_version(&self) -> usize {
         1
+    }
+}
+
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+struct Migrate_2_to_3;
+
+impl DatabaseMigration for Migrate_2_to_3 {
+    fn migrate<'a>(
+        &self,
+        declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
+    ) -> rusqlite::Result<()> {
+        let statement = format!(
+            "INSERT INTO config (name, value, encrypted) VALUES ('blockchain_service_url', null, 0)",
+        );
+        declaration_utils.execute_upon_transaction(&[
+            statement.as_str(),
+        ])
+    }
+
+    fn old_version(&self) -> usize {
+        2
     }
 }
 
@@ -237,7 +259,7 @@ impl DbMigratorReal {
     }
 
     fn list_of_updates<'a>() -> &'a [&'a dyn DatabaseMigration] {
-        &[&Migrate_0_to_1, &Migrate_1_to_2]
+        &[&Migrate_0_to_1, &Migrate_1_to_2, &Migrate_2_to_3]
     }
 
     fn make_updates<'a>(
@@ -1017,17 +1039,18 @@ mod tests {
 
     #[test]
     fn migration_from_1_to_2_is_properly_set() {
+        let start_at = 1;
         let dir_path = ensure_node_home_directory_exists("db_migrations", "1_to_2");
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
         let subject = DbInitializerReal::default();
         {
             subject
-                .initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, 1, true)
+                .initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, start_at, true)
                 .unwrap();
         }
 
-        let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, 2, true);
+        let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, start_at + 1, true);
 
         let connection = result.unwrap();
         let (chn_name, chn_value, chn_encrypted): (String, Option<String>, u16) =
@@ -1045,6 +1068,40 @@ mod tests {
         assert_eq!(chn_encrypted, 0);
         assert_eq!(cs_name, "schema_version".to_string());
         assert_eq!(cs_value, Some("2".to_string()));
+        assert_eq!(cs_encrypted, 0);
+    }
+
+    #[test]
+    fn migration_from_2_to_3_is_properly_set() {
+        let start_at = 2;
+        let dir_path = ensure_node_home_directory_exists("db_migrations", "2_to_3");
+        let db_path = dir_path.join(DATABASE_FILE);
+        let _ = revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
+        let subject = DbInitializerReal::default();
+        {
+            subject
+                .initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, start_at, true)
+                .unwrap();
+        }
+
+        let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, start_at + 1, true);
+
+        let connection = result.unwrap();
+        let (bchs_name, bchs_value, bchs_encrypted): (String, Option<String>, u16) =
+            assurance_query_for_config_table(
+                connection.as_ref(),
+                "select name, value, encrypted from config where name = 'blockchain_service_url'",
+            );
+        let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
+            assurance_query_for_config_table(
+                connection.as_ref(),
+                "select name, value, encrypted from config where name = 'schema_version'",
+            );
+        assert_eq!(bchs_name, "blockchain_service_url".to_string());
+        assert_eq!(bchs_value, None);
+        assert_eq!(bchs_encrypted, 0);
+        assert_eq!(cs_name, "schema_version".to_string());
+        assert_eq!(cs_value, Some("3".to_string()));
         assert_eq!(cs_encrypted, 0);
     }
 }

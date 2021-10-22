@@ -368,7 +368,7 @@ impl ActorFactory for ActorFactoryReal {
     ) -> BlockchainBridgeSubs {
         let blockchain_service_url = config
             .blockchain_bridge_config
-            .blockchain_service_url
+            .blockchain_service_url_opt
             .clone();
         let blockchain_interface: Box<dyn BlockchainInterface> = {
             match blockchain_service_url {
@@ -847,7 +847,7 @@ mod tests {
     #[should_panic(expected = "Invalid blockchain node URL")]
     fn invalid_blockchain_url_produces_panic() {
         let bbconfig = BlockchainBridgeConfig {
-            blockchain_service_url: Some("http://λ:8545".to_string()),
+            blockchain_service_url_opt: Some("http://λ:8545".to_string()),
             chain_id: DEFAULT_CHAIN_ID,
             gas_price: 1,
         };
@@ -873,7 +873,7 @@ mod tests {
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
+                blockchain_service_url_opt: None,
                 chain_id: DEFAULT_CHAIN_ID,
                 gas_price: 1,
             },
@@ -936,7 +936,7 @@ mod tests {
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
+                blockchain_service_url_opt: None,
                 chain_id: DEFAULT_CHAIN_ID,
                 gas_price: 1,
             },
@@ -1019,7 +1019,7 @@ mod tests {
         assert_eq!(
             blockchain_bridge_param.blockchain_bridge_config,
             BlockchainBridgeConfig {
-                blockchain_service_url: None,
+                blockchain_service_url_opt: None,
                 chain_id: DEFAULT_CHAIN_ID,
                 gas_price: 1,
             }
@@ -1047,7 +1047,7 @@ mod tests {
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
+                blockchain_service_url_opt: None,
                 chain_id: DEFAULT_CHAIN_ID,
                 gas_price: 1,
             },
@@ -1105,7 +1105,7 @@ mod tests {
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
+                blockchain_service_url_opt: None,
                 chain_id: DEFAULT_CHAIN_ID,
                 gas_price: 1,
             },

@@ -508,9 +508,11 @@ impl Configurator {
                 }
             }
         };
+        let blockchain_service_url = Self::value_not_required(persistent_config.blockchain_service_url(),"blockchainServiceUrl")?;
         let current_schema_version = persistent_config.current_schema_version();
         let clandestine_port =
             Self::value_required(persistent_config.clandestine_port(), "clandestinePort")?;
+        let chain_name = persistent_config.chain_name();
         let gas_price = Self::value_required(persistent_config.gas_price(), "gasPrice")?;
         let consuming_wallet_derivation_path_opt = Self::value_not_required(
             persistent_config.consuming_wallet_derivation_path(),
@@ -546,8 +548,10 @@ impl Configurator {
             None => (None, vec![]),
         };
         let response = UiConfigurationResponse {
+            blockchain_service_url,
             current_schema_version,
             clandestine_port,
+            chain_name,
             gas_price,
             mnemonic_seed_opt,
             consuming_wallet_derivation_path_opt,
@@ -741,12 +745,15 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::bip39::Bip39;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::cryptde::{PlainData, CryptDE};
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
     use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use masq_lib::utils::derivation_path;
+    use crate::sub_lib::neighborhood::NodeDescriptor;
+    use crate::sub_lib::node_addr::NodeAddr;
+    use crate::sub_lib::cryptde::PublicKey as PK;
 
     #[test]
     fn constructor_connects_with_database() {
@@ -1937,16 +1944,17 @@ mod tests {
     }
 
     #[test]
-    fn configuration_works_with_missing_secrets() {
+    fn configuration_works_with_no_password() {
+        let mnemonic_seed_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
-            .check_password_result(Ok(true))
+            .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())))
+            .chain_name_result("ropsten".to_string())
             .current_schema_version_result("1.2.3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
-            .mnemonic_seed_result(Ok(None))
+            .mnemonic_seed_params(&mnemonic_seed_params_arc)
             .consuming_wallet_derivation_path_result(Ok(None))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
-            .past_neighbors_result(Ok(Some(vec![])))
             .earning_wallet_address_result(Ok(None))
             .start_block_result(Ok(3456));
         let mut subject = make_subject(Some(persistent_config));
@@ -1964,8 +1972,10 @@ mod tests {
         assert_eq!(
             configuration,
             UiConfigurationResponse {
+                blockchain_service_url: Some("https://infura.io/ID".to_string()),
                 current_schema_version: "1.2.3".to_string(),
                 clandestine_port: 1234,
+                chain_name: "ropsten".to_string(),
                 gas_price: 2345,
                 mnemonic_seed_opt: None,
                 consuming_wallet_derivation_path_opt: None,
@@ -1976,6 +1986,64 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn configuration_works_with_secrets() {
+        let mnemonic_seed_params_arc = Arc::new(Mutex::new(vec![]));
+        let mnemonic_seed = PlainData::new(&[200,100,50]);
+        let consuming_wallet_derivation_path = "m/44'/0'/0'/0/0".to_string();
+        let earning_wallet_address = "4a5e43b54c6C56Ebf7".to_string();
+        let public_key = PK::from(&b"xaca4sf4a56"[..]);
+        let node_addr = NodeAddr::from_str("1.2.1.3:4545").unwrap();
+        let node_descriptor = NodeDescriptor::from(
+            (&public_key,&node_addr,true,main_cryptde() as &dyn CryptDE)
+        );
+        let persistent_config = PersistentConfigurationMock::new()
+            .blockchain_service_url_result(Ok(None))
+            .check_password_result(Ok(true))
+            .chain_name_result("ropsten".to_string())
+            .current_schema_version_result("1.2.3")
+            .clandestine_port_result(Ok(1234))
+            .gas_price_result(Ok(2345))
+            .mnemonic_seed_params(&mnemonic_seed_params_arc)
+            .mnemonic_seed_result(Ok(Some(mnemonic_seed.clone())))
+            .consuming_wallet_derivation_path_result(Ok(Some(consuming_wallet_derivation_path.clone())))
+            .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
+            .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
+            .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
+            .start_block_result(Ok(3456));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let (configuration, context_id) =
+            UiConfigurationResponse::fmb(subject.handle_configuration(
+                UiConfigurationRequest {
+                    db_password_opt: Some("password".to_string()),
+                },
+                4321,
+            ))
+                .unwrap();
+
+        assert_eq!(context_id, 4321);
+        assert_eq!(
+            configuration,
+            UiConfigurationResponse {
+                blockchain_service_url: None,
+                current_schema_version: "1.2.3".to_string(),
+                clandestine_port: 1234,
+                chain_name: "ropsten".to_string(),
+                gas_price: 2345,
+                mnemonic_seed_opt: Some(mnemonic_seed.as_slice().to_hex()),
+                consuming_wallet_derivation_path_opt: Some(consuming_wallet_derivation_path),
+                earning_wallet_address_opt: Some(earning_wallet_address),
+                port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),
+                past_neighbors: vec![node_descriptor.to_string(main_cryptde())],
+                start_block: 3456
+            }
+        );
+        let mnemonic_seed_params = mnemonic_seed_params_arc.lock().unwrap();
+        assert_eq!(*mnemonic_seed_params,vec!["password".to_string()])
+    }
+
 
     #[test]
     fn configuration_handles_check_password_error() {

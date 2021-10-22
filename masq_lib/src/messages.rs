@@ -457,10 +457,14 @@ conversation_message!(UiConfigurationRequest, "configuration");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiConfigurationResponse {
+    #[serde(rename = "blockchainServiceUrl")]
+    pub blockchain_service_url: Option<String>,
     #[serde(rename = "currentSchemaVersion")]
     pub current_schema_version: String,
     #[serde(rename = "clandestinePort")]
     pub clandestine_port: u16,
+    #[serde(rename = "chainName")]
+    pub chain_name: String,
     #[serde(rename = "gasPrice")]
     pub gas_price: u64,
     #[serde(rename = "mnemonicSeedOpt")]

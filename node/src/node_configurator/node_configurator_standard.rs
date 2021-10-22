@@ -175,7 +175,7 @@ pub mod standard {
     ) -> Result<(), ConfiguratorError> {
         privileged_config
             .blockchain_bridge_config
-            .blockchain_service_url = value_m!(multi_config, "blockchain-service-url", String);
+            .blockchain_service_url_opt = value_m!(multi_config, "blockchain-service-url", String);
 
         let (real_user, data_directory_opt, chain_name) =
             real_user_data_directory_opt_and_chain_name(dirs_wrapper, multi_config);
@@ -277,13 +277,17 @@ pub mod standard {
     ) -> Result<(), ConfiguratorError> {
         if let Some(port) = config.clandestine_port_opt {
             if let Err(pce) = persistent_config.set_clandestine_port(port) {
-                return Err(pce.into_configurator_error("clandestine-port"));
+              return Err(pce.into_configurator_error("clandestine-port"));
             }
         }
-
+        if let Some(url) = config.blockchain_bridge_config.blockchain_service_url_opt.clone() {
+            if let Err(pce) = persistent_config.set_blockchain_service_url(url.as_str()) {
+              return Err(pce.into_configurator_error("blockchain-service-url"));
+            }
+        }
         if let Err(pce) = persistent_config.set_gas_price(config.blockchain_bridge_config.gas_price)
         {
-            return Err(pce.into_configurator_error("gas-price"));
+             return Err(pce.into_configurator_error("gas-price"));
         }
         Ok(())
     }
@@ -778,9 +782,6 @@ pub mod standard {
             let mut config = BootstrapperConfig::new();
             config.clandestine_port_opt = None;
             let mut persistent_config = PersistentConfigurationMock::new()
-                .earning_wallet_address_result(Ok(Some(
-                    "0x0123456789012345678901234567890123456789".to_string(),
-                )))
                 .set_gas_price_result(Err(PersistentConfigError::TransactionError));
 
             let result = configure_database(&config, &mut persistent_config);
@@ -788,6 +789,22 @@ pub mod standard {
             assert_eq!(
                 result,
                 Err(PersistentConfigError::TransactionError.into_configurator_error("gas-price"))
+            )
+        }
+
+        #[test]
+        fn configure_database_handles_error_during_setting_blockchain_service_url() {
+            let mut config = BootstrapperConfig::new();
+            config.blockchain_bridge_config.blockchain_service_url_opt = Some("https://infura.io/ID".to_string()); //value irrelevant
+            let mut persistent_config = PersistentConfigurationMock::new()
+                .set_blockchain_service_url_results(Err(PersistentConfigError::TransactionError));
+
+            let result = configure_database(&config, &mut persistent_config);
+
+            assert_eq!(
+                result,
+                Err(PersistentConfigError::TransactionError
+                    .into_configurator_error("blockchain-service-url"))
             )
         }
 
@@ -1693,7 +1710,7 @@ mod tests {
             }
         );
         assert_eq!(
-            config.blockchain_bridge_config.blockchain_service_url,
+            config.blockchain_bridge_config.blockchain_service_url_opt,
             Some("http://127.0.0.1:8545".to_string()),
         );
         assert_eq!(config.data_directory, home_dir);
@@ -2707,60 +2724,31 @@ mod tests {
     }
 
     #[test]
-    fn configure_database_with_data_specified_on_command_line_but_not_in_database_without_seed() {
+    fn configure_database_with_data_specified_on_command_line_and_in_database() {
         running_test();
         let mut config = BootstrapperConfig::new();
-        config.clandestine_port_opt = Some(1234);
-        let earning_address = "0x0123456789012345678901234567890123456789";
-        let consuming_private_key_text =
-            "ABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EF";
-        let consuming_private_key = PlainData::from_str(consuming_private_key_text).unwrap();
         let gas_price = 4u64;
-        let keypair = Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap();
-        config.earning_wallet = Wallet::new(earning_address);
-        config.consuming_wallet = Some(Wallet::from(keypair));
+        config.clandestine_port_opt = Some(1234);
         config.blockchain_bridge_config.gas_price = gas_price;
+        config.blockchain_bridge_config.blockchain_service_url_opt = Some("https://infura.io/ID".to_string());
+        let set_blockchain_service_params_arc = Arc::new(Mutex::new(vec![]));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_gas_price_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_address_result(Ok(None))
-            .consuming_wallet_derivation_path_result(Ok(None))
-            .set_clandestine_port_params(&set_clandestine_port_params_arc)
-            .set_clandestine_port_result(Ok(()))
-            .set_gas_price_params(&set_gas_price_params_arc)
-            .set_gas_price_result(Ok(()));
-
-        let result = standard::configure_database(&config, &mut persistent_config);
-
-        assert_eq!(result, Ok(()));
-        let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
-        assert_eq!(*set_clandestine_port_params, vec![1234]);
-        let set_gas_price_params = set_gas_price_params_arc.lock().unwrap();
-        assert_eq!(*set_gas_price_params, vec![gas_price]);
-    }
-
-    #[test]
-    fn configure_database_with_data_specified_on_command_line_and_in_database_without_seed() {
-        running_test();
-        let mut config = BootstrapperConfig::new();
-        config.clandestine_port_opt = Some(1234);
-        let earning_address = "0x0123456789012345678901234567890123456789";
-        let consuming_private_key_text =
-            "ABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EF";
-        let consuming_private_key = PlainData::from_str(consuming_private_key_text).unwrap();
-        let keypair = Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap();
-        config.consuming_wallet = Some(Wallet::from(keypair));
-        let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_address_result(Ok(Some(earning_address.to_string())))
-            .consuming_wallet_derivation_path_result(Ok(None))
             .set_gas_price_result(Ok(()))
+            .set_gas_price_params(&set_gas_price_params_arc)
+            .set_blockchain_service_url_params(&set_blockchain_service_params_arc)
+            .set_blockchain_service_url_results(Ok(()))
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
             .set_clandestine_port_result(Ok(()));
 
         let result = standard::configure_database(&config, &mut persistent_config);
 
         assert_eq!(result, Ok(()));
+        let set_blockchain_service_url = set_blockchain_service_params_arc.lock().unwrap();
+        assert_eq!(*set_blockchain_service_url, vec!["https://infura.io/ID".to_string()]);
+        let set_gas_price_params = set_gas_price_params_arc.lock().unwrap();
+        assert_eq!(*set_gas_price_params, vec![gas_price]);
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         assert_eq!(*set_clandestine_port_params, vec![1234]);
     }
@@ -2772,17 +2760,21 @@ mod tests {
         config.clandestine_port_opt = None;
         config.consuming_wallet = None;
         config.earning_wallet = DEFAULT_EARNING_WALLET.clone();
+        config.blockchain_bridge_config.blockchain_service_url_opt = None;
+        let set_blockchain_service_params_arc = Arc::new(Mutex::new(vec![]));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_address_result(Ok(None))
-            .consuming_wallet_derivation_path_result(Ok(None))
             .set_gas_price_result(Ok(()))
+            .set_blockchain_service_url_params(&set_blockchain_service_params_arc)
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
             .set_clandestine_port_result(Ok(()));
 
         let result = standard::configure_database(&config, &mut persistent_config);
 
         assert_eq!(result, Ok(()));
+        let set_blockchain_service_url = set_blockchain_service_params_arc.lock().unwrap();
+        let no_url: Vec<String> = vec![];
+        assert_eq!(*set_blockchain_service_url,no_url); //if no value available we skip setting it
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         let no_ports: Vec<u16> = vec![];
         assert_eq!(*set_clandestine_port_params, no_ports);

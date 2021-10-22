@@ -11,6 +11,9 @@ use std::sync::{Arc, Mutex};
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct PersistentConfigurationMock {
+    blockchain_service_url_results:RefCell<Vec<Result<Option<String>,PersistentConfigError>>>,
+    set_blockchain_service_url_params: Arc<Mutex<Vec<String>>>,
+    set_blockchain_service_url_results: RefCell<Vec<Result<(),PersistentConfigError>>>,
     current_schema_version_results: RefCell<Vec<String>>,
     chain_name_results: RefCell<Vec<String>>,
     check_password_params: Arc<Mutex<Vec<Option<String>>>>,
@@ -50,6 +53,15 @@ pub struct PersistentConfigurationMock {
 }
 
 impl PersistentConfiguration for PersistentConfigurationMock {
+    fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
+        self.blockchain_service_url_results.borrow_mut().remove(0)
+    }
+
+    fn set_blockchain_service_url(&mut self,url:&str) -> Result<(), PersistentConfigError> {
+        self.set_blockchain_service_url_params.lock().unwrap().push(url.to_string());
+        self.set_blockchain_service_url_results.borrow_mut().remove(0)
+    }
+
     fn current_schema_version(&self) -> String {
         Self::result_from(&self.current_schema_version_results)
     }
@@ -194,6 +206,21 @@ impl PersistentConfiguration for PersistentConfigurationMock {
 impl PersistentConfigurationMock {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn blockchain_service_url_result(self,result:Result<Option<String>,PersistentConfigError>)->Self{
+        self.blockchain_service_url_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_blockchain_service_url_params(mut self,params:&Arc<Mutex<Vec<String>>>)->Self{
+        self.set_blockchain_service_url_params = params.clone();
+        self
+    }
+
+    pub fn set_blockchain_service_url_results(self,result:Result<(),PersistentConfigError>)->Self{
+        self.set_blockchain_service_url_results.borrow_mut().push(result);
+        self
     }
 
     pub fn current_schema_version_result(self, result: &str) -> PersistentConfigurationMock {

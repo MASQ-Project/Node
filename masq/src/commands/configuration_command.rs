@@ -76,6 +76,12 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(stream, "NAME", "VALUE");
         Self::dump_configuration_line(
             stream,
+            "Blockchain service URL:",
+            &configuration
+                .blockchain_service_url
+                .unwrap_or_else(|| "[?]".to_string()));
+        Self::dump_configuration_line(
+            stream,
             "Current schema version:",
             &configuration.current_schema_version,
         );
@@ -84,6 +90,7 @@ impl ConfigurationCommand {
             "Clandestine port:",
             &configuration.clandestine_port.to_string(),
         );
+        Self::dump_configuration_line(stream,"Chain",&configuration.chain_name);
         Self::dump_configuration_line(stream, "Gas price:", &configuration.gas_price.to_string());
         Self::dump_configuration_line(
             stream,
@@ -222,8 +229,10 @@ mod tests {
     fn configuration_command_happy_path_with_secrets() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiConfigurationResponse {
+            blockchain_service_url: Some("https://infura.io/ID".to_string()),
             current_schema_version: "schema version".to_string(),
             clandestine_port: 1234,
+            chain_name: "ropsten".to_string(),
             gas_price: 2345,
             mnemonic_seed_opt: Some("mnemonic seed".to_string()),
             consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
@@ -259,8 +268,10 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
             "\
 |NAME                              VALUE\n\
+|Blockchain service URL:           https://infura.io/ID\n\
 |Current schema version:           schema version\n\
 |Clandestine port:                 1234\n\
+|Chain                             ropsten\n\
 |Gas price:                        2345\n\
 |Mnemonic seed:                    mnemonic seed\n\
 |Consuming wallet derivation path: consuming path\n\
@@ -280,8 +291,10 @@ mod tests {
     fn configuration_command_happy_path_without_secrets() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiConfigurationResponse {
+            blockchain_service_url: Some("https://infura.io/ID".to_string()),
             current_schema_version: "schema version".to_string(),
             clandestine_port: 1234,
+            chain_name: "mumbai".to_string(),
             gas_price: 2345,
             mnemonic_seed_opt: None,
             consuming_wallet_derivation_path_opt: None,
@@ -315,8 +328,10 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
             "\
 NAME                              VALUE\n\
+Blockchain service URL:           https://infura.io/ID\n\
 Current schema version:           schema version\n\
 Clandestine port:                 1234\n\
+Chain                             mumbai\n\
 Gas price:                        2345\n\
 Mnemonic seed:                    [?]\n\
 Consuming wallet derivation path: [?]\n\

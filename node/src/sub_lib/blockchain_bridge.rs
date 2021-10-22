@@ -12,7 +12,7 @@ use std::fmt::{Debug, Formatter};
 
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct BlockchainBridgeConfig {
-    pub blockchain_service_url: Option<String>,
+    pub blockchain_service_url_opt: Option<String>,
     pub chain_id: u8,
     pub gas_price: u64,
 }

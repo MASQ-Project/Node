@@ -21,7 +21,7 @@ use std::path::Path;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: usize = 2;
+pub const CURRENT_SCHEMA_VERSION: usize = 3;
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -168,6 +168,7 @@ impl DbInitializerReal {
 
     fn initialize_config(&self, conn: &Connection, chain_id: u8) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
+        Self::set_config_value(conn,"blockchain_service_url",None,false,"url of a blockchain service to interact with the blockchain");
         Self::set_config_value(
             conn,
             "clandestine_port",
@@ -747,7 +748,7 @@ mod tests {
             assert_eq!(actual_name, expected_name);
             value
         };
-
+        verify(&mut config_vec, "blockchain_service_url", None);
         verify(&mut config_vec, "chain_name", Some(TEST_DEFAULT_CHAIN_NAME));
         let clandestine_port_str_opt = verify_name(&mut config_vec, "clandestine_port");
         let clandestine_port: u16 = clandestine_port_str_opt.unwrap().parse().unwrap();

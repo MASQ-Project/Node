@@ -16,6 +16,7 @@ use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
+use websocket::url::Url;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -29,6 +30,7 @@ pub enum PersistentConfigError {
     BadMnemonicSeed(PlainData),
     BadDerivationPathFormat(String),
     BadAddressFormat(String),
+    InvalidUrl(String),
     Collision(String),
 }
 
@@ -69,6 +71,8 @@ impl PersistentConfigError {
 }
 
 pub trait PersistentConfiguration {
+    fn blockchain_service_url(&self) -> Result<Option<String>,PersistentConfigError>;
+    fn set_blockchain_service_url(&mut self,url:&str) -> Result<(),PersistentConfigError>;
     fn current_schema_version(&self) -> String;
     fn chain_name(&self) -> String;
     fn check_password(
@@ -123,6 +127,20 @@ pub struct PersistentConfigurationReal {
 }
 
 impl PersistentConfiguration for PersistentConfigurationReal {
+    fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
+        match self.dao.get("blockchain_service_url")?.value_opt{
+            None => Ok(None),
+            Some(url) => Ok(Some(url))
+        }
+    }
+
+    fn set_blockchain_service_url(&mut self,url:&str) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        Url::parse(url).map_err(|e|PersistentConfigError::InvalidUrl(e.to_string()))?;
+        writer.set("blockchain_service_url", Some(url.to_string()))?;
+        Ok(writer.commit()?)
+    }
+
     fn current_schema_version(&self) -> String {
         match self.dao.get("schema_version") {
             Ok(record) => match record.value_opt {
@@ -655,6 +673,73 @@ mod tests {
     }
 
     #[test]
+    fn blockchain_service_success(){
+        let config_dao = ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(
+                "blockchain_service_url",
+                Some("https://ifura.io/ID"),
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.blockchain_service_url().unwrap();
+
+        assert_eq!(result, Some("https://ifura.io/ID".to_string()));
+    }
+
+    #[test]
+    fn blockchain_service_allows_none_value(){
+        let config_dao = ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(
+                "blockchain_service_url",
+                None,
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.blockchain_service_url().unwrap();
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn set_blockchain_service_works() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .set_params(&set_params_arc)
+                .set_result(Ok(()))
+                .commit_result(Ok(())),
+        );
+        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_blockchain_service_url("https://ifura.io/ID");
+
+        assert_eq!(result, Ok(()));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("blockchain_service_url".to_string(), Some("https://ifura.io/ID".to_string()))]
+        );
+    }
+
+    #[test]
+    fn set_blockchain_service_complains_if_invalid_url() {
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .set_result(Ok(()))
+                .commit_result(Ok(())),
+        );
+        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_blockchain_service_url("https.ifura.io");
+
+        assert_eq!(result, Err(PersistentConfigError::InvalidUrl("relative URL without a base".to_string())));
+    }
+
+    #[test]
     fn clandestine_port_success() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
@@ -713,11 +798,6 @@ mod tests {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = Box::new(
             ConfigDaoWriteableMock::new()
-                .get_result(Ok(ConfigDaoRecord::new(
-                    "clandestine_port",
-                    Some("1234"),
-                    false,
-                )))
                 .set_params(&set_params_arc)
                 .set_result(Ok(()))
                 .commit_result(Ok(())),
