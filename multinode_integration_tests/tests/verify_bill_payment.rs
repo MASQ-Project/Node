@@ -13,7 +13,7 @@ use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
 use node_lib::blockchain::blockchain_interface::{
-    contract_address, BlockchainInterface, BlockchainInterfaceNonClandestine,
+    contract_address, BlockchainInterface, BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
 };
 use node_lib::blockchain::raw_transaction::RawTransaction;
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -43,7 +43,11 @@ fn verify_bill_payment() {
     cluster.chain_id = 2u8;
     blockchain_server.start();
     blockchain_server.wait_until_ready();
-    let (_event_loop_handle, http) = Http::new(blockchain_server.service_url().as_ref()).unwrap();
+    let (_event_loop_handle, http) = Http::with_max_parallel(
+        blockchain_server.service_url().as_ref(),
+        REQUESTS_IN_PARALLEL,
+    )
+    .unwrap();
     let web3 = Web3::new(http.clone());
     let deriv_path = derivation_path(0, 0);
     let seed = make_seed();

@@ -48,22 +48,22 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 600; // now 10 minutes TODO adjusted temporarily for a test, used to be one hour
-pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 600; //now 10 minutes // TODO adjusted temporarily for a test, used to be one hour
+pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 300; // now 5 minutes TODO adjusted temporarily for a test, used to be one hour
+pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 300; //now 5 minutes // TODO adjusted temporarily for a test, used to be one hour
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
 //TODO this is for tracking the issues with composing valid routes; will be adjusted more properly later
-const TEST_TIME_PERIOD_SEC: i64 = 1320; //22 minutes
+const TEST_TIME_PERIOD_SEC: i64 = 720; //12 minutes
 
 lazy_static! {
     pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
         payment_suggested_after_sec: TEST_TIME_PERIOD_SEC,
         payment_grace_before_ban_sec: TEST_TIME_PERIOD_SEC,
-        permanent_debt_allowed_gwub: 10_000_000,
+        permanent_debt_allowed_gwub: 5_000_000,
         balance_to_decrease_from_gwub: 1_000_000_000,
         balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
-        unban_when_balance_below_gwub: 10_000_000,
+        unban_when_balance_below_gwub: 5_000_000,
     };
 }
 

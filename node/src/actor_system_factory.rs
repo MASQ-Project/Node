@@ -16,6 +16,7 @@ use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
+    REQUESTS_IN_PARALLEL,
 };
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_initializer::{
@@ -369,7 +370,7 @@ impl ActorFactory for ActorFactoryReal {
             .clone();
         let blockchain_interface: Box<dyn BlockchainInterface> = {
             match blockchain_service_url {
-                Some(url) => match Http::new(&url) {
+                Some(url) => match Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL) {
                     Ok((event_loop_handle, transport)) => {
                         Box::new(BlockchainInterfaceNonClandestine::new(
                             transport,

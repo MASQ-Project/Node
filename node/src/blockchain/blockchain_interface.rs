@@ -14,6 +14,8 @@ use web3::transports::EventLoopHandle;
 use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, H256, U256};
 use web3::{Transport, Web3};
 
+pub const REQUESTS_IN_PARALLEL: usize = 1;
+
 // SHRD (Ropsten)
 pub const ROPSTEN_TESTNET_CONTRACT_ADDRESS: Address = Address {
     0: [
@@ -522,7 +524,9 @@ mod tests {
     }
 
     fn make_fake_event_loop_handle() -> EventLoopHandle {
-        Http::new("http://86.75.30.9").unwrap().0
+        Http::with_max_parallel("http://86.75.30.9", REQUESTS_IN_PARALLEL)
+            .unwrap()
+            .0
     }
 
     #[test]
@@ -538,11 +542,10 @@ mod tests {
             }).listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
@@ -574,8 +577,11 @@ mod tests {
     fn blockchain_interface_non_clandestine_retrieve_transactions_returns_an_error_if_the_to_address_is_invalid(
     ) {
         let port = 8545;
-        let (event_loop_handle, transport) =
-            Http::new(&format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port)).unwrap();
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
 
@@ -599,11 +605,10 @@ mod tests {
             }).listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
@@ -630,11 +635,10 @@ mod tests {
             }).listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
 
         let subject =
@@ -660,11 +664,10 @@ mod tests {
                 .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
 
         let subject =
@@ -689,11 +692,10 @@ mod tests {
             .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
 
         let subject =
@@ -713,11 +715,10 @@ mod tests {
     fn blockchain_interface_non_clandestine_returns_an_error_when_requesting_eth_balance_of_an_invalid_wallet(
     ) {
         let port = 8545;
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
 
         let subject =
@@ -741,11 +742,10 @@ mod tests {
             .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
 
         let subject =
@@ -778,11 +778,10 @@ mod tests {
                 .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
@@ -801,11 +800,10 @@ mod tests {
     fn blockchain_interface_non_clandestine_returns_an_error_when_requesting_token_balance_of_an_invalid_wallet(
     ) {
         let port = 8545;
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
@@ -831,11 +829,10 @@ mod tests {
             .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
@@ -866,11 +863,10 @@ mod tests {
             .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
