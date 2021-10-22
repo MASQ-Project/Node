@@ -16,8 +16,7 @@ use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     chain_name_from_id, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine,
-    REQUESTS_IN_PARALLEL,
+    BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
 };
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_initializer::{
