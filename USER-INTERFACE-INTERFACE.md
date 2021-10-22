@@ -78,9 +78,9 @@ The low-level JSON format of `MASQNode-UIv2` messages is reasonably simple. It l
 }
 ```
 
-The `opcode` is a short string that identifies the message type. Sometimes the same opcode will be used for two
-different message types if they can easily be distinguished by some other context--for example if one type is
-only ever sent from the UI to the Node, and the other type is only ever sent from the Node to the UI.
+The `opcode` is a short string that identifies the message type. If a message is a request (UI to Node) and the
+protocol dictates that a response (Node to UI) should result from it, both the request and the response will have
+the same opcode.
 
 The `contextId` is a positive integer best thought of as a conversation number. Just as there can be many UIs 
 connected to the same Node, each UI can be carrying on many simultaneous conversations with the Node. When a 
@@ -104,34 +104,16 @@ going on at once, this might happen:
 1. ← Response for conversation 2
 
 If each conversation has its own ID, it'll be a lot easier to tell what's going on when a message arrives
-than it will be if every message is part of conversation 555. Even more importantly, if two or more of
-those requests have the same opcode, figuring out which response goes with which request can be completely
-impossible if all the requests are in the same conversation.
+than it will be if every message is part of conversation 555.
 
-The reason the concept of conversations exists is the fact that many of the messages in the `MASQNode-UIv2`
-protocol are requests in a particular context that specifically demand responses in the same context. The
-conversation, whether you choose to use a new conversation for every exchange, or the same conversation for
-all of them, or some compromise scheme, serves to fix the context and bind together a request with its
-response or responses.
-
-In `MASQNode-UIv2`, all responses to a particular conversational request will always have the same opcode
-as that request. In situations where responses to a particular request can have different meanings (for
-example, in the case where the request is a subscription to a class of messages), all the responses will
-have the same opcode, but another common field in the responses may be chosen to act as a secondary opcode
-to distinguish them from one another.
+At the other extreme, a UI may choose to start a new conversation for every request/response pair. This is fine.
 
 Some messages are always isolated, and never part of any conversation, like the Broadcast in step 5 above. 
 These messages will be identifiable by their `opcode`, and their `contextId` should be ignored. (In the 
-real world, it's always zero, but depending on that might be dangerous.) These isolated messages cannot
-reasonably be called requests, since A) they neither expect nor provoke any response, except in certain error
-situations, and B) provide no meaningful `contextId` to identify a conversation that would bind a response
-to them.
+real world, it's always zero, but depending on that might be dangerous.)
 
 Neither the Daemon nor the Node will ever start a conversation, although they will send isolated, non-conversational
-messages. In the error situations mentioned above, the error notifications will arrive as isolated messages
-and should either be ignored or presented to the user in a general-error format. The error report will
-almost certainly have a different opcode from the message that provoked the error, and there will probably
-be no tractable way to semantically connect the two.
+messages.
 
 The `payload` is the body of the message, with its structure being signaled by the contents of the `opcode` field.
 See the Message Reference section below for specifics about the `payload` field for each type of message.
@@ -305,7 +287,7 @@ may not have any database password at all.
 There's no way to make the Node tell you what the database password is, but if you have an idea
 what it might be, you can check your idea by sending this message with your idea in the
 `dbPasswordOpt` field. If you're checking to see whether there's no password, pass `null` in this
-field.
+field, or leave it out.
 
 #### `checkPassword`
 ##### Direction: Response
@@ -477,27 +459,6 @@ Requests the Node descriptor from a Node.
 ```
 ##### Description:
 Contains a Node's Node descriptor.
-
-#### `undelivered`
-##### Direction: Response
-##### Correspondent: Daemon
-##### Layout:
-```
-"payload": {
-    "opcode": <string>,
-    }
-}
-```
-##### Description:
-When the Daemon receives a fire-and-forget message (which is a case not being implemented at the time of writing this;
-all such messages go only in the opposite direction now), the normal way to proceed would be to look whether that type 
-of message is known to the Daemon. If not, then it tries to send a redirect message. However, if it turns out, at the 
-same moment, that the Node is not running there is no sense in it, and the action should not be completed. On the other
-hand, we want the UI, or the user respectively to know that this has happened otherwise they might think that a certain
-operation was executed though wasn't. This message comes back to the sender (UI) saying that a message with a certain
-opcode could not be delivered because Node is not running.
- 
-`opcode` means the opcode taken from the original message received by the Daemon.
 
 #### `financials`
 ##### Direction: Request
@@ -948,12 +909,10 @@ The `badData` field contains the unmarshallable message itself.
 }
 ```
 ##### Description:
-This message directs the Node to go look for two pieces of information, two existing wallet addresses. For consuming
-wallet, this will be computed from the mnemonic seed and the recorded derivation path chosen by the user earlier.
-For earning wallet, this datum can be found in the database directly. Both addresses go back to the UI then. If these
-two wallets do not exist so far, an error message is propagated.
-
-`dbPassword` is the current database password. If this is incorrect, the process cannot end successfully. 
+This message asks the Node for the earning and consuming wallet addresses. The consuming wallet address will be 
+computed from the mnemonic seed and the recorded derivation path chosen by the user earlier. The mnemonic seed is
+secret, which is why this message requires the `dbPassword` element. If one or both wallets are not configured, 
+an error message will be sent back.
 
 #### `walletAddresses`
 ##### Direction: Response

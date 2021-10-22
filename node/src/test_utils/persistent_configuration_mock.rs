@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone, Default)]
 pub struct PersistentConfigurationMock {
     current_schema_version_results: RefCell<Vec<String>>,
+    chain_name_results: RefCell<Vec<String>>,
     check_password_params: Arc<Mutex<Vec<Option<String>>>>,
     check_password_results: RefCell<Vec<Result<bool, PersistentConfigError>>>,
     change_password_params: Arc<Mutex<Vec<(Option<String>, String)>>>,
@@ -51,6 +52,10 @@ pub struct PersistentConfigurationMock {
 impl PersistentConfiguration for PersistentConfigurationMock {
     fn current_schema_version(&self) -> String {
         Self::result_from(&self.current_schema_version_results)
+    }
+
+    fn chain_name(&self) -> String {
+        self.chain_name_results.borrow_mut().remove(0)
     }
 
     fn check_password(
@@ -195,6 +200,11 @@ impl PersistentConfigurationMock {
         self.current_schema_version_results
             .borrow_mut()
             .push(result.to_string());
+        self
+    }
+
+    pub fn chain_name_result(self, result: String) -> Self {
+        self.chain_name_results.borrow_mut().push(result);
         self
     }
 

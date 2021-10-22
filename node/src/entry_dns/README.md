@@ -1,4 +1,4 @@
-# entry_dns
+# `entry_dns`
 DNS service for MASQ Node
 
 ## Purpose
@@ -11,5 +11,6 @@ It probably isn't the most interesting place to begin digging into our code;
 [node](https://github.com/MASQ-Project/Node/tree/master/node)
 is a better place to start.
 
+Copyright (c) 2019-2021, MASQ Network
 
 Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
