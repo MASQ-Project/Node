@@ -3,8 +3,10 @@
 use crate::apps::app_daemon;
 use crate::node_configurator::NodeConfigurator;
 use crate::sub_lib::utils::make_new_multi_config;
+use masq_lib::command::StdStreams;
 use masq_lib::multi_config::{CommandLineVcl, MultiConfig};
 use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::utils::ExpectValue;
 
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct InitializationConfig {
@@ -28,9 +30,10 @@ impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitializationRe
     fn configure(
         &self,
         multi_config: &MultiConfig,
+        streams: Option<&mut StdStreams>,
     ) -> Result<InitializationConfig, ConfiguratorError> {
         let mut config = InitializationConfig::default();
-        initialization::parse_args(multi_config, &mut config);
+        initialization::parse_args(multi_config, &mut config, streams.expect_v("StdStreams"));
         Ok(config)
     }
 }
@@ -41,7 +44,11 @@ mod initialization {
     use masq_lib::constants::DEFAULT_UI_PORT;
     use masq_lib::multi_config::MultiConfig;
 
-    pub fn parse_args(multi_config: &MultiConfig, config: &mut InitializationConfig) {
+    pub fn parse_args(
+        multi_config: &MultiConfig,
+        config: &mut InitializationConfig,
+        _streams: &mut StdStreams<'_>,
+    ) {
         config.ui_port = value_m!(multi_config, "ui-port", u16).unwrap_or(DEFAULT_UI_PORT);
     }
 }
@@ -53,6 +60,7 @@ mod tests {
     use crate::test_utils::ArgsBuilder;
     use masq_lib::constants::DEFAULT_UI_PORT;
     use masq_lib::multi_config::{CommandLineVcl, VirtualCommandLine};
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
 
     #[test]
     fn parse_args_creates_configuration_with_defaults() {
@@ -62,7 +70,11 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_daemon(), vcls).unwrap();
 
-        initialization::parse_args(&multi_config, &mut config);
+        initialization::parse_args(
+            &multi_config,
+            &mut config,
+            &mut FakeStreamHolder::new().streams(),
+        );
 
         assert_eq!(config.ui_port, DEFAULT_UI_PORT);
     }
@@ -77,7 +89,11 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_daemon(), vcls).unwrap();
 
-        initialization::parse_args(&multi_config, &mut config);
+        initialization::parse_args(
+            &multi_config,
+            &mut config,
+            &mut FakeStreamHolder::new().streams(),
+        );
 
         assert_eq!(config.ui_port, 4321);
     }

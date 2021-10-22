@@ -54,9 +54,10 @@ impl CommandProcessor for CommandProcessorReal {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError> {
         if let Some(synchronizer) = self.context.terminal_interface.clone() {
             let _lock = synchronizer.lock();
-            return command.execute(&mut self.context);
+            command.execute(&mut self.context)
+        } else {
+            command.execute(&mut self.context)
         }
-        command.execute(&mut self.context)
     }
 
     fn close(&mut self) {
