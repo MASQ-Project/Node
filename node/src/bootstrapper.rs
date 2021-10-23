@@ -6,6 +6,7 @@ use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -55,7 +56,6 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
-use crate::database::db_migrations::MigratorConfig;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -529,7 +529,7 @@ impl Bootstrapper {
                     &self.config.data_directory,
                     self.config.blockchain_bridge_config.chain_id,
                     true,
-                    MigratorConfig::panic_on_update()
+                    MigratorConfig::panic_on_update(),
                 )
                 .expect("Cannot initialize database");
             let config_dao = ConfigDaoReal::new(conn);
@@ -1556,7 +1556,7 @@ mod tests {
         subject.set_up_clandestine_port();
 
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, chain_id, true,MigratorConfig::panic_on_update())
+            .initialize(&data_dir, chain_id, true, MigratorConfig::panic_on_update())
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1625,7 +1625,7 @@ mod tests {
         subject.set_up_clandestine_port();
 
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, chain_id, true,MigratorConfig::panic_on_update())
+            .initialize(&data_dir, chain_id, true, MigratorConfig::panic_on_update())
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));

@@ -138,10 +138,7 @@ struct MigDeclarationUtilitiesReal<'a> {
 }
 
 impl<'a> MigDeclarationUtilitiesReal<'a> {
-    fn new(
-        root_transaction_ref: &'a Transaction<'a>,
-        external: &'a ExternalMigrationData,
-    ) -> Self {
+    fn new(root_transaction_ref: &'a Transaction<'a>, external: &'a ExternalMigrationData) -> Self {
         Self {
             root_transaction_ref,
             external,
@@ -350,34 +347,33 @@ impl DbMigratorReal {
     }
 }
 
-#[derive(PartialEq,Debug)]
+#[derive(PartialEq, Debug)]
 pub struct MigratorConfig {
     pub should_be_suppressed: bool,
     pub external_dataset: Option<ExternalMigrationData>,
 }
 
 impl MigratorConfig {
-    pub fn panic_on_update()->Self{
-        Self{
+    pub fn panic_on_update() -> Self {
+        Self {
             should_be_suppressed: false,
-            external_dataset:None
+            external_dataset: None,
         }
     }
 
-    pub fn update(external_params: ExternalMigrationData)->Self{
-        Self{
-            should_be_suppressed:false,
-            external_dataset:Some(external_params)
+    pub fn update(external_params: ExternalMigrationData) -> Self {
+        Self {
+            should_be_suppressed: false,
+            external_dataset: Some(external_params),
         }
     }
 
-    pub fn update_suppressed()->Self{
-     Self{
-         should_be_suppressed:true,
-         external_dataset:None
-     }
+    pub fn update_suppressed() -> Self {
+        Self {
+            should_be_suppressed: true,
+            external_dataset: None,
+        }
     }
-
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -393,24 +389,29 @@ impl ExternalMigrationData {
     }
 }
 
-impl From<MigratorConfig> for ExternalMigrationData{
+impl From<MigratorConfig> for ExternalMigrationData {
     fn from(config: MigratorConfig) -> Self {
-        config.external_dataset.unwrap_or_else(||panic!("Attempt to migrate the database at place where it is forbidden"))
+        config.external_dataset.unwrap_or_else(|| {
+            panic!("Attempt to migrate the database at place where it is forbidden")
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::blockchain::blockchain_interface::chain_name_from_id;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, DATABASE_FILE,
     };
-    use crate::database::db_migrations::{DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbMigrator, ExternalMigrationData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig};
+    use crate::database::db_migrations::{
+        DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbMigrator,
+        ExternalMigrationData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig,
+    };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
     use crate::test_utils::database_utils::{
-        assurance_query_for_config_table,
-        revive_tables_of_version_0_and_return_connection,
+        assurance_query_for_config_table, revive_tables_of_version_0_and_return_connection,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
@@ -421,7 +422,6 @@ mod tests {
     use std::fs::create_dir_all;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
-    use crate::blockchain::blockchain_interface::chain_name_from_id;
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
@@ -548,30 +548,42 @@ mod tests {
     }
 
     #[test]
-    fn panic_on_update_properly_set(){
-        assert_eq!(MigratorConfig::panic_on_update(), MigratorConfig {
-            should_be_suppressed: false,
-            external_dataset: None
-        })
+    fn panic_on_update_properly_set() {
+        assert_eq!(
+            MigratorConfig::panic_on_update(),
+            MigratorConfig {
+                should_be_suppressed: false,
+                external_dataset: None
+            }
+        )
     }
 
     #[test]
-    fn update_properly_set(){
-        assert_eq!(MigratorConfig::update(make_defaulted_external_migration_data()), MigratorConfig {
-            should_be_suppressed: false,
-            external_dataset: Some(make_defaulted_external_migration_data())
-        })
+    fn update_properly_set() {
+        assert_eq!(
+            MigratorConfig::update(make_defaulted_external_migration_data()),
+            MigratorConfig {
+                should_be_suppressed: false,
+                external_dataset: Some(make_defaulted_external_migration_data())
+            }
+        )
     }
 
-    fn make_defaulted_external_migration_data()->ExternalMigrationData{
-        ExternalMigrationData{
-            chain_name: chain_name_from_id(DEFAULT_CHAIN_ID).to_string()
+    fn make_defaulted_external_migration_data() -> ExternalMigrationData {
+        ExternalMigrationData {
+            chain_name: chain_name_from_id(DEFAULT_CHAIN_ID).to_string(),
         }
     }
 
     #[test]
-    fn update_suppressed_properly_set(){
-       assert_eq!(MigratorConfig::update_suppressed(), MigratorConfig { should_be_suppressed: true, external_dataset: None })
+    fn update_suppressed_properly_set() {
+        assert_eq!(
+            MigratorConfig::update_suppressed(),
+            MigratorConfig {
+                should_be_suppressed: true,
+                external_dataset: None
+            }
+        )
     }
 
     #[test]
@@ -1074,7 +1086,13 @@ mod tests {
         let chain = DEFAULT_CHAIN_ID;
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize_to_version(&dir_path, chain, 1, true,MigratorConfig::update(make_defaulted_external_migration_data()));
+        let result = subject.initialize_to_version(
+            &dir_path,
+            chain,
+            1,
+            true,
+            MigratorConfig::update(make_defaulted_external_migration_data()),
+        );
         let connection = result.unwrap();
         let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
             assurance_query_for_config_table(
@@ -1103,11 +1121,23 @@ mod tests {
         let subject = DbInitializerReal::default();
         {
             subject
-                .initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, start_at, true,MigratorConfig::update(make_defaulted_external_migration_data()))
+                .initialize_to_version(
+                    &dir_path,
+                    DEFAULT_CHAIN_ID,
+                    start_at,
+                    true,
+                    MigratorConfig::update(make_defaulted_external_migration_data()),
+                )
                 .unwrap();
         }
 
-        let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, start_at + 1, true,MigratorConfig::update(make_defaulted_external_migration_data()));
+        let result = subject.initialize_to_version(
+            &dir_path,
+            DEFAULT_CHAIN_ID,
+            start_at + 1,
+            true,
+            MigratorConfig::update(make_defaulted_external_migration_data()),
+        );
 
         let connection = result.unwrap();
         let (chn_name, chn_value, chn_encrypted): (String, Option<String>, u16) =
@@ -1137,11 +1167,23 @@ mod tests {
         let subject = DbInitializerReal::default();
         {
             subject
-                .initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, start_at, true,MigratorConfig::update(make_defaulted_external_migration_data()))
+                .initialize_to_version(
+                    &dir_path,
+                    DEFAULT_CHAIN_ID,
+                    start_at,
+                    true,
+                    MigratorConfig::update(make_defaulted_external_migration_data()),
+                )
                 .unwrap();
         }
 
-        let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, start_at + 1, true,MigratorConfig::update(make_defaulted_external_migration_data()));
+        let result = subject.initialize_to_version(
+            &dir_path,
+            DEFAULT_CHAIN_ID,
+            start_at + 1,
+            true,
+            MigratorConfig::update(make_defaulted_external_migration_data()),
+        );
 
         let connection = result.unwrap();
         let (bchs_name, bchs_value, bchs_encrypted): (String, Option<String>, u16) =

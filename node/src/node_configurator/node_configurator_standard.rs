@@ -18,6 +18,7 @@ use crate::apps::app_node;
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::PortConfiguration;
+use crate::database::db_migrations::{ExternalMigrationData, MigratorConfig};
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::node_configurator::{
@@ -46,7 +47,6 @@ use masq_lib::utils::WrapResult;
 use rustc_hex::FromHex;
 use std::ops::Deref;
 use std::str::FromStr;
-use crate::database::db_migrations::{ExternalMigrationData, MigratorConfig};
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -97,7 +97,9 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             &self.privileged_config.data_directory,
             self.privileged_config.blockchain_bridge_config.chain_id,
             true,
-            MigratorConfig::update(ExternalMigrationData::new(self.privileged_config.blockchain_bridge_config.chain_id))  //TODO here the best place might be
+            MigratorConfig::update(ExternalMigrationData::new(
+                self.privileged_config.blockchain_bridge_config.chain_id,
+            )), //TODO here the best place might be
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_parse_args(
@@ -1542,7 +1544,12 @@ mod tests {
         );
         let mut persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir.clone(),
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap(),
         )));
         let consuming_private_key =
@@ -1678,7 +1685,12 @@ mod tests {
         );
         let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir.clone(),
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap(),
         ));
         let consuming_private_key_text =

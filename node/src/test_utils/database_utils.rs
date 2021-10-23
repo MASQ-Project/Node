@@ -10,9 +10,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 //the only difference to the original is that we create the db in every call anew
-pub fn revive_tables_of_version_0_and_return_connection(
-    db_path: &PathBuf,
-) -> Connection {
+pub fn revive_tables_of_version_0_and_return_connection(db_path: &PathBuf) -> Connection {
     match remove_file(db_path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
         Err(e) => panic!("Unexpected but serious error: {}", e),

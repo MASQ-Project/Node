@@ -12,6 +12,8 @@ use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::bootstrapper::BootstrapperConfig;
+use crate::database::dao_utils::DaoFactoryReal;
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoFactory;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -44,11 +46,9 @@ use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
+use std::path::Path;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use crate::database::dao_utils::DaoFactoryReal;
-use crate::database::db_migrations::MigratorConfig;
-use std::path::Path;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -701,12 +701,12 @@ impl Accountant {
             .expect("UiGateway is dead");
     }
 
-    pub fn initialize_dao_factory(chain_id: u8,data_directory:&Path) ->DaoFactoryReal{
+    pub fn initialize_dao_factory(chain_id: u8, data_directory: &Path) -> DaoFactoryReal {
         DaoFactoryReal::new(
             data_directory,
             chain_id,
             false,
-            MigratorConfig::panic_on_update()
+            MigratorConfig::panic_on_update(),
         )
     }
 }

@@ -21,6 +21,7 @@ use crate::blockchain::blockchain_interface::{
 use crate::database::db_initializer::{
     connection_or_panic, DbInitializer, DbInitializerReal, DATABASE_FILE,
 };
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -49,7 +50,6 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
 use std::path::Path;
 use web3::transports::Http;
-use crate::database::db_migrations::MigratorConfig;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -303,17 +303,17 @@ impl ActorFactory for ActorFactoryReal {
     ) -> AccountantSubs {
         let cloned_config = config.clone();
         let chain_id = config.blockchain_bridge_config.chain_id;
-        let payable_dao_factory = Accountant::initialize_dao_factory(chain_id,data_directory);
-        let receivable_dao_factory = Accountant::initialize_dao_factory(chain_id,data_directory);
-        let banned_dao_factory = Accountant::initialize_dao_factory(chain_id,data_directory);
+        let payable_dao_factory = Accountant::initialize_dao_factory(chain_id, data_directory);
+        let receivable_dao_factory = Accountant::initialize_dao_factory(chain_id, data_directory);
+        let banned_dao_factory = Accountant::initialize_dao_factory(chain_id, data_directory);
         banned_cache_loader.load(connection_or_panic(
             db_initializer,
             data_directory,
             chain_id,
             false,
-            MigratorConfig::panic_on_update()
+            MigratorConfig::panic_on_update(),
         ));
-        let config_dao_factory = Accountant::initialize_dao_factory(chain_id,data_directory);
+        let config_dao_factory = Accountant::initialize_dao_factory(chain_id, data_directory);
         let addr: Addr<Accountant> = Arbiter::start(move |_| {
             Accountant::new(
                 &cloned_config,
@@ -378,7 +378,7 @@ impl ActorFactory for ActorFactoryReal {
                     &config.data_directory,
                     config.blockchain_bridge_config.chain_id,
                     false,
-                    MigratorConfig::panic_on_update()
+                    MigratorConfig::panic_on_update(),
                 )
                 .unwrap_or_else(|_| {
                     panic!(

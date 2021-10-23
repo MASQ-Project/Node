@@ -26,9 +26,9 @@ use serde_json::json;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
+use crate::database::db_migrations::MigratorConfig;
 #[cfg(test)]
 use std::any::Any;
-use crate::database::db_migrations::MigratorConfig;
 
 pub struct DumpConfigRunnerReal;
 
@@ -38,7 +38,11 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
             distill_args(&DirsWrapperReal {}, args)?;
         let cryptde = CryptDEReal::new(chain_id);
         PrivilegeDropperReal::new().drop_privileges(&real_user);
-        let config_dao = make_config_dao(&data_directory, chain_id, MigratorConfig::update_suppressed());  //dump config never migrates
+        let config_dao = make_config_dao(
+            &data_directory,
+            chain_id,
+            MigratorConfig::update_suppressed(),
+        ); //dump config never migrates
         let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
         let json = configuration_to_json(configuration, password_opt, &cryptde);
         write_string(streams, json);
@@ -110,9 +114,13 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
     }
 }
 
-fn make_config_dao(data_directory: &Path, chain_id: u8, migrator_config: MigratorConfig) -> ConfigDaoReal {
+fn make_config_dao(
+    data_directory: &Path,
+    chain_id: u8,
+    migrator_config: MigratorConfig,
+) -> ConfigDaoReal {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory, chain_id, true, migrator_config )// TODO: Probably should be false
+        .initialize(data_directory, chain_id, true, migrator_config) // TODO: Probably should be false
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
@@ -153,6 +161,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::{
         chain_id_from_name, contract_creation_block_from_chain_id,
     };
+    use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,
@@ -160,6 +169,7 @@ mod tests {
     use crate::db_config::typed_config_layer::encode_bytes;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::NodeDescriptor;
+    use crate::test_utils::database_utils::revive_tables_of_version_0_and_return_connection;
     use crate::test_utils::{main_cryptde, ArgsBuilder};
     use bip39::{Language, MnemonicType, Seed};
     use masq_lib::test_utils::environment_guard::ClapGuard;
@@ -168,8 +178,6 @@ mod tests {
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
     use masq_lib::utils::derivation_path;
-    use crate::test_utils::database_utils::revive_tables_of_version_0_and_return_connection;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
 
     #[test]
     fn dump_config_creates_database_if_nonexistent() {
@@ -217,12 +225,15 @@ mod tests {
     }
 
     #[test]
-    fn dump_config_does_not_migrate_obsolete_database(){
-        let data_dir = ensure_node_home_directory_exists("config_dumper","dump_config_does_not_migrate_obsolete_database");
+    fn dump_config_does_not_migrate_obsolete_database() {
+        let data_dir = ensure_node_home_directory_exists(
+            "config_dumper",
+            "dump_config_does_not_migrate_obsolete_database",
+        );
         let conn = revive_tables_of_version_0_and_return_connection(&data_dir.join(DATABASE_FILE));
-        let dao= ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
+        let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
-        assert_eq!(schema_version_before,"0");
+        assert_eq!(schema_version_before, "0");
         let mut holder = FakeStreamHolder::new();
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
@@ -236,7 +247,7 @@ mod tests {
 
         assert!(result.is_ok());
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
-        assert_eq!(schema_version_before,schema_version_after)
+        assert_eq!(schema_version_before, schema_version_after)
     }
 
     #[test]
@@ -255,7 +266,12 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
-                .initialize(&data_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &data_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -300,32 +316,44 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, DEFAULT_CHAIN_ID, false,MigratorConfig::panic_on_update())
+            .initialize(
+                &data_dir,
+                DEFAULT_CHAIN_ID,
+                false,
+                MigratorConfig::panic_on_update(),
+            )
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
         assert_value("clandestinePort", "3456", &map);
-        assert_value("consumingWalletDerivationPath", &derivation_path(4, 4), &map);
+        assert_value(
+            "consumingWalletDerivationPath",
+            &derivation_path(4, 4),
+            &map,
+        );
         assert_value(
             "earningWalletAddress",
-            "0x0123456789012345678901234567890123456789",&map
+            "0x0123456789012345678901234567890123456789",
+            &map,
         );
         assert_value("chainName", "ropsten", &map);
         assert_value("gasPrice", "1", &map);
         assert_value(
             "pastNeighbors",
-            &dao.get("past_neighbors").unwrap().value_opt.unwrap(),&map
+            &dao.get("past_neighbors").unwrap().value_opt.unwrap(),
+            &map,
         );
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
             &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
                 .to_string(),
-            &map
+            &map,
         );
         assert_value(
             "exampleEncrypted",
-            &dao.get("example_encrypted").unwrap().value_opt.unwrap(),&map
+            &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
+            &map,
         );
         assert_value("seed", &dao.get("seed").unwrap().value_opt.unwrap(), &map);
     }
@@ -346,7 +374,12 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
-                .initialize(&data_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &data_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -398,15 +431,25 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, DEFAULT_CHAIN_ID, false,MigratorConfig::panic_on_update())
+            .initialize(
+                &data_dir,
+                DEFAULT_CHAIN_ID,
+                false,
+                MigratorConfig::panic_on_update(),
+            )
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
         assert_value("clandestinePort", "3456", &map);
-        assert_value("consumingWalletDerivationPath", &derivation_path(4, 4), &map);
+        assert_value(
+            "consumingWalletDerivationPath",
+            &derivation_path(4, 4),
+            &map,
+        );
         assert_value(
             "earningWalletAddress",
-            "0x0123456789012345678901234567890123456789",&map
+            "0x0123456789012345678901234567890123456789",
+            &map,
         );
         assert_value("chainName", "ropsten", &map);
         assert_value("gasPrice", "1", &map);
@@ -415,7 +458,8 @@ mod tests {
         assert_value(
             "startBlock",
             &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
-                .to_string(),&map
+                .to_string(),
+            &map,
         );
         let expected_ee_entry = dao.get("example_encrypted").unwrap().value_opt.unwrap();
         let expected_ee_decrypted = Bip39::decrypt_bytes(&expected_ee_entry, "password").unwrap();
@@ -426,7 +470,7 @@ mod tests {
             &encode_bytes(Some(PlainData::new(seed.as_ref())))
                 .unwrap()
                 .unwrap(),
-            &map
+            &map,
         );
     }
 
@@ -446,7 +490,12 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
-                .initialize(&data_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &data_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -498,32 +547,44 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, DEFAULT_CHAIN_ID, false,MigratorConfig::panic_on_update())
+            .initialize(
+                &data_dir,
+                DEFAULT_CHAIN_ID,
+                false,
+                MigratorConfig::panic_on_update(),
+            )
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
         assert_value("clandestinePort", "3456", &map);
-        assert_value("consumingWalletDerivationPath", &derivation_path(4, 4), &map);
+        assert_value(
+            "consumingWalletDerivationPath",
+            &derivation_path(4, 4),
+            &map,
+        );
         assert_value(
             "earningWalletAddress",
             "0x0123456789012345678901234567890123456789",
-            &map
+            &map,
         );
         assert_value("chainName", "ropsten", &map);
         assert_value("gasPrice", "1", &map);
         assert_value(
             "pastNeighbors",
-            &dao.get("past_neighbors").unwrap().value_opt.unwrap(),&map
+            &dao.get("past_neighbors").unwrap().value_opt.unwrap(),
+            &map,
         );
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
             &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
-                .to_string(),&map
+                .to_string(),
+            &map,
         );
         assert_value(
             "exampleEncrypted",
-            &dao.get("example_encrypted").unwrap().value_opt.unwrap(), &map
+            &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
+            &map,
         );
         assert_value("seed", &dao.get("seed").unwrap().value_opt.unwrap(), &map);
     }
@@ -557,11 +618,11 @@ mod tests {
         let _ = translate_bytes("pastNeighbors", data, cryptde);
     }
 
-    fn assert_value(key: &str, expected_value: &str, map:&Map<String,Value>){
-            let actual_value = match map.get(key).unwrap() {
-                Value::String(s) => s,
-                x => panic!("Expected JSON string; found {:?}", x),
-            };
-            assert_eq!(actual_value, expected_value);
+    fn assert_value(key: &str, expected_value: &str, map: &Map<String, Value>) {
+        let actual_value = match map.get(key).unwrap() {
+            Value::String(s) => s,
+            x => panic!("Expected JSON string; found {:?}", x),
+        };
+        assert_eq!(actual_value, expected_value);
     }
 }

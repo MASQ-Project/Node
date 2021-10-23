@@ -241,9 +241,9 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
+    use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::assert_contains;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
-    use crate::database::db_migrations::MigratorConfig;
 
     #[test]
     fn get_all_returns_multiple_results() {
@@ -251,7 +251,12 @@ mod tests {
             ensure_node_home_directory_exists("config_dao", "get_all_returns_multiple_results");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap(),
         );
 
@@ -284,7 +289,12 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap(),
         );
 
@@ -301,12 +311,22 @@ mod tests {
         );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap(),
         );
         let confirmer = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap(),
         );
         let initial_value = dao.get("seed").unwrap();
@@ -353,7 +373,12 @@ mod tests {
         let home_dir = ensure_node_home_directory_exists("config_dao", "extract_works");
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap(),
         );
         {
@@ -396,12 +421,22 @@ mod tests {
         );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap(),
         );
         let confirmer = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, false,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir,
+                    DEFAULT_CHAIN_ID,
+                    false,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap(),
         );
         let initial_value = dao.get("seed").unwrap();
@@ -448,7 +483,12 @@ mod tests {
         );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap(),
         );
         let subject = dao.start_transaction().unwrap();
@@ -466,7 +506,12 @@ mod tests {
         );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap(),
         );
         {

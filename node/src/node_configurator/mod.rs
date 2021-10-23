@@ -8,6 +8,7 @@ use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
@@ -34,7 +35,6 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
-use crate::database::db_migrations::{MigratorConfig};
 
 pub trait NodeConfigurator<T> {
     fn configure(
@@ -182,10 +182,15 @@ pub fn initialize_database(
     data_directory: &Path,
     chain_id: u8,
     create_if_necessary: bool,
-    migrator_config: MigratorConfig
+    migrator_config: MigratorConfig,
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory, chain_id, create_if_necessary, migrator_config)
+        .initialize(
+            data_directory,
+            chain_id,
+            create_if_necessary,
+            migrator_config,
+        )
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",

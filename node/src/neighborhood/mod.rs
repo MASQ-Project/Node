@@ -13,6 +13,7 @@ pub mod node_record;
 use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
@@ -70,7 +71,6 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use crate::database::db_migrations::MigratorConfig;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 
@@ -428,7 +428,12 @@ impl Neighborhood {
         if self.persistent_config_opt.is_none() {
             let db_initializer = DbInitializerReal::default();
             let conn = db_initializer
-                .initialize(&self.data_directory, self.chain_id, false, MigratorConfig::panic_on_update())
+                .initialize(
+                    &self.data_directory,
+                    self.chain_id,
+                    false,
+                    MigratorConfig::panic_on_update(),
+                )
                 .expect("Neighborhood could not connect to database");
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
         }
@@ -1374,9 +1379,19 @@ mod tests {
     #[test]
     fn node_with_zero_hop_config_ignores_start_message() {
         init_test_logging();
-        let data_dir = ensure_node_home_directory_exists("neighborhood/mod", "node_with_zero_hop_config_ignores_start_message");
+        let data_dir = ensure_node_home_directory_exists(
+            "neighborhood/mod",
+            "node_with_zero_hop_config_ignores_start_message",
+        );
         {
-            let _ = DbInitializerReal::default().initialize(&data_dir,DEFAULT_CHAIN_ID,true,MigratorConfig::panic_on_update()).unwrap();
+            let _ = DbInitializerReal::default()
+                .initialize(
+                    &data_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
+                .unwrap();
         }
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
@@ -1416,9 +1431,19 @@ mod tests {
         expected = "--neighbors node descriptors must have IP address and port list, not 'AwQFBg::'"
     )]
     fn node_with_neighbor_config_having_no_node_addr_panics() {
-        let data_dir = ensure_node_home_directory_exists("neighborhood/mod", "node_with_neighbor_config_having_no_node_addr_panics");
+        let data_dir = ensure_node_home_directory_exists(
+            "neighborhood/mod",
+            "node_with_neighbor_config_having_no_node_addr_panics",
+        );
         {
-            let _ = DbInitializerReal::default().initialize(&data_dir,DEFAULT_CHAIN_ID,true,MigratorConfig::panic_on_update()).unwrap();
+            let _ = DbInitializerReal::default()
+                .initialize(
+                    &data_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
+                .unwrap();
         }
         let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
@@ -3433,9 +3458,19 @@ mod tests {
 
     #[test]
     fn node_gossips_to_neighbors_on_startup() {
-        let data_dir = ensure_node_home_directory_exists("neighborhood/mod", "node_gossips_to_neighbors_on_startup");
+        let data_dir = ensure_node_home_directory_exists(
+            "neighborhood/mod",
+            "node_gossips_to_neighbors_on_startup",
+        );
         {
-            let _ = DbInitializerReal::default().initialize(&data_dir,DEFAULT_CHAIN_ID,true,MigratorConfig::panic_on_update()).unwrap();
+            let _ = DbInitializerReal::default()
+                .initialize(
+                    &data_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
+                .unwrap();
         }
         let cryptde: &dyn CryptDE = main_cryptde();
         let neighbor = make_node_record(1234, true);

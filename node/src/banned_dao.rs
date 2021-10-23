@@ -148,6 +148,7 @@ impl BannedDao for BannedDaoReal {
 mod tests {
     use super::*;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
     use masq_lib::test_utils::utils::{
@@ -155,7 +156,6 @@ mod tests {
         DEFAULT_CHAIN_ID,
     };
     use rusqlite::NO_PARAMS;
-    use crate::database::db_migrations::MigratorConfig;
 
     #[test]
     fn banned_dao_can_ban_a_wallet_address() {
@@ -166,7 +166,12 @@ mod tests {
         let db_initializer = DbInitializerReal::default();
         let subject = {
             let conn = db_initializer
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap();
             BannedDaoReal::new(conn)
         };
@@ -174,7 +179,12 @@ mod tests {
         subject.ban(&make_wallet("donalddrumph"));
 
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+            .initialize(
+                &home_dir,
+                DEFAULT_CHAIN_ID,
+                true,
+                MigratorConfig::panic_on_update(),
+            )
             .unwrap();
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
         let mut banned_addresses = stmt.query(NO_PARAMS).unwrap();
@@ -194,7 +204,12 @@ mod tests {
         let db_initializer = DbInitializerReal::default();
         let subject = {
             let conn = db_initializer
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap();
             BannedDaoReal::new(conn)
         };
@@ -213,7 +228,12 @@ mod tests {
         let db_initializer = DbInitializerReal::default();
         let subject = {
             let conn = db_initializer
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+                .initialize(
+                    &home_dir,
+                    DEFAULT_CHAIN_ID,
+                    true,
+                    MigratorConfig::panic_on_update(),
+                )
                 .unwrap();
             BannedDaoReal::new(conn)
         };
@@ -230,7 +250,12 @@ mod tests {
         let db_initializer = DbInitializerReal::default();
 
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+            .initialize(
+                &home_dir,
+                DEFAULT_CHAIN_ID,
+                true,
+                MigratorConfig::panic_on_update(),
+            )
             .unwrap();
         let wallet = &make_wallet("booga");
         conn.prepare("insert into banned (wallet_address) values (?)")
@@ -243,7 +268,12 @@ mod tests {
         subject.unban(wallet);
 
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+            .initialize(
+                &home_dir,
+                DEFAULT_CHAIN_ID,
+                true,
+                MigratorConfig::panic_on_update(),
+            )
             .unwrap();
         let mut stmt = conn
             .prepare("select wallet_address from banned where wallet_address = ?")
@@ -260,7 +290,12 @@ mod tests {
         let db_initializer = DbInitializerReal::default();
 
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+            .initialize(
+                &home_dir,
+                DEFAULT_CHAIN_ID,
+                true,
+                MigratorConfig::panic_on_update(),
+            )
             .unwrap();
         let subject = BannedDaoReal::new(conn);
 
@@ -278,7 +313,12 @@ mod tests {
         let db_initializer = DbInitializerReal::default();
 
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+            .initialize(
+                &home_dir,
+                DEFAULT_CHAIN_ID,
+                true,
+                MigratorConfig::panic_on_update(),
+            )
             .unwrap();
         conn.prepare("insert into banned (wallet_address) values ('0x000000000000000000495f414d5f42414e4e4544')")
             .unwrap()
@@ -305,7 +345,12 @@ mod tests {
         let db_initializer = DbInitializerReal::default();
 
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+            .initialize(
+                &home_dir,
+                DEFAULT_CHAIN_ID,
+                true,
+                MigratorConfig::panic_on_update(),
+            )
             .unwrap();
         let subject = BannedDaoReal::new(conn);
 
@@ -321,7 +366,12 @@ mod tests {
             ensure_node_home_directory_does_not_exist("banned_dao", "unban_removes_from_ban_cache");
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
+            .initialize(
+                &home_dir,
+                DEFAULT_CHAIN_ID,
+                true,
+                MigratorConfig::panic_on_update(),
+            )
             .unwrap();
         let unban_me_baby = make_wallet("UNBAN_ME_BABY");
         conn.prepare("insert into banned (wallet_address) values ('UNBAN_ME_BABY')")
