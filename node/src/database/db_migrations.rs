@@ -349,28 +349,42 @@ impl DbMigratorReal {
 
 #[derive(PartialEq, Debug)]
 pub struct MigratorConfig {
-    pub should_be_suppressed: bool,
+    pub should_be_suppressed: Suppression,
     pub external_dataset: Option<ExternalMigrationData>,
+}
+
+#[derive(PartialEq,Debug)]
+pub enum Suppression{
+    No,
+    Yes,
+    WithErr
 }
 
 impl MigratorConfig {
     pub fn panic_on_update() -> Self {
         Self {
-            should_be_suppressed: false,
+            should_be_suppressed: Suppression::No,
             external_dataset: None,
         }
     }
 
     pub fn update(external_params: ExternalMigrationData) -> Self {
         Self {
-            should_be_suppressed: false,
+            should_be_suppressed: Suppression::No,
             external_dataset: Some(external_params),
         }
     }
 
     pub fn update_suppressed() -> Self {
         Self {
-            should_be_suppressed: true,
+            should_be_suppressed: Suppression::Yes,
+            external_dataset: None,
+        }
+    }
+
+    pub fn suppressed_with_error()-> Self{
+        Self {
+            should_be_suppressed: Suppression::WithErr,
             external_dataset: None,
         }
     }
@@ -405,10 +419,7 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, DATABASE_FILE,
     };
-    use crate::database::db_migrations::{
-        DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbMigrator,
-        ExternalMigrationData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig,
-    };
+    use crate::database::db_migrations::{DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbMigrator, ExternalMigrationData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, Suppression};
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, revive_tables_of_version_0_and_return_connection,
@@ -552,7 +563,7 @@ mod tests {
         assert_eq!(
             MigratorConfig::panic_on_update(),
             MigratorConfig {
-                should_be_suppressed: false,
+                should_be_suppressed: Suppression::No,
                 external_dataset: None
             }
         )
@@ -563,7 +574,7 @@ mod tests {
         assert_eq!(
             MigratorConfig::update(make_defaulted_external_migration_data()),
             MigratorConfig {
-                should_be_suppressed: false,
+                should_be_suppressed: Suppression::No,
                 external_dataset: Some(make_defaulted_external_migration_data())
             }
         )
@@ -580,7 +591,18 @@ mod tests {
         assert_eq!(
             MigratorConfig::update_suppressed(),
             MigratorConfig {
-                should_be_suppressed: true,
+                should_be_suppressed: Suppression::Yes,
+                external_dataset: None
+            }
+        )
+    }
+
+    #[test]
+    fn suppressed_with_error_properly_set() {
+        assert_eq!(
+            MigratorConfig::suppressed_with_error(),
+            MigratorConfig {
+                should_be_suppressed: Suppression::WithErr,
                 external_dataset: None
             }
         )

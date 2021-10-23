@@ -514,7 +514,7 @@ impl Configurator {
                 }
             }
         };
-        let blockchain_service_url = Self::value_not_required(
+        let blockchain_service_url_opt = Self::value_not_required(
             persistent_config.blockchain_service_url(),
             "blockchainServiceUrl",
         )?;
@@ -532,6 +532,7 @@ impl Configurator {
             "earningWalletAddressOpt",
         )?;
         let start_block = Self::value_required(persistent_config.start_block(), "startBlock")?;
+        let neighborhood_mode = Self::value_required(persistent_config.neighborhood_mode(),"neighborhoodMode")?.to_string();
         let port_mapping_protocol_opt =
             Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?;
         let (mnemonic_seed_opt, past_neighbors) = match good_password {
@@ -557,12 +558,13 @@ impl Configurator {
             None => (None, vec![]),
         };
         let response = UiConfigurationResponse {
-            blockchain_service_url,
+            blockchain_service_url_opt,
             current_schema_version,
             clandestine_port,
             chain_name,
             gas_price,
             mnemonic_seed_opt,
+            neighborhood_mode,
             consuming_wallet_derivation_path_opt,
             earning_wallet_address_opt,
             port_mapping_protocol_opt,
@@ -762,7 +764,7 @@ mod tests {
     use bip39::{Language, Mnemonic};
     use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
-    use masq_lib::utils::derivation_path;
+    use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 
     #[test]
     fn constructor_connects_with_database() {
@@ -1969,6 +1971,7 @@ mod tests {
             .mnemonic_seed_params(&mnemonic_seed_params_arc)
             .consuming_wallet_derivation_path_result(Ok(None))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
+            .neighborhood_mode_result(Ok(NeighborhoodModeLight::Standard))
             .earning_wallet_address_result(Ok(None))
             .start_block_result(Ok(3456));
         let mut subject = make_subject(Some(persistent_config));
@@ -1986,12 +1989,13 @@ mod tests {
         assert_eq!(
             configuration,
             UiConfigurationResponse {
-                blockchain_service_url: Some("https://infura.io/ID".to_string()),
+                blockchain_service_url_opt: Some("https://infura.io/ID".to_string()),
                 current_schema_version: "1.2.3".to_string(),
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
                 mnemonic_seed_opt: None,
+                neighborhood_mode: String::from("standard"),
                 consuming_wallet_derivation_path_opt: None,
                 earning_wallet_address_opt: None,
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),
@@ -2028,6 +2032,7 @@ mod tests {
                 consuming_wallet_derivation_path.clone(),
             )))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
+            .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
             .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
             .start_block_result(Ok(3456));
@@ -2046,12 +2051,13 @@ mod tests {
         assert_eq!(
             configuration,
             UiConfigurationResponse {
-                blockchain_service_url: None,
+                blockchain_service_url_opt: None,
                 current_schema_version: "1.2.3".to_string(),
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
                 mnemonic_seed_opt: Some(mnemonic_seed.as_slice().to_hex()),
+                neighborhood_mode: String::from("consume-only"),
                 consuming_wallet_derivation_path_opt: Some(consuming_wallet_derivation_path),
                 earning_wallet_address_opt: Some(earning_wallet_address),
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),

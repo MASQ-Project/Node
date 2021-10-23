@@ -3,9 +3,7 @@ use crate::blockchain::blockchain_interface::{
     chain_name_from_id, contract_creation_block_from_chain_id,
 };
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-use crate::database::db_migrations::{
-    DbMigrator, DbMigratorReal, ExternalMigrationData, MigratorConfig,
-};
+use crate::database::db_migrations::{DbMigrator, DbMigratorReal, ExternalMigrationData, MigratorConfig, Suppression};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
 use masq_lib::constants::{
@@ -102,10 +100,10 @@ impl DbInitializer for DbInitializerReal {
                 let config = self.extract_configurations(&conn);
                 match (
                     Self::is_update_required(config.get("schema_version"))?,
-                    migrator_config.should_be_suppressed,
+                    &migrator_config.should_be_suppressed,
                 ) {
                     (None, _) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
-                    (Some(mismatched_version), false) => {
+                    (Some(mismatched_version), &Suppression::No) => {
                         let external_params = ExternalMigrationData::from(migrator_config);
                         let migrator = Box::new(DbMigratorReal::new(external_params));
                         self.update_and_get_connection(
@@ -117,7 +115,8 @@ impl DbInitializer for DbInitializerReal {
                             migrator,
                         )
                     }
-                    (Some(_), true) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
+                    (Some(_), &Suppression::Yes) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
+                    (Some(_),&Suppression::WithErr) => unimplemented!()
                 }
             }
             Err(_) => {

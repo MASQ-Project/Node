@@ -2,11 +2,12 @@
 
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::neighborhood::{NodeDescriptor};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::automap_tools::AutomapProtocol;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use masq_lib::utils::NeighborhoodModeLight;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -42,6 +43,9 @@ pub struct PersistentConfigurationMock {
     mapping_protocol_results: RefCell<Vec<Result<Option<AutomapProtocol>, PersistentConfigError>>>,
     set_mapping_protocol_params: Arc<Mutex<Vec<AutomapProtocol>>>,
     set_mapping_protocol_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    neighborhood_mode_results:RefCell<Vec<Result<NeighborhoodModeLight,PersistentConfigError>>>,
+    set_neighborhood_mode_params: Arc<Mutex<Vec<NeighborhoodModeLight>>>,
+    set_neighborhood_mode_results: RefCell<Vec<Result<(),PersistentConfigError>>>,
     past_neighbors_params: Arc<Mutex<Vec<String>>>,
     past_neighbors_results:
         RefCell<Vec<Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>>>,
@@ -206,6 +210,14 @@ impl PersistentConfiguration for PersistentConfigurationMock {
             .pop()
             .unwrap()
     }
+
+    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
+        self.neighborhood_mode_results.borrow_mut().remove(0)
+    }
+
+    fn set_neighborhood_mode(&mut self,value:NeighborhoodModeLight) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
 }
 
 impl PersistentConfigurationMock {
@@ -336,6 +348,30 @@ impl PersistentConfigurationMock {
         result: Result<bool, PersistentConfigError>,
     ) -> PersistentConfigurationMock {
         self.mnemonic_seed_exists_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn neighborhood_mode_result(
+        self,
+        result: Result<NeighborhoodModeLight, PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.neighborhood_mode_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_neighborhood_mode_params(
+        mut self,
+        params: &Arc<Mutex<Vec<NeighborhoodModeLight>>>,
+    ) -> PersistentConfigurationMock {
+        self.set_neighborhood_mode_params = params.clone();
+        self
+    }
+
+    pub fn set_neighborhood_mode_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.set_blockchain_service_url_results.borrow_mut().push(result);
         self
     }
 

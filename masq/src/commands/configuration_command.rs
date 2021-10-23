@@ -78,7 +78,7 @@ impl ConfigurationCommand {
             stream,
             "Blockchain service URL:",
             &configuration
-                .blockchain_service_url
+                .blockchain_service_url_opt
                 .unwrap_or_else(|| "[?]".to_string()),
         );
         Self::dump_configuration_line(
@@ -100,6 +100,7 @@ impl ConfigurationCommand {
                 .mnemonic_seed_opt
                 .unwrap_or_else(|| "[?]".to_string()),
         );
+        Self::dump_configuration_line(stream,"Neighborhood mode:",&configuration.neighborhood_mode);
         Self::dump_configuration_line(
             stream,
             "Consuming wallet derivation path:",
@@ -230,12 +231,13 @@ mod tests {
     fn configuration_command_happy_path_with_secrets() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiConfigurationResponse {
-            blockchain_service_url: Some("https://infura.io/ID".to_string()),
+            blockchain_service_url_opt: Some("https://infura.io/ID".to_string()),
             current_schema_version: "schema version".to_string(),
             clandestine_port: 1234,
             chain_name: "ropsten".to_string(),
             gas_price: 2345,
             mnemonic_seed_opt: Some("mnemonic seed".to_string()),
+            neighborhood_mode: "standard".to_string(),
             consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
             port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
@@ -275,6 +277,7 @@ mod tests {
 |Chain                             ropsten\n\
 |Gas price:                        2345\n\
 |Mnemonic seed:                    mnemonic seed\n\
+|Neighborhood mode:                standard\n\
 |Consuming wallet derivation path: consuming path\n\
 |Earning wallet address:           earning address\n\
 |Port mapping protocol:            PCP\n\
@@ -292,12 +295,13 @@ mod tests {
     fn configuration_command_happy_path_without_secrets() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiConfigurationResponse {
-            blockchain_service_url: Some("https://infura.io/ID".to_string()),
+            blockchain_service_url_opt: Some("https://infura.io/ID".to_string()),
             current_schema_version: "schema version".to_string(),
             clandestine_port: 1234,
             chain_name: "mumbai".to_string(),
             gas_price: 2345,
             mnemonic_seed_opt: None,
+            neighborhood_mode: "zero-hop".to_string(),
             consuming_wallet_derivation_path_opt: None,
             earning_wallet_address_opt: None,
             port_mapping_protocol_opt: None,
@@ -335,6 +339,7 @@ Clandestine port:                 1234\n\
 Chain                             mumbai\n\
 Gas price:                        2345\n\
 Mnemonic seed:                    [?]\n\
+Neighborhood mode:                zero-hop\n\
 Consuming wallet derivation path: [?]\n\
 Earning wallet address:           [?]\n\
 Port mapping protocol:            [?]\n\

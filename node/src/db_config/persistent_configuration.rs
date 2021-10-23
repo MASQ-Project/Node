@@ -8,7 +8,7 @@ use crate::db_config::typed_config_layer::{
     decode_bytes, decode_u64, encode_bytes, encode_u64, TypedConfigLayerError,
 };
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::neighborhood::{NodeDescriptor};
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, MnemonicType};
 use masq_lib::automap_tools::AutomapProtocol;
@@ -17,6 +17,7 @@ use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
+use masq_lib::utils::{WrapResult, NeighborhoodModeLight};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -119,6 +120,8 @@ pub trait PersistentConfiguration {
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
     fn set_mapping_protocol(&mut self, value: AutomapProtocol)
         -> Result<(), PersistentConfigError>;
+    fn neighborhood_mode(&self)-> Result<NeighborhoodModeLight,PersistentConfigError>;
+    fn set_neighborhood_mode(&mut self,value:NeighborhoodModeLight)-> Result<(),PersistentConfigError>;
 }
 
 pub struct PersistentConfigurationReal {
@@ -391,11 +394,11 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
-        Ok(self
+        self
             .dao
             .get("mapping_protocol")?
             .value_opt
-            .map(|val| val.into()))
+            .map(|val| val.into()).wrap_to_ok()
     }
 
     fn set_mapping_protocol(
@@ -404,6 +407,19 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     ) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         writer.set("mapping_protocol", Some(value.to_string()))?;
+        Ok(writer.commit()?)
+    }
+
+    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
+        Ok(self
+            .dao
+            .get("neighborhood_mode")?.value_opt
+            .expect("ever-supplied value neighborhood_mode is missing; database is corrupt!").into())
+    }
+
+    fn set_neighborhood_mode(&mut self,value:NeighborhoodModeLight) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        writer.set("neighborhood_mode", Some(value.to_string()))?;
         Ok(writer.commit()?)
     }
 }
@@ -1708,7 +1724,7 @@ mod tests {
     }
 
     #[test]
-    fn mapping_protocol() {
+    fn mapping_protocol_works() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
@@ -1727,7 +1743,7 @@ mod tests {
     }
 
     #[test]
-    fn set_mapping_protocol() {
+    fn set_mapping_protocol_works() {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoWriteableMock::new()
             .set_params(&set_params_arc)
@@ -1744,6 +1760,46 @@ mod tests {
         assert_eq!(
             *set_params,
             vec![("mapping_protocol".to_string(), Some("PMP".to_string()))]
+        );
+    }
+
+    #[test]
+    fn neighborhood_mode_works() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "neighborhood_mode",
+                Some("standard"),
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.neighborhood_mode().unwrap();
+
+        assert_eq!(result, NeighborhoodModeLight::Standard);
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(*get_params, vec!["neighborhood_mode".to_string()]);
+    }
+
+    #[test]
+    fn set_neighborhood_mode_works() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoWriteableMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()))
+            .commit_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(
+            ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
+        ));
+
+        let result = subject.set_neighborhood_mode(NeighborhoodModeLight::ConsumeOnly);
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("neighborhood_mode".to_string(), Some("consume-only".to_string()))]
         );
     }
 }

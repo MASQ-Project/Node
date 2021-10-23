@@ -2,7 +2,7 @@
 
 use lazy_static::lazy_static;
 use std::fmt;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::sync::{Arc, Mutex};
@@ -98,6 +98,37 @@ where
         None
     } else {
         Some(index)
+    }
+}
+
+#[derive(PartialEq,Debug,Clone)]
+pub enum NeighborhoodModeLight {
+    Standard,
+    ConsumeOnly,
+    OriginateOnly,
+    ZeroHop
+}
+
+impl Display for NeighborhoodModeLight {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self{
+            Self::Standard => write!(f,"standard"),
+            Self::ConsumeOnly => write!(f,"consume-only"),
+            Self::OriginateOnly => write!(f, "originate-only"),
+            Self::ZeroHop => write!(f,"zero-hop")
+        }
+    }
+}
+
+impl From<String> for NeighborhoodModeLight {
+    fn from(string: String) -> Self {
+        match string.as_str(){
+            "standard" => Self::Standard,
+            "consume-only" => Self::ConsumeOnly,
+            "originate-only" => Self::OriginateOnly,
+            "zero-hop" => Self::ZeroHop,
+            x => panic!("should not happen: {}",x)
+        }
     }
 }
 
@@ -352,6 +383,28 @@ mod tests {
             read_only_file_handle,
             "This is the first line and others will come...maybe"
         );
+    }
+
+    #[test]
+    fn neighborhood_mode_light_has_display(){
+        assert_eq!(NeighborhoodModeLight::Standard.to_string(), "standard");
+        assert_eq!(NeighborhoodModeLight::ConsumeOnly.to_string(), "consume-only");
+        assert_eq!(NeighborhoodModeLight::OriginateOnly.to_string(), "originate-only");
+        assert_eq!(NeighborhoodModeLight::ZeroHop.to_string(), "zero-hop")
+    }
+
+    #[test]
+    fn neighborhood_mode_light_can_exist_from_string(){
+        assert_eq!(NeighborhoodModeLight::Standard, NeighborhoodModeLight::from("standard".to_string()));
+        assert_eq!(NeighborhoodModeLight::ConsumeOnly, NeighborhoodModeLight::from("consume-only".to_string()));
+        assert_eq!(NeighborhoodModeLight::OriginateOnly, NeighborhoodModeLight::from("originate-only".to_string()));
+        assert_eq!(NeighborhoodModeLight::ZeroHop, NeighborhoodModeLight::from("zero-hop".to_string()))
+    }
+
+    #[test]
+    #[should_panic(expected="should not happen: blah")]
+    fn neighborhood_mode_light_from_string_panics_on_unknown_string(){
+        let _ = NeighborhoodModeLight::from("blah".to_string());
     }
 
     #[test]
