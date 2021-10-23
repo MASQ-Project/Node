@@ -70,6 +70,7 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use crate::database::db_migrations::MigratorConfig;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 
@@ -427,7 +428,7 @@ impl Neighborhood {
         if self.persistent_config_opt.is_none() {
             let db_initializer = DbInitializerReal::default();
             let conn = db_initializer
-                .initialize(&self.data_directory, self.chain_id, true) // TODO: Probably should be false
+                .initialize(&self.data_directory, self.chain_id, false, MigratorConfig::panic_on_update())
                 .expect("Neighborhood could not connect to database");
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
         }
@@ -1373,12 +1374,16 @@ mod tests {
     #[test]
     fn node_with_zero_hop_config_ignores_start_message() {
         init_test_logging();
+        let data_dir = ensure_node_home_directory_exists("neighborhood/mod", "node_with_zero_hop_config_ignores_start_message");
+        {
+            let _ = DbInitializerReal::default().initialize(&data_dir,DEFAULT_CHAIN_ID,true,MigratorConfig::panic_on_update()).unwrap();
+        }
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system =
             System::new("node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message");
-        let subject = Neighborhood::new(
+        let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
                 NeighborhoodConfig {
@@ -1389,6 +1394,7 @@ mod tests {
                 "node_with_zero_hop_config_ignores_start_message",
             ),
         );
+        subject.data_directory = data_dir;
         let addr: Addr<Neighborhood> = subject.start();
         let sub = addr.clone().recipient::<StartMessage>();
         let (hopper, _, hopper_recording_arc) = make_recorder();
@@ -1410,12 +1416,16 @@ mod tests {
         expected = "--neighbors node descriptors must have IP address and port list, not 'AwQFBg::'"
     )]
     fn node_with_neighbor_config_having_no_node_addr_panics() {
+        let data_dir = ensure_node_home_directory_exists("neighborhood/mod", "node_with_neighbor_config_having_no_node_addr_panics");
+        {
+            let _ = DbInitializerReal::default().initialize(&data_dir,DEFAULT_CHAIN_ID,true,MigratorConfig::panic_on_update()).unwrap();
+        }
         let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let neighbor_node = make_node_record(3456, true);
         let system = System::new("node_with_bad_neighbor_config_panics");
-        let subject = Neighborhood::new(
+        let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
                 NeighborhoodConfig {
@@ -1434,6 +1444,7 @@ mod tests {
                 "node_with_neighbor_config_having_no_node_addr_panics",
             ),
         );
+        subject.data_directory = data_dir;
         let addr: Addr<Neighborhood> = subject.start();
         let sub = addr.clone().recipient::<StartMessage>();
         let peer_actors = peer_actors_builder().build();
@@ -3422,11 +3433,15 @@ mod tests {
 
     #[test]
     fn node_gossips_to_neighbors_on_startup() {
+        let data_dir = ensure_node_home_directory_exists("neighborhood/mod", "node_gossips_to_neighbors_on_startup");
+        {
+            let _ = DbInitializerReal::default().initialize(&data_dir,DEFAULT_CHAIN_ID,true,MigratorConfig::panic_on_update()).unwrap();
+        }
         let cryptde: &dyn CryptDE = main_cryptde();
         let neighbor = make_node_record(1234, true);
         let (hopper, _, hopper_recording) = make_recorder();
         let neighbor_inside = neighbor.clone();
-        let subject = Neighborhood::new(
+        let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
                 NeighborhoodConfig {
@@ -3445,6 +3460,7 @@ mod tests {
                 "node_gossips_to_neighbors_on_startup",
             ),
         );
+        subject.data_directory = data_dir;
         let this_node = subject.neighborhood_database.root().clone();
         let system = System::new("node_gossips_to_neighbors_on_startup");
         let addr: Addr<Neighborhood> = subject.start();

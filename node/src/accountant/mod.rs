@@ -46,6 +46,9 @@ use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::thread;
 use std::time::{Duration, SystemTime};
+use crate::database::dao_utils::DaoFactoryReal;
+use crate::database::db_migrations::MigratorConfig;
+use std::path::Path;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -696,6 +699,15 @@ impl Accountant {
                 body,
             })
             .expect("UiGateway is dead");
+    }
+
+    pub fn initialize_dao_factory(chain_id: u8,data_directory:&Path) ->DaoFactoryReal{
+        DaoFactoryReal::new(
+            data_directory,
+            chain_id,
+            false,
+            MigratorConfig::panic_on_update()
+        )
     }
 }
 

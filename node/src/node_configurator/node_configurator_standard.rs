@@ -46,6 +46,7 @@ use masq_lib::utils::WrapResult;
 use rustc_hex::FromHex;
 use std::ops::Deref;
 use std::str::FromStr;
+use crate::database::db_migrations::{ExternalMigrationData, MigratorConfig};
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -95,6 +96,8 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
             self.privileged_config.blockchain_bridge_config.chain_id,
+            true,
+            MigratorConfig::update(ExternalMigrationData::new(self.privileged_config.blockchain_bridge_config.chain_id))  //TODO here the best place might be
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_parse_args(
@@ -1539,7 +1542,7 @@ mod tests {
         );
         let mut persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
                 .unwrap(),
         )));
         let consuming_private_key =
@@ -1675,7 +1678,7 @@ mod tests {
         );
         let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
                 .unwrap(),
         ));
         let consuming_private_key_text =

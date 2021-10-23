@@ -6,7 +6,6 @@ pub mod node_configurator_standard;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
-use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::db_config::persistent_configuration::{
@@ -35,6 +34,7 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
+use crate::database::db_migrations::{MigratorConfig};
 
 pub trait NodeConfigurator<T> {
     fn configure(
@@ -181,9 +181,11 @@ pub fn create_wallet(
 pub fn initialize_database(
     data_directory: &Path,
     chain_id: u8,
+    create_if_necessary: bool,
+    migrator_config: MigratorConfig
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory, chain_id, true)
+        .initialize(data_directory, chain_id, create_if_necessary, migrator_config)
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
@@ -264,30 +266,30 @@ pub fn data_directory_from_context(
     }
 }
 
-pub fn prepare_initialization_mode<'a>(
-    dirs_wrapper: &dyn DirsWrapper,
-    app: &'a App,
-    args: &[String],
-) -> Result<(MultiConfig<'a>, Box<dyn PersistentConfiguration>), ConfiguratorError> {
-    let multi_config = make_new_multi_config(
-        app,
-        vec![
-            Box::new(CommandLineVcl::new(args.to_vec())),
-            Box::new(EnvironmentVcl::new(app)),
-        ],
-    )?;
-
-    let (real_user, data_directory_opt, chain_name) =
-        real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
-    let directory = data_directory_from_context(
-        &DirsWrapperReal {},
-        &real_user,
-        &data_directory_opt,
-        &chain_name,
-    );
-    let persistent_config_box = initialize_database(&directory, chain_id_from_name(&chain_name));
-    Ok((multi_config, persistent_config_box))
-}
+// pub fn prepare_initialization_mode<'a>(
+//     dirs_wrapper: &dyn DirsWrapper,
+//     app: &'a App,
+//     args: &[String],
+// ) -> Result<(MultiConfig<'a>, Box<dyn PersistentConfiguration>), ConfiguratorError> {
+//     let multi_config = make_new_multi_config(
+//         app,
+//         vec![
+//             Box::new(CommandLineVcl::new(args.to_vec())),
+//             Box::new(EnvironmentVcl::new(app)),
+//         ],
+//     )?;
+//
+//     let (real_user, data_directory_opt, chain_name) =
+//         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
+//     let directory = data_directory_from_context(
+//         &DirsWrapperReal {},
+//         &real_user,
+//         &data_directory_opt,
+//         &chain_name,
+//     );
+//     let persistent_config_box = initialize_database(&directory, chain_id_from_name(&chain_name));
+//     Ok((multi_config, persistent_config_box))
+// }
 
 pub fn check_for_past_initialization(
     persistent_config: &dyn PersistentConfiguration,

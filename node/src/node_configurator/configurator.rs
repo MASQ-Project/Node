@@ -37,6 +37,7 @@ use masq_lib::constants::{
 };
 use rustc_hex::ToHex;
 use std::str::FromStr;
+use crate::database::db_migrations::MigratorConfig;
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
@@ -100,7 +101,7 @@ impl Configurator {
     pub fn new(data_directory: PathBuf, chain_id: u8) -> Self {
         let initializer = DbInitializerReal::default();
         let conn = initializer
-            .initialize(&data_directory, chain_id, false)
+            .initialize(&data_directory, chain_id, false,MigratorConfig::panic_on_update())
             .expect("Couldn't initialize database");
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config: Box<dyn PersistentConfiguration> =
@@ -764,7 +765,7 @@ mod tests {
             ensure_node_home_directory_exists("configurator", "constructor_connects_with_database");
         let verifier = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&data_dir, DEFAULT_CHAIN_ID, true,MigratorConfig::panic_on_update())
                 .unwrap(),
         )));
         let (recorder, _, _) = make_recorder();

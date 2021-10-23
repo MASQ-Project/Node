@@ -5,6 +5,9 @@ use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::SystemTime;
+use crate::database::db_migrations::MigratorConfig;
+use masq_lib::utils::ExpectValue;
+use std::cell::RefCell;
 
 pub fn to_time_t(system_time: SystemTime) -> i64 {
     match system_time.duration_since(SystemTime::UNIX_EPOCH) {
@@ -26,14 +29,16 @@ pub struct DaoFactoryReal {
     pub data_directory: PathBuf,
     pub chain_id: u8,
     pub create_if_necessary: bool,
+    pub migrator_config: RefCell<Option<MigratorConfig>>
 }
 
 impl DaoFactoryReal {
-    pub fn new(data_directory: &Path, chain_id: u8, create_if_necessary: bool) -> Self {
+    pub fn new(data_directory: &Path, chain_id: u8, create_if_necessary: bool, migrator_config: MigratorConfig) -> Self {
         Self {
             data_directory: data_directory.to_path_buf(),
             chain_id,
             create_if_necessary,
+            migrator_config: RefCell::new(Some(migrator_config))
         }
     }
 
@@ -43,6 +48,7 @@ impl DaoFactoryReal {
             &self.data_directory,
             self.chain_id,
             self.create_if_necessary,
+            self.migrator_config.take().expect_v("MigratorConfig")
         )
     }
 }
@@ -60,6 +66,7 @@ mod tests {
             &PathBuf::from_str("nonexistent").unwrap(),
             DEFAULT_CHAIN_ID,
             false,
+            MigratorConfig::panic_on_update()
         );
 
         let _ = subject.make_connection();

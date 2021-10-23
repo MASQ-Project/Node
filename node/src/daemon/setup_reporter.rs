@@ -34,6 +34,7 @@ use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter}
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use crate::database::db_migrations::{MigratorConfig};
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
@@ -406,7 +407,7 @@ impl SetupReporterReal {
             }
         };
         let initializer = DbInitializerReal::default();
-        match initializer.initialize(data_directory, chain_id, false) {
+        match initializer.initialize(data_directory, chain_id, false, MigratorConfig::update_suppressed()) {
             Ok(conn) => {
                 let mut persistent_config = PersistentConfigurationReal::from(conn);
                 match unprivileged_parse_args(
@@ -868,7 +869,7 @@ mod tests {
     use crate::bootstrapper::RealUser;
     use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
     use crate::daemon::dns_inspector::DnsInspectionError;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };
@@ -891,6 +892,9 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use crate::test_utils::database_utils::revive_tables_of_version_0_and_return_connection;
+    use crate::db_config::config_dao::{ConfigDaoReal, ConfigDaoRead};
+    use crate::database::connection_wrapper::ConnectionWrapperReal;
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -971,7 +975,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, chain_id_from_name(DEFAULT_CHAIN_NAME), true)
+            .initialize(&home_dir, chain_id_from_name(DEFAULT_CHAIN_NAME), true,MigratorConfig::panic_on_update())
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
@@ -1606,6 +1610,41 @@ mod tests {
 
         let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
         assert_eq!(actual_data_directory, expected_data_directory);
+    }
+
+    #[test]
+    fn get_modified_setup_does_not_support_database_migration(){
+        let data_dir = ensure_node_home_directory_exists("setup_reporter", "get_modified_setup_does_not_support_database_migration");
+        let conn = revive_tables_of_version_0_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let dao= ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
+        let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before,"0");
+        let existing_setup = setup_cluster_from(vec![
+            ("chain", DEFAULT_CHAIN_NAME, Default),
+            (
+                "data-directory",
+                &data_dir.to_string_lossy().to_string(),
+                Set,
+            ),
+            (
+                "real-user",
+                &crate::bootstrapper::RealUser::new(None, None, None)
+                    .populate(&DirsWrapperReal {})
+                    .to_string(),
+                Default,
+            )]);
+        let incoming_setup = vec![("ip","1.2.3.4")]
+            .into_iter()
+            .map(|(name, value)| UiSetupRequestValue::new(name, value))
+            .collect_vec();
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let _ = subject
+            .get_modified_setup(existing_setup, incoming_setup).unwrap();
+
+        let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before,schema_version_after)
     }
 
     #[test]

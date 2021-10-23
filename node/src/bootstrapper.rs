@@ -55,6 +55,7 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
+use crate::database::db_migrations::MigratorConfig;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -528,6 +529,7 @@ impl Bootstrapper {
                     &self.config.data_directory,
                     self.config.blockchain_bridge_config.chain_id,
                     true,
+                    MigratorConfig::panic_on_update()
                 )
                 .expect("Cannot initialize database");
             let config_dao = ConfigDaoReal::new(conn);
@@ -1554,7 +1556,7 @@ mod tests {
         subject.set_up_clandestine_port();
 
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, chain_id, true)
+            .initialize(&data_dir, chain_id, true,MigratorConfig::panic_on_update())
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1623,7 +1625,7 @@ mod tests {
         subject.set_up_clandestine_port();
 
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, chain_id, true)
+            .initialize(&data_dir, chain_id, true,MigratorConfig::panic_on_update())
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
