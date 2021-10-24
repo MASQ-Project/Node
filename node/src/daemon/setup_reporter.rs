@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::apps::app_head;
-use crate::blockchain::blockchain_interface::{chain_name_from_id};
+use crate::blockchain::blockchain_interface::chain_name_from_id;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
@@ -118,7 +118,7 @@ impl SetupReporter for SetupReporterReal {
         let (configured_setup, error_opt) = Self::calculate_configured_setup(
             self.dirs_wrapper.as_ref(),
             &all_but_configured,
-            &data_directory
+            &data_directory,
         );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -274,11 +274,8 @@ impl SetupReporterReal {
                 Ok(mc) => mc,
                 Err(ce) => return (HashMap::new(), Some(ce)),
             };
-        let ((bootstrapper_config, persistent_config_opt), error_opt) = Self::run_configuration(
-            dirs_wrapper,
-            &multi_config,
-            data_directory
-        );
+        let ((bootstrapper_config, persistent_config_opt), error_opt) =
+            Self::run_configuration(dirs_wrapper, &multi_config, data_directory);
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
@@ -383,7 +380,7 @@ impl SetupReporterReal {
     fn run_configuration(
         dirs_wrapper: &dyn DirsWrapper,
         multi_config: &MultiConfig,
-        data_directory: &Path
+        data_directory: &Path,
     ) -> (
         (BootstrapperConfig, Option<Box<dyn PersistentConfiguration>>),
         Option<ConfiguratorError>,
@@ -884,9 +881,13 @@ mod tests {
     use crate::test_utils::database_utils::revive_tables_of_version_0_and_return_connection;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::pure_test_utils::{
+        make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
+    };
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+    use rusqlite::NO_PARAMS;
     use std::cell::RefCell;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
@@ -895,8 +896,6 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use crate::test_utils::pure_test_utils::{make_simplified_multi_config, make_pre_populated_mocked_directory_wrapper};
-    use rusqlite::NO_PARAMS;
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -977,11 +976,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(
-                &home_dir,
-                true,
-                MigratorConfig::test_default(),
-            )
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
@@ -1686,22 +1681,31 @@ mod tests {
     }
 
     #[test]
-    fn run_configuration_suppress_db_migration_and_does_not_initiate_persistent_config(){
+    fn run_configuration_suppress_db_migration_and_does_not_initiate_persistent_config() {
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "run_configuration_suppress_db_migration_and_does_not_initiate_persistent_config",
         );
         let conn = revive_tables_of_version_0_and_return_connection(&data_dir.join(DATABASE_FILE));
-        conn.execute("update config set value = 55 where name = 'gas_price'",NO_PARAMS).unwrap();
+        conn.execute(
+            "update config set value = 55 where name = 'gas_price'",
+            NO_PARAMS,
+        )
+        .unwrap();
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let updated_gas_price = dao.get("gas_price").unwrap().value_opt.unwrap();
-        assert_eq!(updated_gas_price,"55");
+        assert_eq!(updated_gas_price, "55");
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, "0");
-        let multi_config = make_simplified_multi_config(["MASQNode","--data-directory",data_dir.to_str().unwrap()]);
+        let multi_config = make_simplified_multi_config([
+            "MASQNode",
+            "--data-directory",
+            data_dir.to_str().unwrap(),
+        ]);
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
 
-        let ((bootstrapper_config,persistent_config),_) = SetupReporterReal::run_configuration(&dirs_wrapper,&multi_config,&data_dir);
+        let ((bootstrapper_config, persistent_config), _) =
+            SetupReporterReal::run_configuration(&dirs_wrapper, &multi_config, &data_dir);
 
         assert_ne!(bootstrapper_config.blockchain_bridge_config.gas_price, 55); //asserting negation
         assert!(persistent_config.is_none());
@@ -1929,7 +1933,7 @@ mod tests {
         let result = SetupReporterReal::calculate_configured_setup(
             &DirsWrapperReal {},
             &setup,
-            &data_directory
+            &data_directory,
         )
         .0;
 
@@ -1973,7 +1977,7 @@ mod tests {
         let result = SetupReporterReal::calculate_configured_setup(
             &DirsWrapperReal {},
             &setup,
-            &data_directory
+            &data_directory,
         )
         .0;
 
@@ -2010,7 +2014,7 @@ mod tests {
         let result = SetupReporterReal::calculate_configured_setup(
             &DirsWrapperReal {},
             &setup,
-            &data_directory
+            &data_directory,
         )
         .0;
 
@@ -2040,7 +2044,7 @@ mod tests {
         let result = SetupReporterReal::calculate_configured_setup(
             &DirsWrapperReal,
             &setup,
-            &data_directory
+            &data_directory,
         )
         .1
         .unwrap();
@@ -2077,12 +2081,8 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::calculate_configured_setup(
-            &DirsWrapperReal {},
-            &setup,
-            &data_dir
-        )
-        .0;
+        let result =
+            SetupReporterReal::calculate_configured_setup(&DirsWrapperReal {}, &setup, &data_dir).0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
@@ -2117,7 +2117,7 @@ mod tests {
         let result = SetupReporterReal::calculate_configured_setup(
             &DirsWrapperReal {},
             &setup,
-            &data_directory
+            &data_directory,
         )
         .1
         .unwrap();

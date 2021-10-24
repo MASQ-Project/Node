@@ -1,7 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchain_interface::{contract_creation_block_from_chain_id, chain_id_from_name};
+use crate::blockchain::blockchain_interface::{
+    chain_id_from_name, contract_creation_block_from_chain_id,
+};
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-use crate::database::db_migrations::{DbMigrator, DbMigratorReal, ExternalData, MigratorConfig, Suppression};
+use crate::database::db_migrations::{
+    DbMigrator, DbMigratorReal, ExternalData, MigratorConfig, Suppression,
+};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
 use masq_lib::constants::{
@@ -27,7 +31,7 @@ pub enum InitializationError {
     UndetectableVersion(String),
     SqliteError(rusqlite::Error),
     MigrationError(String),
-    SuppressedMigrationWithError
+    SuppressedMigrationWithError,
 }
 
 pub trait DbInitializer {
@@ -110,7 +114,9 @@ impl DbInitializer for DbInitializerReal {
                         )
                     }
                     (Some(_), &Suppression::Yes) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
-                    (Some(_),&Suppression::WithErr) => Err(InitializationError::SuppressedMigrationWithError)
+                    (Some(_), &Suppression::WithErr) => {
+                        Err(InitializationError::SuppressedMigrationWithError)
+                    }
                 }
             }
             Err(_) => {
@@ -120,7 +126,10 @@ impl DbInitializer for DbInitializerReal {
                 match Connection::open_with_flags(database_file_path, flags) {
                     Ok(conn) => {
                         eprintln!("Created new database at {:?}", database_file_path);
-                        self.create_database_tables(&conn, ExternalData::from((migrator_config, true)));
+                        self.create_database_tables(
+                            &conn,
+                            ExternalData::from((migrator_config, true)),
+                        );
                         Ok(Box::new(ConnectionWrapperReal::new(conn)))
                     }
                     Err(e) => Err(InitializationError::SqliteError(e)),
@@ -236,7 +245,7 @@ impl DbInitializerReal {
             "neighborhood_mode",
             Some(&external_params.neighborhood_mode.to_string()),
             false,
-            "neighborhood mode being used"
+            "neighborhood mode being used",
         );
         Self::set_config_value(
             conn,
@@ -249,9 +258,15 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "start_block",
-            Some(&contract_creation_block_from_chain_id(chain_id_from_name(external_params.chain_name.as_str())).to_string()),
+            Some(
+                &contract_creation_block_from_chain_id(chain_id_from_name(
+                    external_params.chain_name.as_str(),
+                ))
+                .to_string(),
+            ),
             false,
-            &format!("{} start block",external_params.chain_name));
+            &format!("{} start block", external_params.chain_name),
+        );
         Self::set_config_value(
             conn,
             "gas_price",
@@ -581,7 +596,8 @@ mod tests {
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use itertools::Itertools;
     use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME,
+        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
+        TEST_DEFAULT_CHAIN_NAME,
     };
     use rusqlite::types::Type::Null;
     use rusqlite::{Error, OpenFlags};
@@ -601,11 +617,7 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(
-            &home_dir,
-            false,
-            MigratorConfig::test_default(),
-        );
+        let result = subject.initialize(&home_dir, false, MigratorConfig::test_default());
 
         assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
         let result = Connection::open(&home_dir.join(DATABASE_FILE));
@@ -623,11 +635,7 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(
-            &home_dir,
-            false,
-            MigratorConfig::test_default(),
-        );
+        let result = subject.initialize(&home_dir, false, MigratorConfig::test_default());
 
         assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
         let mut flags = OpenFlags::empty();
@@ -648,11 +656,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         subject
-            .initialize(
-                &home_dir,
-                true,
-                MigratorConfig::test_default(),
-            )
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -673,11 +677,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         subject
-            .initialize(
-                &home_dir,
-                true,
-                MigratorConfig::test_default(),
-            )
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -700,11 +700,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         subject
-            .initialize(
-                &home_dir,
-                true,
-                MigratorConfig::test_default(),
-            )
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -765,11 +761,7 @@ mod tests {
         let subject = DbInitializerReal::default();
         {
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap();
         }
         {
@@ -784,11 +776,7 @@ mod tests {
         }
 
         subject
-            .initialize(
-                &home_dir,
-                true,
-                MigratorConfig::panic_on_update(),
-            )
+            .initialize(&home_dir, true, MigratorConfig::panic_on_update())
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -819,7 +807,7 @@ mod tests {
         verify(&mut config_vec, EXAMPLE_ENCRYPTED, None);
         verify(&mut config_vec, "gas_price", Some(DEFAULT_GAS_PRICE));
         verify(&mut config_vec, "mapping_protocol", None);
-        verify(&mut config_vec,"neighborhood_mode",Some("standard"));
+        verify(&mut config_vec, "neighborhood_mode", Some("standard"));
         verify(&mut config_vec, "past_neighbors", None);
         verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database
         verify(
@@ -847,11 +835,7 @@ mod tests {
         );
         {
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -864,11 +848,7 @@ mod tests {
         }
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(
-            &home_dir,
-            true,
-            MigratorConfig::panic_on_update(),
-        );
+        let result = subject.initialize(&home_dir, true, MigratorConfig::panic_on_update());
 
         assert_eq!(
             result.err().unwrap(),
@@ -888,11 +868,7 @@ mod tests {
         );
         {
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -905,11 +881,7 @@ mod tests {
         }
         let subject = DbInitializerReal::default();
 
-        let _ = subject.initialize(
-            &home_dir,
-            true,
-            MigratorConfig::panic_on_update(),
-        );
+        let _ = subject.initialize(&home_dir, true, MigratorConfig::panic_on_update());
     }
 
     #[test]
@@ -931,11 +903,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         let _ = subject
-            .initialize(
-                &updated_db_path_dir,
-                true,
-                MigratorConfig::test_default(),
-            )
+            .initialize(&updated_db_path_dir, true, MigratorConfig::test_default())
             .unwrap();
         let _ = subject
             .initialize(
@@ -978,8 +946,7 @@ mod tests {
     }
 
     #[test]
-    fn update_and_get_connection_hands_in_an_error_from_migration_operations(
-    ) {
+    fn update_and_get_connection_hands_in_an_error_from_migration_operations() {
         init_test_logging();
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
@@ -1039,11 +1006,7 @@ mod tests {
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(
-            &data_dir,
-            false,
-            MigratorConfig::update_suppressed(),
-        );
+        let result = subject.initialize(&data_dir, false, MigratorConfig::update_suppressed());
 
         let wrapped_connection = result.unwrap();
         let (_, schema_version_after, _) = assurance_query_for_config_table(
@@ -1063,11 +1026,7 @@ mod tests {
         let _ = revive_tables_of_version_0_and_return_connection(&data_dir.join(DATABASE_FILE));
         let subject = DbInitializerReal::default();
 
-        let _ = subject.initialize(
-            &data_dir,
-            false,
-            MigratorConfig::panic_on_update(),
-        );
+        let _ = subject.initialize(&data_dir, false, MigratorConfig::panic_on_update());
     }
 
     #[test]
@@ -1097,17 +1056,13 @@ mod tests {
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(
-            &data_dir,
-            false,
-            MigratorConfig::suppressed_with_error(),
-        );
+        let result = subject.initialize(&data_dir, false, MigratorConfig::suppressed_with_error());
 
-        let err = match result{
+        let err = match result {
             Ok(_) => panic!("expected an Err, got Ok"),
-            Err(e) => e
+            Err(e) => e,
         };
-        assert_eq!(err,InitializationError::SuppressedMigrationWithError);
+        assert_eq!(err, InitializationError::SuppressedMigrationWithError);
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_after, schema_version_before)
     }
@@ -1144,11 +1099,7 @@ mod tests {
             ensure_node_home_directory_exists("db_initializer", "initialize_config_with_seed");
 
         DbInitializerReal::default()
-            .initialize(
-                &home_dir,
-                true,
-                MigratorConfig::test_default(),
-            )
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
         let mut flags = OpenFlags::empty();

@@ -101,11 +101,7 @@ impl Configurator {
     pub fn new(data_directory: PathBuf) -> Self {
         let initializer = DbInitializerReal::default();
         let conn = initializer
-            .initialize(
-                &data_directory,
-                false,
-                MigratorConfig::panic_on_update(),
-            )
+            .initialize(&data_directory, false, MigratorConfig::panic_on_update())
             .expect("Couldn't initialize database");
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config: Box<dyn PersistentConfiguration> =
@@ -531,7 +527,9 @@ impl Configurator {
             "earningWalletAddressOpt",
         )?;
         let start_block = Self::value_required(persistent_config.start_block(), "startBlock")?;
-        let neighborhood_mode = Self::value_required(persistent_config.neighborhood_mode(),"neighborhoodMode")?.to_string();
+        let neighborhood_mode =
+            Self::value_required(persistent_config.neighborhood_mode(), "neighborhoodMode")?
+                .to_string();
         let port_mapping_protocol_opt =
             Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?;
         let (mnemonic_seed_opt, past_neighbors) = match good_password {
@@ -762,7 +760,7 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
     use masq_lib::automap_tools::AutomapProtocol;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 
     #[test]
@@ -771,11 +769,7 @@ mod tests {
             ensure_node_home_directory_exists("configurator", "constructor_connects_with_database");
         let verifier = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &data_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&data_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         )));
         let (recorder, _, _) = make_recorder();

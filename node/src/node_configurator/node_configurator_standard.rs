@@ -96,8 +96,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
             true,
-            MigratorConfig::create_or_update(self.pack_up_external_params_for_db(&multi_config)
-            )
+            MigratorConfig::create_or_update(self.pack_up_external_params_for_db(&multi_config)),
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_parse_args(
@@ -118,10 +117,12 @@ impl NodeConfiguratorStandardUnprivileged {
         }
     }
 
-    fn pack_up_external_params_for_db(&self, multi_config:&MultiConfig) ->ExternalData{
-        ExternalData::new(self.privileged_config.blockchain_bridge_config.chain_id,
-                          value_m!(multi_config,"neighborhood-mode",NeighborhoodModeLight)
-                              .unwrap_or(NeighborhoodModeLight::Standard))
+    fn pack_up_external_params_for_db(&self, multi_config: &MultiConfig) -> ExternalData {
+        ExternalData::new(
+            self.privileged_config.blockchain_bridge_config.chain_id,
+            value_m!(multi_config, "neighborhood-mode", NeighborhoodModeLight)
+                .unwrap_or(NeighborhoodModeLight::Standard),
+        )
     }
 }
 
@@ -237,29 +238,33 @@ pub fn unprivileged_parse_args(
     streams: &mut StdStreams<'_>,
     persistent_config_opt: Option<&mut dyn PersistentConfiguration>,
 ) -> Result<(), ConfiguratorError> {
-    unprivileged_config.blockchain_bridge_config.blockchain_service_url_opt = if is_user_specified(multi_config,"blockchain-service-url") {
-        value_m!(multi_config, "blockchain-service-url", String)} else {
+    unprivileged_config
+        .blockchain_bridge_config
+        .blockchain_service_url_opt = if is_user_specified(multi_config, "blockchain-service-url") {
+        value_m!(multi_config, "blockchain-service-url", String)
+    } else {
         match persistent_config_opt {
             Some(ref persistent_config) => match persistent_config.blockchain_service_url() {
                 Ok(Some(price)) => Some(price),
                 Ok(None) => None,
                 Err(pce) => return Err(pce.into_configurator_error("gas-price")),
             },
-            None => None
+            None => None,
         }
     };
     unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
-    unprivileged_config.blockchain_bridge_config.gas_price = if is_user_specified(multi_config,"gas-price") {
-        value_m!(multi_config, "gas-price", u64).expect_v("gas price")
-    } else {
-        match persistent_config_opt {
-            Some(ref persistent_config) => match persistent_config.gas_price() {
-                Ok(price) => price,
-                Err(pce) => return Err(pce.into_configurator_error("gas-price")),
-            },
-            None => 1,
-        }
-    };
+    unprivileged_config.blockchain_bridge_config.gas_price =
+        if is_user_specified(multi_config, "gas-price") {
+            value_m!(multi_config, "gas-price", u64).expect_v("gas price")
+        } else {
+            match persistent_config_opt {
+                Some(ref persistent_config) => match persistent_config.gas_price() {
+                    Ok(price) => price,
+                    Err(pce) => return Err(pce.into_configurator_error("gas-price")),
+                },
+                None => 1,
+            }
+        };
     let mnc_result = if let Some(persistent_config) = persistent_config_opt {
         get_wallets(
             streams,
@@ -280,7 +285,7 @@ pub fn unprivileged_parse_args(
     mnc_result.map(|config| unprivileged_config.neighborhood_config = config)
 }
 
-fn is_user_specified(multi_config:&MultiConfig,parameter:&str)->bool{
+fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
     multi_config.deref().occurrences_of(parameter) > 0
 }
 
@@ -302,7 +307,7 @@ pub fn configure_database(
         .blockchain_service_url_opt
         .clone()
     {
-    if let Err(pce) = persistent_config.set_blockchain_service_url(url.as_str()) {
+        if let Err(pce) = persistent_config.set_blockchain_service_url(url.as_str()) {
             return Err(pce.into_configurator_error("blockchain-service-url"));
         }
     }
@@ -710,6 +715,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils;
@@ -728,7 +734,6 @@ mod tests {
     use std::io::{Cursor, Write};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
-    use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
 
     #[test]
     fn get_wallets_handles_consuming_private_key_and_earning_wallet_address_when_database_contains_mnemonic_seed(
@@ -1581,11 +1586,7 @@ mod tests {
         );
         let mut persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir.clone(),
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir.clone(), true, MigratorConfig::test_default())
                 .unwrap(),
         )));
         let consuming_private_key =
@@ -1721,11 +1722,7 @@ mod tests {
         );
         let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir.clone(),
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir.clone(), true, MigratorConfig::test_default())
                 .unwrap(),
         ));
         let consuming_private_key_text =
@@ -1771,7 +1768,10 @@ mod tests {
             value_m!(multi_config, "config-file", PathBuf),
             Some(PathBuf::from("specified_config.toml")),
         );
-        assert_eq!(config.blockchain_bridge_config.blockchain_service_url_opt,Some("http://127.0.0.1:8545".to_string()));
+        assert_eq!(
+            config.blockchain_bridge_config.blockchain_service_url_opt,
+            Some("http://127.0.0.1:8545".to_string())
+        );
         assert_eq!(
             config.earning_wallet,
             Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap()
@@ -1889,21 +1889,14 @@ mod tests {
     #[test]
     fn unprivileged_parse_args_with_blockchain_service_in_database_but_not_command_line() {
         running_test();
-        let args = ArgsBuilder::new()
-            .param("--neighborhood-mode", "zero-hop");
+        let args = ArgsBuilder::new().param("--neighborhood-mode", "zero-hop");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let mut persistent_configuration = make_persistent_config(
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-            .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
+        let mut persistent_configuration =
+            make_persistent_config(None, None, None, None, None, None)
+                .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
 
         unprivileged_parse_args(
             &multi_config,
@@ -1911,11 +1904,11 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             Some(&mut persistent_configuration),
         )
-            .unwrap();
+        .unwrap();
 
         assert_eq!(
             config.blockchain_bridge_config.blockchain_service_url_opt,
-          Some("https://infura.io/ID".to_string())
+            Some("https://infura.io/ID".to_string())
         );
     }
 
@@ -2757,7 +2750,12 @@ mod tests {
         let gas_price = 4u64;
         config.clandestine_port_opt = Some(1234);
         config.blockchain_bridge_config.gas_price = gas_price;
-        config.neighborhood_config.mode = NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234;2345").unwrap()]);
+        config.neighborhood_config.mode =
+            NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(
+                main_cryptde(),
+                "AQIDBA@1.2.3.4:1234;2345",
+            )
+            .unwrap()]);
         config.blockchain_bridge_config.blockchain_service_url_opt =
             Some("https://infura.io/ID".to_string());
         let set_blockchain_service_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2783,7 +2781,10 @@ mod tests {
             vec!["https://infura.io/ID".to_string()]
         );
         let set_neighborhood_mode_params = set_neighborhood_mode_params_arc.lock().unwrap();
-        assert_eq!(*set_neighborhood_mode_params,vec![NeighborhoodModeLight::ConsumeOnly]);
+        assert_eq!(
+            *set_neighborhood_mode_params,
+            vec![NeighborhoodModeLight::ConsumeOnly]
+        );
         let set_gas_price_params = set_gas_price_params_arc.lock().unwrap();
         assert_eq!(*set_gas_price_params, vec![gas_price]);
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
@@ -2818,17 +2819,21 @@ mod tests {
         let no_ports: Vec<u16> = vec![];
         assert_eq!(*set_clandestine_port_params, no_ports);
         let neighborhood_mode_params = set_neighborhood_mode_params_arc.lock().unwrap();
-        assert_eq!(*neighborhood_mode_params, vec![NeighborhoodModeLight::ZeroHop])
+        assert_eq!(
+            *neighborhood_mode_params,
+            vec![NeighborhoodModeLight::ZeroHop]
+        )
     }
 
     #[test]
-    fn pack_up_external_params_for_db_is_properly_set(){
+    fn pack_up_external_params_for_db_is_properly_set() {
         let subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
-        let multi_config = make_simplified_multi_config(["MASQNode","--neighborhood-mode","zero-hop"]);
+        let multi_config =
+            make_simplified_multi_config(["MASQNode", "--neighborhood-mode", "zero-hop"]);
 
         let result = subject.pack_up_external_params_for_db(&multi_config);
 
-        let expected = ExternalData::new(DEFAULT_CHAIN_ID,NeighborhoodModeLight::ZeroHop);
-        assert_eq!(result,expected)
+        let expected = ExternalData::new(DEFAULT_CHAIN_ID, NeighborhoodModeLight::ZeroHop);
+        assert_eq!(result, expected)
     }
 }

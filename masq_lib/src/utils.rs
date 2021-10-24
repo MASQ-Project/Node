@@ -5,8 +5,8 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
-use std::sync::{Arc, Mutex};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 #[cfg(not(target_os = "windows"))]
 mod not_win_cfg {
@@ -102,21 +102,21 @@ where
     }
 }
 
-#[derive(PartialEq,Debug,Clone)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum NeighborhoodModeLight {
     Standard,
     ConsumeOnly,
     OriginateOnly,
-    ZeroHop
+    ZeroHop,
 }
 
 impl Display for NeighborhoodModeLight {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self{
-            Self::Standard => write!(f,"standard"),
-            Self::ConsumeOnly => write!(f,"consume-only"),
+        match self {
+            Self::Standard => write!(f, "standard"),
+            Self::ConsumeOnly => write!(f, "consume-only"),
             Self::OriginateOnly => write!(f, "originate-only"),
-            Self::ZeroHop => write!(f,"zero-hop")
+            Self::ZeroHop => write!(f, "zero-hop"),
         }
     }
 }
@@ -125,12 +125,12 @@ impl FromStr for NeighborhoodModeLight {
     type Err = String;
 
     fn from_str(str: &str) -> Result<Self, Self::Err> {
-        Ok(match str{
+        Ok(match str {
             "standard" => Self::Standard,
             "consume-only" => Self::ConsumeOnly,
             "originate-only" => Self::OriginateOnly,
             "zero-hop" => Self::ZeroHop,
-            x => return Err(format!("Invalid value read for neighborhood mode: {}",x))
+            x => return Err(format!("Invalid value read for neighborhood mode: {}", x)),
         })
     }
 }
@@ -389,21 +389,44 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_mode_light_has_display(){
+    fn neighborhood_mode_light_has_display() {
         assert_eq!(NeighborhoodModeLight::Standard.to_string(), "standard");
-        assert_eq!(NeighborhoodModeLight::ConsumeOnly.to_string(), "consume-only");
-        assert_eq!(NeighborhoodModeLight::OriginateOnly.to_string(), "originate-only");
+        assert_eq!(
+            NeighborhoodModeLight::ConsumeOnly.to_string(),
+            "consume-only"
+        );
+        assert_eq!(
+            NeighborhoodModeLight::OriginateOnly.to_string(),
+            "originate-only"
+        );
         assert_eq!(NeighborhoodModeLight::ZeroHop.to_string(), "zero-hop")
     }
 
     #[test]
-    fn neighborhood_mode_light_can_exist_from_string(){
-        assert_eq!(NeighborhoodModeLight::from_str("standard").unwrap(),NeighborhoodModeLight::Standard);
-        assert_eq!(NeighborhoodModeLight::from_str("consume-only").unwrap(),NeighborhoodModeLight::ConsumeOnly);
-        assert_eq!(NeighborhoodModeLight::from_str("originate-only").unwrap(),NeighborhoodModeLight::OriginateOnly);
-        assert_eq!(NeighborhoodModeLight::from_str("zero-hop").unwrap(),NeighborhoodModeLight::ZeroHop);
+    fn neighborhood_mode_light_can_exist_from_string() {
+        assert_eq!(
+            NeighborhoodModeLight::from_str("standard").unwrap(),
+            NeighborhoodModeLight::Standard
+        );
+        assert_eq!(
+            NeighborhoodModeLight::from_str("consume-only").unwrap(),
+            NeighborhoodModeLight::ConsumeOnly
+        );
+        assert_eq!(
+            NeighborhoodModeLight::from_str("originate-only").unwrap(),
+            NeighborhoodModeLight::OriginateOnly
+        );
+        assert_eq!(
+            NeighborhoodModeLight::from_str("zero-hop").unwrap(),
+            NeighborhoodModeLight::ZeroHop
+        );
 
-        assert_eq!(NeighborhoodModeLight::from_str("blah"),Err(String::from("Invalid value supplied for neighborhood mode: blah")))
+        assert_eq!(
+            NeighborhoodModeLight::from_str("blah"),
+            Err(String::from(
+                "Invalid value supplied for neighborhood mode: blah"
+            ))
+        )
     }
 
     #[test]

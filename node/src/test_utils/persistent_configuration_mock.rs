@@ -2,12 +2,12 @@
 
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::neighborhood::{NodeDescriptor};
+use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::automap_tools::AutomapProtocol;
+use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use masq_lib::utils::NeighborhoodModeLight;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -43,9 +43,9 @@ pub struct PersistentConfigurationMock {
     mapping_protocol_results: RefCell<Vec<Result<Option<AutomapProtocol>, PersistentConfigError>>>,
     set_mapping_protocol_params: Arc<Mutex<Vec<AutomapProtocol>>>,
     set_mapping_protocol_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    neighborhood_mode_results:RefCell<Vec<Result<NeighborhoodModeLight,PersistentConfigError>>>,
+    neighborhood_mode_results: RefCell<Vec<Result<NeighborhoodModeLight, PersistentConfigError>>>,
     set_neighborhood_mode_params: Arc<Mutex<Vec<NeighborhoodModeLight>>>,
-    set_neighborhood_mode_results: RefCell<Vec<Result<(),PersistentConfigError>>>,
+    set_neighborhood_mode_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     past_neighbors_params: Arc<Mutex<Vec<String>>>,
     past_neighbors_results:
         RefCell<Vec<Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>>>,
@@ -215,8 +215,14 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.neighborhood_mode_results.borrow_mut().remove(0)
     }
 
-    fn set_neighborhood_mode(&mut self,value:NeighborhoodModeLight) -> Result<(), PersistentConfigError> {
-        self.set_neighborhood_mode_params.lock().unwrap().push(value);
+    fn set_neighborhood_mode(
+        &mut self,
+        value: NeighborhoodModeLight,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_neighborhood_mode_params
+            .lock()
+            .unwrap()
+            .push(value);
         self.set_neighborhood_mode_results.borrow_mut().remove(0)
     }
 }

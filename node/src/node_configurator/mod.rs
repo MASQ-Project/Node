@@ -184,11 +184,7 @@ pub fn initialize_database(
     migrator_config: MigratorConfig,
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
-        .initialize(
-            data_directory,
-            create_if_necessary,
-            migrator_config,
-        )
+        .initialize(data_directory, create_if_necessary, migrator_config)
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",

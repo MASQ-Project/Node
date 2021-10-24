@@ -397,9 +397,7 @@ impl ActorFactory for ActorFactoryReal {
     }
 
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
-        let configurator = Configurator::new(
-            config.data_directory.clone()
-        );
+        let configurator = Configurator::new(config.data_directory.clone());
         let addr: Addr<Configurator> = configurator.start();
         ConfiguratorSubs {
             bind: recipient!(addr, BindMessage),

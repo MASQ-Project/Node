@@ -100,7 +100,11 @@ impl ConfigurationCommand {
                 .mnemonic_seed_opt
                 .unwrap_or_else(|| "[?]".to_string()),
         );
-        Self::dump_configuration_line(stream,"Neighborhood mode:",&configuration.neighborhood_mode);
+        Self::dump_configuration_line(
+            stream,
+            "Neighborhood mode:",
+            &configuration.neighborhood_mode,
+        );
         Self::dump_configuration_line(
             stream,
             "Consuming wallet derivation path:",

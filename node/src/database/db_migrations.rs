@@ -4,10 +4,10 @@ use crate::blockchain::blockchain_interface::chain_name_from_id;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
-use masq_lib::utils::{ExpectValue, WrapResult, NeighborhoodModeLight};
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
+use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use rusqlite::{Transaction, NO_PARAMS};
 use std::fmt::Debug;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -354,11 +354,11 @@ pub struct MigratorConfig {
     pub external_dataset: Option<ExternalData>,
 }
 
-#[derive(PartialEq,Debug)]
-pub enum Suppression{
+#[derive(PartialEq, Debug)]
+pub enum Suppression {
     No,
     Yes,
-    WithErr
+    WithErr,
 }
 
 impl MigratorConfig {
@@ -369,7 +369,8 @@ impl MigratorConfig {
         }
     }
 
-    pub fn create_or_update(external_params: ExternalData) -> Self {  //is used also if a brand new db is being created
+    pub fn create_or_update(external_params: ExternalData) -> Self {
+        //is used also if a brand new db is being created
         Self {
             should_be_suppressed: Suppression::No,
             external_dataset: Some(external_params),
@@ -383,7 +384,7 @@ impl MigratorConfig {
         }
     }
 
-    pub fn suppressed_with_error()-> Self{
+    pub fn suppressed_with_error() -> Self {
         Self {
             should_be_suppressed: Suppression::WithErr,
             external_dataset: None,
@@ -391,13 +392,13 @@ impl MigratorConfig {
     }
 
     #[cfg(test)]
-    pub fn test_default()-> Self{
-        Self{
+    pub fn test_default() -> Self {
+        Self {
             should_be_suppressed: Suppression::No,
-            external_dataset: Some(ExternalData{
+            external_dataset: Some(ExternalData {
                 chain_name: TEST_DEFAULT_CHAIN_NAME.to_string(),
-                neighborhood_mode: NeighborhoodModeLight::Standard
-            })
+                neighborhood_mode: NeighborhoodModeLight::Standard,
+            }),
         }
     }
 }
@@ -405,24 +406,31 @@ impl MigratorConfig {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExternalData {
     pub chain_name: String,
-    pub neighborhood_mode: NeighborhoodModeLight
+    pub neighborhood_mode: NeighborhoodModeLight,
 }
 
 impl ExternalData {
-    pub fn new(chain_id: u8,neighborhood_mode:NeighborhoodModeLight) -> Self {
+    pub fn new(chain_id: u8, neighborhood_mode: NeighborhoodModeLight) -> Self {
         Self {
             chain_name: chain_name_from_id(chain_id).to_string(),
-            neighborhood_mode
+            neighborhood_mode,
         }
     }
 }
 
-impl From<(MigratorConfig,bool)> for ExternalData {
-    fn from(tuple: (MigratorConfig,bool)) -> Self {
-        let (migrator_config,db_newly_created) = tuple;
-        migrator_config.external_dataset.unwrap_or_else(||
-            panic!("{}", if db_newly_created {"Attempt to create a new database without proper configuration"} else { "Attempt to migrate the database at place where it is forbidden" })
-        )
+impl From<(MigratorConfig, bool)> for ExternalData {
+    fn from(tuple: (MigratorConfig, bool)) -> Self {
+        let (migrator_config, db_newly_created) = tuple;
+        migrator_config.external_dataset.unwrap_or_else(|| {
+            panic!(
+                "{}",
+                if db_newly_created {
+                    "Attempt to create a new database without proper configuration"
+                } else {
+                    "Attempt to migrate the database at place where it is forbidden"
+                }
+            )
+        })
     }
 }
 
@@ -433,20 +441,23 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, DATABASE_FILE,
     };
-    use crate::database::db_migrations::{DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbMigrator, ExternalData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, Suppression};
+    use crate::database::db_migrations::{
+        DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbMigrator,
+        ExternalData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, Suppression,
+    };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, revive_tables_of_version_0_and_return_connection,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+    use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
-    use masq_lib::utils::NeighborhoodModeLight;
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
@@ -569,7 +580,7 @@ mod tests {
     fn make_external_migration_parameters() -> ExternalData {
         ExternalData {
             chain_name: TEST_DEFAULT_CHAIN_NAME.to_string(),
-            neighborhood_mode: NeighborhoodModeLight::Standard
+            neighborhood_mode: NeighborhoodModeLight::Standard,
         }
     }
 

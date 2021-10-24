@@ -20,11 +20,11 @@ use core::fmt;
 use lazy_static::lazy_static;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
-use masq_lib::utils::NeighborhoodModeLight;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -115,12 +115,13 @@ impl NeighborhoodMode {
         matches!(self, NeighborhoodMode::ZeroHop)
     }
 
-    pub fn make_light(&self)->NeighborhoodModeLight{
-        match self{
-            NeighborhoodMode::Standard(_,_,_) => NeighborhoodModeLight::Standard,
+    pub fn make_light(&self) -> NeighborhoodModeLight {
+        match self {
+            NeighborhoodMode::Standard(_, _, _) => NeighborhoodModeLight::Standard,
             NeighborhoodMode::ConsumeOnly(_) => NeighborhoodModeLight::ConsumeOnly,
-            NeighborhoodMode::OriginateOnly(_,_) => NeighborhoodModeLight::OriginateOnly,
-            NeighborhoodMode::ZeroHop => NeighborhoodModeLight::ZeroHop}
+            NeighborhoodMode::OriginateOnly(_, _) => NeighborhoodModeLight::OriginateOnly,
+            NeighborhoodMode::ZeroHop => NeighborhoodModeLight::ZeroHop,
+        }
     }
 }
 
@@ -767,42 +768,71 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_mode_light_tights_up_with_the_classic_enum(){
+    fn neighborhood_mode_light_tights_up_with_the_classic_enum() {
         let simple_standard = NeighborhoodModeLight::Standard.to_string().to_lowercase();
-        let simple_consume_only = NeighborhoodModeLight::ConsumeOnly.to_string().to_lowercase();
-        let simple_originate_only = NeighborhoodModeLight::OriginateOnly.to_string().to_lowercase();
+        let simple_consume_only = NeighborhoodModeLight::ConsumeOnly
+            .to_string()
+            .to_lowercase();
+        let simple_originate_only = NeighborhoodModeLight::OriginateOnly
+            .to_string()
+            .to_lowercase();
         let simple_zero_hop = NeighborhoodModeLight::ZeroHop.to_string().to_lowercase();
         let classic_standard = NeighborhoodMode::Standard(
             NodeAddr::new(&localhost(), &[1234, 2345]),
             vec![],
             rate_pack(100),
-        ).to_string().to_lowercase();
-        let classic_consume_only = NeighborhoodMode::ConsumeOnly(vec![]).to_string().to_lowercase();
-        let classic_originate_only = NeighborhoodMode::OriginateOnly(vec![],rate_pack(100)).to_string().to_lowercase();
+        )
+        .to_string()
+        .to_lowercase();
+        let classic_consume_only = NeighborhoodMode::ConsumeOnly(vec![])
+            .to_string()
+            .to_lowercase();
+        let classic_originate_only = NeighborhoodMode::OriginateOnly(vec![], rate_pack(100))
+            .to_string()
+            .to_lowercase();
         let classic_zero_hop = NeighborhoodMode::ZeroHop.to_string().to_lowercase();
-        assert_contain_words(simple_standard,classic_standard,&["standard"]);
-        assert_contain_words(simple_consume_only,classic_consume_only,&["consume","only"]);
-        assert_contain_words(simple_originate_only,classic_originate_only,&["originate","only"]);
-        assert_contain_words(simple_zero_hop,classic_zero_hop,&["zero","hop"]);
+        assert_contain_words(simple_standard, classic_standard, &["standard"]);
+        assert_contain_words(
+            simple_consume_only,
+            classic_consume_only,
+            &["consume", "only"],
+        );
+        assert_contain_words(
+            simple_originate_only,
+            classic_originate_only,
+            &["originate", "only"],
+        );
+        assert_contain_words(simple_zero_hop, classic_zero_hop, &["zero", "hop"]);
     }
 
-    fn assert_contain_words(simple:String, classic: String, words: &[&str]){
-        words.iter().for_each(|word|assert!(simple.contains(word) && classic.contains(word)))
+    fn assert_contain_words(simple: String, classic: String, words: &[&str]) {
+        words
+            .iter()
+            .for_each(|word| assert!(simple.contains(word) && classic.contains(word)))
     }
 
     #[test]
-    fn neighborhood_mode_light_can_be_made_from_neighborhood_mode(){
-        assert_make_light(NeighborhoodMode::Standard(
-            NodeAddr::new(&localhost(), &[1234, 2345]),
-            vec![],
-            rate_pack(100),
-        ),NeighborhoodModeLight::Standard);
-        assert_make_light(NeighborhoodMode::ConsumeOnly(vec![]),NeighborhoodModeLight::ConsumeOnly);
-        assert_make_light(NeighborhoodMode::OriginateOnly(vec![],rate_pack(100)),NeighborhoodModeLight::OriginateOnly);
-        assert_make_light(NeighborhoodMode::ZeroHop,NeighborhoodModeLight::ZeroHop)
+    fn neighborhood_mode_light_can_be_made_from_neighborhood_mode() {
+        assert_make_light(
+            NeighborhoodMode::Standard(
+                NodeAddr::new(&localhost(), &[1234, 2345]),
+                vec![],
+                rate_pack(100),
+            ),
+            NeighborhoodModeLight::Standard,
+        );
+        assert_make_light(
+            NeighborhoodMode::ConsumeOnly(vec![]),
+            NeighborhoodModeLight::ConsumeOnly,
+        );
+        assert_make_light(
+            NeighborhoodMode::OriginateOnly(vec![], rate_pack(100)),
+            NeighborhoodModeLight::OriginateOnly,
+        );
+        assert_make_light(NeighborhoodMode::ZeroHop, NeighborhoodModeLight::ZeroHop)
     }
 
-    fn assert_make_light(heavy:NeighborhoodMode,expected_value:NeighborhoodModeLight){
-        assert_eq!(heavy.make_light(),expected_value)
+    fn assert_make_light(heavy: NeighborhoodMode, expected_value: NeighborhoodModeLight) {
+        assert_eq!(heavy.make_light(), expected_value)
     }
 }

@@ -313,7 +313,7 @@ mod tests {
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags, NO_PARAMS};
     use std::str::FromStr;
     use web3::types::U256;
@@ -329,11 +329,7 @@ mod tests {
         let status = {
             let subject = PayableDaoReal::new(
                 DbInitializerReal::default()
-                    .initialize(
-                        &home_dir,
-                        true,
-                        MigratorConfig::test_default(),
-                    )
+                    .initialize(&home_dir, true, MigratorConfig::test_default())
                     .unwrap(),
             );
 
@@ -369,11 +365,7 @@ mod tests {
         let subject = {
             let subject = PayableDaoReal::new(
                 DbInitializerReal::default()
-                    .initialize(
-                        &home_dir,
-                        true,
-                        MigratorConfig::test_default(),
-                    )
+                    .initialize(&home_dir, true, MigratorConfig::test_default())
                     .unwrap(),
             );
             subject.more_money_payable(&wallet, 1234).unwrap();
@@ -409,11 +401,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -431,11 +419,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         let payment = Payment::new(wallet.clone(), 1, H256::from_uint(&U256::from(1)));
@@ -467,11 +451,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         let payment = Payment::new(wallet.clone(), 1, H256::from_uint(&U256::from(1)));
@@ -501,11 +481,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         let payment = Payment::new(wallet, std::u64::MAX, H256::from_uint(&U256::from(1)));
@@ -524,11 +500,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -551,11 +523,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -573,11 +541,7 @@ mod tests {
 
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -593,11 +557,7 @@ mod tests {
 
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -658,11 +618,7 @@ mod tests {
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -679,11 +635,7 @@ mod tests {
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -700,11 +652,7 @@ mod tests {
     fn top_records_and_total() {
         let home_dir = ensure_node_home_directory_exists("payable_dao", "top_records_and_total");
         let conn = DbInitializerReal::default()
-            .initialize(
-                &home_dir,
-                true,
-                MigratorConfig::test_default(),
-            )
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let insert = |wallet: &str,
                       balance: i64,
@@ -782,11 +730,7 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("payable_dao", "correctly_totals_zero_records");
         let conn = DbInitializerReal::default()
-            .initialize(
-                &home_dir,
-                true,
-                MigratorConfig::test_default(),
-            )
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let subject = PayableDaoReal::new(conn);
 

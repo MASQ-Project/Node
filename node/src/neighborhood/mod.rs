@@ -1384,11 +1384,7 @@ mod tests {
         );
         {
             let _ = DbInitializerReal::default()
-                .initialize(
-                    &data_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&data_dir, true, MigratorConfig::test_default())
                 .unwrap();
         }
         let cryptde = main_cryptde();
@@ -1435,11 +1431,7 @@ mod tests {
         );
         {
             let _ = DbInitializerReal::default()
-                .initialize(
-                    &data_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&data_dir, true, MigratorConfig::test_default())
                 .unwrap();
         }
         let cryptde: &dyn CryptDE = main_cryptde();
@@ -3461,11 +3453,7 @@ mod tests {
         );
         {
             let _ = DbInitializerReal::default()
-                .initialize(
-                    &data_dir,
-                    true,
-                    MigratorConfig::test_default(),
-                )
+                .initialize(&data_dir, true, MigratorConfig::test_default())
                 .unwrap();
         }
         let cryptde: &dyn CryptDE = main_cryptde();
