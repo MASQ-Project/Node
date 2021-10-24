@@ -216,7 +216,8 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn set_neighborhood_mode(&mut self,value:NeighborhoodModeLight) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_neighborhood_mode_params.lock().unwrap().push(value);
+        self.set_neighborhood_mode_results.borrow_mut().remove(0)
     }
 }
 
@@ -240,7 +241,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn set_blockchain_service_url_results(
+    pub fn set_blockchain_service_url_result(
         self,
         result: Result<(), PersistentConfigError>,
     ) -> Self {
@@ -371,7 +372,7 @@ impl PersistentConfigurationMock {
         self,
         result: Result<(), PersistentConfigError>,
     ) -> PersistentConfigurationMock {
-        self.set_blockchain_service_url_results.borrow_mut().push(result);
+        self.set_neighborhood_mode_results.borrow_mut().push(result);
         self
     }
 

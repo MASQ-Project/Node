@@ -33,6 +33,7 @@ pub enum PersistentConfigError {
     BadAddressFormat(String),
     InvalidUrl(String),
     Collision(String),
+    StringWithoutMeaning(String)
 }
 
 impl From<TypedConfigLayerError> for PersistentConfigError {
@@ -411,10 +412,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
-        Ok(self
+        Ok(NeighborhoodModeLight::from_str(self
             .dao
             .get("neighborhood_mode")?.value_opt
-            .expect("ever-supplied value neighborhood_mode is missing; database is corrupt!").into())
+            .expect("ever-supplied value neighborhood_mode is missing; database is corrupt!").as_str()).map_err(|e|PersistentConfigError::StringWithoutMeaning(e.to_string()))?)
     }
 
     fn set_neighborhood_mode(&mut self,value:NeighborhoodModeLight) -> Result<(), PersistentConfigError> {
@@ -1780,6 +1781,21 @@ mod tests {
         assert_eq!(result, NeighborhoodModeLight::Standard);
         let get_params = get_params_arc.lock().unwrap();
         assert_eq!(*get_params, vec!["neighborhood_mode".to_string()]);
+    }
+
+    #[test]
+    fn neighborhood_mode_detects_specific_error() {
+        let config_dao = ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(
+                "neighborhood_mode",
+                Some("blah"),
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.neighborhood_mode();
+
+        assert_eq!(result, Err(PersistentConfigError::StringWithoutMeaning("Invalid value read for neighborhood mode: blah".to_string())));
     }
 
     #[test]

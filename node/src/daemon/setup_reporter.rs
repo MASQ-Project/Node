@@ -118,8 +118,7 @@ impl SetupReporter for SetupReporterReal {
         let (configured_setup, error_opt) = Self::calculate_configured_setup(
             self.dirs_wrapper.as_ref(),
             &all_but_configured,
-            &data_directory,
-            &chain_name,
+            &data_directory
         );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -266,7 +265,6 @@ impl SetupReporterReal {
         dirs_wrapper: &dyn DirsWrapper,
         combined_setup: &SetupCluster,
         data_directory: &Path,
-        chain_name: &str,
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
@@ -888,7 +886,7 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
     use std::cell::RefCell;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
@@ -1931,8 +1929,7 @@ mod tests {
         let result = SetupReporterReal::calculate_configured_setup(
             &DirsWrapperReal {},
             &setup,
-            &data_directory,
-            "irrelevant",
+            &data_directory
         )
         .0;
 
@@ -1976,8 +1973,7 @@ mod tests {
         let result = SetupReporterReal::calculate_configured_setup(
             &DirsWrapperReal {},
             &setup,
-            &data_directory,
-            "irrelevant",
+            &data_directory
         )
         .0;
 
@@ -2014,8 +2010,7 @@ mod tests {
         let result = SetupReporterReal::calculate_configured_setup(
             &DirsWrapperReal {},
             &setup,
-            &data_directory,
-            "irrelevant",
+            &data_directory
         )
         .0;
 
@@ -2045,8 +2040,7 @@ mod tests {
         let result = SetupReporterReal::calculate_configured_setup(
             &DirsWrapperReal,
             &setup,
-            &data_directory,
-            "irrelevant",
+            &data_directory
         )
         .1
         .unwrap();
@@ -2086,8 +2080,7 @@ mod tests {
         let result = SetupReporterReal::calculate_configured_setup(
             &DirsWrapperReal {},
             &setup,
-            &data_dir,
-            "irrelevant",
+            &data_dir
         )
         .0;
 
@@ -2124,8 +2117,7 @@ mod tests {
         let result = SetupReporterReal::calculate_configured_setup(
             &DirsWrapperReal {},
             &setup,
-            &data_directory,
-            "irrelevant",
+            &data_directory
         )
         .1
         .unwrap();

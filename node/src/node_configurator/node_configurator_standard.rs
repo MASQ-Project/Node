@@ -7,7 +7,7 @@ use masq_lib::command::StdStreams;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::utils::ExpectValue;
+use masq_lib::utils::{ExpectValue, NeighborhoodModeLight};
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -96,9 +96,8 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
             true,
-            MigratorConfig::create_or_update(ExternalData::new(
-                self.privileged_config.blockchain_bridge_config.chain_id,
-            )), //TODO here the best place might be
+            MigratorConfig::create_or_update(self.pack_up_external_parameters(&multi_config)
+            )
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_parse_args(
@@ -117,6 +116,10 @@ impl NodeConfiguratorStandardUnprivileged {
         Self {
             privileged_config: privileged_config.clone(),
         }
+    }
+
+    fn pack_up_external_parameters(&self, multi_config:&MultiConfig) ->ExternalData{
+        ExternalData::new(self.privileged_config.blockchain_bridge_config.chain_id,value_m!(multi_config,"neighborhood-mode",NeighborhoodModeLight).unwrap_or(NeighborhoodModeLight::Standard))
     }
 }
 
@@ -278,12 +281,16 @@ pub fn configure_database(
             return Err(pce.into_configurator_error("clandestine-port"));
         }
     }
+    let neighborhood_mode_light = config.neighborhood_config.mode.make_light();
+    if let Err(pce) = persistent_config.set_neighborhood_mode(neighborhood_mode_light) {
+        return Err(pce.into_configurator_error("neighborhood-mode"));
+    }
     if let Some(url) = config
         .blockchain_bridge_config
         .blockchain_service_url_opt
         .clone()
     {
-        if let Err(pce) = persistent_config.set_blockchain_service_url(url.as_str()) {
+    if let Err(pce) = persistent_config.set_blockchain_service_url(url.as_str()) {
             return Err(pce.into_configurator_error("blockchain-service-url"));
         }
     }
@@ -709,6 +716,7 @@ mod tests {
     use std::io::{Cursor, Write};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+    use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
 
     #[test]
     fn get_wallets_handles_consuming_private_key_and_earning_wallet_address_when_database_contains_mnemonic_seed(
@@ -796,6 +804,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.clandestine_port_opt = None;
         let mut persistent_config = PersistentConfigurationMock::new()
+            .set_neighborhood_mode_result(Ok(()))
             .set_gas_price_result(Err(PersistentConfigError::TransactionError));
 
         let result = configure_database(&config, &mut persistent_config);
@@ -810,9 +819,10 @@ mod tests {
     fn configure_database_handles_error_during_setting_blockchain_service_url() {
         let mut config = BootstrapperConfig::new();
         config.blockchain_bridge_config.blockchain_service_url_opt =
-            Some("https://infura.io/ID".to_string()); //value irrelevant
+            Some("https://infura.io/ID".to_string()); //exact value not relevant
         let mut persistent_config = PersistentConfigurationMock::new()
-            .set_blockchain_service_url_results(Err(PersistentConfigError::TransactionError));
+            .set_neighborhood_mode_result(Ok(()))
+            .set_blockchain_service_url_result(Err(PersistentConfigError::TransactionError));
 
         let result = configure_database(&config, &mut persistent_config);
 
@@ -820,6 +830,22 @@ mod tests {
             result,
             Err(PersistentConfigError::TransactionError
                 .into_configurator_error("blockchain-service-url"))
+        )
+    }
+
+    #[test]
+    fn configure_database_handles_error_during_setting_neighborhood_mode() {
+        let mut config = BootstrapperConfig::new();
+        config.neighborhood_config.mode = ZeroHop;
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_neighborhood_mode_result(Err(PersistentConfigError::TransactionError));
+
+        let result = configure_database(&config, &mut persistent_config);
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::TransactionError
+                .into_configurator_error("neighborhood-mode"))
         )
     }
 
@@ -2684,18 +2710,22 @@ mod tests {
         let gas_price = 4u64;
         config.clandestine_port_opt = Some(1234);
         config.blockchain_bridge_config.gas_price = gas_price;
+        config.neighborhood_config.mode = NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234;2345").unwrap()]);
         config.blockchain_bridge_config.blockchain_service_url_opt =
             Some("https://infura.io/ID".to_string());
         let set_blockchain_service_params_arc = Arc::new(Mutex::new(vec![]));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_gas_price_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_neighborhood_mode_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
-            .set_gas_price_result(Ok(()))
-            .set_gas_price_params(&set_gas_price_params_arc)
-            .set_blockchain_service_url_params(&set_blockchain_service_params_arc)
-            .set_blockchain_service_url_results(Ok(()))
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
-            .set_clandestine_port_result(Ok(()));
+            .set_clandestine_port_result(Ok(()))
+            .set_blockchain_service_url_params(&set_blockchain_service_params_arc)
+            .set_blockchain_service_url_result(Ok(()))
+            .set_neighborhood_mode_params(&set_neighborhood_mode_params_arc)
+            .set_neighborhood_mode_result(Ok(()))
+            .set_gas_price_params(&set_gas_price_params_arc)
+            .set_gas_price_result(Ok(()));
 
         let result = configure_database(&config, &mut persistent_config);
 
@@ -2705,6 +2735,8 @@ mod tests {
             *set_blockchain_service_url,
             vec!["https://infura.io/ID".to_string()]
         );
+        let set_neighborhood_mode_params = set_neighborhood_mode_params_arc.lock().unwrap();
+        assert_eq!(*set_neighborhood_mode_params,vec![NeighborhoodModeLight::ConsumeOnly]);
         let set_gas_price_params = set_gas_price_params_arc.lock().unwrap();
         assert_eq!(*set_gas_price_params, vec![gas_price]);
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
@@ -2721,11 +2753,13 @@ mod tests {
         config.blockchain_bridge_config.blockchain_service_url_opt = None;
         let set_blockchain_service_params_arc = Arc::new(Mutex::new(vec![]));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_neighborhood_mode_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
-            .set_gas_price_result(Ok(()))
-            .set_blockchain_service_url_params(&set_blockchain_service_params_arc)
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
-            .set_clandestine_port_result(Ok(()));
+            .set_blockchain_service_url_params(&set_blockchain_service_params_arc)
+            .set_neighborhood_mode_params(&set_neighborhood_mode_params_arc)
+            .set_neighborhood_mode_result(Ok(()))
+            .set_gas_price_result(Ok(()));
 
         let result = configure_database(&config, &mut persistent_config);
 
@@ -2736,5 +2770,18 @@ mod tests {
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         let no_ports: Vec<u16> = vec![];
         assert_eq!(*set_clandestine_port_params, no_ports);
+        let neighborhood_mode_params = set_neighborhood_mode_params_arc.lock().unwrap();
+        assert_eq!(*neighborhood_mode_params, vec![NeighborhoodModeLight::ZeroHop])
+    }
+
+    #[test]
+    fn pack_external_parameters_is_properly_set(){
+        let subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
+        let multi_config = make_simplified_multi_config(["MASQNode","--neighborhood-mode","zero-hop"]);
+
+        let result = subject.pack_up_external_parameters(&multi_config);
+
+        let expected = ExternalData::new(DEFAULT_CHAIN_ID,NeighborhoodModeLight::ZeroHop);
+        assert_eq!(result,expected)
     }
 }

@@ -233,6 +233,13 @@ impl DbInitializerReal {
         );
         Self::set_config_value(
             conn,
+            "neighborhood_mode",
+            Some(&external_params.neighborhood_mode.to_string()),
+            false,
+            "neighborhood mode being used"
+        );
+        Self::set_config_value(
+            conn,
             "schema_version",
             Some(&CURRENT_SCHEMA_VERSION.to_string()),
             false,
@@ -566,7 +573,6 @@ pub mod test_utils {
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use crate::database::db_migrations::ExternalData;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, revive_tables_of_version_0_and_return_connection,
@@ -575,8 +581,7 @@ mod tests {
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use itertools::Itertools;
     use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-        DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME,
     };
     use rusqlite::types::Type::Null;
     use rusqlite::{Error, OpenFlags};
@@ -814,6 +819,7 @@ mod tests {
         verify(&mut config_vec, EXAMPLE_ENCRYPTED, None);
         verify(&mut config_vec, "gas_price", Some(DEFAULT_GAS_PRICE));
         verify(&mut config_vec, "mapping_protocol", None);
+        verify(&mut config_vec,"neighborhood_mode",Some("standard"));
         verify(&mut config_vec, "past_neighbors", None);
         verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database
         verify(
@@ -928,14 +934,14 @@ mod tests {
             .initialize(
                 &updated_db_path_dir,
                 true,
-                MigratorConfig::create_or_update(ExternalData::new(DEFAULT_CHAIN_ID)),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let _ = subject
             .initialize(
                 &from_scratch_db_path_dir,
                 true,
-                MigratorConfig::create_or_update(ExternalData::new(DEFAULT_CHAIN_ID)),
+                MigratorConfig::test_default(),
             )
             .unwrap();
 

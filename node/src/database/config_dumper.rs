@@ -4,7 +4,7 @@ use crate::apps::app_config_dumper;
 use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
-use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE, InitializationError};
 use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
 use crate::node_configurator::DirsWrapperReal;
@@ -119,7 +119,7 @@ fn make_config_dao(
 ) -> ConfigDaoReal {
     let conn = DbInitializerReal::default()
         .initialize(data_directory, false, migrator_config)
-        .unwrap_or_else(|e| {
+        .unwrap_or_else(|e| if e == InitializationError::Nonexistent {panic!("Couldn't find database at: {}. Note: database must be created by the Node when running first time, don't run --dump-config before",data_directory.to_string_lossy().to_string())} else {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
                 data_directory.join(DATABASE_FILE),
@@ -175,52 +175,32 @@ mod tests {
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
-    use masq_lib::utils::derivation_path;
+    use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
     use crate::database::db_migrations::ExternalData;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::fs::File;
+    use std::io::{ErrorKind};
 
     #[test]
-    fn dump_config_creates_database_if_nonexistent() {
+    fn database_must_be_created_by_node_before_dump_config_is_used() {
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
-            "dump_config_creates_database_if_nonexistent",
-        )
-        .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN_NAME);
+            "database_must_be_created_by_node_before_dump_config_used",
+        );
         let mut holder = FakeStreamHolder::new();
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
+        let caught_panic = catch_unwind(AssertUnwindSafe(||subject.go(&mut holder.streams(), args_vec.as_slice()))).unwrap_err();
 
-        assert!(result.is_ok());
-        let output = holder.stdout.get_string();
-        let actual_value: Value = serde_json::from_str(&output).unwrap();
-        let actual_map = match &actual_value {
-            Value::Object(map) => map,
-            other => panic!("Was expecting Value::Object, got {:?} instead", other),
-        };
-        let expected_value = json!({
-           "blockchainServiceUrl": null,
-           "chainName": TEST_DEFAULT_CHAIN_NAME.to_string(),
-           "clandestinePort": actual_map.get ("clandestinePort"),
-           "consumingWalletDerivationPath": null,
-           "consumingWalletPublicKey": null,
-           "earningWalletAddress": null,
-           "exampleEncrypted": null,
-           "gasPrice": "1",
-           "mappingProtocol": null,
-           "pastNeighbors": null,
-           "schemaVersion": CURRENT_SCHEMA_VERSION.to_string(),
-           "seed": null,
-           "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)).to_string(),
-        });
-        assert_eq!(actual_value, expected_value);
-        assert!(output.ends_with("\n}\n"))
+        let string_panic = caught_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(string_panic,&format!("Couldn't find database at: {}. Note: database must be created by the Node when running first time, don't run --dump-config before",data_dir.to_str().unwrap()));
+        let err = File::open(&data_dir.join(DATABASE_FILE)).unwrap_err();
+        assert_eq!(err.kind(),ErrorKind::NotFound)
     }
 
     #[test]
@@ -268,7 +248,7 @@ mod tests {
                 .initialize(
                     &data_dir,
                     true,
-                    MigratorConfig::test_default()
+                    MigratorConfig::create_or_update(ExternalData::new(DEFAULT_CHAIN_ID,NeighborhoodModeLight::ZeroHop))
                 )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -340,7 +320,7 @@ mod tests {
             &dao.get("past_neighbors").unwrap().value_opt.unwrap(),
             &map,
         );
-        assert_value("neighborhood-mode","zero-hop",&map);
+        assert_value("neighborhoodMode","zero-hop",&map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
@@ -354,6 +334,7 @@ mod tests {
             &map,
         );
         assert_value("seed", &dao.get("seed").unwrap().value_opt.unwrap(), &map);
+        assert!(output.ends_with("\n}\n")) //asserting that there is one blank line at the end
     }
 
     #[test]
@@ -375,7 +356,7 @@ mod tests {
                 .initialize(
                     &data_dir,
                     true,
-                    MigratorConfig::create_or_update(ExternalData::new(DEFAULT_CHAIN_ID)),
+                    MigratorConfig::create_or_update(ExternalData::new(DEFAULT_CHAIN_ID,NeighborhoodModeLight::ConsumeOnly)),
                 )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -450,7 +431,7 @@ mod tests {
         assert_value("chainName", "ropsten", &map);
         assert_value("gasPrice", "1", &map);
         assert_value("pastNeighbors", "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
-        assert_value("neighborhood-mode","consume-only",&map);
+        assert_value("neighborhoodMode","consume-only",&map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
@@ -490,7 +471,7 @@ mod tests {
                 .initialize(
                     &data_dir,
                     true,
-                    MigratorConfig::create_or_update(ExternalData::new(DEFAULT_CHAIN_ID)),
+                    MigratorConfig::create_or_update(ExternalData::new(DEFAULT_CHAIN_ID,NeighborhoodModeLight::Standard)),
                 )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -569,7 +550,7 @@ mod tests {
             &dao.get("past_neighbors").unwrap().value_opt.unwrap(),
             &map,
         );
-        assert_value("neighborhood_mode","standard",&map);
+        assert_value("neighborhoodMode","standard",&map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",

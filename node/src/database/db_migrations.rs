@@ -4,10 +4,9 @@ use crate::blockchain::blockchain_interface::chain_name_from_id;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
-use masq_lib::utils::{ExpectValue, WrapResult};
+use masq_lib::utils::{ExpectValue, WrapResult, NeighborhoodModeLight};
 use rusqlite::{Transaction, NO_PARAMS};
 use std::fmt::Debug;
-use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
 
 pub trait DbMigrator {
@@ -396,7 +395,8 @@ impl MigratorConfig {
         Self{
             should_be_suppressed: Suppression::No,
             external_dataset: Some(ExternalData{
-                chain_name: TEST_DEFAULT_CHAIN_NAME.to_string()
+                chain_name: TEST_DEFAULT_CHAIN_NAME.to_string(),
+                neighborhood_mode: NeighborhoodModeLight::Standard
             })
         }
     }
@@ -405,12 +405,14 @@ impl MigratorConfig {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExternalData {
     pub chain_name: String,
+    pub neighborhood_mode: NeighborhoodModeLight
 }
 
 impl ExternalData {
-    pub fn new(chain_id: u8) -> Self {
+    pub fn new(chain_id: u8,neighborhood_mode:NeighborhoodModeLight) -> Self {
         Self {
             chain_name: chain_name_from_id(chain_id).to_string(),
+            neighborhood_mode
         }
     }
 }
@@ -426,7 +428,6 @@ impl From<(MigratorConfig,bool)> for ExternalData {
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_interface::chain_name_from_id;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
@@ -438,14 +439,14 @@ mod tests {
         assurance_query_for_config_table, revive_tables_of_version_0_and_return_connection,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::constants::DEFAULT_CHAIN_NAME;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
     use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
+    use masq_lib::utils::NeighborhoodModeLight;
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
@@ -567,7 +568,8 @@ mod tests {
 
     fn make_external_migration_parameters() -> ExternalData {
         ExternalData {
-            chain_name: DEFAULT_CHAIN_NAME.to_string(),
+            chain_name: TEST_DEFAULT_CHAIN_NAME.to_string(),
+            neighborhood_mode: NeighborhoodModeLight::Standard
         }
     }
 
@@ -585,18 +587,12 @@ mod tests {
     #[test]
     fn create_or_update_properly_set() {
         assert_eq!(
-            MigratorConfig::create_or_update(make_defaulted_external_migration_data()),
+            MigratorConfig::create_or_update(make_external_migration_parameters()),
             MigratorConfig {
                 should_be_suppressed: Suppression::No,
-                external_dataset: Some(make_defaulted_external_migration_data())
+                external_dataset: Some(make_external_migration_parameters())
             }
         )
-    }
-
-    fn make_defaulted_external_migration_data() -> ExternalData {
-        ExternalData {
-            chain_name: chain_name_from_id(DEFAULT_CHAIN_ID).to_string(),
-        }
     }
 
     #[test]
@@ -838,8 +834,7 @@ mod tests {
         ];
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
         let config = DBMigratorInnerConfiguration::new();
-        let chain_id = 1; //irrelevant
-        let external_parameters = ExternalData::new(chain_id);
+        let external_parameters = make_external_migration_parameters();
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
         let result = subject
@@ -1070,7 +1065,8 @@ mod tests {
         assert_eq!(
             *make_mig_declaration_utils_params,
             vec![ExternalData {
-                chain_name: "mainnet".to_string()
+                chain_name: "ropsten".to_string(),
+                neighborhood_mode: NeighborhoodModeLight::Standard
             }]
         )
     }
@@ -1124,7 +1120,7 @@ mod tests {
             &dir_path,
             1,
             true,
-            MigratorConfig::create_or_update(make_defaulted_external_migration_data()),
+            MigratorConfig::create_or_update(make_external_migration_parameters()),
         );
         let connection = result.unwrap();
         let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
@@ -1158,7 +1154,7 @@ mod tests {
                     &dir_path,
                     start_at,
                     true,
-                    MigratorConfig::create_or_update(make_defaulted_external_migration_data()),
+                    MigratorConfig::create_or_update(make_external_migration_parameters()),
                 )
                 .unwrap();
         }
@@ -1167,7 +1163,7 @@ mod tests {
             &dir_path,
             start_at + 1,
             true,
-            MigratorConfig::create_or_update(make_defaulted_external_migration_data()),
+            MigratorConfig::create_or_update(make_external_migration_parameters()),
         );
 
         let connection = result.unwrap();
@@ -1202,7 +1198,7 @@ mod tests {
                     &dir_path,
                     start_at,
                     true,
-                    MigratorConfig::create_or_update(make_defaulted_external_migration_data()),
+                    MigratorConfig::create_or_update(make_external_migration_parameters()),
                 )
                 .unwrap();
         }
@@ -1211,7 +1207,7 @@ mod tests {
             &dir_path,
             start_at + 1,
             true,
-            MigratorConfig::create_or_update(make_defaulted_external_migration_data()),
+            MigratorConfig::create_or_update(make_external_migration_parameters()),
         );
 
         let connection = result.unwrap();

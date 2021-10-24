@@ -49,6 +49,7 @@ mod tests {
     use crate::database::db_migrations::{MigratorConfig, ExternalData};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoRead, ConfigDaoReal};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::utils::NeighborhoodModeLight;
 
     #[test]
     fn commit_works() {
@@ -57,7 +58,7 @@ mod tests {
             .initialize(
                 &data_dir,
                 true,
-                MigratorConfig::create_or_update(ExternalData::new(2)),
+                MigratorConfig::create_or_update(ExternalData::new(2,NeighborhoodModeLight::Standard)),
             )
             .unwrap();
         let mut config_dao = ConfigDaoReal::new(conn);

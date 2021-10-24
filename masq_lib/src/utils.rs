@@ -6,6 +6,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::sync::{Arc, Mutex};
+use std::str::FromStr;
 
 #[cfg(not(target_os = "windows"))]
 mod not_win_cfg {
@@ -120,15 +121,17 @@ impl Display for NeighborhoodModeLight {
     }
 }
 
-impl From<String> for NeighborhoodModeLight {
-    fn from(string: String) -> Self {
-        match string.as_str(){
+impl FromStr for NeighborhoodModeLight {
+    type Err = String;
+
+    fn from_str(str: &str) -> Result<Self, Self::Err> {
+        Ok(match str{
             "standard" => Self::Standard,
             "consume-only" => Self::ConsumeOnly,
             "originate-only" => Self::OriginateOnly,
             "zero-hop" => Self::ZeroHop,
-            x => panic!("should not happen: {}",x)
-        }
+            x => return Err(format!("Invalid value read for neighborhood mode: {}",x))
+        })
     }
 }
 
@@ -395,16 +398,12 @@ mod tests {
 
     #[test]
     fn neighborhood_mode_light_can_exist_from_string(){
-        assert_eq!(NeighborhoodModeLight::Standard, NeighborhoodModeLight::from("standard".to_string()));
-        assert_eq!(NeighborhoodModeLight::ConsumeOnly, NeighborhoodModeLight::from("consume-only".to_string()));
-        assert_eq!(NeighborhoodModeLight::OriginateOnly, NeighborhoodModeLight::from("originate-only".to_string()));
-        assert_eq!(NeighborhoodModeLight::ZeroHop, NeighborhoodModeLight::from("zero-hop".to_string()))
-    }
+        assert_eq!(NeighborhoodModeLight::from_str("standard").unwrap(),NeighborhoodModeLight::Standard);
+        assert_eq!(NeighborhoodModeLight::from_str("consume-only").unwrap(),NeighborhoodModeLight::ConsumeOnly);
+        assert_eq!(NeighborhoodModeLight::from_str("originate-only").unwrap(),NeighborhoodModeLight::OriginateOnly);
+        assert_eq!(NeighborhoodModeLight::from_str("zero-hop").unwrap(),NeighborhoodModeLight::ZeroHop);
 
-    #[test]
-    #[should_panic(expected="should not happen: blah")]
-    fn neighborhood_mode_light_from_string_panics_on_unknown_string(){
-        let _ = NeighborhoodModeLight::from("blah".to_string());
+        assert_eq!(NeighborhoodModeLight::from_str("blah"),Err(String::from("Invalid value supplied for neighborhood mode: blah")))
     }
 
     #[test]
