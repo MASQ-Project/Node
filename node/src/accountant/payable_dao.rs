@@ -313,7 +313,7 @@ mod tests {
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
     use rusqlite::{Connection, OpenFlags, NO_PARAMS};
     use std::str::FromStr;
     use web3::types::U256;
@@ -331,9 +331,8 @@ mod tests {
                 DbInitializerReal::default()
                     .initialize(
                         &home_dir,
-                        DEFAULT_CHAIN_ID,
                         true,
-                        MigratorConfig::panic_on_update(),
+                        MigratorConfig::test_default(),
                     )
                     .unwrap(),
             );
@@ -372,9 +371,8 @@ mod tests {
                 DbInitializerReal::default()
                     .initialize(
                         &home_dir,
-                        DEFAULT_CHAIN_ID,
                         true,
-                        MigratorConfig::panic_on_update(),
+                        MigratorConfig::test_default(),
                     )
                     .unwrap(),
             );
@@ -413,9 +411,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -436,9 +433,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -473,9 +469,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -508,9 +503,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -532,9 +526,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -560,9 +553,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -583,9 +575,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -604,9 +595,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -670,9 +660,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -692,9 +681,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -714,9 +702,8 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let insert = |wallet: &str,
@@ -797,9 +784,8 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let subject = PayableDaoReal::new(conn);

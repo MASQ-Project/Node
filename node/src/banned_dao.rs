@@ -152,8 +152,7 @@ mod tests {
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
     use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-        DEFAULT_CHAIN_ID,
+        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists
     };
     use rusqlite::NO_PARAMS;
 
@@ -168,9 +167,8 @@ mod tests {
             let conn = db_initializer
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap();
             BannedDaoReal::new(conn)
@@ -181,9 +179,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
@@ -206,9 +203,8 @@ mod tests {
             let conn = db_initializer
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap();
             BannedDaoReal::new(conn)
@@ -230,9 +226,8 @@ mod tests {
             let conn = db_initializer
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap();
             BannedDaoReal::new(conn)
@@ -252,9 +247,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let wallet = &make_wallet("booga");
@@ -270,9 +264,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let mut stmt = conn
@@ -292,9 +285,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let subject = BannedDaoReal::new(conn);
@@ -315,9 +307,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         conn.prepare("insert into banned (wallet_address) values ('0x000000000000000000495f414d5f42414e4e4544')")
@@ -347,9 +338,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let subject = BannedDaoReal::new(conn);
@@ -368,9 +358,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let unban_me_baby = make_wallet("UNBAN_ME_BABY");

@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::apps::app_head;
-use crate::blockchain::blockchain_interface::{chain_id_from_name, chain_name_from_id};
+use crate::blockchain::blockchain_interface::{chain_name_from_id};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
@@ -279,8 +279,7 @@ impl SetupReporterReal {
         let ((bootstrapper_config, persistent_config_opt), error_opt) = Self::run_configuration(
             dirs_wrapper,
             &multi_config,
-            data_directory,
-            chain_id_from_name(chain_name),
+            data_directory
         );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -386,8 +385,7 @@ impl SetupReporterReal {
     fn run_configuration(
         dirs_wrapper: &dyn DirsWrapper,
         multi_config: &MultiConfig,
-        data_directory: &Path,
-        chain_id: u8,
+        data_directory: &Path
     ) -> (
         (BootstrapperConfig, Option<Box<dyn PersistentConfiguration>>),
         Option<ConfiguratorError>,
@@ -409,9 +407,8 @@ impl SetupReporterReal {
         let initializer = DbInitializerReal::default();
         match initializer.initialize(
             data_directory,
-            chain_id,
             false,
-            MigratorConfig::update_suppressed(),
+            MigratorConfig::suppressed_with_error(),
         ) {
             Ok(conn) => {
                 let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -891,7 +888,7 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, DEFAULT_CHAIN_ID};
     use std::cell::RefCell;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
@@ -900,6 +897,8 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use crate::test_utils::pure_test_utils::{make_simplified_multi_config, make_pre_populated_mocked_directory_wrapper};
+    use rusqlite::NO_PARAMS;
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -982,9 +981,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                chain_id_from_name(DEFAULT_CHAIN_NAME),
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
@@ -1663,7 +1661,7 @@ mod tests {
     }
 
     #[test]
-    fn get_modified_blanking_something_that_shouldnt_be_blanked_fails_properly() {
+    fn get_modified_blanking_something_that_should_not_be_blanked_fails_properly() {
         let _guard = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "setup_reporter",
@@ -1687,6 +1685,30 @@ mod tests {
             result.0.get("ip").unwrap().clone(),
             UiSetupResponseValue::new("ip", "1.2.3.4", Set)
         );
+    }
+
+    #[test]
+    fn run_configuration_suppress_db_migration_and_does_not_initiate_persistent_config(){
+        let data_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "run_configuration_suppress_db_migration_and_does_not_initiate_persistent_config",
+        );
+        let conn = revive_tables_of_version_0_and_return_connection(&data_dir.join(DATABASE_FILE));
+        conn.execute("update config set value = 55 where name = 'gas_price'",NO_PARAMS).unwrap();
+        let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
+        let updated_gas_price = dao.get("gas_price").unwrap().value_opt.unwrap();
+        assert_eq!(updated_gas_price,"55");
+        let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, "0");
+        let multi_config = make_simplified_multi_config(["MASQNode","--data-directory",data_dir.to_str().unwrap()]);
+        let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
+
+        let ((bootstrapper_config,persistent_config),_) = SetupReporterReal::run_configuration(&dirs_wrapper,&multi_config,&data_dir);
+
+        assert_ne!(bootstrapper_config.blockchain_bridge_config.gas_price, 55); //asserting negation
+        assert!(persistent_config.is_none());
+        let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, schema_version_after)
     }
 
     #[test]

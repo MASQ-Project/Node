@@ -7,6 +7,8 @@ use crate::sub_lib::logger::Logger;
 use masq_lib::utils::{ExpectValue, WrapResult};
 use rusqlite::{Transaction, NO_PARAMS};
 use std::fmt::Debug;
+use masq_lib::constants::DEFAULT_CHAIN_NAME;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -18,7 +20,7 @@ pub trait DbMigrator {
 }
 
 pub struct DbMigratorReal {
-    external: ExternalMigrationData,
+    external: ExternalData,
     logger: Logger,
 }
 
@@ -54,7 +56,7 @@ trait DatabaseMigration: Debug {
 trait MigDeclarationUtilities {
     fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()>;
 
-    fn external_parameters(&self) -> &ExternalMigrationData;
+    fn external_parameters(&self) -> &ExternalData;
 }
 
 trait DBMigrationUtilities {
@@ -64,7 +66,7 @@ trait DBMigrationUtilities {
 
     fn make_mig_declaration_utils<'a>(
         &'a self,
-        external: &'a ExternalMigrationData,
+        external: &'a ExternalData,
     ) -> Box<dyn MigDeclarationUtilities + 'a>;
 
     fn too_high_schema_panics(&self, mismatched_schema: usize);
@@ -113,7 +115,7 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
 
     fn make_mig_declaration_utils<'b>(
         &'b self,
-        external: &'b ExternalMigrationData,
+        external: &'b ExternalData,
     ) -> Box<dyn MigDeclarationUtilities + 'b> {
         Box::new(MigDeclarationUtilitiesReal::new(
             self.root_transaction_ref(),
@@ -134,11 +136,11 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
 
 struct MigDeclarationUtilitiesReal<'a> {
     root_transaction_ref: &'a Transaction<'a>,
-    external: &'a ExternalMigrationData,
+    external: &'a ExternalData,
 }
 
 impl<'a> MigDeclarationUtilitiesReal<'a> {
-    fn new(root_transaction_ref: &'a Transaction<'a>, external: &'a ExternalMigrationData) -> Self {
+    fn new(root_transaction_ref: &'a Transaction<'a>, external: &'a ExternalData) -> Self {
         Self {
             root_transaction_ref,
             external,
@@ -158,7 +160,7 @@ impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
         })
     }
 
-    fn external_parameters(&self) -> &ExternalMigrationData {
+    fn external_parameters(&self) -> &ExternalData {
         self.external
     }
 }
@@ -244,7 +246,7 @@ impl DatabaseMigration for Migrate_2_to_3 {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 impl DbMigratorReal {
-    pub fn new(external: ExternalMigrationData) -> Self {
+    pub fn new(external: ExternalData) -> Self {
         Self {
             external,
             logger: Logger::new("DbMigrator"),
@@ -350,7 +352,7 @@ impl DbMigratorReal {
 #[derive(PartialEq, Debug)]
 pub struct MigratorConfig {
     pub should_be_suppressed: Suppression,
-    pub external_dataset: Option<ExternalMigrationData>,
+    pub external_dataset: Option<ExternalData>,
 }
 
 #[derive(PartialEq,Debug)]
@@ -368,7 +370,7 @@ impl MigratorConfig {
         }
     }
 
-    pub fn update(external_params: ExternalMigrationData) -> Self {
+    pub fn create_or_update(external_params: ExternalData) -> Self {  //is used also if a brand new db is being created
         Self {
             should_be_suppressed: Suppression::No,
             external_dataset: Some(external_params),
@@ -388,14 +390,24 @@ impl MigratorConfig {
             external_dataset: None,
         }
     }
+
+    #[cfg(test)]
+    pub fn test_default()-> Self{
+        Self{
+            should_be_suppressed: Suppression::No,
+            external_dataset: Some(ExternalData{
+                chain_name: TEST_DEFAULT_CHAIN_NAME.to_string()
+            })
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ExternalMigrationData {
-    chain_name: String,
+pub struct ExternalData {
+    pub chain_name: String,
 }
 
-impl ExternalMigrationData {
+impl ExternalData {
     pub fn new(chain_id: u8) -> Self {
         Self {
             chain_name: chain_name_from_id(chain_id).to_string(),
@@ -403,11 +415,12 @@ impl ExternalMigrationData {
     }
 }
 
-impl From<MigratorConfig> for ExternalMigrationData {
-    fn from(config: MigratorConfig) -> Self {
-        config.external_dataset.unwrap_or_else(|| {
-            panic!("Attempt to migrate the database at place where it is forbidden")
-        })
+impl From<(MigratorConfig,bool)> for ExternalData {
+    fn from(tuple: (MigratorConfig,bool)) -> Self {
+        let (migrator_config,db_newly_created) = tuple;
+        migrator_config.external_dataset.unwrap_or_else(||
+            panic!("{}", if db_newly_created {"Attempt to create a new database without proper configuration"} else { "Attempt to migrate the database at place where it is forbidden" })
+        )
     }
 }
 
@@ -419,7 +432,7 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, DATABASE_FILE,
     };
-    use crate::database::db_migrations::{DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbMigrator, ExternalMigrationData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, Suppression};
+    use crate::database::db_migrations::{DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbMigrator, ExternalData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, Suppression};
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, revive_tables_of_version_0_and_return_connection,
@@ -437,7 +450,7 @@ mod tests {
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
         too_high_found_schema_will_panic_params: Arc<Mutex<Vec<usize>>>,
-        make_mig_declaration_utils_params: Arc<Mutex<Vec<ExternalMigrationData>>>,
+        make_mig_declaration_utils_params: Arc<Mutex<Vec<ExternalData>>>,
         make_mig_declaration_utils_results: RefCell<Vec<Box<dyn MigDeclarationUtilities>>>,
         update_schema_version_params: Arc<Mutex<Vec<usize>>>,
         update_schema_version_results: RefCell<Vec<rusqlite::Result<()>>>,
@@ -462,7 +475,7 @@ mod tests {
 
         pub fn make_mig_declaration_utils_params(
             mut self,
-            params: &Arc<Mutex<Vec<ExternalMigrationData>>>,
+            params: &Arc<Mutex<Vec<ExternalData>>>,
         ) -> Self {
             self.make_mig_declaration_utils_params = params.clone();
             self
@@ -494,7 +507,7 @@ mod tests {
 
         fn make_mig_declaration_utils<'a>(
             &'a self,
-            external: &'a ExternalMigrationData,
+            external: &'a ExternalData,
         ) -> Box<dyn MigDeclarationUtilities + 'a> {
             self.make_mig_declaration_utils_params
                 .lock()
@@ -547,13 +560,13 @@ mod tests {
             self.execute_upon_transaction_results.borrow_mut().remove(0)
         }
 
-        fn external_parameters(&self) -> &ExternalMigrationData {
+        fn external_parameters(&self) -> &ExternalData {
             unimplemented!()
         }
     }
 
-    fn make_external_migration_parameters() -> ExternalMigrationData {
-        ExternalMigrationData {
+    fn make_external_migration_parameters() -> ExternalData {
+        ExternalData {
             chain_name: DEFAULT_CHAIN_NAME.to_string(),
         }
     }
@@ -570,9 +583,9 @@ mod tests {
     }
 
     #[test]
-    fn update_properly_set() {
+    fn create_or_update_properly_set() {
         assert_eq!(
-            MigratorConfig::update(make_defaulted_external_migration_data()),
+            MigratorConfig::create_or_update(make_defaulted_external_migration_data()),
             MigratorConfig {
                 should_be_suppressed: Suppression::No,
                 external_dataset: Some(make_defaulted_external_migration_data())
@@ -580,8 +593,8 @@ mod tests {
         )
     }
 
-    fn make_defaulted_external_migration_data() -> ExternalMigrationData {
-        ExternalMigrationData {
+    fn make_defaulted_external_migration_data() -> ExternalData {
+        ExternalData {
             chain_name: chain_name_from_id(DEFAULT_CHAIN_ID).to_string(),
         }
     }
@@ -817,7 +830,7 @@ mod tests {
             .unwrap();
         let correct_statement_1 = "INSERT INTO test (name,count) VALUES ('mushrooms','270')";
         let erroneous_statement_1 = "INSERT INTO botanic_garden (sun_flowers) VALUES (100)";
-        let erroneous_statement_2 = "UPDATE botanic_garden SET (sun_flowers) VALUES (99)";
+        let erroneous_statement_2 = "UPDATE botanic_garden SET value = 99 WHERE flower = artemisia";
         let set_of_sql_statements = &[
             correct_statement_1,
             erroneous_statement_1,
@@ -826,7 +839,7 @@ mod tests {
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
         let config = DBMigratorInnerConfiguration::new();
         let chain_id = 1; //irrelevant
-        let external_parameters = ExternalMigrationData::new(chain_id);
+        let external_parameters = ExternalData::new(chain_id);
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
         let result = subject
@@ -1056,7 +1069,7 @@ mod tests {
         let make_mig_declaration_utils_params = make_mig_declaration_params_arc.lock().unwrap();
         assert_eq!(
             *make_mig_declaration_utils_params,
-            vec![ExternalMigrationData {
+            vec![ExternalData {
                 chain_name: "mainnet".to_string()
             }]
         )
@@ -1105,15 +1118,13 @@ mod tests {
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = revive_tables_of_version_0_and_return_connection(&db_path);
-        let chain = DEFAULT_CHAIN_ID;
         let subject = DbInitializerReal::default();
 
         let result = subject.initialize_to_version(
             &dir_path,
-            chain,
             1,
             true,
-            MigratorConfig::update(make_defaulted_external_migration_data()),
+            MigratorConfig::create_or_update(make_defaulted_external_migration_data()),
         );
         let connection = result.unwrap();
         let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
@@ -1145,20 +1156,18 @@ mod tests {
             subject
                 .initialize_to_version(
                     &dir_path,
-                    DEFAULT_CHAIN_ID,
                     start_at,
                     true,
-                    MigratorConfig::update(make_defaulted_external_migration_data()),
+                    MigratorConfig::create_or_update(make_defaulted_external_migration_data()),
                 )
                 .unwrap();
         }
 
         let result = subject.initialize_to_version(
             &dir_path,
-            DEFAULT_CHAIN_ID,
             start_at + 1,
             true,
-            MigratorConfig::update(make_defaulted_external_migration_data()),
+            MigratorConfig::create_or_update(make_defaulted_external_migration_data()),
         );
 
         let connection = result.unwrap();
@@ -1191,20 +1200,18 @@ mod tests {
             subject
                 .initialize_to_version(
                     &dir_path,
-                    DEFAULT_CHAIN_ID,
                     start_at,
                     true,
-                    MigratorConfig::update(make_defaulted_external_migration_data()),
+                    MigratorConfig::create_or_update(make_defaulted_external_migration_data()),
                 )
                 .unwrap();
         }
 
         let result = subject.initialize_to_version(
             &dir_path,
-            DEFAULT_CHAIN_ID,
             start_at + 1,
             true,
-            MigratorConfig::update(make_defaulted_external_migration_data()),
+            MigratorConfig::create_or_update(make_defaulted_external_migration_data()),
         );
 
         let connection = result.unwrap();

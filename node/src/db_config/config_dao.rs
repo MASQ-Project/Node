@@ -243,7 +243,7 @@ mod tests {
     };
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::assert_contains;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
 
     #[test]
     fn get_all_returns_multiple_results() {
@@ -253,9 +253,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -291,9 +290,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -313,9 +311,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -323,7 +320,6 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
                     MigratorConfig::panic_on_update(),
                 )
@@ -375,9 +371,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -423,9 +418,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -433,7 +427,6 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     false,
                     MigratorConfig::panic_on_update(),
                 )
@@ -485,9 +478,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -508,9 +500,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );

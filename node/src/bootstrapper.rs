@@ -527,8 +527,7 @@ impl Bootstrapper {
             let conn = DbInitializerReal::default()
                 .initialize(
                     &self.config.data_directory,
-                    self.config.blockchain_bridge_config.chain_id,
-                    true,
+                    false,
                     MigratorConfig::panic_on_update(),
                 )
                 .expect("Cannot initialize database");
@@ -1529,6 +1528,9 @@ mod tests {
             "bootstrapper",
             "establish_clandestine_port_handles_specified_port",
         );
+        let conn = DbInitializerReal::default()
+            .initialize(&data_dir, true, MigratorConfig::test_default())
+            .unwrap();
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let mut config = BootstrapperConfig::new();
@@ -1546,7 +1548,6 @@ mod tests {
         };
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = Some(1234);
-        let chain_id = config.blockchain_bridge_config.chain_id;
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(listener_handler))
@@ -1555,9 +1556,6 @@ mod tests {
 
         subject.set_up_clandestine_port();
 
-        let conn = DbInitializerReal::default()
-            .initialize(&data_dir, chain_id, true, MigratorConfig::panic_on_update())
-            .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
         assert_eq!(1234u16, persistent_config.clandestine_port().unwrap());
@@ -1600,6 +1598,9 @@ mod tests {
             "bootstrapper",
             "establish_clandestine_port_handles_unspecified_port",
         );
+        let conn = DbInitializerReal::default()
+            .initialize(&data_dir, true, MigratorConfig::test_default())
+            .unwrap();
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
@@ -1615,7 +1616,6 @@ mod tests {
         };
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = None;
-        let chain_id = config.blockchain_bridge_config.chain_id;
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(listener_handler))
@@ -1624,9 +1624,6 @@ mod tests {
 
         subject.set_up_clandestine_port();
 
-        let conn = DbInitializerReal::default()
-            .initialize(&data_dir, chain_id, true, MigratorConfig::panic_on_update())
-            .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
         let clandestine_port = persistent_config.clandestine_port().unwrap();

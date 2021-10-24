@@ -18,7 +18,7 @@ use crate::apps::app_node;
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::PortConfiguration;
-use crate::database::db_migrations::{ExternalMigrationData, MigratorConfig};
+use crate::database::db_migrations::{ExternalData, MigratorConfig};
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::node_configurator::{
@@ -95,9 +95,8 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
-            self.privileged_config.blockchain_bridge_config.chain_id,
             true,
-            MigratorConfig::update(ExternalMigrationData::new(
+            MigratorConfig::create_or_update(ExternalData::new(
                 self.privileged_config.blockchain_bridge_config.chain_id,
             )), //TODO here the best place might be
         );
@@ -1546,9 +1545,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir.clone(),
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         )));
@@ -1687,9 +1685,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir.clone(),
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         ));

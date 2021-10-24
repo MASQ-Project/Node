@@ -40,7 +40,6 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
         PrivilegeDropperReal::new().drop_privileges(&real_user);
         let config_dao = make_config_dao(
             &data_directory,
-            chain_id,
             MigratorConfig::update_suppressed(),
         ); //dump config never migrates
         let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
@@ -116,11 +115,10 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
 
 fn make_config_dao(
     data_directory: &Path,
-    chain_id: u8,
     migrator_config: MigratorConfig,
 ) -> ConfigDaoReal {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory, chain_id, true, migrator_config) // TODO: Probably should be false
+        .initialize(data_directory, false, migrator_config)
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
@@ -178,6 +176,7 @@ mod tests {
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
     use masq_lib::utils::derivation_path;
+    use crate::database::db_migrations::ExternalData;
 
     #[test]
     fn dump_config_creates_database_if_nonexistent() {
@@ -268,9 +267,8 @@ mod tests {
             let conn = DbInitializerReal::default()
                 .initialize(
                     &data_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default()
                 )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -318,7 +316,6 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(
                 &data_dir,
-                DEFAULT_CHAIN_ID,
                 false,
                 MigratorConfig::panic_on_update(),
             )
@@ -343,6 +340,7 @@ mod tests {
             &dao.get("past_neighbors").unwrap().value_opt.unwrap(),
             &map,
         );
+        assert_value("neighborhood-mode","zero-hop",&map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
@@ -376,9 +374,8 @@ mod tests {
             let conn = DbInitializerReal::default()
                 .initialize(
                     &data_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::create_or_update(ExternalData::new(DEFAULT_CHAIN_ID)),
                 )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -433,7 +430,6 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(
                 &data_dir,
-                DEFAULT_CHAIN_ID,
                 false,
                 MigratorConfig::panic_on_update(),
             )
@@ -454,6 +450,7 @@ mod tests {
         assert_value("chainName", "ropsten", &map);
         assert_value("gasPrice", "1", &map);
         assert_value("pastNeighbors", "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
+        assert_value("neighborhood-mode","consume-only",&map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
@@ -492,9 +489,8 @@ mod tests {
             let conn = DbInitializerReal::default()
                 .initialize(
                     &data_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::create_or_update(ExternalData::new(DEFAULT_CHAIN_ID)),
                 )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -549,7 +545,6 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(
                 &data_dir,
-                DEFAULT_CHAIN_ID,
                 false,
                 MigratorConfig::panic_on_update(),
             )
@@ -574,6 +569,7 @@ mod tests {
             &dao.get("past_neighbors").unwrap().value_opt.unwrap(),
             &map,
         );
+        assert_value("neighborhood_mode","standard",&map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
@@ -619,7 +615,7 @@ mod tests {
     }
 
     fn assert_value(key: &str, expected_value: &str, map: &Map<String, Value>) {
-        let actual_value = match map.get(key).unwrap() {
+        let actual_value = match map.get(key).unwrap_or_else(||panic!("record for {} is missing",key)) {
             Value::String(s) => s,
             x => panic!("Expected JSON string; found {:?}", x),
         };

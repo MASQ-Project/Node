@@ -43,11 +43,10 @@ impl ConnectionWrapperReal {
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
-    use crate::database::db_migrations::MigratorConfig;
+    use crate::database::db_migrations::{MigratorConfig, ExternalData};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoRead, ConfigDaoReal};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 
@@ -57,9 +56,8 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(
                 &data_dir,
-                chain_id_from_name("dev"),
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::create_or_update(ExternalData::new(2)),
             )
             .unwrap();
         let mut config_dao = ConfigDaoReal::new(conn);
@@ -82,9 +80,8 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(
                 &data_dir,
-                chain_id_from_name("dev"),
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let mut config_dao = ConfigDaoReal::new(conn);

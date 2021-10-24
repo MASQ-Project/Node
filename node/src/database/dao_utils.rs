@@ -51,7 +51,6 @@ impl DaoFactoryReal {
         connection_or_panic(
             &DbInitializerReal::default(),
             &self.data_directory,
-            self.chain_id,
             self.create_if_necessary,
             self.migrator_config.take().expect_v("MigratorConfig"),
         )

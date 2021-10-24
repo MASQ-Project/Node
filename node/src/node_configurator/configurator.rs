@@ -98,12 +98,11 @@ impl From<Box<dyn PersistentConfiguration>> for Configurator {
 type MessageError = (u64, String);
 
 impl Configurator {
-    pub fn new(data_directory: PathBuf, chain_id: u8) -> Self {
+    pub fn new(data_directory: PathBuf) -> Self {
         let initializer = DbInitializerReal::default();
         let conn = initializer
             .initialize(
                 &data_directory,
-                chain_id,
                 false,
                 MigratorConfig::panic_on_update(),
             )
@@ -763,7 +762,7 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
     use masq_lib::automap_tools::AutomapProtocol;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
     use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 
     #[test]
@@ -774,15 +773,14 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &data_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         )));
         let (recorder, _, _) = make_recorder();
         let recorder_addr = recorder.start();
-        let mut subject = Configurator::new(data_dir, DEFAULT_CHAIN_ID);
+        let mut subject = Configurator::new(data_dir);
         subject.node_to_ui_sub = Some(recorder_addr.recipient());
         subject.new_password_subs = Some(vec![]);
 

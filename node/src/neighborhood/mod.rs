@@ -430,7 +430,6 @@ impl Neighborhood {
             let conn = db_initializer
                 .initialize(
                     &self.data_directory,
-                    self.chain_id,
                     false,
                     MigratorConfig::panic_on_update(),
                 )
@@ -1387,9 +1386,8 @@ mod tests {
             let _ = DbInitializerReal::default()
                 .initialize(
                     &data_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap();
         }
@@ -1439,9 +1437,8 @@ mod tests {
             let _ = DbInitializerReal::default()
                 .initialize(
                     &data_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap();
         }
@@ -3466,9 +3463,8 @@ mod tests {
             let _ = DbInitializerReal::default()
                 .initialize(
                     &data_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap();
         }

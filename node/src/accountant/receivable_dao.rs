@@ -393,7 +393,7 @@ mod tests {
     use crate::test_utils::logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_wallet;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};
 
@@ -426,9 +426,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -457,9 +456,8 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         {
@@ -494,9 +492,8 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         {
@@ -527,9 +524,8 @@ mod tests {
                 DbInitializerReal::default()
                     .initialize(
                         &home_dir,
-                        DEFAULT_CHAIN_ID,
                         true,
-                        MigratorConfig::panic_on_update(),
+                        MigratorConfig::test_default(),
                     )
                     .unwrap(),
             );
@@ -568,9 +564,8 @@ mod tests {
                 DbInitializerReal::default()
                     .initialize(
                         &home_dir,
-                        DEFAULT_CHAIN_ID,
                         true,
-                        MigratorConfig::panic_on_update(),
+                        MigratorConfig::test_default(),
                     )
                     .unwrap(),
             );
@@ -608,9 +603,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -634,9 +628,8 @@ mod tests {
                 DbInitializerReal::default()
                     .initialize(
                         &home_dir,
-                        DEFAULT_CHAIN_ID,
                         true,
-                        MigratorConfig::panic_on_update(),
+                        MigratorConfig::test_default(),
                     )
                     .unwrap(),
             );
@@ -684,9 +677,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -706,9 +698,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -776,9 +767,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -801,9 +791,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default()
                 )
                 .unwrap(),
         );
@@ -827,9 +816,8 @@ mod tests {
             DbInitializerReal::default()
                 .initialize(
                     &home_dir,
-                    DEFAULT_CHAIN_ID,
                     true,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::test_default(),
                 )
                 .unwrap(),
         );
@@ -903,9 +891,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         add_receivable_account(&conn, &not_delinquent_inside_grace_period);
@@ -946,9 +933,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         add_receivable_account(&conn, &not_delinquent);
@@ -984,9 +970,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         add_receivable_account(&conn, &not_delinquent);
@@ -1025,9 +1010,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         add_receivable_account(&conn, &existing_delinquency);
@@ -1060,9 +1044,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         add_receivable_account(&conn, &paid_delinquent);
@@ -1100,9 +1083,8 @@ mod tests {
         let conn = db_initializer
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         add_receivable_account(&conn, &newly_non_delinquent);
@@ -1122,9 +1104,8 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let insert = |wallet: &str, balance: i64, timestamp: i64| {
@@ -1190,9 +1171,8 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(
                 &home_dir,
-                DEFAULT_CHAIN_ID,
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::test_default(),
             )
             .unwrap();
         let subject = ReceivableDaoReal::new(conn);

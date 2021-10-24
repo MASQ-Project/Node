@@ -309,7 +309,6 @@ impl ActorFactory for ActorFactoryReal {
         banned_cache_loader.load(connection_or_panic(
             db_initializer,
             data_directory,
-            chain_id,
             false,
             MigratorConfig::panic_on_update(),
         ));
@@ -376,7 +375,6 @@ impl ActorFactory for ActorFactoryReal {
             db_initializer
                 .initialize(
                     &config.data_directory,
-                    config.blockchain_bridge_config.chain_id,
                     false,
                     MigratorConfig::panic_on_update(),
                 )
@@ -400,8 +398,7 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
         let configurator = Configurator::new(
-            config.data_directory.clone(),
-            config.blockchain_bridge_config.chain_id,
+            config.data_directory.clone()
         );
         let addr: Addr<Configurator> = configurator.start();
         ConfiguratorSubs {

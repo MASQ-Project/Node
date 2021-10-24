@@ -180,14 +180,12 @@ pub fn create_wallet(
 
 pub fn initialize_database(
     data_directory: &Path,
-    chain_id: u8,
     create_if_necessary: bool,
     migrator_config: MigratorConfig,
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
         .initialize(
             data_directory,
-            chain_id,
             create_if_necessary,
             migrator_config,
         )
