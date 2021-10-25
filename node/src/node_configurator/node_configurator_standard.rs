@@ -3,7 +3,6 @@
 use crate::bootstrapper::BootstrapperConfig;
 use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
-use masq_lib::command::StdStreams;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
@@ -19,7 +18,6 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardPrivileged
     fn configure(
         &self,
         multi_config: &MultiConfig,
-        _streams: Option<&mut StdStreams<'_>>,
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
         let mut bootstrapper_config = BootstrapperConfig::new();
         standard::establish_port_configurations(&mut bootstrapper_config);
@@ -55,7 +53,6 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
     fn configure(
         &self,
         multi_config: &MultiConfig,
-        streams: Option<&mut StdStreams<'_>>,
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
@@ -65,7 +62,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         standard::unprivileged_parse_args(
             multi_config,
             &mut unprivileged_config,
-            streams.expect_v("StdStreams"),
+            Some(persistent_config.as_mut()),
             persistent_config.as_mut(),
             &self.logger,
         )?;
@@ -102,7 +99,7 @@ pub mod standard {
     use crate::node_configurator::{
         data_directory_from_context, determine_config_file_path,
         real_user_data_directory_opt_and_chain_name, real_user_from_multi_config_or_populate,
-        request_existing_db_password, DirsWrapper,
+        DirsWrapper,
     };
     use crate::server_initializer::GatheredParams;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
@@ -243,7 +240,6 @@ pub mod standard {
     pub fn unprivileged_parse_args(
         multi_config: &MultiConfig,
         unprivileged_config: &mut BootstrapperConfig,
-        streams: &mut StdStreams<'_>,
         persistent_config: &mut dyn PersistentConfiguration,
         logger: &Logger,
     ) -> Result<(), ConfiguratorError> {
@@ -295,7 +291,6 @@ pub mod standard {
     }
 
     pub fn get_wallets(
-        streams: &mut StdStreams,
         multi_config: &MultiConfig,
         persistent_config: &mut dyn PersistentConfiguration,
         config: &mut BootstrapperConfig,
@@ -313,7 +308,7 @@ pub mod standard {
         if (earning_wallet_opt.is_none() || consuming_wallet_opt.is_none()) && mnemonic_seed_exists
         {
             if let Some(db_password) =
-                standard::get_db_password(multi_config, streams, config, persistent_config)?
+                standard::get_db_password(multi_config, config, persistent_config)?
             {
                 if consuming_wallet_opt.is_none() {
                     consuming_wallet_opt = standard::get_consuming_wallet_opt_from_derivation_path(
@@ -339,7 +334,6 @@ pub mod standard {
 
     pub fn make_neighborhood_config(
         multi_config: &MultiConfig,
-        streams: &mut StdStreams,
         persistent_config_opt: Option<&mut dyn PersistentConfiguration>,
         unprivileged_config: &mut BootstrapperConfig,
     ) -> Result<NeighborhoodConfig, ConfiguratorError> {
@@ -347,12 +341,9 @@ pub mod standard {
             match convert_ci_configs(multi_config)? {
                 Some(configs) => configs,
                 None => match persistent_config_opt {
-                    Some(persistent_config) => get_past_neighbors(
-                        multi_config,
-                        streams,
-                        persistent_config,
-                        unprivileged_config,
-                    )?,
+                    Some(persistent_config) => {
+                        get_past_neighbors(multi_config, persistent_config, unprivileged_config)?
+                    }
                     None => vec![],
                 },
             }
@@ -426,17 +417,12 @@ pub mod standard {
 
     pub fn get_past_neighbors(
         multi_config: &MultiConfig,
-        streams: &mut StdStreams,
         persistent_config: &mut dyn PersistentConfiguration,
         unprivileged_config: &mut BootstrapperConfig,
     ) -> Result<Vec<NodeDescriptor>, ConfiguratorError> {
         Ok(
-            match &standard::get_db_password(
-                multi_config,
-                streams,
-                unprivileged_config,
-                persistent_config,
-            )? {
+            match &standard::get_db_password(multi_config, unprivileged_config, persistent_config)?
+            {
                 Some(db_password) => match persistent_config.past_neighbors(db_password) {
                     Ok(Some(past_neighbors)) => past_neighbors,
                     Ok(None) => vec![],
@@ -696,26 +682,13 @@ pub mod standard {
 
     pub fn get_db_password(
         multi_config: &MultiConfig,
-        streams: &mut StdStreams,
         config: &mut BootstrapperConfig,
         persistent_config: &mut dyn PersistentConfiguration,
     ) -> Result<Option<String>, ConfiguratorError> {
         if let Some(db_password) = &config.db_password_opt {
             return Ok(Some(db_password.clone()));
         }
-        let db_password_opt = match value_user_specified_m!(multi_config, "db-password", String) {
-            (Some(dbp), _) => Some(dbp),
-            (None, false) => None,
-            (None, true) => match request_existing_db_password(
-                streams,
-                Some("Decrypt information from previous runs"),
-                "Enter password: ",
-                persistent_config,
-            ) {
-                Ok(password_opt) => password_opt,
-                Err(e) => return Err(e),
-            },
-        };
+        let db_password_opt = value_m!(multi_config, "db-password", String);
         if let Some(db_password) = &db_password_opt {
             set_db_password_at_first_mention(db_password, persistent_config)?;
             config.db_password_opt = Some(db_password.clone());
@@ -759,7 +732,6 @@ pub mod standard {
         fn get_wallets_handles_consuming_private_key_and_earning_wallet_address_when_database_contains_mnemonic_seed(
         ) {
             running_test();
-            let mut holder = FakeStreamHolder::new();
             let args = ArgsBuilder::new()
                 .param(
                     "--consuming-private-key",
@@ -779,7 +751,6 @@ pub mod standard {
             let mut bootstrapper_config = BootstrapperConfig::new();
 
             let result = standard::get_wallets(
-                &mut holder.streams(),
                 &multi_config,
                 &mut persistent_config,
                 &mut bootstrapper_config,
@@ -793,7 +764,6 @@ pub mod standard {
         #[test]
         fn get_wallets_handles_consuming_private_key_with_mnemonic_seed() {
             running_test();
-            let mut holder = FakeStreamHolder::new();
             let args = ArgsBuilder::new()
                 .param(
                     "--consuming-private-key",
@@ -810,7 +780,6 @@ pub mod standard {
             let mut bootstrapper_config = BootstrapperConfig::new();
 
             let result = standard::get_wallets(
-                &mut holder.streams(),
                 &multi_config,
                 &mut persistent_config,
                 &mut bootstrapper_config,
@@ -1249,14 +1218,13 @@ mod tests {
     };
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
     use masq_lib::utils::{array_of_borrows_to_vec, running_test, AutomapProtocol};
     use rustc_hex::FromHex;
     use std::fs::File;
-    use std::io::Cursor;
     use std::io::Write;
     use std::net::SocketAddr;
     use std::net::{IpAddr, Ipv4Addr};
@@ -1287,7 +1255,6 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
-            &mut FakeStreamHolder::new().streams(),
             Some(&mut make_default_persistent_configuration()),
             &mut BootstrapperConfig::new(),
         );
@@ -1336,7 +1303,6 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
-            &mut FakeStreamHolder::new().streams(),
             Some(&mut make_default_persistent_configuration()),
             &mut BootstrapperConfig::new(),
         );
@@ -1370,7 +1336,6 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
-            &mut FakeStreamHolder::new().streams(),
             Some(&mut make_default_persistent_configuration()),
             &mut BootstrapperConfig::new(),
         );
@@ -1405,7 +1370,6 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
-            &mut FakeStreamHolder::new().streams(),
             Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
             &mut BootstrapperConfig::new(),
         );
@@ -1433,7 +1397,6 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
-            &mut FakeStreamHolder::new().streams(),
             Some(&mut make_default_persistent_configuration()),
             &mut BootstrapperConfig::new(),
         );
@@ -1466,7 +1429,6 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
-            &mut FakeStreamHolder::new().streams(),
             Some(&mut make_default_persistent_configuration()),
             &mut BootstrapperConfig::new(),
         );
@@ -1499,7 +1461,6 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
-            &mut FakeStreamHolder::new().streams(),
             Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
             &mut BootstrapperConfig::new(),
         );
@@ -1528,7 +1489,6 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
-            &mut FakeStreamHolder::new().streams(),
             Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
             &mut BootstrapperConfig::new(),
         );
@@ -1562,7 +1522,6 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
-            &mut FakeStreamHolder::new().streams(),
             Some(&mut make_default_persistent_configuration()),
             &mut BootstrapperConfig::new(),
         );
@@ -1607,7 +1566,6 @@ mod tests {
 
         let result = standard::get_past_neighbors(
             &multi_config,
-            &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &mut unprivileged_config,
         )
@@ -1627,7 +1585,6 @@ mod tests {
 
         let result = standard::get_past_neighbors(
             &multi_config,
-            &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &mut unprivileged_config,
         )
@@ -1648,7 +1605,6 @@ mod tests {
 
         let result = standard::get_past_neighbors(
             &multi_config,
-            &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &mut unprivileged_config,
         );
@@ -1658,56 +1614,6 @@ mod tests {
             Err(ConfiguratorError::new(vec![ParamError::new(
                 "[past neighbors]",
                 "NotPresent"
-            )]))
-        );
-    }
-
-    #[test]
-    fn get_past_neighbors_handles_error_getting_db_password() {
-        running_test();
-        let args = ["command", "--db-password"];
-        let simplified_multi_config = pure_test_utils::make_simplified_multi_config(args);
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .check_password_result(Err(PersistentConfigError::NotPresent));
-        let mut unprivileged_config = BootstrapperConfig::new();
-
-        let result = standard::get_past_neighbors(
-            &simplified_multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &mut persistent_config,
-            &mut unprivileged_config,
-        );
-
-        assert_eq!(
-            result,
-            Err(ConfiguratorError::new(vec![ParamError::new(
-                "db-password",
-                "NotPresent"
-            )]))
-        );
-    }
-
-    #[test]
-    fn get_past_neighbors_handles_incorrect_password() {
-        running_test();
-        let args = ["program", "--db-password"];
-        let simplified_multi_config = pure_test_utils::make_simplified_multi_config(args);
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .check_password_result(Err(PersistentConfigError::PasswordError));
-        let mut unprivileged_config = BootstrapperConfig::new();
-
-        let result = standard::get_past_neighbors(
-            &simplified_multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &mut persistent_config,
-            &mut unprivileged_config,
-        );
-
-        assert_eq!(
-            result,
-            Err(ConfiguratorError::new(vec![ParamError::new(
-                "db-password",
-                "PasswordError"
             )]))
         );
     }
@@ -2275,13 +2181,7 @@ mod tests {
         let mut persistent_config = make_persistent_config(None, None, None, None, None, None);
         let mut config = BootstrapperConfig::new();
 
-        standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &mut persistent_config,
-            &mut config,
-        )
-        .unwrap();
+        standard::get_wallets(&multi_config, &mut persistent_config, &mut config).unwrap();
 
         assert_eq!(config.consuming_wallet_opt, None);
         assert_eq!(config.earning_wallet, DEFAULT_EARNING_WALLET.clone());
@@ -2296,7 +2196,6 @@ mod tests {
             .mnemonic_seed_exists_result(Err(PersistentConfigError::NotPresent));
 
         let result = standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
             &multi_config,
             &mut persistent_config,
             &mut BootstrapperConfig::new(),
@@ -2319,39 +2218,11 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.db_password_opt = Some("password".to_string());
 
-        let result = standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &mut persistent_config,
-            &mut config,
-        );
+        let result = standard::get_wallets(&multi_config, &mut persistent_config, &mut config);
 
         assert_eq!(
             result,
             Err(PersistentConfigError::NotPresent.into_configurator_error("consuming-private-key"))
-        );
-    }
-
-    #[test]
-    fn get_wallets_handles_failure_of_get_db_password() {
-        let args = ["program", "--db-password"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_from_address_result(Ok(None))
-            .mnemonic_seed_exists_result(Ok(true))
-            .check_password_result(Err(PersistentConfigError::NotPresent));
-        let mut config = BootstrapperConfig::new();
-
-        let result = standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &mut persistent_config,
-            &mut config,
-        );
-
-        assert_eq!(
-            result,
-            Err(PersistentConfigError::NotPresent.into_configurator_error("db-password"))
         );
     }
 
@@ -2374,13 +2245,8 @@ mod tests {
         );
         let mut config = BootstrapperConfig::new();
 
-        let result = standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &mut persistent_config,
-            &mut config,
-        )
-        .err();
+        let result =
+            standard::get_wallets(&multi_config, &mut persistent_config, &mut config).err();
 
         assert_eq! (result, Some (ConfiguratorError::new (vec![
             ParamError::new ("earning-wallet", "Cannot change to an address (0x0123456789012345678901234567890123456789) different from that previously set (0x9876543210987654321098765432109876543210)")
@@ -2406,13 +2272,7 @@ mod tests {
         );
         let mut config = BootstrapperConfig::new();
 
-        standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &mut persistent_config,
-            &mut config,
-        )
-        .unwrap();
+        standard::get_wallets(&multi_config, &mut persistent_config, &mut config).unwrap();
 
         assert_eq!(
             config.earning_wallet,
@@ -2444,13 +2304,8 @@ mod tests {
         );
         let mut config = BootstrapperConfig::new();
 
-        let result = standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &mut persistent_config,
-            &mut config,
-        )
-        .err();
+        let result =
+            standard::get_wallets(&multi_config, &mut persistent_config, &mut config).err();
 
         assert_eq! (result, Some (ConfiguratorError::new (vec![
             ParamError::new ("consuming-private-key", "Cannot use --consuming-private-key or --earning-wallet when database contains wallet information")
@@ -2479,13 +2334,8 @@ mod tests {
         );
         let mut config = BootstrapperConfig::new();
 
-        let result = standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &mut persistent_config,
-            &mut config,
-        )
-        .err();
+        let result =
+            standard::get_wallets(&multi_config, &mut persistent_config, &mut config).err();
 
         assert_eq! (result, Some (ConfiguratorError::new (vec![
             ParamError::new ("earning-wallet", "Cannot use --consuming-private-key or --earning-wallet when database contains wallet information")
@@ -2509,13 +2359,7 @@ mod tests {
         .check_password_result(Ok(false));
         let mut config = BootstrapperConfig::new();
 
-        standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &mut persistent_config,
-            &mut config,
-        )
-        .unwrap();
+        standard::get_wallets(&multi_config, &mut persistent_config, &mut config).unwrap();
 
         let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
         let expected_consuming_wallet = Wallet::from(
@@ -2545,13 +2389,7 @@ mod tests {
         .check_password_result(Ok(false));
         let mut config = BootstrapperConfig::new();
 
-        standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &mut persistent_config,
-            &mut config,
-        )
-        .unwrap();
+        standard::get_wallets(&multi_config, &mut persistent_config, &mut config).unwrap();
 
         assert_eq!(config.consuming_wallet_opt, None);
         assert_eq!(
@@ -2665,11 +2503,6 @@ mod tests {
         ];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
         let stdout_writer = &mut ByteArrayWriter::new();
-        let mut streams = &mut StdStreams {
-            stdin: &mut Cursor::new(&b""[..]),
-            stdout: stdout_writer,
-            stderr: &mut ByteArrayWriter::new(),
-        };
 
         standard::unprivileged_parse_args(
             &multi_config,
@@ -2696,18 +2529,12 @@ mod tests {
         running_test();
         let args = ["program"];
         let multi_config = pure_test_utils::make_simplified_multi_config(args);
-        let mut holder = FakeStreamHolder::new();
         let mut config = BootstrapperConfig::new();
         let mut persistent_config =
             make_default_persistent_configuration().check_password_result(Ok(false));
         config.db_password_opt = Some("password".to_string());
 
-        let result = standard::get_db_password(
-            &multi_config,
-            &mut holder.streams(),
-            &mut config,
-            &mut persistent_config,
-        );
+        let result = standard::get_db_password(&multi_config, &mut config, &mut persistent_config);
 
         assert_eq!(result, Ok(Some("password".to_string())));
     }
@@ -2716,47 +2543,13 @@ mod tests {
     fn get_db_password_doesnt_bother_if_database_has_no_password_yet() {
         running_test();
         let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
-        let mut holder = FakeStreamHolder::new();
         let mut config = BootstrapperConfig::new();
         let mut persistent_config =
             make_default_persistent_configuration().check_password_result(Ok(true));
 
-        let result = standard::get_db_password(
-            &multi_config,
-            &mut holder.streams(),
-            &mut config,
-            &mut persistent_config,
-        );
+        let result = standard::get_db_password(&multi_config, &mut config, &mut persistent_config);
 
         assert_eq!(result, Ok(None));
-    }
-
-    #[test]
-    fn get_db_password_handles_database_read_error() {
-        running_test();
-        let args = ["command", "--db-password"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
-        let mut streams = &mut StdStreams {
-            stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
-            stdout: &mut ByteArrayWriter::new(),
-            stderr: &mut ByteArrayWriter::new(),
-        };
-        let mut config = BootstrapperConfig::new();
-        let mut persistent_config = make_default_persistent_configuration()
-            .check_password_result(Ok(false))
-            .check_password_result(Err(PersistentConfigError::NotPresent));
-
-        let result = standard::get_db_password(
-            &multi_config,
-            &mut streams,
-            &mut config,
-            &mut persistent_config,
-        );
-
-        assert_eq!(
-            result,
-            Err(PersistentConfigError::NotPresent.into_configurator_error("db-password"))
-        );
     }
 
     #[test]
@@ -2771,12 +2564,7 @@ mod tests {
             .check_password_result(Ok(true))
             .change_password_result(Err(NotPresent));
 
-        let result = standard::get_db_password(
-            &multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &mut config,
-            &mut persistent_config,
-        );
+        let result = standard::get_db_password(&multi_config, &mut config, &mut persistent_config);
 
         assert_eq!(
             result,
@@ -2845,10 +2633,7 @@ mod tests {
         let args = ["program", "--ip", "1.2.3.4", "--chain", "dev"];
 
         let config = subject
-            .configure(
-                &make_simplified_multi_config(args),
-                Some(&mut FakeStreamHolder::new().streams()),
-            )
+            .configure(&make_simplified_multi_config(args))
             .unwrap();
 
         assert_eq!(
@@ -2870,10 +2655,7 @@ mod tests {
         ];
 
         let config = subject
-            .configure(
-                &make_simplified_multi_config(args),
-                Some(&mut FakeStreamHolder::new().streams()),
-            )
+            .configure(&make_simplified_multi_config(args))
             .unwrap();
 
         assert_eq!(
@@ -2890,10 +2672,7 @@ mod tests {
         let args = ["program", "--ip", "1.2.3.4"];
 
         let config = subject
-            .configure(
-                &make_simplified_multi_config(args),
-                Some(&mut FakeStreamHolder::new().streams()),
-            )
+            .configure(&make_simplified_multi_config(args))
             .unwrap();
 
         assert_eq!(
@@ -2915,10 +2694,7 @@ mod tests {
         ];
 
         let bootstrapper_config = subject
-            .configure(
-                &make_simplified_multi_config(args),
-                Some(&mut FakeStreamHolder::new().streams()),
-            )
+            .configure(&make_simplified_multi_config(args))
             .unwrap();
         assert_eq!(
             bootstrapper_config.blockchain_bridge_config.chain_id,
@@ -2940,10 +2716,7 @@ mod tests {
         let args = ["program", "--ip", "1.2.3.4", "--gas-price", "57"];
 
         let config = subject
-            .configure(
-                &make_simplified_multi_config(args),
-                Some(&mut FakeStreamHolder::new().streams()),
-            )
+            .configure(&make_simplified_multi_config(args))
             .unwrap();
 
         assert_eq!(config.blockchain_bridge_config.gas_price, 57);
@@ -2963,10 +2736,7 @@ mod tests {
         let args = ["program", "--ip", "1.2.3.4"];
 
         let config = subject
-            .configure(
-                &make_simplified_multi_config(args),
-                Some(&mut FakeStreamHolder::new().streams()),
-            )
+            .configure(&make_simplified_multi_config(args))
             .unwrap();
 
         assert_eq!(config.blockchain_bridge_config.gas_price, 1);
