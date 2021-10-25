@@ -501,7 +501,6 @@ impl IgdpTransactor {
                 ) {
                     error!(inner.logger, "Remapping failure: {:?}", e);
                     change_handler(AutomapChange::Error(e));
-                    return;
                 }
             }
         }
