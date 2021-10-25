@@ -82,11 +82,15 @@ impl MASQNode {
     pub fn start_daemon(
         test_name: &str,
         config_opt: Option<CommandConfig>,
+        sterile_database: bool,
+        sterile_logfile:bool,
         ensure_start: bool,
     ) -> MASQNode {
         Self::start_something(
             test_name,
             config_opt,
+            sterile_database,
+            sterile_logfile,
             ensure_start,
             Self::make_daemon_command,
         )
@@ -96,32 +100,34 @@ impl MASQNode {
     pub fn start_standard(
         test_name: &str,
         config_opt: Option<CommandConfig>,
+        sterile_database:bool,
+        sterile_logfile:bool,
         ensure_start: bool,
     ) -> MASQNode {
-        Self::start_something(test_name, config_opt, ensure_start, Self::make_node_command)
+        Self::start_something(
+            test_name,
+            config_opt,
+            sterile_database,
+            sterile_logfile,
+            ensure_start,
+            Self::make_node_command)
     }
 
     #[allow(dead_code)]
-    pub fn run_dump_config(test_name: &str, sterilized_environment: bool) -> String {
-        let data_dir = if !sterilized_environment {
-            ensure_node_home_directory_exists("integration", test_name)
-        } else {
-            node_home_directory("integration", test_name)
-        };
-        let mut command = MASQNode::make_dump_config_command(&data_dir, sterilized_environment);
-        let output = command.output().unwrap();
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        format!("stdout:\n{}\nstderr:\n{}", stdout, stderr)
-    }
-
-    #[allow(dead_code)]
-    pub fn start_standard_in_unsterilized_environment(data_dir: &PathBuf) -> MASQNode {
-        let args_extension =
-            CommandConfig::new().pair("--data-directory", data_dir.to_str().unwrap());
-        let command = Self::make_node_command(data_dir, Some(args_extension), false);
-        eprintln!("{:?}", command);
-        Self::spawn_process(command, data_dir.into())
+    pub fn run_dump_config(
+       test_name:&str,
+       config_opt: Option<CommandConfig>,
+       sterile_database:bool,
+       sterile_logfile:bool,
+       ensure_start:bool,
+    ) -> MASQNode {
+        Self::start_something(
+            test_name,
+            config_opt,
+            sterile_database,
+            sterile_logfile,
+            ensure_start,
+            Self::make_dump_config_command)
     }
 
     #[allow(dead_code)]
@@ -229,16 +235,18 @@ impl MASQNode {
         }
     }
 
-    fn start_something<F: FnOnce(&PathBuf, Option<CommandConfig>, bool) -> process::Command>(
+    fn start_something<F: FnOnce(&PathBuf, Option<CommandConfig>) -> process::Command>(
         test_name: &str,
         config_opt: Option<CommandConfig>,
+        sterile_database:bool,
+        sterile_logfile:bool,
         ensure_start: bool,
         command_getter: F,
     ) -> MASQNode {
-        let data_dir = ensure_node_home_directory_exists("integration", test_name);
-        Self::remove_logfile(&data_dir);
+        let data_dir = if sterile_database {ensure_node_home_directory_exists("integration", test_name)} else {node_home_directory("integration",test_name)};
+        if sterile_logfile {let _ = Self::remove_logfile(&data_dir);}
         let ui_port = Self::ui_port_from_config_opt(&config_opt);
-        let command = command_getter(&data_dir, config_opt, true);
+        let command = command_getter(&data_dir, config_opt);
         eprintln!("{:?}", command);
         let mut result = Self::spawn_process(command, data_dir);
         if ensure_start {
@@ -265,13 +273,9 @@ impl MASQNode {
     }
 
     fn make_daemon_command(
-        data_dir: &PathBuf,
+        _data_dir: &PathBuf,
         config: Option<CommandConfig>,
-        remove_database: bool,
     ) -> process::Command {
-        if remove_database {
-            Self::remove_database(data_dir)
-        }
         let mut command = command_to_start();
         let mut args = Self::daemon_args();
         args.extend(match config {
@@ -285,11 +289,7 @@ impl MASQNode {
     fn make_node_command(
         data_dir: &PathBuf,
         config: Option<CommandConfig>,
-        remove_database: bool,
     ) -> process::Command {
-        if remove_database {
-            Self::remove_database(data_dir)
-        }
         let mut command = command_to_start();
         let mut args = Self::standard_args();
         args.extend(Self::get_extra_args(data_dir, config));
@@ -297,13 +297,10 @@ impl MASQNode {
         command
     }
 
-    #[allow(dead_code)]
-    fn make_dump_config_command(data_dir: &PathBuf, remove_database: bool) -> process::Command {
-        if remove_database {
-            Self::remove_database(&data_dir)
-        }
+    fn make_dump_config_command(data_dir: &PathBuf, config: Option<CommandConfig>) -> process::Command {
         let mut command = command_to_start();
-        let args = Self::dump_config_args(data_dir.as_path());
+        let mut args = Self::dump_config_args();
+        args.extend(Self::get_extra_args(data_dir,config));
         command.args(&args);
         command
     }
@@ -327,10 +324,9 @@ impl MASQNode {
     }
 
     #[allow(dead_code)]
-    fn dump_config_args(data_dir: &Path) -> Vec<String> {
+    fn dump_config_args() -> Vec<String> {
         apply_prefix_parameters(CommandConfig::new())
             .opt("--dump-config")
-            .pair("--data-directory", data_dir.to_str().unwrap())
             .args
     }
 

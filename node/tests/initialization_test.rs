@@ -41,7 +41,8 @@ fn clap_help_does_not_initialize_database_integration() {
         "clap_help_does_not_initialize_database_integration",
         Some(
             CommandConfig::new().opt("--help"), // We don't specify --data-directory because the --help logic doesn't evaluate it
-        ),
+        ),true,
+        true,
         false,
     );
 
@@ -56,6 +57,8 @@ fn initialization_sequence_integration() {
     let mut daemon = MASQNode::start_daemon(
         "initialization_sequence_integration",
         Some(CommandConfig::new().pair("--ui-port", format!("{}", daemon_port).as_str())),
+        true,
+        true,
         true,
     );
     let mut initialization_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL);
@@ -142,15 +145,17 @@ fn wait_for_process_end(process_id: u32) {
 }
 
 #[test]
-fn required_chain_name_from_input_meets_different_db_chain_name_and_panics_integration() {
+fn chain_name_meets_different_db_chain_name_and_panics_integration() {
     let test_name =
-        "required_chain_name_from_input_meets_different_db_chain_name_and_panics_integration";
+        "chain_name_meets_different_db_chain_name_and_panics_integration";
     {
         //running Node just in order to create a new database which we can do testing on
         let port = find_free_port();
         let mut node = utils::MASQNode::start_standard(
             test_name,
             Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+            true,
+            true,
             true,
         );
         node.wait_for_log("UIGateway bound", Some(5000));
@@ -171,7 +176,7 @@ fn required_chain_name_from_input_meets_different_db_chain_name_and_panics_integ
     )
     .unwrap();
 
-    let mut node = MASQNode::start_standard_in_unsterilized_environment(&db_dir);
+    let mut node = MASQNode::start_standard(test_name,None,false,true,false);
 
     let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with the wrong chain name detected; expected: ropsten, was: mainnet";
     node.wait_for_log(regex_pattern, Some(1000));
