@@ -23,7 +23,6 @@ use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
 use clap::value_t;
 use itertools::Itertools;
-use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
 use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupResponseValueStatus};
@@ -31,7 +30,6 @@ use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
-use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -386,11 +384,6 @@ impl SetupReporterReal {
         Option<ConfiguratorError>,
     ) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
-        let mut streams = StdStreams {
-            stdin: &mut ByteArrayReader::new(b""),
-            stdout: &mut ByteArrayWriter::new(),
-            stderr: &mut ByteArrayWriter::new(),
-        };
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.data_directory = data_directory.to_path_buf();
         match privileged_parse_args(dirs_wrapper, multi_config, &mut bootstrapper_config) {
@@ -410,7 +403,6 @@ impl SetupReporterReal {
                 match unprivileged_parse_args(
                     multi_config,
                     &mut bootstrapper_config,
-                    &mut streams,
                     Some(&mut persistent_config),
                 ) {
                     Ok(_) => (
@@ -426,20 +418,13 @@ impl SetupReporterReal {
                     }
                 }
             }
-            Err(_) => {
-                match unprivileged_parse_args(
-                    multi_config,
-                    &mut bootstrapper_config,
-                    &mut streams,
-                    None,
-                ) {
-                    Ok(_) => ((bootstrapper_config, None), None),
-                    Err(ce) => {
-                        error_so_far.extend(ce);
-                        ((bootstrapper_config, None), Some(error_so_far))
-                    }
+            Err(_) => match unprivileged_parse_args(multi_config, &mut bootstrapper_config, None) {
+                Ok(_) => ((bootstrapper_config, None), None),
+                Err(ce) => {
+                    error_so_far.extend(ce);
+                    ((bootstrapper_config, None), Some(error_so_far))
                 }
-            }
+            },
         }
     }
 }
