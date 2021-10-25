@@ -115,7 +115,7 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
 fn make_config_dao(data_directory: &Path, migrator_config: MigratorConfig) -> ConfigDaoReal {
     let conn = DbInitializerReal::default()
         .initialize(data_directory, false, migrator_config)
-        .unwrap_or_else(|e| if e == InitializationError::Nonexistent {panic!("Could not find database at: {}. The database is created at Node's first run therefore trying --dump-config earlier is of no effect",data_directory.to_string_lossy().to_string())} else {
+        .unwrap_or_else(|e| if e == InitializationError::Nonexistent {panic!("Could not find database at: {}. Would be created when the Node operates for the first time; --dump-config used earlier is of no effect",data_directory.to_string_lossy().to_string())} else {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
                 data_directory.join(DATABASE_FILE),
@@ -197,7 +197,7 @@ mod tests {
         .unwrap_err();
 
         let string_panic = caught_panic.downcast_ref::<String>().unwrap();
-        assert_eq!(string_panic,&format!("Could not find database at: {}. The database is created at Node's first run therefore trying --dump-config earlier is of no effect",data_dir.to_str().unwrap()));
+        assert_eq!(string_panic,&format!("Could not find database at: {}. Would be created when the Node operates for the first time; --dump-config used earlier is of no effect",data_dir.to_str().unwrap()));
         let err = File::open(&data_dir.join(DATABASE_FILE)).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::NotFound)
     }

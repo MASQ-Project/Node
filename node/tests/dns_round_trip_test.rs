@@ -15,6 +15,7 @@ fn handles_two_consecutive_ipv4_dns_requests_integration() {
         None,
         true,
         true,
+        false,
         true,
     );
 
@@ -30,6 +31,7 @@ fn handles_consecutive_heterogeneous_dns_requests_integration() {
         None,
         true,
         true,
+        false,
         true,
     );
 
