@@ -72,6 +72,7 @@ impl ConfigurationCommand {
         })
     }
 
+    //put non-secret parameters first and both sorts alphabetical ordered
     fn dump_configuration(stream: &mut dyn Write, configuration: UiConfigurationResponse) {
         Self::dump_configuration_line(stream, "NAME", "VALUE");
         Self::dump_configuration_line(
@@ -95,15 +96,21 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(stream, "Gas price:", &configuration.gas_price.to_string());
         Self::dump_configuration_line(
             stream,
-            "Mnemonic seed:",
+            "Neighborhood mode:",
+            &configuration.neighborhood_mode,
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Port mapping protocol:",
             &configuration
-                .mnemonic_seed_opt
+                .port_mapping_protocol_opt
+                .map(|protocol| protocol.to_string())
                 .unwrap_or_else(|| "[?]".to_string()),
         );
         Self::dump_configuration_line(
             stream,
-            "Neighborhood mode:",
-            &configuration.neighborhood_mode,
+            "Start block:",
+            &configuration.start_block.to_string(),
         );
         Self::dump_configuration_line(
             stream,
@@ -121,18 +128,12 @@ impl ConfigurationCommand {
         );
         Self::dump_configuration_line(
             stream,
-            "Port mapping protocol:",
+            "Mnemonic seed:",
             &configuration
-                .port_mapping_protocol_opt
-                .map(|protocol| protocol.to_string())
+                .mnemonic_seed_opt
                 .unwrap_or_else(|| "[?]".to_string()),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
-        Self::dump_configuration_line(
-            stream,
-            "Start block:",
-            &configuration.start_block.to_string(),
-        );
     }
 
     fn dump_value_list(stream: &mut dyn Write, name: &str, values: &[String]) {
@@ -280,14 +281,14 @@ mod tests {
 |Clandestine port:                 1234\n\
 |Chain                             ropsten\n\
 |Gas price:                        2345\n\
-|Mnemonic seed:                    mnemonic seed\n\
 |Neighborhood mode:                standard\n\
+|Port mapping protocol:            PCP\n\
+|Start block:                      3456\n\
 |Consuming wallet derivation path: consuming path\n\
 |Earning wallet address:           earning address\n\
-|Port mapping protocol:            PCP\n\
+|Mnemonic seed:                    mnemonic seed\n\
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
-|Start block:                      3456\n\
 "
             .replace('|', "")
             .to_string()
@@ -308,7 +309,7 @@ mod tests {
             neighborhood_mode: "zero-hop".to_string(),
             consuming_wallet_derivation_path_opt: None,
             earning_wallet_address_opt: None,
-            port_mapping_protocol_opt: None,
+            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
             past_neighbors: vec![],
             start_block: 3456,
         };
@@ -342,13 +343,13 @@ Current schema version:           schema version\n\
 Clandestine port:                 1234\n\
 Chain                             mumbai\n\
 Gas price:                        2345\n\
-Mnemonic seed:                    [?]\n\
 Neighborhood mode:                zero-hop\n\
+Port mapping protocol:            PCP\n\
+Start block:                      3456\n\
 Consuming wallet derivation path: [?]\n\
 Earning wallet address:           [?]\n\
-Port mapping protocol:            [?]\n\
+Mnemonic seed:                    [?]\n\
 Past neighbors:                   [?]\n\
-Start block:                      3456\n\
 "
             .to_string()
         );

@@ -146,7 +146,7 @@ fn required_chain_name_from_input_meets_different_db_chain_name_and_panics_integ
     let test_name =
         "required_chain_name_from_input_meets_different_db_chain_name_and_panics_integration";
     {
-        fdlimit::raise_fd_limit();
+        //running Node just in order to create a new database which we can do testing on
         let port = find_free_port();
         let mut node = utils::MASQNode::start_standard(
             test_name,

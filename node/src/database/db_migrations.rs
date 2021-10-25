@@ -4,6 +4,7 @@ use crate::blockchain::blockchain_interface::chain_name_from_id;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
+#[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use rusqlite::{Transaction, NO_PARAMS};
@@ -231,10 +232,16 @@ impl DatabaseMigration for Migrate_2_to_3 {
         &self,
         declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()> {
-        let statement = format!(
-            "INSERT INTO config (name, value, encrypted) VALUES ('blockchain_service_url', null, 0)",
+        let statement_1 =
+            "INSERT INTO config (name, value, encrypted) VALUES ('blockchain_service_url', null, 0)";
+        let statement_2 = format!(
+            "INSERT INTO config (name, value, encrypted) VALUES ('neighborhood_mode', '{}', 0)",
+            declaration_utils
+                .external_parameters()
+                .neighborhood_mode
+                .to_string()
         );
-        declaration_utils.execute_upon_transaction(&[statement.as_str()])
+        declaration_utils.execute_upon_transaction(&[statement_1, statement_2.as_str()])
     }
 
     fn old_version(&self) -> usize {
@@ -450,7 +457,9 @@ mod tests {
         assurance_query_for_config_table, revive_tables_of_version_0_and_return_connection,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+    };
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
     use std::cell::RefCell;
@@ -1218,7 +1227,10 @@ mod tests {
             &dir_path,
             start_at + 1,
             true,
-            MigratorConfig::create_or_update(make_external_migration_parameters()),
+            MigratorConfig::create_or_update(ExternalData::new(
+                DEFAULT_CHAIN_ID,
+                NeighborhoodModeLight::ConsumeOnly,
+            )),
         );
 
         let connection = result.unwrap();
@@ -1227,14 +1239,22 @@ mod tests {
                 connection.as_ref(),
                 "select name, value, encrypted from config where name = 'blockchain_service_url'",
             );
+        assert_eq!(bchs_name, "blockchain_service_url".to_string());
+        assert_eq!(bchs_value, None);
+        assert_eq!(bchs_encrypted, 0);
+        let (nm_name, nm_value, nm_encrypted): (String, Option<String>, u16) =
+            assurance_query_for_config_table(
+                connection.as_ref(),
+                "select name, value, encrypted from config where name = 'neighborhood_mode'",
+            );
+        assert_eq!(nm_name, "neighborhood_mode".to_string());
+        assert_eq!(nm_value, Some("consume-only".to_string()));
+        assert_eq!(nm_encrypted, 0);
         let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
             assurance_query_for_config_table(
                 connection.as_ref(),
                 "select name, value, encrypted from config where name = 'schema_version'",
             );
-        assert_eq!(bchs_name, "blockchain_service_url".to_string());
-        assert_eq!(bchs_value, None);
-        assert_eq!(bchs_encrypted, 0);
         assert_eq!(cs_name, "schema_version".to_string());
         assert_eq!(cs_value, Some("3".to_string()));
         assert_eq!(cs_encrypted, 0);

@@ -1,7 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
-use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+use masq_lib::test_utils::utils::{
+    ensure_node_home_directory_exists, node_home_directory, TEST_DEFAULT_CHAIN_NAME,
+};
 use masq_lib::utils::localhost;
 use node_lib::test_utils::await_value;
 use std::env;
@@ -100,9 +102,13 @@ impl MASQNode {
     }
 
     #[allow(dead_code)]
-    pub fn run_dump_config(test_name: &str) -> String {
-        let data_dir = ensure_node_home_directory_exists("integration", test_name);
-        let mut command = MASQNode::make_dump_config_command(&data_dir);
+    pub fn run_dump_config(test_name: &str, sterilized_environment: bool) -> String {
+        let data_dir = if !sterilized_environment {
+            ensure_node_home_directory_exists("integration", test_name)
+        } else {
+            node_home_directory("integration", test_name)
+        };
+        let mut command = MASQNode::make_dump_config_command(&data_dir, sterilized_environment);
         let output = command.output().unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -292,8 +298,10 @@ impl MASQNode {
     }
 
     #[allow(dead_code)]
-    fn make_dump_config_command(data_dir: &PathBuf) -> process::Command {
-        Self::remove_database(&data_dir);
+    fn make_dump_config_command(data_dir: &PathBuf, remove_database: bool) -> process::Command {
+        if remove_database {
+            Self::remove_database(&data_dir)
+        }
         let mut command = command_to_start();
         let args = Self::dump_config_args(data_dir.as_path());
         command.args(&args);

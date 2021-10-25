@@ -415,14 +415,14 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
-        Ok(NeighborhoodModeLight::from_str(
+        NeighborhoodModeLight::from_str(
             self.dao
                 .get("neighborhood_mode")?
                 .value_opt
                 .expect("ever-supplied value neighborhood_mode is missing; database is corrupt!")
                 .as_str(),
         )
-        .map_err(|e| PersistentConfigError::StringWithoutMeaning(e.to_string()))?)
+        .map_err(PersistentConfigError::StringWithoutMeaning)
     }
 
     fn set_neighborhood_mode(

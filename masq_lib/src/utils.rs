@@ -424,7 +424,7 @@ mod tests {
         assert_eq!(
             NeighborhoodModeLight::from_str("blah"),
             Err(String::from(
-                "Invalid value supplied for neighborhood mode: blah"
+                "Invalid value read for neighborhood mode: blah"
             ))
         )
     }

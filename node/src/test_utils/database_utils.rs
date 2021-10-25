@@ -102,5 +102,5 @@ pub fn assurance_query_for_config_table(
         .query_row(NO_PARAMS, |r| {
             Ok((r.get(0).unwrap(), r.get(1).unwrap(), r.get(2).unwrap()))
         })
-        .unwrap()
+        .unwrap_or_else(|e| panic!("panicked at {} for statement: {}", e, stm))
 }

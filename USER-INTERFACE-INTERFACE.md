@@ -329,17 +329,19 @@ Another reason the secrets might be missing is that there are not yet any secret
 ##### Layout:
 ```
 "payload": {
+    "blockchainServiceUrl": <optional string>,
     "currentSchemaVersion": <string>,
     "clandestinePort": <string>,
     "gasPrice": <number>,
-    "mnemonicSeedOpt": <optional string>,
+    "neighborhoodMode": <string>,
+    "startBlock": <number>,
     "consumingWalletDerivationPathOpt": <optional string>,
     "earningWalletAddressOpt": <optional string>,
+    "mnemonicSeedOpt": <optional string>,
     "pastNeighbors": [
         <string>,
         <string>, ...
     ],
-    "startBlock": <number>
 }
 ```
 ##### Description:
@@ -348,7 +350,10 @@ because it hasn't been configured yet, or it might be because it's secret and yo
 database password. If you want to know whether the password you have is the correct one, try the
 `checkPassword` message.
 
-* `currentSchemaVersion`: This will be a three-part version number for the database schema. This will always
+* `blockchainServiceUrl`: The url which will be used for obtaining a communication to chosen services to interact with the blockchain.
+This parameter is read, if present, only if the same parameter wasn't specified at another place (UI, configuration file, environment variables).
+
+* `currentSchemaVersion`: This will be a version number for the database schema represented as an ordinal numeral. This will always
 be the same for a given version of Node. If you upgrade your Node, and the new Node wants to see a later
 schema version in the database, it will migrate your existing data to the new schema and update its schema
 version. If this attempt fails for some reason, this value can be used to diagnose the issue.
@@ -357,9 +362,13 @@ version. If this attempt fails for some reason, this value can be used to diagno
 
 * `gasPrice`: The Node will not pay more than this number of wei for gas to complete a transaction.
 
-* `mnemonicSeedOpt`: This is a secret string of hexadecimal digits that corresponds exactly with the mnemonic
-phrase, plus any "25th word" mnemonic passphrase. You won't see this if the password isn't correct. You also
-won't see it if the password is correct but the seed hasn't been set yet.
+* `neighborhoodMode`: The neighborhood mode being currently used, this parameter has nothing to do with descriptors which 
+may have been used in order to set the Node's nearest neighborhood. It is only informative, to know what mode is running at the moment. 
+This value is ever present since the creation of the database.    
+
+* `startBlock`: When the Node scans for incoming payments, it can't scan the whole blockchain: that would take
+  much too long. So instead, it scans starting from wherever it left off last time. This block number is where
+  it left off last time.
 
 * `consumingWalletDerivationPathOpt`: This is the derivation path (from the mnemonic seed) of the consuming wallet.
 More than likely, it's m/44'/60'/0'/0/0.
@@ -367,12 +376,12 @@ More than likely, it's m/44'/60'/0'/0/0.
 * `earningWalletAddressOpt`: The wallet address for the earning wallet. This is not secret, so
 if you don't get this field, it's because it hasn't been set yet.
 
-* `pastNeighbors`: This is an array containing the Node descriptors of the neighbors the Node is planning to
-try to connect to when it starts up next time.
+* `mnemonicSeedOpt`: This is a secret string of hexadecimal digits that corresponds exactly with the mnemonic
+  phrase, plus any "25th word" mnemonic passphrase. You won't see this if the password isn't correct. You also
+  won't see it if the password is correct but the seed hasn't been set yet.
 
-* `startBlock`: When the Node scans for incoming payments, it can't scan the whole blockchain: that would take
-much too long. So instead, it scans starting from wherever it left off last time. This block number is where
-it left off last time.
+* `pastNeighbors`: This is an array containing the Node descriptors of the neighbors the Node is planning to
+  try to connect to when it starts up next time.
 
 #### `configurationChanged`
 ##### Direction: Broadcast
