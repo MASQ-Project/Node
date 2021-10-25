@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::masquerader::{MasqueradeError, Masquerader};
 use crate::sub_lib::framer::Framer;
 use crate::sub_lib::logger::Logger;

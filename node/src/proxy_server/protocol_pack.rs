@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::tls_protocol_pack::TlsProtocolPack;
 use crate::sub_lib::cryptde::{PlainData, PublicKey};

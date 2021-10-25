@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::dispatcher::InboundClientData;

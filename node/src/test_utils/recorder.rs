@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::payable_dao::Payment;
 use crate::accountant::{ReceivedPayments, SentPayments};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;

@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 // Because we have conditional compilation going on in this file:
 #![allow(unreachable_code)]
 #![allow(dead_code)]
