@@ -62,7 +62,6 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         standard::unprivileged_parse_args(
             multi_config,
             &mut unprivileged_config,
-            Some(persistent_config.as_mut()),
             persistent_config.as_mut(),
             &self.logger,
         )?;
@@ -256,18 +255,8 @@ pub mod standard {
         unprivileged_config.mapping_protocol_opt =
             compute_mapping_protocol_opt(multi_config, persistent_config, logger);
         let mnc_result = {
-            get_wallets(
-                streams,
-                multi_config,
-                persistent_config,
-                unprivileged_config,
-            )?;
-            make_neighborhood_config(
-                multi_config,
-                streams,
-                Some(persistent_config),
-                unprivileged_config,
-            )
+            get_wallets(multi_config, persistent_config, unprivileged_config)?;
+            make_neighborhood_config(multi_config, Some(persistent_config), unprivileged_config)
         };
 
         mnc_result.map(|config| unprivileged_config.neighborhood_config = config)
@@ -722,7 +711,6 @@ pub mod standard {
         };
         use crate::test_utils::ArgsBuilder;
         use masq_lib::multi_config::VirtualCommandLine;
-        use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
         use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
         use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
         use masq_lib::utils::running_test;
@@ -1720,7 +1708,6 @@ mod tests {
         standard::unprivileged_parse_args(
             &multi_config,
             &mut bootstrapper_config,
-            &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &Logger::new("test logger"),
         )
@@ -1922,7 +1909,6 @@ mod tests {
         standard::unprivileged_parse_args(
             &multi_config,
             &mut config,
-            &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &Logger::new("test logger"),
         )
@@ -1979,7 +1965,6 @@ mod tests {
         standard::unprivileged_parse_args(
             &multi_config,
             &mut config,
-            &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &Logger::new("test logger"),
         )
@@ -2038,7 +2023,6 @@ mod tests {
         standard::unprivileged_parse_args(
             &multi_config,
             &mut config,
-            &mut FakeStreamHolder::new().streams(),
             &mut persistent_configuration,
             &Logger::new("test logger"),
         )
@@ -2103,7 +2087,6 @@ mod tests {
         standard::unprivileged_parse_args(
             &multi_config,
             &mut config,
-            &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &Logger::new("test logger"),
         )
@@ -2399,55 +2382,6 @@ mod tests {
     }
 
     #[test]
-    fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_value() {
-        running_test();
-        let args = ["program", "--db-password"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
-        let mnemonic_seed_prefix = "mnemonic_seed";
-        let mut persistent_config = make_persistent_config(
-            Some(mnemonic_seed_prefix),
-            None,
-            Some("m/44'/60'/1'/2/3"),
-            Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
-            None,
-            None,
-        )
-        .check_password_result(Ok(false))
-        .check_password_result(Ok(true))
-        .check_password_result(Ok(false));
-        let mut config = BootstrapperConfig::new();
-        let mut stdout_writer = ByteArrayWriter::new();
-        let mut streams = &mut StdStreams {
-            stdin: &mut Cursor::new(&b"prompt for me\n"[..]),
-            stdout: &mut stdout_writer,
-            stderr: &mut ByteArrayWriter::new(),
-        };
-
-        standard::get_wallets(
-            &mut streams,
-            &multi_config,
-            &mut persistent_config,
-            &mut config,
-        )
-        .unwrap();
-
-        let captured_output = stdout_writer.get_string();
-        assert_eq!(
-            captured_output,
-            "Decrypt information from previous runs\nEnter password: "
-        );
-        let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
-        let expected_consuming_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), "m/44'/60'/1'/2/3").unwrap(),
-        );
-        assert_eq!(config.consuming_wallet_opt, Some(expected_consuming_wallet));
-        assert_eq!(
-            config.earning_wallet,
-            Wallet::from_str("0xcafedeadbeefbabefacecafedeadbeefbabeface").unwrap()
-        );
-    }
-
-    #[test]
     fn unprivileged_parse_args_with_invalid_consuming_wallet_private_key_reacts_correctly() {
         running_test();
         let home_directory = ensure_node_home_directory_exists(
@@ -2507,7 +2441,6 @@ mod tests {
         standard::unprivileged_parse_args(
             &multi_config,
             &mut config,
-            &mut streams,
             &mut make_default_persistent_configuration()
                 .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp))),
             &Logger::new("test logger"),

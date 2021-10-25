@@ -425,7 +425,6 @@ impl SetupReporterReal {
                 match unprivileged_parse_args(
                     multi_config,
                     &mut bootstrapper_config,
-                    &mut streams,
                     &mut persistent_config,
                     &self.logger,
                 ) {
@@ -450,7 +449,6 @@ impl SetupReporterReal {
                 match unprivileged_parse_args(
                     multi_config,
                     &mut bootstrapper_config,
-                    &mut streams,
                     &mut persistent_config,
                     &self.logger,
                 ) {
