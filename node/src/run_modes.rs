@@ -248,7 +248,7 @@ impl Runner for RunnerReal {
     }
 
     fn run_daemon(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
-        let mut initializer = self.daemon_initializer_factory.make(args, streams)?;
+        let mut initializer = self.daemon_initializer_factory.make(args)?;
         initializer.go(streams, args)?;
         Ok(()) //there might presently be no way to make this fn terminate politely
     }
