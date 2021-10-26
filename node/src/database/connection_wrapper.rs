@@ -58,7 +58,7 @@ mod tests {
             .initialize(
                 &data_dir,
                 true,
-                MigratorConfig::create_or_update(ExternalData::new(
+                MigratorConfig::create_or_migrate(ExternalData::new(
                     2,
                     NeighborhoodModeLight::Standard,
                 )),

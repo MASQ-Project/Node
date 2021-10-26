@@ -528,7 +528,7 @@ impl Bootstrapper {
                 .initialize(
                     &self.config.data_directory,
                     false,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::panic_on_migration(),
                 )
                 .expect("Cannot initialize database");
             let config_dao = ConfigDaoReal::new(conn);

@@ -369,14 +369,14 @@ pub enum Suppression {
 }
 
 impl MigratorConfig {
-    pub fn panic_on_update() -> Self {
+    pub fn panic_on_migration() -> Self {
         Self {
             should_be_suppressed: Suppression::No,
             external_dataset: None,
         }
     }
 
-    pub fn create_or_update(external_params: ExternalData) -> Self {
+    pub fn create_or_migrate(external_params: ExternalData) -> Self {
         //is used also if a brand new db is being created
         Self {
             should_be_suppressed: Suppression::No,
@@ -384,14 +384,14 @@ impl MigratorConfig {
         }
     }
 
-    pub fn update_suppressed() -> Self {
+    pub fn migration_suppressed() -> Self {
         Self {
             should_be_suppressed: Suppression::Yes,
             external_dataset: None,
         }
     }
 
-    pub fn suppressed_with_error() -> Self {
+    pub fn migration_suppressed_with_error() -> Self {
         Self {
             should_be_suppressed: Suppression::WithErr,
             external_dataset: None,
@@ -596,7 +596,7 @@ mod tests {
     #[test]
     fn panic_on_update_properly_set() {
         assert_eq!(
-            MigratorConfig::panic_on_update(),
+            MigratorConfig::panic_on_migration(),
             MigratorConfig {
                 should_be_suppressed: Suppression::No,
                 external_dataset: None
@@ -605,9 +605,9 @@ mod tests {
     }
 
     #[test]
-    fn create_or_update_properly_set() {
+    fn create_or_migrate_properly_set() {
         assert_eq!(
-            MigratorConfig::create_or_update(make_external_migration_parameters()),
+            MigratorConfig::create_or_migrate(make_external_migration_parameters()),
             MigratorConfig {
                 should_be_suppressed: Suppression::No,
                 external_dataset: Some(make_external_migration_parameters())
@@ -616,9 +616,9 @@ mod tests {
     }
 
     #[test]
-    fn update_suppressed_properly_set() {
+    fn migration_suppressed_properly_set() {
         assert_eq!(
-            MigratorConfig::update_suppressed(),
+            MigratorConfig::migration_suppressed(),
             MigratorConfig {
                 should_be_suppressed: Suppression::Yes,
                 external_dataset: None
@@ -629,7 +629,7 @@ mod tests {
     #[test]
     fn suppressed_with_error_properly_set() {
         assert_eq!(
-            MigratorConfig::suppressed_with_error(),
+            MigratorConfig::migration_suppressed_with_error(),
             MigratorConfig {
                 should_be_suppressed: Suppression::WithErr,
                 external_dataset: None
@@ -1140,7 +1140,7 @@ mod tests {
             &dir_path,
             1,
             true,
-            MigratorConfig::create_or_update(make_external_migration_parameters()),
+            MigratorConfig::create_or_migrate(make_external_migration_parameters()),
         );
         let connection = result.unwrap();
         let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
@@ -1174,7 +1174,7 @@ mod tests {
                     &dir_path,
                     start_at,
                     true,
-                    MigratorConfig::create_or_update(make_external_migration_parameters()),
+                    MigratorConfig::create_or_migrate(make_external_migration_parameters()),
                 )
                 .unwrap();
         }
@@ -1183,7 +1183,7 @@ mod tests {
             &dir_path,
             start_at + 1,
             true,
-            MigratorConfig::create_or_update(make_external_migration_parameters()),
+            MigratorConfig::create_or_migrate(make_external_migration_parameters()),
         );
 
         let connection = result.unwrap();
@@ -1218,7 +1218,7 @@ mod tests {
                     &dir_path,
                     start_at,
                     true,
-                    MigratorConfig::create_or_update(make_external_migration_parameters()),
+                    MigratorConfig::create_or_migrate(make_external_migration_parameters()),
                 )
                 .unwrap();
         }
@@ -1227,7 +1227,7 @@ mod tests {
             &dir_path,
             start_at + 1,
             true,
-            MigratorConfig::create_or_update(ExternalData::new(
+            MigratorConfig::create_or_migrate(ExternalData::new(
                 DEFAULT_CHAIN_ID,
                 NeighborhoodModeLight::ConsumeOnly,
             )),

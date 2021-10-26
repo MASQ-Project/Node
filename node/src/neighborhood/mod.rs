@@ -431,7 +431,7 @@ impl Neighborhood {
                 .initialize(
                     &self.data_directory,
                     false,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::panic_on_migration(),
                 )
                 .expect("Neighborhood could not connect to database");
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));

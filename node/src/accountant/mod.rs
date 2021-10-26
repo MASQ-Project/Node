@@ -706,7 +706,7 @@ impl Accountant {
             data_directory,
             chain_id,
             false,
-            MigratorConfig::panic_on_update(),
+            MigratorConfig::panic_on_migration(),
         )
     }
 }

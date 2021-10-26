@@ -306,7 +306,7 @@ mod tests {
         );
         let confirmer = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::panic_on_update())
+                .initialize(&home_dir, true, MigratorConfig::panic_on_migration())
                 .unwrap(),
         );
         let initial_value = dao.get("seed").unwrap();
@@ -401,7 +401,7 @@ mod tests {
         );
         let confirmer = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, false, MigratorConfig::panic_on_update())
+                .initialize(&home_dir, false, MigratorConfig::panic_on_migration())
                 .unwrap(),
         );
         let initial_value = dao.get("seed").unwrap();

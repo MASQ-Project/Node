@@ -92,7 +92,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
             true,
-            MigratorConfig::create_or_update(self.pack_up_external_params_for_db(multi_config)),
+            MigratorConfig::create_or_migrate(self.pack_up_external_params_for_db(multi_config)),
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_parse_args(

@@ -310,7 +310,7 @@ impl ActorFactory for ActorFactoryReal {
             db_initializer,
             data_directory,
             false,
-            MigratorConfig::panic_on_update(),
+            MigratorConfig::panic_on_migration(),
         ));
         let config_dao_factory = Accountant::initialize_dao_factory(chain_id, data_directory);
         let addr: Addr<Accountant> = Arbiter::start(move |_| {
@@ -376,7 +376,7 @@ impl ActorFactory for ActorFactoryReal {
                 .initialize(
                     &config.data_directory,
                     false,
-                    MigratorConfig::panic_on_update(),
+                    MigratorConfig::panic_on_migration(),
                 )
                 .unwrap_or_else(|_| {
                     panic!(

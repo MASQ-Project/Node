@@ -396,7 +396,7 @@ impl SetupReporterReal {
         match initializer.initialize(
             data_directory,
             false,
-            MigratorConfig::suppressed_with_error(),
+            MigratorConfig::migration_suppressed_with_error(),
         ) {
             Ok(conn) => {
                 let mut persistent_config = PersistentConfigurationReal::from(conn);

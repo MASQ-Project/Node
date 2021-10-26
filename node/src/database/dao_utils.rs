@@ -70,7 +70,7 @@ mod tests {
             &PathBuf::from_str("nonexistent").unwrap(),
             DEFAULT_CHAIN_ID,
             false,
-            MigratorConfig::panic_on_update(),
+            MigratorConfig::panic_on_migration(),
         );
 
         let _ = subject.make_connection();

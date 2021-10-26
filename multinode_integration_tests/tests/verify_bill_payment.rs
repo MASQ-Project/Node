@@ -181,7 +181,10 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_2_path),
             true,
-            MigratorConfig::test_default(),
+            MigratorConfig::create_or_update(ExternalData::new(
+                cluster.chain_id,
+                NeighborhoodModeLight::Standard,
+            )),
         )
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);

@@ -40,7 +40,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
             distill_args(&DirsWrapperReal {}, args)?;
         let cryptde = CryptDEReal::new(chain_id);
         PrivilegeDropperReal::new().drop_privileges(&real_user);
-        let config_dao = make_config_dao(&data_directory, MigratorConfig::update_suppressed()); //dump config never migrates db
+        let config_dao = make_config_dao(&data_directory, MigratorConfig::migration_suppressed()); //dump config never migrates db
         let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
         let json = configuration_to_json(configuration, password_opt, &cryptde);
         write_string(streams, json);
@@ -247,7 +247,7 @@ mod tests {
                 .initialize(
                     &data_dir,
                     true,
-                    MigratorConfig::create_or_update(ExternalData::new(
+                    MigratorConfig::create_or_migrate(ExternalData::new(
                         DEFAULT_CHAIN_ID,
                         NeighborhoodModeLight::ZeroHop,
                     )),
@@ -296,7 +296,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, false, MigratorConfig::panic_on_update())
+            .initialize(&data_dir, false, MigratorConfig::panic_on_migration())
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
@@ -354,7 +354,7 @@ mod tests {
                 .initialize(
                     &data_dir,
                     true,
-                    MigratorConfig::create_or_update(ExternalData::new(
+                    MigratorConfig::create_or_migrate(ExternalData::new(
                         DEFAULT_CHAIN_ID,
                         NeighborhoodModeLight::ConsumeOnly,
                     )),
@@ -410,7 +410,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, false, MigratorConfig::panic_on_update())
+            .initialize(&data_dir, false, MigratorConfig::panic_on_migration())
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
@@ -468,7 +468,7 @@ mod tests {
                 .initialize(
                     &data_dir,
                     true,
-                    MigratorConfig::create_or_update(ExternalData::new(
+                    MigratorConfig::create_or_migrate(ExternalData::new(
                         DEFAULT_CHAIN_ID,
                         NeighborhoodModeLight::Standard,
                     )),
@@ -524,7 +524,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, false, MigratorConfig::panic_on_update())
+            .initialize(&data_dir, false, MigratorConfig::panic_on_migration())
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);

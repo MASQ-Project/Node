@@ -776,7 +776,7 @@ mod tests {
         }
 
         subject
-            .initialize(&home_dir, true, MigratorConfig::panic_on_update())
+            .initialize(&home_dir, true, MigratorConfig::panic_on_migration())
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -848,7 +848,7 @@ mod tests {
         }
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(&home_dir, true, MigratorConfig::panic_on_update());
+        let result = subject.initialize(&home_dir, true, MigratorConfig::panic_on_migration());
 
         assert_eq!(
             result.err().unwrap(),
@@ -881,7 +881,7 @@ mod tests {
         }
         let subject = DbInitializerReal::default();
 
-        let _ = subject.initialize(&home_dir, true, MigratorConfig::panic_on_update());
+        let _ = subject.initialize(&home_dir, true, MigratorConfig::panic_on_migration());
     }
 
     #[test]
@@ -1006,7 +1006,7 @@ mod tests {
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(&data_dir, false, MigratorConfig::update_suppressed());
+        let result = subject.initialize(&data_dir, false, MigratorConfig::migration_suppressed());
 
         let wrapped_connection = result.unwrap();
         let (_, schema_version_after, _) = assurance_query_for_config_table(
@@ -1026,7 +1026,7 @@ mod tests {
         let _ = revive_tables_of_version_0_and_return_connection(&data_dir.join(DATABASE_FILE));
         let subject = DbInitializerReal::default();
 
-        let _ = subject.initialize(&data_dir, false, MigratorConfig::panic_on_update());
+        let _ = subject.initialize(&data_dir, false, MigratorConfig::panic_on_migration());
     }
 
     #[test]
@@ -1041,7 +1041,7 @@ mod tests {
         let _ = subject.initialize(
             &data_dir,
             true,
-            MigratorConfig::update_suppressed(), //suppressed doesn't contain a populated config; only 'create_or_update()' does
+            MigratorConfig::migration_suppressed(), //suppressed doesn't contain a populated config; only 'create_or_update()' does
         );
     }
 
@@ -1056,7 +1056,11 @@ mod tests {
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(&data_dir, false, MigratorConfig::suppressed_with_error());
+        let result = subject.initialize(
+            &data_dir,
+            false,
+            MigratorConfig::migration_suppressed_with_error(),
+        );
 
         let err = match result {
             Ok(_) => panic!("expected an Err, got Ok"),

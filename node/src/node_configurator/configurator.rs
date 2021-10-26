@@ -101,7 +101,7 @@ impl Configurator {
     pub fn new(data_directory: PathBuf) -> Self {
         let initializer = DbInitializerReal::default();
         let conn = initializer
-            .initialize(&data_directory, false, MigratorConfig::panic_on_update())
+            .initialize(&data_directory, false, MigratorConfig::panic_on_migration())
             .expect("Couldn't initialize database");
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config: Box<dyn PersistentConfiguration> =
