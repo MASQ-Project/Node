@@ -121,7 +121,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&consuming_node_path),
             true,
-            MigratorConfig::create_or_update(ExternalData::new(
+            MigratorConfig::create_or_migrate(ExternalData::new(
                 cluster.chain_id,
                 NeighborhoodModeLight::Standard,
             )),
@@ -162,7 +162,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_1_path),
             true,
-            MigratorConfig::create_or_update(ExternalData::new(
+            MigratorConfig::create_or_migrate(ExternalData::new(
                 cluster.chain_id,
                 NeighborhoodModeLight::Standard,
             )),
@@ -181,7 +181,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_2_path),
             true,
-            MigratorConfig::create_or_update(ExternalData::new(
+            MigratorConfig::create_or_migrate(ExternalData::new(
                 cluster.chain_id,
                 NeighborhoodModeLight::Standard,
             )),
@@ -200,7 +200,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_3_path),
             true,
-            MigratorConfig::create_or_update(ExternalData::new(
+            MigratorConfig::create_or_migrate(ExternalData::new(
                 cluster.chain_id,
                 NeighborhoodModeLight::Standard,
             )),
@@ -407,7 +407,7 @@ fn make_seed() -> Seed {
 
 fn expire_payables(path: PathBuf) {
     let conn = DbInitializerReal::default()
-        .initialize(&path, true, MigratorConfig::panic_on_update())
+        .initialize(&path, true, MigratorConfig::panic_on_migration())
         .unwrap();
     let mut statement = conn
         .prepare(
@@ -424,7 +424,7 @@ fn expire_payables(path: PathBuf) {
 
 fn expire_receivables(path: PathBuf) {
     let conn = DbInitializerReal::default()
-        .initialize(&path, true, MigratorConfig::panic_on_update())
+        .initialize(&path, true, MigratorConfig::panic_on_migration())
         .unwrap();
     let mut statement = conn
         .prepare("update receivable set last_received_timestamp = 0")

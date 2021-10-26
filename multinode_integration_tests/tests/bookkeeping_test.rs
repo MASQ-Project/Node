@@ -82,7 +82,7 @@ fn non_pending_payables(node: &MASQRealNode) -> Vec<PayableAccount> {
                     &node.name().to_string(),
                 )),
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::panic_on_migration(),
             )
             .unwrap(),
     );
@@ -99,7 +99,7 @@ fn receivables(node: &MASQRealNode) -> Vec<ReceivableAccount> {
                     &node.name().to_string(),
                 )),
                 true,
-                MigratorConfig::panic_on_update(),
+                MigratorConfig::panic_on_migration(),
             )
             .unwrap(),
     );
