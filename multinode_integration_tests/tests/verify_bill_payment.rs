@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
-use masq_lib::utils::derivation_path;
+use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
@@ -17,7 +17,7 @@ use node_lib::blockchain::blockchain_interface::{
 };
 use node_lib::blockchain::raw_transaction::RawTransaction;
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
-use node_lib::database::db_migrations::MigratorConfig;
+use node_lib::database::db_migrations::{ExternalData, MigratorConfig};
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use rusqlite::NO_PARAMS;
@@ -121,12 +121,14 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&consuming_node_path),
             true,
-            MigratorConfig::panic_on_update(),
+            MigratorConfig::create_or_update(ExternalData::new(
+                cluster.chain_id,
+                NeighborhoodModeLight::Standard,
+            )),
         )
         .unwrap();
     let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
     open_all_file_permissions(consuming_node_path.clone().into());
-
     assert_eq!(
         format!("{}", &contract_owner_wallet),
         "0x5a4d5df91d0124dec73dbd112f82d6077ccab47d"
@@ -160,7 +162,10 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_1_path),
             true,
-            MigratorConfig::panic_on_update(),
+            MigratorConfig::create_or_update(ExternalData::new(
+                cluster.chain_id,
+                NeighborhoodModeLight::Standard,
+            )),
         )
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
@@ -176,7 +181,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_2_path),
             true,
-            MigratorConfig::panic_on_update(),
+            MigratorConfig::test_default(),
         )
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
@@ -192,7 +197,10 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_3_path),
             true,
-            MigratorConfig::panic_on_update(),
+            MigratorConfig::create_or_update(ExternalData::new(
+                cluster.chain_id,
+                NeighborhoodModeLight::Standard,
+            )),
         )
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
