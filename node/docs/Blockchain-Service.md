@@ -2,8 +2,17 @@
 
 ### What is a blockchain service URL?
 
-A blockchain service url is a URL that MASQ Node uses to interact with the Rinkeby or Ropsten testnet or Ethereum
-mainnet blockchains. On mainnet, MASQ uses the MASQ token; on Rinkeby or Ropsten, it uses the SHRD token (think Shroud).
+A blockchain service url is a URL that MASQ Node uses to interact with blockchain testnets and mainnets.
+On mainnet, MASQ uses the MASQ token; on Ropsten and Mumbai, it uses the SHRD token (Shroud).
+
+#### Currently MASQ is supporting:
+**Ethereum**
+- [x] Ropsten testnet
+- [x] Ethereum mainnet
+
+**Polygon**
+- [x] Mumbai testnet
+- [ ] Polygon mainnet
 
 To be fully functional MASQ Node needs access to:
 1. pay SHRD/MASQ to other Nodes for routing, blockchain, and exit services consumed, 
@@ -13,8 +22,8 @@ To be fully functional MASQ Node needs access to:
 
 There are two general types of Blockchain Services MASQ Node currently supports.
 
-1. Connect with a remote service that provides a JSON RPC Ethereum client like [Infura.io](https://infura.io/),
-1. Run your own Ethereum miner such as a [Go Ethereum (geth)](https://geth.ethereum.org) or 
+1. Connect with a remote service that provides a JSON RPC Ethereum client like [Infura.io](https://infura.io/) or [Alchemy.io](https://alchemyapi.io/) - these will require signing up for an account (most offer both free and premium accounts) but just providing an email address, which will allow you to generate an API key and an endpoint URL.
+2. Run your own Ethereum miner such as a [Go Ethereum (geth)](https://geth.ethereum.org) or 
    [OpenEthereum](https://openethereum.github.io//) JSON RPC client locally on the same machine as 
    MASQ Node or on another machine within your private network.
 
@@ -22,8 +31,6 @@ There are two general types of Blockchain Services MASQ Node currently supports.
 Follow the instructions here [Infura.io/docs](https://infura.io/docs) to create a "Project"
 Choose one of the following options for the Ropsten testnet:
 * Enter your Infura.io url `https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>` in the blockchain service url field of the UI.
-  
-    ![Image](images/Blockchain-Service-Url.png)
   
 * For the `masq` command-line interface, use the `setup` command: 
   
