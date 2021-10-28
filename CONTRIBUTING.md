@@ -34,7 +34,7 @@ there are [several other choices](https://medium.com/cloud-native-the-gathering/
 
 * An account on [GitHub](https://github.com).
 
-* A link to the [MASQ Node issues board](https://github.com/orgs/MASQ/projects/1)
+* A link to the [MASQ Node Card Wall](https://github.com/orgs/MASQ-Project/projects/1)
 
 * A link to the [MASQ Node GitHub Actions build site](https://github.com/MASQ-Project/Node/actions)
 
@@ -67,14 +67,8 @@ that.
 It is highly recommended that you establish an account on (GitHub)[https://github.com] if you don't have one
 already, as submitting pull requests will be much easier if you do.
 
-#### Fork the MASQ Node Repository
-1. Log in to GitHub as yourself. 
-1. Navigate to the [MASQ Node repository](https://github.com/MASQ-Project/Node).
-1. Click the __Fork__ button in the upper right corner.
-1. After a short delay, you should have a repository in your GitHub account called __Node.__
-
 #### Decide: SSH or HTTPS?
-You can choose to access your MASQ Node fork from your development machine either through an HTTPS URL or through
+You can choose to access the GitHub MASQ Node repo from your development machine either through an HTTPS URL or through
 an SSH URL. The HTTPS URL is very easy to set up, but it will require you to type in your GitHub username and password 
 every time you want to make a change to your fork. The SSH URL is somewhat more difficult to set up, but will let you 
 push from your development machine without manual authentication whenever you want to. (There's a way you can set `git`
@@ -84,22 +78,15 @@ configuring persistent HTTPS credentials.) You can
 [read about configuring for SSH](https://help.github.com/en/articles/connecting-to-github-with-ssh) to help guide your 
 decision.
 
-#### Clone Your Fork
-1. On the front page of your MASQ Node fork, you should see a white-on-green "Clone or download" button.
-(Make sure you're looking at your own MASQ Node fork, **not** "MASQ/Node.")
-Click it, choose either the HTTPS or the SSH URL, and copy it to your clipboard. Do not "Download ZIP."
+#### Clone the MASQ Node Repository
+1. Log in to GitHub as yourself.
+1. Navigate to the [MASQ Node repository](https://github.com/MASQ-Project/Node).
+1. Click the ![Code](images/CodeButton.png) button near the upper right corner.
+1. Choose either the HTTPS or the SSH URL, and copy it to your clipboard. Do not "Download ZIP."
 1. On your development machine, navigate to the directory under which you wish to do your MASQ Node development.
 1. Type the command `git clone `[contents of clipboard] to populate a sandbox on your machine with a copy of your
 forked MASQ Node repository.
 1. `cd Node` and explore the sandbox to ensure that it's what you expect.
-
-#### Establish an Upstream Remote
-When you're satisfied with the contents of the sandbox on your development machine, type the following command:
-```
-git remote add upstream https://github.com/MASQ/Node.git
-```
-This will connect your sandbox not only to the fork in your GitHub account, but also to the MASQ public
-repository, so that you can retrieve updates that other people make.
 
 #### Install Rust
 You'll need the latest version of the Rust toolchain. You can get it by following the instructions at the
@@ -119,7 +106,7 @@ If you don't already have a favorite development environment set up, you'll need
 [Here's an article](https://medium.com/cloud-native-the-gathering/whats-the-best-ide-for-developing-in-rust-5087d46006f5)
 listing several such choices.
 
-The MASQ team uses JetBrains IntelliJ IDEA, Ultimate Edition, with the Rust plugin installed.
+The MASQ team uses JetBrains IntelliJ IDEA with the Rust plugin installed.
 
 #### Kick the Tires
 To see if you've gotten everything working, navigate on your development machine to your fork's sandbox
@@ -152,14 +139,11 @@ where you should see "No one--assign yourself". Click "assign yourself" to put y
 
 #### Update the `master` Branch
 Before you begin any development work, you'll want to make sure you're working from the latest code in the MASQ
-public repository. Specifically, you'll want to pull in the upstream `master` branch, merge it with your own `master`
-branch, and then push the merged result up to your GitHub fork. You can do that with these commands:
+public repository. Specifically, you'll want to pull in the upstream `master` branch and merge it with your own `master`
+branch. You can do that with these commands:
 ```
-git fetch
-git fetch upstream
 git checkout master
-git merge upstream/master
-git push
+git pull
 ```
 
 #### Create a Feature Branch
@@ -171,23 +155,41 @@ git push -u origin HEAD
 ```
 
 #### Complete the Work
-Do the work described in the issue you selected. Make sure to test-drive everything you do. You are encouraged to commit
-your changes to your feature branch and push them to your fork A) whenever the tests go green, and B) just before you
-try something you want to be able to easily roll back if it doesn't work. Don't worry about having a large number of
-commits; they'll all be squashed to a single commit by the time they get to the public repo. Commits are good. 
-Make as many commits as you can possibly imagine needing, and then throw in a few more for good measure.
+Do the work described in the issue you selected. Make sure to test-drive everything you do. (If you don't, your code
+will absolutely not pass the review.) You are encouraged to commit your changes to your feature branch and push them 
+to your fork A) whenever the tests go green, B) just before you try something you want to be able to easily roll 
+back if it doesn't work, and C) whenever else you feel like it. Don't worry about having a large number of commits; 
+they'll all be squashed to a single commit by the time they get to the master branch. Commits are good. Make as many 
+commits as you can possibly imagine needing, and then throw in a few more for good measure.
 
-We also encourage you to compose commit comments that make it easy for you to find a particular commit if you have to
+We also encourage you to compose commit messages that make it easy for you to find a particular commit if you have to
 roll back later in the development process, but that's up to you. Since your individual commits will eventually be
 squashed together, we at MASQ won't be able to make any real use of your commit comments: those are for you, not us.
+
+#### Verify Against the Test Plan
+As the issue was moving through the grooming process, the testing crew will have (should have) added a test plan in
+the comments section that tells them how to proceed with making sure the work you've done satisfies the requirements
+in the issue. (Some issues don't change accessible functionality, and so can't really be tested by the testers, but
+most issues should be testable.) If there isn't a test plan, you may have to write one yourself, hopefully with the
+help or at least supervision of someone from the testing crew. At any rate, once you have a test plan, review it
+carefully to make sure it is still relevant and comprehensive, regarding the changes you have made, and adjust it
+appropriately if it isn't.
 
 #### Merge in `master`
 While you were working on your issue, it's probable that someone else completed an issue of his own and got it merged
 in ahead of you. If that's the case, you'll need to make sure that your code changes work with his before you're ready
 to have your own branch merged.
 
-Therefore, run the sequence of commands in __Update the `master` Branch__ above again. If you have merge conflicts,
-address them before you go on to the next step.
+Therefore, check out the master branch, pull it, and merge it with your branch, like this:
+
+```
+$ git checkout master
+$ git pull
+$ git checkout - # The minus means the branch you were on previously
+$ git merge master
+```
+
+If you have merge conflicts, address them before you go on to the next step.
 
 (Suggestion: especially if you're working on a long-running issue, don't put this off until the end. Do it regularly,
 whenever your tests are green and it's been awhile since the last time, so that you don't code off in a vastly different
@@ -204,18 +206,26 @@ including release (not debug) builds, then run unit tests and (zero-hop) integra
 MASQ Node. Keep your eye on it, because in order to run zero-hop integration tests on Linux or macOS, it'll need
 to use `sudo`, so you'll have to type in your password to get it to continue.
 
-If you're developing on Linux (encouraged!), run `ci/multinode_integration_tests.sh` too. (Whether you do or not, 
+If you're developing on Linux, run `ci/multinode_integration_tests.sh` too. (Whether you do or not, 
 GitHub Actions will, so if there's a problem, it's good to know about it early.) If you're developing on macOS or
 Windows, `ci/multinode_integration_tests.sh` won't do much for you, so you'll have to wait for the Actions run.
 
 #### Open a Pull Request
 First, make sure you've pushed the last of your changes to your feature branch on your fork.
 
-Then log onto GitHub and navigate to your fork repo. Several buttons to the left of the green "Clone or download"
-button, you should see a button marked "New pull request". Click that button.
+Then log onto GitHub and navigate to the [MASQ Node repository](https://github.com/MASQ-Project/Node). Click the
+"Pull requests" tab near the top:
 
-You'll see a screen that's ready to create a pull request to merge your master branch (on the right) into the master
-branch of MASQ Node's public repo (on the left). This is almost what you want to do, but not quite.
+![Pull requests](images/PullRequestsTab.png)
+
+In that tab, click the green "New pull request" button at the right:
+
+![New pull request button](images/NewPullRequestButton.png)
+
+You'll probably see a screen that's confused, because it thinks you want to merge the master branch into the master
+branch, which is a null operation:
+
+![master to master](images/MasterToMaster.png)
 
 Click the rightmost button that says "compare: `master`," and choose your feature branch. (If the rightmost button
 already mentions your feature branch, then that's all you need.)
@@ -233,18 +243,21 @@ As soon as you create your pull request, the
 begin building your feature branch on Linux, macOS, and Windows platforms. It will also run the multinode integration
 tests on Linux. Track the builds as they proceed, and watch for failures. If there are any, go back to __Complete the Work__
 and fix the problems. Sometimes, especially for failures in multinode integration tests, the reasons for the failures may
-not appear in Pipelines' console logs. In that case, they will probably be made available on the 
-[MASQ Node build results site](https://github.com/masq-results/MASQ-results) soon after the build
-completes. Download from there the appropriate `generated-`\<platform\>`.tar.gz` file, pop it open, and look at the files inside.
-**Note - For the very latest build results, it is best to go to the [GitHub Actions build site](https://github.com/MASQ-Project/Node/actions) page, and click on the latest completed workflow related to the Pull Request you are looking at. At the bottom of the workflow run summary there are 3 artifacts produced which relate to successful build jobs. You can download these artifacts from here for the appropriate platform. 
+not appear in Actions' console logs. In that case, they will be available in Actions after the build completes. 
+Download from there the appropriate `generated-`\<platform\>`.tar.gz` file, pop it open, and look at the files inside.
 
 #### Wait for Approval
-Once your Actions build succeeds, your pull request will be handled by a human reviewer.  Again, issues that come
-from the top of the __Awaiting Development__ column will take precedence over others, but you shouldn't have to wait too long for a
-response even if your issue is from deep in the __Ready for Development__ column.  If your reviewer comments on your PR,
-either defend your decisions in the comment thread or address the reviewer's comments and push your changes to your
-feature branch again. This time, Actions should pick up your changes immediately and start another build. Shepherd
-your changes through Actions, and when it's green, your reviewer will take another look at your PR.
+Once your Actions build succeeds, find a human reviewer--probably best on the Discord server, if you're not already
+working with one--to review your pull request.  Again, issues that come from the top of the __Awaiting Development__ 
+column will take precedence over others, but you shouldn't have to wait too long for a response even if your issue is 
+from deep in the __Ready for Development__ column.  If your reviewer comments on your PR, either defend your decisions 
+in the comment thread or address the reviewer's comments and push your changes to your feature branch again. This time, 
+Actions should pick up your changes immediately and start another build. Shepherd your changes through Actions, and 
+when it's green, your reviewer will take another look at your PR.
 
-Once your PR is approved, the reviewer will merge it into the public repo's `master` branch for you, and you can start
-on another issue!
+Meanwhile, mention on the Discord server to the QA lead that your card is ready for testing. The QA crew will soon
+begin testing it; pay attention to what they say so that you can answer any questions they have and correct any 
+discrepancies they find.
+
+Once your PR is approved both by the reviewer and by the QA lead, the reviewer will merge it into the public repo's
+`master` branch for you, and you can start on another issue!
