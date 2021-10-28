@@ -7,12 +7,9 @@ connect, and a sink for commands and source for status data from and to such ele
 
 ### Documentation
 The UI-Interface Interface Documentation outlines all the current MASQNode-UIv2 messaging available across Websockets.
-You can fine it [here](https://github.com/MASQ-Project/Node/blob/master/USER-INTERFACE-INTERFACE.md)
+You can find it [here](https://github.com/MASQ-Project/Node/blob/master/USER-INTERFACE-INTERFACE.md)
 
 
-It probably isn't the most interesting place to begin digging into our code;
-[node](https://github.com/MASQ-Project/Node/tree/master/node)
-is a better place to start.
 
 Copyright (c) 2019-2021, MASQ Network
 
