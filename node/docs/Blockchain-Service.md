@@ -5,16 +5,16 @@
 A blockchain service url is a URL that MASQ Node uses to interact with blockchain testnets and mainnets.
 On mainnet, MASQ uses the MASQ token; on Ropsten and Mumbai, it uses the SHRD token (Shroud).
 
-#### Currently MASQ is supporting:
+#### MASQ Node software supports connections to the following blockchains:
 **Ethereum**
 - [x] Ropsten testnet
 - [x] Ethereum mainnet
 
 **Polygon**
 - [x] Mumbai testnet
-- [ ] Polygon mainnet
+- [ ] Polygon mainnet *in development*
 
-To be fully functional MASQ Node needs access to:
+To be fully functional MASQ Node needs communication to the blockchain for access to:
 1. pay SHRD/MASQ to other Nodes for routing, blockchain, and exit services consumed, 
 1. determine if other requesting Nodes have enough SHRD/MASQ to pay for services -- also ETH for gas fees, and 
 1. discover payments from other Nodes for routing, blockchain, and exit services provided. This keeps your Node from 
@@ -23,7 +23,7 @@ To be fully functional MASQ Node needs access to:
 There are two general types of Blockchain Services MASQ Node currently supports.
 
 1. Connect with a remote service that provides a JSON RPC Ethereum client like [Infura.io](https://infura.io/) or [Alchemy.io](https://alchemyapi.io/) - these will require signing up for an account (most offer both free and premium accounts) but just providing an email address, which will allow you to generate an API key and an endpoint URL.
-2. Run your own Ethereum miner such as a [Go Ethereum (geth)](https://geth.ethereum.org) or 
+1. Run your own Ethereum miner such as a [Go Ethereum (geth)](https://geth.ethereum.org) or 
    [OpenEthereum](https://openethereum.github.io//) JSON RPC client locally on the same machine as 
    MASQ Node or on another machine within your private network.
 
