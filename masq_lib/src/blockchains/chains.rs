@@ -71,6 +71,7 @@ fn return_record_opt_body<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared_schema::official_chain_names;
 
     #[test]
     #[should_panic(expected = "Non-unique identifier used to query a BlockchainRecord")]
@@ -101,6 +102,23 @@ mod tests {
                 .unwrap()
             )
         });
+    }
+
+    #[test]
+    fn chain_from_str_works_reliably() {
+        let mut iterator = official_chain_names().iter();
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMumbai);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
+        assert_eq!(iterator.next(), None)
+    }
+
+    #[test]
+    #[should_panic(expected = "Clap let in a wrong value for chain: 'olala'")]
+    fn gibberish_causes_a_panic() {
+        let _ = Chain::from("olala");
     }
 
     fn make_defaulted_blockchain_record() -> BlockchainRecord {

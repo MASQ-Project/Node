@@ -149,8 +149,12 @@ pub fn chain_arg<'a>() -> Arg<'a, 'a> {
         .value_name("CHAIN")
         .min_values(0)
         .max_values(1)
-        .possible_values(&["poly-mainnet", "eth-mainnet", "mumbai", "ropsten", "dev"]) //TODO one day 'dev' may be left out
+        .possible_values(official_chain_names())
         .help(CHAIN_HELP)
+}
+
+pub fn official_chain_names() -> &'static [&'static str] {
+    &["polygon-mainnet", "eth-mainnet", "mumbai", "ropsten", "dev"] //TODO one day 'dev' may be left out
 }
 
 pub fn db_password_arg(help: &str) -> Arg {
