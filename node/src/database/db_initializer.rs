@@ -270,7 +270,7 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "gas_price",
-            Some(DEFAULT_GAS_PRICE),
+            Some(&DEFAULT_GAS_PRICE.to_string()),
             false,
             "gas price",
         );
@@ -805,7 +805,11 @@ mod tests {
         verify(&mut config_vec, "consuming_wallet_public_key", None);
         verify(&mut config_vec, "earning_wallet_address", None);
         verify(&mut config_vec, EXAMPLE_ENCRYPTED, None);
-        verify(&mut config_vec, "gas_price", Some(DEFAULT_GAS_PRICE));
+        verify(
+            &mut config_vec,
+            "gas_price",
+            Some(&DEFAULT_GAS_PRICE.to_string()),
+        );
         verify(&mut config_vec, "mapping_protocol", None);
         verify(&mut config_vec, "neighborhood_mode", Some("standard"));
         verify(&mut config_vec, "past_neighbors", None);

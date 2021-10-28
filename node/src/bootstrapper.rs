@@ -359,6 +359,9 @@ impl BootstrapperConfig {
 
     pub fn merge_unprivileged(&mut self, unprivileged: BootstrapperConfig) {
         self.blockchain_bridge_config.gas_price = unprivileged.blockchain_bridge_config.gas_price;
+        self.blockchain_bridge_config.blockchain_service_url_opt = unprivileged
+            .blockchain_bridge_config
+            .blockchain_service_url_opt;
         self.clandestine_port_opt = unprivileged.clandestine_port_opt;
         self.neighborhood_config = unprivileged.neighborhood_config;
         self.earning_wallet = unprivileged.earning_wallet;
@@ -620,7 +623,7 @@ mod tests {
     use actix::System;
     use crossbeam_channel::unbounded;
     use lazy_static::lazy_static;
-    use masq_lib::constants::DEFAULT_CHAIN_NAME;
+    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE};
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
@@ -1003,6 +1006,47 @@ mod tests {
     }
 
     #[test]
+    fn blockchain_service_url_from_the_unprivileged_config_is_merged_into_the_final_config() {
+        let _lock = INITIALIZATION.lock();
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "blockchain_service_url_from_the_unprivileged_config_is_merged_into_the_final_config",
+        );
+        let mut config = BootstrapperConfig::new();
+        config.clandestine_port_opt = Some(1234);
+        config.data_directory = data_dir.clone();
+        let mut subject = BootstrapperBuilder::new()
+            .add_listener_handler(Box::new(
+                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
+            ))
+            .config(config)
+            .build();
+
+        subject
+            .initialize_as_unprivileged(
+                &make_simplified_multi_config([
+                    "MASQNode",
+                    "--ip",
+                    "1.2.3.4",
+                    "--blockchain-service-url",
+                    "http://infura.io/ID",
+                ]),
+                &mut FakeStreamHolder::new().streams(),
+            )
+            .unwrap();
+
+        let config = subject.config;
+        assert_eq!(
+            config.blockchain_bridge_config,
+            BlockchainBridgeConfig {
+                blockchain_service_url_opt: Some("http://infura.io/ID".to_string()),
+                chain_id: DEFAULT_CHAIN_ID,
+                gas_price: DEFAULT_GAS_PRICE
+            }
+        );
+    }
+
+    #[test]
     fn initialize_as_unprivileged_passes_node_descriptor_to_ui_config() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
@@ -1021,13 +1065,7 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &make_simplified_multi_config([
-                    "MASQNode",
-                    "--ip",
-                    "1.2.3.4",
-                    "--data-directory",
-                    data_dir.to_str().unwrap(),
-                ]),
+                &make_simplified_multi_config(["MASQNode", "--ip", "1.2.3.4"]),
                 &mut FakeStreamHolder::new().streams(),
             )
             .unwrap();
@@ -1054,15 +1092,7 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &make_simplified_multi_config([
-                    "MASQNode",
-                    "--data-directory",
-                    data_dir.to_str().unwrap(),
-                    "--ip",
-                    "1.2.3.4",
-                    "--gas-price",
-                    "11",
-                ]),
+                &make_simplified_multi_config(["MASQNode", "--ip", "1.2.3.4", "--gas-price", "11"]),
                 &mut FakeStreamHolder::new().streams(),
             )
             .unwrap();

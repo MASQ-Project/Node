@@ -1858,7 +1858,7 @@ mod tests {
         db_password_opt: Option<&str>,
         consuming_wallet_derivation_path_opt: Option<&str>,
         earning_wallet_address_opt: Option<&str>,
-        gas_price_opt: Option<&str>,
+        gas_price_opt: Option<u64>,
         past_neighbors_opt: Option<&str>,
     ) -> PersistentConfigurationMock {
         let (mnemonic_seed_result, mnemonic_seed_exists_result) =
@@ -1875,10 +1875,7 @@ mod tests {
             None => None,
             Some(address) => Some(Wallet::from_str(address).unwrap()),
         };
-        let gas_price = gas_price_opt
-            .unwrap_or(DEFAULT_GAS_PRICE)
-            .parse::<u64>()
-            .unwrap();
+        let gas_price = gas_price_opt.unwrap_or(DEFAULT_GAS_PRICE);
         let past_neighbors_result = match (past_neighbors_opt, db_password_opt) {
             (Some(past_neighbors), Some(_)) => Ok(Some(
                 past_neighbors

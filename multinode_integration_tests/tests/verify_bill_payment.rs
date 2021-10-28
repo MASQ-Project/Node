@@ -7,7 +7,8 @@ use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
-    ConsumingWalletInfo, EarningWalletInfo, MASQRealNode, NodeStartupConfigBuilder,
+    ConsumingWalletInfo, EarningWalletInfo, MASQRealNode, NodeStartupConfig,
+    NodeStartupConfigBuilder,
 };
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
@@ -25,7 +26,7 @@ use rustc_hex::{FromHex, ToHex};
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes};
@@ -35,7 +36,7 @@ use web3::Web3;
 fn verify_bill_payment() {
     let mut cluster = match MASQNodeCluster::start() {
         Ok(cluster) => cluster,
-        Err(_) => panic!(""),
+        Err(e) => panic!("{}", e),
     };
 
     let blockchain_server = BlockchainServer {
@@ -48,7 +49,7 @@ fn verify_bill_payment() {
     let web3 = Web3::new(http.clone());
     let deriv_path = derivation_path(0, 0);
     let seed = make_seed();
-    let (contract_owner_wallet, contract_owner_secret_key) = make_node_wallet(&seed, &deriv_path);
+    let (contract_owner_wallet, _) = make_node_wallet(&seed, &deriv_path);
 
     let contract_addr = deploy_smart_contract(&contract_owner_wallet, &web3, cluster.chain_id);
     assert_eq!(
@@ -65,51 +66,14 @@ fn verify_bill_payment() {
         "99998043204000000000",
         "472000000000000000000000000",
     );
-    let consuming_config = NodeStartupConfigBuilder::standard()
-        .blockchain_service_url(blockchain_server.service_url())
-        .chain("dev")
-        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(contract_owner_secret_key))
-        .earning_wallet_info(EarningWalletInfo::Address(format!(
-            "{}",
-            contract_owner_wallet.clone()
-        )))
-        .build();
+    let (consuming_config, _) = build_config(&blockchain_server, &seed, deriv_path);
 
-    let (serving_node_1_wallet, serving_node_1_secret) =
-        make_node_wallet(&seed, derivation_path(0, 1).as_str());
-    let serving_node_1_config = NodeStartupConfigBuilder::standard()
-        .blockchain_service_url(blockchain_server.service_url())
-        .chain("dev")
-        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_1_secret))
-        .earning_wallet_info(EarningWalletInfo::Address(format!(
-            "{}",
-            serving_node_1_wallet.clone()
-        )))
-        .build();
-
-    let (serving_node_2_wallet, serving_node_2_secret) =
-        make_node_wallet(&seed, "m/44'/60'/0'/0/2");
-    let serving_node_2_config = NodeStartupConfigBuilder::standard()
-        .blockchain_service_url(blockchain_server.service_url())
-        .chain("dev")
-        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_2_secret))
-        .earning_wallet_info(EarningWalletInfo::Address(format!(
-            "{}",
-            serving_node_2_wallet.clone()
-        )))
-        .build();
-
-    let (serving_node_3_wallet, serving_node_3_secret) =
-        make_node_wallet(&seed, "m/44'/60'/0'/0/3");
-    let serving_node_3_config = NodeStartupConfigBuilder::standard()
-        .blockchain_service_url(blockchain_server.service_url())
-        .chain("dev")
-        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_3_secret))
-        .earning_wallet_info(EarningWalletInfo::Address(format!(
-            "{}",
-            serving_node_3_wallet.clone()
-        )))
-        .build();
+    let (serving_node_1_config, serving_node_1_wallet) =
+        build_config(&blockchain_server, &seed, derivation_path(0, 1));
+    let (serving_node_2_config, serving_node_2_wallet) =
+        build_config(&blockchain_server, &seed, derivation_path(0, 2));
+    let (serving_node_3_config, serving_node_3_wallet) =
+        build_config(&blockchain_server, &seed, derivation_path(0, 3));
 
     let amount = 10u64
         * u64::try_from(node_lib::accountant::PAYMENT_CURVES.permanent_debt_allowed_gwub).unwrap();
@@ -256,8 +220,11 @@ fn verify_bill_payment() {
         );
     }
 
-    while !consuming_payable_dao.non_pending_payables().is_empty() {
-        thread::sleep(Duration::from_millis(300));
+    let now = Instant::now();
+    while !consuming_payable_dao.non_pending_payables().is_empty()
+        && now.elapsed() < Duration::from_secs(10)
+    {
+        thread::sleep(Duration::from_millis(400));
     }
 
     assert_balances(
@@ -403,6 +370,25 @@ fn make_seed() -> Seed {
     let mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
     let seed = Seed::new(&mnemonic, "");
     seed
+}
+
+fn build_config(
+    server: &BlockchainServer,
+    seed: &Seed,
+    wallet_derivation_path: String,
+) -> (NodeStartupConfig, Wallet) {
+    let (serving_node_wallet, serving_node_secret) =
+        make_node_wallet(seed, wallet_derivation_path.as_str());
+    let config = NodeStartupConfigBuilder::standard()
+        .blockchain_service_url(server.service_url())
+        .chain("dev")
+        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_secret))
+        .earning_wallet_info(EarningWalletInfo::Address(format!(
+            "{}",
+            serving_node_wallet.clone()
+        )))
+        .build();
+    (config, serving_node_wallet)
 }
 
 fn expire_payables(path: PathBuf) {
