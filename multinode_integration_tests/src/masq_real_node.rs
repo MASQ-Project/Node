@@ -878,8 +878,7 @@ impl MASQRealNode {
     }
 
     pub fn make_client(&self, port: u16) -> MASQNodeClient {
-        let socket_addr = SocketAddr::new(self.ip_address(), port);
-        MASQNodeClient::new(socket_addr)
+        MASQNodeClient::new(SocketAddr::new(self.ip_address(), port))
     }
 
     pub fn make_server(&self, port: u16) -> MASQNodeServer {
