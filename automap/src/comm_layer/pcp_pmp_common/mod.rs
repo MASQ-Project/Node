@@ -26,6 +26,7 @@ use std::time::Duration;
 
 pub const ROUTER_PORT: u16 = 5351; // from the PCP and PMP RFCs
 pub const ANNOUNCEMENT_PORT: u16 = 5350; // from the PCP and PMP RFCs
+pub const ANNOUNCEMENT_MULTICAST_GROUP: u8 = 1;
 pub const ANNOUNCEMENT_READ_TIMEOUT_MILLIS: u64 = 1000;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -73,6 +74,7 @@ impl UdpSocketReal {
 
 pub trait UdpSocketWrapperFactory: Send {
     fn make(&self, addr: SocketAddr) -> io::Result<Box<dyn UdpSocketWrapper>>;
+    fn make_multicast(&self, multicast_group: u8, port: u16, interface: Ipv4Addr) -> io::Result<Box<dyn UdpSocketWrapper>>;
 }
 
 pub struct UdpSocketFactoryReal {}
@@ -80,6 +82,13 @@ pub struct UdpSocketFactoryReal {}
 impl UdpSocketWrapperFactory for UdpSocketFactoryReal {
     fn make(&self, addr: SocketAddr) -> io::Result<Box<dyn UdpSocketWrapper>> {
         Ok(Box::new(UdpSocketReal::new(UdpSocket::bind(addr)?)))
+    }
+
+    fn make_multicast(&self, multicast_group: u8, port: u16, interface: Ipv4Addr) -> io::Result<Box<dyn UdpSocketWrapper>> {
+        let delegate = UdpSocket::bind (SocketAddr::new (IpAddr::V4(interface), port))?;
+        let multicast = Ipv4Addr::new (224, 0, 0, multicast_group);
+        delegate.join_multicast_v4(&multicast, &interface)?;
+        Ok(Box::new (UdpSocketReal::new (delegate)))
     }
 }
 

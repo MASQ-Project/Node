@@ -1,10 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{
-    find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig,
-    UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_PORT,
-    ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
-};
+use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_PORT, ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT, ANNOUNCEMENT_MULTICAST_GROUP};
 use crate::comm_layer::{
     AutomapError, AutomapErrorCause, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal,
     Transactor,
@@ -76,7 +72,7 @@ struct PcpTransactorInner {
 pub struct PcpTransactor {
     inner_arc: Arc<Mutex<PcpTransactorInner>>,
     router_port: u16,
-    listen_port: u16,
+    announcement_multicast_group: u8,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     join_handle_opt: Option<JoinHandle<ChangeHandler>>,
     read_timeout_millis: u64,
@@ -259,7 +255,7 @@ impl Default for PcpTransactor {
                 factories: Factories::default(),
             })),
             router_port: ROUTER_PORT,
-            listen_port: ANNOUNCEMENT_PORT,
+            announcement_multicast_group: ANNOUNCEMENT_MULTICAST_GROUP,
             housekeeper_commander_opt: None,
             join_handle_opt: None,
             read_timeout_millis: ANNOUNCEMENT_READ_TIMEOUT_MILLIS,
@@ -276,18 +272,18 @@ impl PcpTransactor {
     }
 
     fn make_announcement_socket(&mut self) -> Result<Box<dyn UdpSocketWrapper>, AutomapError> {
-        let ip_addr = IpAddr::V4(Ipv4Addr::new(224, 0, 0, 1));
-        let socket_addr = SocketAddr::new(ip_addr, self.listen_port);
+        let multicast = Ipv4Addr::new(224, 0, 0, 1);
+        // let socket_addr = SocketAddr::new(ip_addr, self.announcement_multicast_group);
         let socket_result = {
             let factories = &self.inner().factories;
-            factories.socket_factory.make(socket_addr)
+            factories.socket_factory.make_multicast(self.announcement_multicast_group, 0, Ipv4Addr::UNSPECIFIED)
         };
         let socket = match socket_result {
             Ok(s) => s,
             Err(e) => {
                 return Err(AutomapError::SocketBindingError(
                     format!("{:?}", e),
-                    socket_addr,
+                    SocketAddr::new (IpAddr::V4 (multicast), 0), // TODO: Correct this
                 ))
             }
         };
@@ -684,6 +680,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
+    use crate::mocks::TestMulticastSocketHolder;
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -1396,136 +1393,139 @@ mod tests {
 
     #[test]
     fn housekeeping_thread_works() {
-        let _ = EnvironmentGuard::new();
-        let change_handler_port = find_free_port();
-        let router_port = find_free_port();
-        let announce_port = find_free_port();
-        let router_ip = localhost();
-        let mut subject = PcpTransactor::default();
-        subject.router_port = router_port;
-        subject.listen_port = change_handler_port;
-        let mapping_config = MappingConfig {
-            hole_port: 1234,
-            next_lifetime: Duration::from_secs(321),
-            remap_interval: Duration::from_secs(160),
-        };
-        let changes_arc = Arc::new(Mutex::new(vec![]));
-        let changes_arc_inner = changes_arc.clone();
-        let change_handler = move |change| {
-            changes_arc_inner.lock().unwrap().push(change);
-        };
-
-        let commander = subject
-            .start_housekeeping_thread(Box::new(change_handler), router_ip)
-            .unwrap();
-
-        commander
-            .try_send(HousekeepingThreadCommand::InitializeMappingConfig(
-                mapping_config,
-            ))
-            .unwrap();
-        let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announce_port)).unwrap();
-        announce_socket
-            .set_read_timeout(Some(Duration::from_millis(1000)))
-            .unwrap();
-        announce_socket.set_broadcast(true).unwrap();
-        announce_socket
-            .connect(SocketAddr::new(change_handler_ip, change_handler_port))
-            .unwrap();
-        let mut packet = vanilla_response();
-        packet.opcode = Opcode::Announce;
-        packet.lifetime = 0;
-        packet.epoch_time_opt = Some(0);
-        let mut buffer = [0u8; 100];
-        let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
-        let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
-        assert_eq!(sent_len, len_to_send);
-        let (recv_len, remapping_socket_addr) = mapping_socket.recv_from(&mut buffer).unwrap();
-        let packet = PcpPacket::try_from(&buffer[0..recv_len]).unwrap();
-        assert_eq!(packet.opcode, Opcode::Map);
-        assert_eq!(packet.lifetime, 321);
-        let opcode_data: &MapOpcodeData = packet.opcode_data.as_any().downcast_ref().unwrap();
-        assert_eq!(opcode_data.external_port, 1234);
-        assert_eq!(opcode_data.internal_port, 1234);
-        let mut packet = vanilla_response();
-        packet.opcode = Opcode::Map;
-        let mut opcode_data = MapOpcodeData::default();
-        opcode_data.external_ip_address = IpAddr::from_str("4.5.6.7").unwrap();
-        packet.opcode_data = Box::new(opcode_data);
-        let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let sent_len = mapping_socket
-            .send_to(&buffer[0..len_to_send], remapping_socket_addr)
-            .unwrap();
-        assert_eq!(sent_len, len_to_send);
-        thread::yield_now();
-        let _ = subject.stop_housekeeping_thread();
-        assert!(subject.housekeeper_commander_opt.is_none());
-        let changes = changes_arc.lock().unwrap();
-        assert_eq!(
-            *changes,
-            vec![AutomapChange::NewIp(IpAddr::from_str("4.5.6.7").unwrap())]
-        )
+        todo!();
+        // let _ = EnvironmentGuard::new();
+        // let change_handler_port = find_free_port();
+        // let router_port = find_free_port();
+        // let router_ip = localhost();
+        // let mut subject = PcpTransactor::default();
+        // subject.router_port = router_port;
+        // subject.announcement_multicast_group = change_handler_port;
+        // let mapping_config = MappingConfig {
+        //     hole_port: 1234,
+        //     next_lifetime: Duration::from_secs(321),
+        //     remap_interval: Duration::from_secs(160),
+        // };
+        // let changes_arc = Arc::new(Mutex::new(vec![]));
+        // let changes_arc_inner = changes_arc.clone();
+        // let change_handler = move |change| {
+        //     changes_arc_inner.lock().unwrap().push(change);
+        // };
+        //
+        // let commander = subject
+        //     .start_housekeeping_thread(Box::new(change_handler), router_ip)
+        //     .unwrap();
+        //
+        // commander
+        //     .try_send(HousekeepingThreadCommand::InitializeMappingConfig(
+        //         mapping_config,
+        //     ))
+        //     .unwrap();
+        // let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
+        // let announce_socket_holder = TestMulticastSocketHolder::checkout();
+        // let announce_socket = &announce_socket_holder.socket;
+        // announce_socket
+        //     .set_read_timeout(Some(Duration::from_millis(1000)))
+        //     .unwrap();
+        // announce_socket
+        //     .connect(SocketAddr::new(change_handler_ip, change_handler_port))
+        //     .unwrap();
+        // let mut packet = vanilla_response();
+        // packet.opcode = Opcode::Announce;
+        // packet.lifetime = 0;
+        // packet.epoch_time_opt = Some(0);
+        // let mut buffer = [0u8; 100];
+        // let len_to_send = packet.marshal(&mut buffer).unwrap();
+        // let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
+        // mapping_socket.set_read_timeout(Some (Duration::from_millis (1000)));
+        // let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
+        // assert_eq!(sent_len, len_to_send);
+        // let (recv_len, remapping_socket_addr) = mapping_socket.recv_from(&mut buffer).unwrap();
+        // let packet = PcpPacket::try_from(&buffer[0..recv_len]).unwrap();
+        // assert_eq!(packet.opcode, Opcode::Map);
+        // assert_eq!(packet.lifetime, 321);
+        // let opcode_data: &MapOpcodeData = packet.opcode_data.as_any().downcast_ref().unwrap();
+        // assert_eq!(opcode_data.external_port, 1234);
+        // assert_eq!(opcode_data.internal_port, 1234);
+        // let mut packet = vanilla_response();
+        // packet.opcode = Opcode::Map;
+        // let mut opcode_data = MapOpcodeData::default();
+        // opcode_data.external_ip_address = IpAddr::from_str("4.5.6.7").unwrap();
+        // packet.opcode_data = Box::new(opcode_data);
+        // let len_to_send = packet.marshal(&mut buffer).unwrap();
+        // let sent_len = mapping_socket
+        //     .send_to(&buffer[0..len_to_send], remapping_socket_addr)
+        //     .unwrap();
+        // assert_eq!(sent_len, len_to_send);
+        // thread::yield_now();
+        // let _ = subject.stop_housekeeping_thread();
+        // assert!(subject.housekeeper_commander_opt.is_none());
+        // let changes = changes_arc.lock().unwrap();
+        // assert_eq!(
+        //     *changes,
+        //     vec![AutomapChange::NewIp(IpAddr::from_str("4.5.6.7").unwrap())]
+        // )
     }
 
     #[test]
     fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
-        let _ = EnvironmentGuard::new();
-        let change_handler_port = find_free_port();
-        let router_port = find_free_port();
-        let announcement_port = find_free_port();
-        let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
-        let mut subject = PcpTransactor::default();
-        subject.router_port = router_port;
-        subject.listen_port = change_handler_port;
-        let changes_arc = Arc::new(Mutex::new(vec![]));
-        let changes_arc_inner = changes_arc.clone();
-        let change_handler = move |change| {
-            changes_arc_inner.lock().unwrap().push(change);
-        };
-
-        subject
-            .start_housekeeping_thread(Box::new(change_handler), router_ip)
-            .unwrap();
-
-        assert!(subject.housekeeper_commander_opt.is_some());
-        let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announce_socket =
-            UdpSocket::bind(SocketAddr::new(localhost(), announcement_port)).unwrap();
-        announce_socket
-            .set_read_timeout(Some(Duration::from_millis(1000)))
-            .unwrap();
-        announce_socket.set_broadcast(true).unwrap();
-        announce_socket
-            .connect(SocketAddr::new(change_handler_ip, change_handler_port))
-            .unwrap();
-        let mut packet = vanilla_response();
-        packet.opcode = Opcode::Announce;
-        packet.lifetime = 0;
-        packet.epoch_time_opt = Some(0);
-        let mut buffer = [0u8; 100];
-        let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
-        mapping_socket
-            .set_read_timeout(Some(Duration::from_millis(100)))
-            .unwrap();
-        let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
-        assert_eq!(sent_len, len_to_send);
-        match mapping_socket.recv_from(&mut buffer) {
-            Err(e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => {
-                ()
-            }
-            Err(e) => panic!("{:?}", e),
-            Ok((recv_len, remapping_socket_addr)) => {
-                let dump = pretty_hex(&buffer[0..recv_len].to_vec());
-                panic!(
-                    "Should have timed out; but received from {}:\n{}",
-                    remapping_socket_addr, dump
-                );
-            }
-        }
-        let _ = subject.stop_housekeeping_thread();
+        todo!();
+        // let _ = EnvironmentGuard::new();
+        // let change_handler_port = find_free_port();
+        // let router_port = find_free_port();
+        // let announcement_port = find_free_port();
+        // let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
+        // let mut subject = PcpTransactor::default();
+        // subject.router_port = router_port;
+        // subject.announcement_multicast_group = change_handler_port;
+        // let changes_arc = Arc::new(Mutex::new(vec![]));
+        // let changes_arc_inner = changes_arc.clone();
+        // let change_handler = move |change| {
+        //     changes_arc_inner.lock().unwrap().push(change);
+        // };
+        //
+        // subject
+        //     .start_housekeeping_thread(Box::new(change_handler), router_ip)
+        //     .unwrap();
+        //
+        // assert!(subject.housekeeper_commander_opt.is_some());
+        // let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
+        // todo! ("Replace this with a multicast socket");
+        // let announce_socket =
+        //     UdpSocket::bind(SocketAddr::new(localhost(), announcement_port)).unwrap();
+        // announce_socket
+        //     .set_read_timeout(Some(Duration::from_millis(1000)))
+        //     .unwrap();
+        // announce_socket.set_broadcast(true).unwrap();
+        // announce_socket
+        //     .connect(SocketAddr::new(change_handler_ip, change_handler_port))
+        //     .unwrap();
+        // let mut packet = vanilla_response();
+        // packet.opcode = Opcode::Announce;
+        // packet.lifetime = 0;
+        // packet.epoch_time_opt = Some(0);
+        // let mut buffer = [0u8; 100];
+        // let len_to_send = packet.marshal(&mut buffer).unwrap();
+        // let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
+        // mapping_socket
+        //     .set_read_timeout(Some(Duration::from_millis(100)))
+        //     .unwrap();
+        // let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
+        // assert_eq!(sent_len, len_to_send);
+        // match mapping_socket.recv_from(&mut buffer) {
+        //     Err(e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => {
+        //         ()
+        //     }
+        //     Err(e) => panic!("{:?}", e),
+        //     Ok((recv_len, remapping_socket_addr)) => {
+        //         let dump = pretty_hex(&buffer[0..recv_len].to_vec());
+        //         panic!(
+        //             "Should have timed out; but received from {}:\n{}",
+        //             remapping_socket_addr, dump
+        //         );
+        //     }
+        // }
+        // let _ = subject.stop_housekeeping_thread();
     }
 
     #[test]
@@ -2203,5 +2203,64 @@ mod tests {
             external_port: 6666,
             external_ip_address: IpAddr::from_str("72.73.74.75").unwrap(),
         })
+    }
+
+    #[test]
+    fn play_with_multicast() {
+        // make a factory
+        let factory = UdpSocketFactoryReal::new();
+        let holder = TestMulticastSocketHolder::checkout();
+        let multicast_group = holder.group;
+        let multicast_v4 = Ipv4Addr::new (224, 0, 0, multicast_group);
+        let multicast = IpAddr::V4(multicast_v4);
+        let multicast_port = find_free_port();
+        let multicast_socket = || {
+            let socket = UdpSocket::bind (SocketAddr::new (IpAddr::V4(Ipv4Addr::UNSPECIFIED), multicast_port)).unwrap();
+            socket.join_multicast_v4(&multicast_v4, &Ipv4Addr::UNSPECIFIED).unwrap();
+            socket.set_read_timeout (Some(Duration::from_secs(1))).unwrap();
+            socket
+        };
+        let factory_trigger = || {
+            let wrapper = factory.make_multicast (multicast_group, multicast_port, Ipv4Addr::UNSPECIFIED).unwrap();
+            wrapper.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            wrapper
+        };
+        let holder_1 = multicast_socket();
+        let holder_2 = multicast_socket();
+        let holder_3 = multicast_socket();
+        let factory_1 = factory_trigger();
+        let factory_2 = factory_trigger();
+        let factory_3 = factory_trigger();
+
+        // Send a message on a factory socket
+        let message = b"Taxation is theft!";
+        let mut buf: [u8; 100] = [0u8; 100];
+        let factory_assert = |factory_x: &dyn UdpSocketWrapper| {
+            let mut buf: [u8; 100] = [0u8; 100];
+            let (size, source) = factory_x.recv_from (&mut buf).unwrap();
+            assert_eq! (size, message.len());
+            assert_eq! (&buf[0..size], message);
+        };
+        let holder_assert = |holder_x: &UdpSocket| {
+            let mut buf: [u8; 100] = [0u8; 100];
+            let (size, source) = holder_x.recv_from (&mut buf).unwrap();
+            assert_eq! (size, message.len());
+            assert_eq! (&buf[0..size], message);
+        };
+        factory_2.send_to (message, SocketAddr::new (multicast, multicast_port)).unwrap();
+        // Receive the message on the rest of the sockets0
+        // factory_assert (&(*factory_1));
+        // factory_assert (&(*factory_3));
+        // holder_assert (&holder_1);
+        holder_assert (&holder_2);
+        // holder_assert (&holder_3);
+        // Send a message on the holder socket
+        holder_2.send_to (message, SocketAddr::new (multicast, multicast_port)).unwrap();
+        // Receive the message on the rest of the sockets
+        // factory_assert (&(*factory_1));
+        factory_assert (&(*factory_2));
+        // factory_assert (&(*factory_3));
+        // holder_assert (&holder_1);
+        // holder_assert (&holder_3);
     }
 }

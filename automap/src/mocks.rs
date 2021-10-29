@@ -6,10 +6,82 @@ use crate::comm_layer::pcp_pmp_common::{
 use crate::comm_layer::{AutomapError, LocalIpFinder};
 use std::cell::RefCell;
 use std::io::ErrorKind;
-use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::net::{IpAddr, SocketAddr, Ipv4Addr, UdpSocket};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use std::{io, thread};
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref MULTICAST_GROUPS_ACTIVE: Arc<Mutex<[u64; 4]>> = Arc::new (Mutex::new ([3, 0, 0, 0]));
+}
+
+pub struct TestMulticastSocketHolder {
+    pub socket: UdpSocket,
+    pub group: u8,
+}
+
+impl Drop for TestMulticastSocketHolder {
+    fn drop(&mut self) {
+        let ip = TestMulticastSocketHolder::ip_from_bit(self.group);
+        self.socket.leave_multicast_v4(&ip, &Ipv4Addr::new (0, 0, 0, 0)).unwrap();
+        let mut guard = MULTICAST_GROUPS_ACTIVE.lock().unwrap();
+        TestMulticastSocketHolder::clear_bit(&mut guard, self.group);
+    }
+}
+
+impl TestMulticastSocketHolder {
+    pub fn checkout () -> TestMulticastSocketHolder {
+        let group = Self::allocate_bit();
+        let multicast = Self::ip_from_bit(group);
+        let socket = UdpSocket::bind ("0.0.0.0:0").unwrap();
+        socket.join_multicast_v4(&multicast, &Ipv4Addr::new (0, 0, 0, 0));
+        Self { socket, group }
+    }
+
+    fn allocate_bit () -> u8 {
+        let mut guard = MULTICAST_GROUPS_ACTIVE.lock().unwrap();
+        let mut bit_idx = 0u8;
+        while bit_idx <= 255 {
+            if !Self::bit_at(&guard, bit_idx) {
+                Self::set_bit (&mut guard, bit_idx);
+                return bit_idx
+            }
+            bit_idx += 1;
+        }
+        panic! ("All test multicast groups are occupied");
+    }
+
+    fn bit_at (guard: &MutexGuard<[u64; 4]>, bit_idx: u8) -> bool {
+        let (idx, mask) = Self::idx_and_mask_from_bit_idx(bit_idx);
+        ((**guard)[idx] & mask) > 0
+    }
+
+    fn set_bit (guard: &mut MutexGuard<[u64; 4]>, bit_idx: u8) {
+        let (idx, mask) = Self::idx_and_mask_from_bit_idx(bit_idx);
+        (**guard)[idx] |= mask;
+    }
+
+    fn clear_bit (guard: &mut MutexGuard<[u64; 4]>, bit_idx: u8) {
+        let (idx, mask) = Self::idx_and_mask_from_bit_idx(bit_idx);
+        (**guard)[idx] &= !mask;
+    }
+
+    fn ip_from_bit (bit_idx: u8) -> Ipv4Addr {
+        Ipv4Addr::new (224, 0, 0, bit_idx)
+    }
+
+    fn bit_idx_from_ip (ip: Ipv4Addr) -> u8 {
+        ip.octets()[3]
+    }
+
+    fn idx_and_mask_from_bit_idx (bit_idx: u8) -> (usize, u64) {
+        let idx = bit_idx >> 6;
+        let pos = bit_idx & 0x3F;
+        let mask = 1u64 << pos;
+        (idx as usize, mask)
+    }
+}
 
 pub struct LocalIpFinderMock {
     find_results: RefCell<Vec<Result<IpAddr, AutomapError>>>,
@@ -126,12 +198,19 @@ impl UdpSocketWrapperMock {
 pub struct UdpSocketWrapperFactoryMock {
     make_params: Arc<Mutex<Vec<SocketAddr>>>,
     make_results: RefCell<Vec<io::Result<Box<dyn UdpSocketWrapper>>>>,
+    make_multicast_params: Arc<Mutex<Vec<(u8, u16, Ipv4Addr)>>>,
+    make_multicast_results: RefCell<Vec<io::Result<Box<dyn UdpSocketWrapper>>>>,
 }
 
 impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryMock {
     fn make(&self, addr: SocketAddr) -> io::Result<Box<dyn UdpSocketWrapper>> {
         self.make_params.lock().unwrap().push(addr);
         self.make_results.borrow_mut().remove(0)
+    }
+
+    fn make_multicast(&self, multicast_group: u8, port: u16, interface: Ipv4Addr) -> io::Result<Box<dyn UdpSocketWrapper>> {
+        self.make_multicast_params.lock().unwrap().push((multicast_group, port, interface));
+        self.make_multicast_results.borrow_mut().remove(0)
     }
 }
 
@@ -140,6 +219,8 @@ impl UdpSocketWrapperFactoryMock {
         Self {
             make_params: Arc::new(Mutex::new(vec![])),
             make_results: RefCell::new(vec![]),
+            make_multicast_params: Arc::new(Mutex::new(vec![])),
+            make_multicast_results: RefCell::new(vec![]),
         }
     }
 
@@ -150,6 +231,19 @@ impl UdpSocketWrapperFactoryMock {
 
     pub fn make_result(self, result: io::Result<UdpSocketWrapperMock>) -> Self {
         self.make_results.borrow_mut().push(match result {
+            Ok(uswm) => Ok(Box::new(uswm)),
+            Err(e) => Err(e),
+        });
+        self
+    }
+
+    pub fn make_multicast_params(mut self, params: &Arc<Mutex<Vec<(u8, u16, Ipv4Addr)>>>) -> Self {
+        self.make_multicast_params = params.clone();
+        self
+    }
+
+    pub fn make_multicast_result(self, result: io::Result<UdpSocketWrapperMock>) -> Self {
+        self.make_multicast_results.borrow_mut().push(match result {
             Ok(uswm) => Ok(Box::new(uswm)),
             Err(e) => Err(e),
         });
