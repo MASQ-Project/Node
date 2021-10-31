@@ -2,7 +2,7 @@
 
 use crate::apps::{app_config_dumper, app_daemon, app_node};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
-use crate::run_modes::Leaving::{ExitCode, No};
+use crate::run_modes::Leaving::{ExitCode, Not};
 use crate::run_modes_factories::{
     DaemonInitializerFactory, DaemonInitializerFactoryReal, DumpConfigRunnerFactory,
     DumpConfigRunnerFactoryReal, ServerInitializerFactory, ServerInitializerFactoryReal,
@@ -55,7 +55,7 @@ impl RunModes {
             Ok(_) => 0,
             Err(RunnerError::Numeric(e_num)) => e_num,
             Err(RunnerError::Configurator(conf_e)) => {
-                Self::process_configurator_err(conf_e, streams);
+                Self::process_gathered_errors(conf_e, streams);
                 1
             }
         }
@@ -72,7 +72,7 @@ impl RunModes {
         Enter(mode)
     }
 
-    fn process_configurator_err(error: ConfiguratorError, streams: &mut StdStreams) {
+    fn process_gathered_errors(error: ConfiguratorError, streams: &mut StdStreams) {
         short_writeln!(streams.stderr, "Configuration error");
         Self::produce_unified_err_msgs(streams, error.param_errors)
     }
@@ -83,7 +83,7 @@ impl RunModes {
         streams: &mut StdStreams<'_>,
     ) -> Leaving {
         match match match Self::is_help_or_version(args) {
-            false => return No,
+            false => return Not,
             true => mode,
         } {
             Mode::DumpConfig => app_config_dumper(),
@@ -128,7 +128,7 @@ impl RunModes {
             self.privilege_dropper.expect_privilege(privilege_required),
             privilege_required,
         ) {
-            (true, _) => No,
+            (true, _) => Not,
             (false, fatal) => {
                 Self::produce_privilege_mismatch_message(mode, privilege_required, streams);
                 if fatal {
@@ -209,7 +209,7 @@ enum EnterProgram {
 }
 
 enum Leaving {
-    No,
+    Not,
     ExitCode(i32),
 }
 
@@ -750,7 +750,7 @@ parm2 - msg2\n"
         use chrono::offset::Utc;
         use chrono::NaiveDate;
         //this line here makes us aware that this issue is still unresolved; you may want to set this date more forward if we still cannot answer this
-        if Utc::today().and_hms(0, 0, 0).naive_utc().date() >= NaiveDate::from_ymd(2021, 10, 30) {
+        if Utc::today().and_hms(0, 0, 0).naive_utc().date() >= NaiveDate::from_ymd(2021, 11, 30) {
             let subject = RunModes::new();
             let mut daemon_v_holder = FakeStreamHolder::new();
             let mut node_v_holder = FakeStreamHolder::new();

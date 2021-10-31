@@ -27,7 +27,6 @@ pub fn from_time_t(time_t: i64) -> SystemTime {
 
 pub struct DaoFactoryReal {
     pub data_directory: PathBuf,
-    pub chain_id: u8,
     pub create_if_necessary: bool,
     pub migrator_config: RefCell<Option<MigratorConfig>>,
 }
@@ -35,13 +34,11 @@ pub struct DaoFactoryReal {
 impl DaoFactoryReal {
     pub fn new(
         data_directory: &Path,
-        chain_id: u8,
         create_if_necessary: bool,
         migrator_config: MigratorConfig,
     ) -> Self {
         Self {
             data_directory: data_directory.to_path_buf(),
-            chain_id,
             create_if_necessary,
             migrator_config: RefCell::new(Some(migrator_config)),
         }
@@ -60,7 +57,6 @@ impl DaoFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::str::FromStr;
 
     #[test]
@@ -68,9 +64,8 @@ mod tests {
     fn connection_panics_if_connection_cannot_be_made() {
         let subject = DaoFactoryReal::new(
             &PathBuf::from_str("nonexistent").unwrap(),
-            DEFAULT_CHAIN_ID,
             false,
-            MigratorConfig::panic_on_migration(),
+            MigratorConfig::test_default(),
         );
 
         let _ = subject.make_connection();

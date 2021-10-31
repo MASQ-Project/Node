@@ -701,13 +701,8 @@ impl Accountant {
             .expect("UiGateway is dead");
     }
 
-    pub fn initialize_dao_factory(chain_id: u8, data_directory: &Path) -> DaoFactoryReal {
-        DaoFactoryReal::new(
-            data_directory,
-            chain_id,
-            false,
-            MigratorConfig::panic_on_migration(),
-        )
+    pub fn dao_factory(data_directory: &Path) -> DaoFactoryReal {
+        DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
     }
 }
 

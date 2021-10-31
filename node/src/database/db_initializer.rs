@@ -31,7 +31,7 @@ pub enum InitializationError {
     UndetectableVersion(String),
     SqliteError(rusqlite::Error),
     MigrationError(String),
-    SuppressedMigrationWithError,
+    SuppressedMigrationError,
 }
 
 pub trait DbInitializer {
@@ -97,14 +97,14 @@ impl DbInitializer for DbInitializerReal {
                 eprintln!("Opened existing database at {:?}", database_file_path);
                 let config = self.extract_configurations(&conn);
                 match (
-                    Self::is_update_required(config.get("schema_version"))?,
+                    Self::is_migration_required(config.get("schema_version"))?,
                     &migrator_config.should_be_suppressed,
                 ) {
                     (None, _) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
                     (Some(mismatched_version), &Suppression::No) => {
                         let external_params = ExternalData::from((migrator_config, false));
                         let migrator = Box::new(DbMigratorReal::new(external_params));
-                        self.update_and_get_connection(
+                        self.migrate_and_return_connection(
                             conn,
                             mismatched_version,
                             target_version,
@@ -115,7 +115,7 @@ impl DbInitializer for DbInitializerReal {
                     }
                     (Some(_), &Suppression::Yes) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
                     (Some(_), &Suppression::WithErr) => {
-                        Err(InitializationError::SuppressedMigrationWithError)
+                        Err(InitializationError::SuppressedMigrationError)
                     }
                 }
             }
@@ -340,7 +340,7 @@ impl DbInitializerReal {
         .collect::<HashMap<String, Option<String>>>()
     }
 
-    fn is_update_required(
+    fn is_migration_required(
         version_found: Option<&Option<String>>,
     ) -> Result<Option<usize>, InitializationError> {
         match version_found {
@@ -363,7 +363,7 @@ impl DbInitializerReal {
         }
     }
 
-    fn update_and_get_connection(
+    fn migrate_and_return_connection(
         &self,
         conn: Connection,
         mismatched_version: usize,
@@ -732,11 +732,11 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "DB migration failed; the resulting records are still incorrect")]
-    fn panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_update(
+    fn panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_migration(
     ) {
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
-            "panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_update",
+            "panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_migration",
         );
         let db_file_path = home_dir.join(DATABASE_FILE);
         let _ = revive_tables_of_version_0_and_return_connection(&db_file_path);
@@ -950,11 +950,11 @@ mod tests {
     }
 
     #[test]
-    fn update_and_get_connection_hands_in_an_error_from_migration_operations() {
+    fn migrate_and_return_connection_hands_in_an_error_from_migration_operations() {
         init_test_logging();
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
-            "update_if_required_and_get_connection_starts_db_migration_and_hands_in_an_error_from_database_operations",
+            "migrate_and_return_connection_hands_in_an_error_from_migration_operations",
         );
         let migrate_database_params_arc = Arc::new(Mutex::new(vec![]));
         let db_file_path = home_dir.join(DATABASE_FILE);
@@ -963,9 +963,9 @@ mod tests {
         let target_version = 5; //not relevant
         let migrator = Box::new(DbMigratorMock::default().inject_logger()
             .migrate_database_params(&migrate_database_params_arc)
-            .migrate_database_result(Err("Updating database from version 0 to 1 failed: Transaction couldn't be processed".to_string())));
+            .migrate_database_result(Err("Migrating database from version 0 to 1 failed: Transaction couldn't be processed".to_string())));
 
-        let result = subject.update_and_get_connection(
+        let result = subject.migrate_and_return_connection(
             conn,
             0,
             target_version,
@@ -981,7 +981,7 @@ mod tests {
         assert_eq!(
             error,
             InitializationError::MigrationError(
-                "Updating database from version 0 to 1 failed: Transaction couldn't be processed"
+                "Migrating database from version 0 to 1 failed: Transaction couldn't be processed"
                     .to_string()
             )
         );
@@ -1021,7 +1021,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Attempt to migrate the database at place where it is forbidden")]
+    #[should_panic(expected = "Attempt to migrate the database at a wrong place")]
     fn database_migration_causes_panic_if_not_allowed() {
         let data_dir = ensure_node_home_directory_exists(
             "db_initializer",
@@ -1045,7 +1045,7 @@ mod tests {
         let _ = subject.initialize(
             &data_dir,
             true,
-            MigratorConfig::migration_suppressed(), //suppressed doesn't contain a populated config; only 'create_or_update()' does
+            MigratorConfig::migration_suppressed(), //suppressed doesn't contain a populated config; only 'create_or_migrate()' does
         );
     }
 
@@ -1070,7 +1070,7 @@ mod tests {
             Ok(_) => panic!("expected an Err, got Ok"),
             Err(e) => e,
         };
-        assert_eq!(err, InitializationError::SuppressedMigrationWithError);
+        assert_eq!(err, InitializationError::SuppressedMigrationError);
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_after, schema_version_before)
     }

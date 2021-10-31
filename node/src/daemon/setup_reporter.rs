@@ -1666,7 +1666,7 @@ mod tests {
     }
 
     #[test]
-    fn run_configuration_suppress_db_migration_and_does_not_initiate_persistent_config() {
+    fn run_configuration_suppresses_db_migration_and_does_not_initiate_persistent_config() {
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "run_configuration_suppress_db_migration_and_does_not_initiate_persistent_config",

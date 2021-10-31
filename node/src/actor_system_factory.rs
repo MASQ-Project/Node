@@ -302,17 +302,16 @@ impl ActorFactory for ActorFactoryReal {
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
         let cloned_config = config.clone();
-        let chain_id = config.blockchain_bridge_config.chain_id;
-        let payable_dao_factory = Accountant::initialize_dao_factory(chain_id, data_directory);
-        let receivable_dao_factory = Accountant::initialize_dao_factory(chain_id, data_directory);
-        let banned_dao_factory = Accountant::initialize_dao_factory(chain_id, data_directory);
+        let payable_dao_factory = Accountant::dao_factory(data_directory);
+        let receivable_dao_factory = Accountant::dao_factory(data_directory);
+        let banned_dao_factory = Accountant::dao_factory(data_directory);
         banned_cache_loader.load(connection_or_panic(
             db_initializer,
             data_directory,
             false,
             MigratorConfig::panic_on_migration(),
         ));
-        let config_dao_factory = Accountant::initialize_dao_factory(chain_id, data_directory);
+        let config_dao_factory = Accountant::dao_factory(data_directory);
         let addr: Addr<Accountant> = Arbiter::start(move |_| {
             Accountant::new(
                 &cloned_config,

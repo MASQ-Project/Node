@@ -59,7 +59,7 @@ fn dump_configuration_and_no_preexisting_database_integration() {
     let _eg = EnvironmentGuard::new();
 
     let mut node = utils::MASQNode::run_dump_config(
-        "dump_configuration_no_preexisting_database_integration",
+        "dump_configuration_and_no_preexisting_database_integration",
         Some(CommandConfig::new().pair("--chain", DEFAULT_CHAIN_NAME)),
         true,
         true,
@@ -73,7 +73,7 @@ fn dump_configuration_and_no_preexisting_database_integration() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             assert_string_contains(stderr.as_ref(), "Could not find database at:");
             assert_string_contains(stderr.as_ref(),
-                                   "Would be created when the Node operates for the first time; --dump-config used earlier is of no effect"
+                                   "Would be created when the Node firstly operates. Running --dump-config before has no effect"
             )
         }
     };

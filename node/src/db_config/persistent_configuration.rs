@@ -33,7 +33,7 @@ pub enum PersistentConfigError {
     BadAddressFormat(String),
     InvalidUrl(String),
     Collision(String),
-    StringWithoutMeaning(String),
+    UninterpretableValue(String),
 }
 
 impl From<TypedConfigLayerError> for PersistentConfigError {
@@ -422,7 +422,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 .expect("ever-supplied value neighborhood_mode is missing; database is corrupt!")
                 .as_str(),
         )
-        .map_err(PersistentConfigError::StringWithoutMeaning)
+        .map_err(PersistentConfigError::UninterpretableValue)
     }
 
     fn set_neighborhood_mode(
@@ -1806,7 +1806,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PersistentConfigError::StringWithoutMeaning(
+            Err(PersistentConfigError::UninterpretableValue(
                 "Invalid value read for neighborhood mode: blah".to_string()
             ))
         );

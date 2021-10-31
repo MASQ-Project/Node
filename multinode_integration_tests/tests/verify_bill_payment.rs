@@ -85,10 +85,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&consuming_node_path),
             true,
-            MigratorConfig::create_or_migrate(ExternalData::new(
-                cluster.chain_id,
-                NeighborhoodModeLight::Standard,
-            )),
+            make_migrator_config(cluster.chain_id),
         )
         .unwrap();
     let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
@@ -126,10 +123,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_1_path),
             true,
-            MigratorConfig::create_or_migrate(ExternalData::new(
-                cluster.chain_id,
-                NeighborhoodModeLight::Standard,
-            )),
+            make_migrator_config(cluster.chain_id),
         )
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
@@ -145,10 +139,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_2_path),
             true,
-            MigratorConfig::create_or_migrate(ExternalData::new(
-                cluster.chain_id,
-                NeighborhoodModeLight::Standard,
-            )),
+            make_migrator_config(cluster.chain_id),
         )
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
@@ -164,10 +155,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_3_path),
             true,
-            MigratorConfig::create_or_migrate(ExternalData::new(
-                cluster.chain_id,
-                NeighborhoodModeLight::Standard,
-            )),
+            make_migrator_config(cluster.chain_id),
         )
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
@@ -302,6 +290,10 @@ fn verify_bill_payment() {
             false
         }
     });
+}
+
+fn make_migrator_config(chain_id: u8) -> MigratorConfig {
+    MigratorConfig::create_or_migrate(ExternalData::new(chain_id, NeighborhoodModeLight::Standard))
 }
 
 fn assert_balances(

@@ -330,13 +330,14 @@ Another reason the secrets might be missing is that there are not yet any secret
 ```
 "payload": {
     "blockchainServiceUrl": <optional string>,
-    "currentSchemaVersion": <string>,
+    "chainName": <String>, 
     "clandestinePort": <string>,
+    "consumingWalletDerivationPathOpt": <optional string>,
+    "currentSchemaVersion": <string>,
+    "earningWalletAddressOpt": <optional string>,
     "gasPrice": <number>,
     "neighborhoodMode": <string>,
     "startBlock": <number>,
-    "consumingWalletDerivationPathOpt": <optional string>,
-    "earningWalletAddressOpt": <optional string>,
     "mnemonicSeedOpt": <optional string>,
     "pastNeighbors": [
         <string>,
@@ -353,12 +354,21 @@ database password. If you want to know whether the password you have is the corr
 * `blockchainServiceUrl`: The url which will be used for obtaining a communication to chosen services to interact with the blockchain.
 This parameter is read, if present, only if the same parameter wasn't specified at another place (UI, configuration file, environment variables).
 
+* `chainName`: This value reveals the chain which the open database has been created for. It is always present and once initiated,
+during creation of the database, it never changes. It's basically a read-only value.  
+
+* `clandestinePort`: The port on which the Node is currently listening for connections from other Nodes.
+
+* `consumingWalletDerivationPathOpt`: This is the derivation path (from the mnemonic seed) of the consuming wallet.
+  More than likely, it's m/44'/60'/0'/0/0.
+
 * `currentSchemaVersion`: This will be a version number for the database schema represented as an ordinal numeral. This will always
 be the same for a given version of Node. If you upgrade your Node, and the new Node wants to see a later
 schema version in the database, it will migrate your existing data to the new schema and update its schema
 version. If this attempt fails for some reason, this value can be used to diagnose the issue.
 
-* `clandestinePort`: The port on which the Node is currently listening for connections from other Nodes.
+* `earningWalletAddressOpt`: The wallet address for the earning wallet. This is not secret, so
+  if you don't get this field, it's because it hasn't been set yet.
 
 * `gasPrice`: The Node will not pay more than this number of wei for gas to complete a transaction.
 
@@ -369,12 +379,6 @@ This value is ever present since the creation of the database.
 * `startBlock`: When the Node scans for incoming payments, it can't scan the whole blockchain: that would take
   much too long. So instead, it scans starting from wherever it left off last time. This block number is where
   it left off last time.
-
-* `consumingWalletDerivationPathOpt`: This is the derivation path (from the mnemonic seed) of the consuming wallet.
-More than likely, it's m/44'/60'/0'/0/0.
-  
-* `earningWalletAddressOpt`: The wallet address for the earning wallet. This is not secret, so
-if you don't get this field, it's because it hasn't been set yet.
 
 * `mnemonicSeedOpt`: This is a secret string of hexadecimal digits that corresponds exactly with the mnemonic
   phrase, plus any "25th word" mnemonic passphrase. You won't see this if the password isn't correct. You also

@@ -455,17 +455,21 @@ pub struct UiConfigurationRequest {
 }
 conversation_message!(UiConfigurationRequest, "configuration");
 
-//put non-secret parameters first and both sorts alphabetical ordered
+//put non-secret parameters first with both sorts alphabetical ordered
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiConfigurationResponse {
     #[serde(rename = "blockchainServiceUrlOpt")]
     pub blockchain_service_url_opt: Option<String>,
-    #[serde(rename = "currentSchemaVersion")]
-    pub current_schema_version: String,
-    #[serde(rename = "clandestinePort")]
-    pub clandestine_port: u16,
     #[serde(rename = "chainName")]
     pub chain_name: String,
+    #[serde(rename = "clandestinePort")]
+    pub clandestine_port: u16,
+    #[serde(rename = "consumingWalletDerivationPathOpt")]
+    pub consuming_wallet_derivation_path_opt: Option<String>,
+    #[serde(rename = "currentSchemaVersion")]
+    pub current_schema_version: String,
+    #[serde(rename = "earningWalletAddressOpt")]
+    pub earning_wallet_address_opt: Option<String>,
     #[serde(rename = "gasPrice")]
     pub gas_price: u64,
     #[serde(rename = "neighborhoodMode")]
@@ -474,10 +478,6 @@ pub struct UiConfigurationResponse {
     pub port_mapping_protocol_opt: Option<AutomapProtocol>,
     #[serde(rename = "startBlock")]
     pub start_block: u64,
-    #[serde(rename = "consumingWalletDerivationPathOpt")]
-    pub consuming_wallet_derivation_path_opt: Option<String>,
-    #[serde(rename = "earningWalletAddressOpt")]
-    pub earning_wallet_address_opt: Option<String>,
     #[serde(rename = "mnemonicSeedOpt")]
     pub mnemonic_seed_opt: Option<String>,
     #[serde(rename = "pastNeighbors")]

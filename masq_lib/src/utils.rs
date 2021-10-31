@@ -403,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_mode_light_can_exist_from_string() {
+    fn neighborhood_mode_light_from_str() {
         assert_eq!(
             NeighborhoodModeLight::from_str("standard").unwrap(),
             NeighborhoodModeLight::Standard

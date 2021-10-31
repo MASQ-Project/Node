@@ -72,7 +72,7 @@ impl ConfigurationCommand {
         })
     }
 
-    //put non-secret parameters first and both sorts alphabetical ordered
+    //put non-secret parameters first with both sorts alphabetical ordered
     fn dump_configuration(stream: &mut dyn Write, configuration: UiConfigurationResponse) {
         Self::dump_configuration_line(stream, "NAME", "VALUE");
         Self::dump_configuration_line(
@@ -82,6 +82,19 @@ impl ConfigurationCommand {
                 .blockchain_service_url_opt
                 .unwrap_or_else(|| "[?]".to_string()),
         );
+        Self::dump_configuration_line(stream, "Chain", &configuration.chain_name);
+        Self::dump_configuration_line(
+            stream,
+            "Clandestine port:",
+            &configuration.clandestine_port.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Consuming wallet derivation path:",
+            &configuration
+                .consuming_wallet_derivation_path_opt
+                .unwrap_or_else(|| "[?]".to_string()),
+        );
         Self::dump_configuration_line(
             stream,
             "Current schema version:",
@@ -89,10 +102,11 @@ impl ConfigurationCommand {
         );
         Self::dump_configuration_line(
             stream,
-            "Clandestine port:",
-            &configuration.clandestine_port.to_string(),
+            "Earning wallet address:",
+            &configuration
+                .earning_wallet_address_opt
+                .unwrap_or_else(|| "[?]".to_string()),
         );
-        Self::dump_configuration_line(stream, "Chain", &configuration.chain_name);
         Self::dump_configuration_line(stream, "Gas price:", &configuration.gas_price.to_string());
         Self::dump_configuration_line(
             stream,
@@ -111,20 +125,6 @@ impl ConfigurationCommand {
             stream,
             "Start block:",
             &configuration.start_block.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Consuming wallet derivation path:",
-            &configuration
-                .consuming_wallet_derivation_path_opt
-                .unwrap_or_else(|| "[?]".to_string()),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Earning wallet address:",
-            &configuration
-                .earning_wallet_address_opt
-                .unwrap_or_else(|| "[?]".to_string()),
         );
         Self::dump_configuration_line(
             stream,
@@ -277,15 +277,15 @@ mod tests {
             "\
 |NAME                              VALUE\n\
 |Blockchain service URL:           https://infura.io/ID\n\
-|Current schema version:           schema version\n\
-|Clandestine port:                 1234\n\
 |Chain                             ropsten\n\
+|Clandestine port:                 1234\n\
+|Consuming wallet derivation path: consuming path\n\
+|Current schema version:           schema version\n\
+|Earning wallet address:           earning address\n\
 |Gas price:                        2345\n\
 |Neighborhood mode:                standard\n\
 |Port mapping protocol:            PCP\n\
 |Start block:                      3456\n\
-|Consuming wallet derivation path: consuming path\n\
-|Earning wallet address:           earning address\n\
 |Mnemonic seed:                    mnemonic seed\n\
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
@@ -307,8 +307,8 @@ mod tests {
             gas_price: 2345,
             mnemonic_seed_opt: None,
             neighborhood_mode: "zero-hop".to_string(),
-            consuming_wallet_derivation_path_opt: None,
-            earning_wallet_address_opt: None,
+            consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
+            earning_wallet_address_opt: Some("earning wallet".to_string()),
             port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
             past_neighbors: vec![],
             start_block: 3456,
@@ -339,15 +339,15 @@ mod tests {
             "\
 NAME                              VALUE\n\
 Blockchain service URL:           https://infura.io/ID\n\
-Current schema version:           schema version\n\
-Clandestine port:                 1234\n\
 Chain                             mumbai\n\
+Clandestine port:                 1234\n\
+Consuming wallet derivation path: consuming path\n\
+Current schema version:           schema version\n\
+Earning wallet address:           earning wallet\n\
 Gas price:                        2345\n\
 Neighborhood mode:                zero-hop\n\
 Port mapping protocol:            PCP\n\
 Start block:                      3456\n\
-Consuming wallet derivation path: [?]\n\
-Earning wallet address:           [?]\n\
 Mnemonic seed:                    [?]\n\
 Past neighbors:                   [?]\n\
 "
