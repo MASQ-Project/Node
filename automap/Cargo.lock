@@ -131,6 +131,7 @@ dependencies = [
  "port_scanner",
  "pretty-hex",
  "rand 0.7.3",
+ "socket2 0.4.2",
 ]
 
 [[package]]
@@ -669,7 +670,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08f7eadeaf4b52700de180d147c4805f199854600b36faa963d91114827b2ffc"
 dependencies = [
  "error-chain",
- "socket2",
+ "socket2 0.3.19",
  "widestring",
  "winapi 0.3.9",
  "winreg",
@@ -714,9 +715,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.82"
+version = "0.2.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89203f3fba0a3795506acaad8ebce3c80c0af93f994d5a1d7a0b1eeb23271929"
+checksum = "869d572136620d55835903746bcb5cdc54cb2851fd0aeec53220b4bb65ef3013"
 
 [[package]]
 name = "libsecp256k1"
@@ -1502,6 +1503,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "socket2"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5dc90fe6c7be1a323296982db1836d1ea9e47b6839496dde9a541bc496df3516"
+dependencies = [
+ "libc",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1863,7 +1874,7 @@ dependencies = [
  "log 0.4.13",
  "rand 0.5.6",
  "smallvec",
- "socket2",
+ "socket2 0.3.19",
  "tokio-executor",
  "tokio-io",
  "tokio-reactor",
@@ -1887,7 +1898,7 @@ dependencies = [
  "log 0.4.13",
  "rand 0.5.6",
  "smallvec",
- "socket2",
+ "socket2 0.3.19",
  "tokio-executor",
  "tokio-io",
  "tokio-reactor",

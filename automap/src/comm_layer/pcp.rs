@@ -681,6 +681,8 @@ mod tests {
     use std::time::Duration;
     use std::{io, thread};
     use crate::mocks::TestMulticastSocketHolder;
+    use socket2::{Socket, Domain, Type};
+    use std::mem::MaybeUninit;
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -2207,60 +2209,86 @@ mod tests {
 
     #[test]
     fn play_with_multicast() {
-        // make a factory
-        let factory = UdpSocketFactoryReal::new();
-        let holder = TestMulticastSocketHolder::checkout();
-        let multicast_group = holder.group;
-        let multicast_v4 = Ipv4Addr::new (224, 0, 0, multicast_group);
-        let multicast = IpAddr::V4(multicast_v4);
+        // make three sockets
+        let multicast_ip = Ipv4Addr::new (224, 0, 0, 122);
         let multicast_port = find_free_port();
-        let multicast_socket = || {
-            let socket = UdpSocket::bind (SocketAddr::new (IpAddr::V4(Ipv4Addr::UNSPECIFIED), multicast_port)).unwrap();
-            socket.join_multicast_v4(&multicast_v4, &Ipv4Addr::UNSPECIFIED).unwrap();
-            socket.set_read_timeout (Some(Duration::from_secs(1))).unwrap();
+        let multicast_address = SocketAddr::new (IpAddr::V4(multicast_ip), multicast_port);
+        let make_socket = || {
+            let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP)).unwrap();
+            socket.set_read_timeout(Some (Duration::from_secs(1)));
+            socket.set_reuse_port(true);
+            socket.set_reuse_address(true);
+            socket.join_multicast_v4(&multicast_ip, &Ipv4Addr::UNSPECIFIED);
             socket
         };
-        let factory_trigger = || {
-            let wrapper = factory.make_multicast (multicast_group, multicast_port, Ipv4Addr::UNSPECIFIED).unwrap();
-            wrapper.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
-            wrapper
-        };
-        let holder_1 = multicast_socket();
-        let holder_2 = multicast_socket();
-        let holder_3 = multicast_socket();
-        let factory_1 = factory_trigger();
-        let factory_2 = factory_trigger();
-        let factory_3 = factory_trigger();
-
-        // Send a message on a factory socket
+        let socket_sender = UdpSocket::bind (SocketAddr::new (localhost(), 0)).unwrap();
+        socket_sender.join_multicast_v4(&multicast_ip, &Ipv4Addr::UNSPECIFIED);
+        let socket_receiver_1 = make_socket();
+        let socket_receiver_2 = make_socket();
         let message = b"Taxation is theft!";
-        let mut buf: [u8; 100] = [0u8; 100];
-        let factory_assert = |factory_x: &dyn UdpSocketWrapper| {
-            let mut buf: [u8; 100] = [0u8; 100];
-            let (size, source) = factory_x.recv_from (&mut buf).unwrap();
-            assert_eq! (size, message.len());
-            assert_eq! (&buf[0..size], message);
-        };
-        let holder_assert = |holder_x: &UdpSocket| {
-            let mut buf: [u8; 100] = [0u8; 100];
-            let (size, source) = holder_x.recv_from (&mut buf).unwrap();
-            assert_eq! (size, message.len());
-            assert_eq! (&buf[0..size], message);
-        };
-        factory_2.send_to (message, SocketAddr::new (multicast, multicast_port)).unwrap();
-        // Receive the message on the rest of the sockets0
-        // factory_assert (&(*factory_1));
-        // factory_assert (&(*factory_3));
-        // holder_assert (&holder_1);
-        holder_assert (&holder_2);
-        // holder_assert (&holder_3);
-        // Send a message on the holder socket
-        holder_2.send_to (message, SocketAddr::new (multicast, multicast_port)).unwrap();
-        // Receive the message on the rest of the sockets
-        // factory_assert (&(*factory_1));
-        factory_assert (&(*factory_2));
-        // factory_assert (&(*factory_3));
-        // holder_assert (&holder_1);
-        // holder_assert (&holder_3);
+        socket_sender.send_to (message, multicast_address);
+        let mut buf = [MaybeUninit::uninit(); 100];
+        let (size, source) = socket_receiver_1.recv_from (&mut buf).unwrap();
+        let bytes = buf.to_vec().into_iter().map (|muc| unsafe {muc.assume_init()}).collect::<Vec<u8>>();
+        assert_eq! (bytes, message.to_vec());
     }
+    //
+    // #[test]
+    // fn play_with_multicast_old() {
+    //     // make a factory
+    //     let factory = UdpSocketFactoryReal::new();
+    //     let holder = TestMulticastSocketHolder::checkout();
+    //     let multicast_group = holder.group;
+    //     let multicast_v4 = Ipv4Addr::new (224, 0, 0, multicast_group);
+    //     let multicast = IpAddr::V4(multicast_v4);
+    //     let multicast_port = find_free_port();
+    //     let multicast_socket = || {
+    //         let socket = UdpSocket::bind (SocketAddr::new (IpAddr::V4(Ipv4Addr::UNSPECIFIED), multicast_port)).unwrap();
+    //         socket.join_multicast_v4(&multicast_v4, &Ipv4Addr::UNSPECIFIED).unwrap();
+    //         socket.set_read_timeout (Some(Duration::from_secs(1))).unwrap();
+    //         socket
+    //     };
+    //     let factory_trigger = || {
+    //         let wrapper = factory.make_multicast (multicast_group, multicast_port, Ipv4Addr::UNSPECIFIED).unwrap();
+    //         wrapper.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+    //         wrapper
+    //     };
+    //     let holder_1 = multicast_socket();
+    //     let holder_2 = multicast_socket();
+    //     let holder_3 = multicast_socket();
+    //     let factory_1 = factory_trigger();
+    //     let factory_2 = factory_trigger();
+    //     let factory_3 = factory_trigger();
+    //
+    //     // Send a message on a factory socket
+    //     let message = b"Taxation is theft!";
+    //     let mut buf: [u8; 100] = [0u8; 100];
+    //     let factory_assert = |factory_x: &dyn UdpSocketWrapper| {
+    //         let mut buf: [u8; 100] = [0u8; 100];
+    //         let (size, source) = factory_x.recv_from (&mut buf).unwrap();
+    //         assert_eq! (size, message.len());
+    //         assert_eq! (&buf[0..size], message);
+    //     };
+    //     let holder_assert = |holder_x: &UdpSocket| {
+    //         let mut buf: [u8; 100] = [0u8; 100];
+    //         let (size, source) = holder_x.recv_from (&mut buf).unwrap();
+    //         assert_eq! (size, message.len());
+    //         assert_eq! (&buf[0..size], message);
+    //     };
+    //     factory_2.send_to (message, SocketAddr::new (multicast, multicast_port)).unwrap();
+    //     // Receive the message on the rest of the sockets0
+    //     // factory_assert (&(*factory_1));
+    //     // factory_assert (&(*factory_3));
+    //     // holder_assert (&holder_1);
+    //     holder_assert (&holder_2);
+    //     // holder_assert (&holder_3);
+    //     // Send a message on the holder socket
+    //     holder_2.send_to (message, SocketAddr::new (multicast, multicast_port)).unwrap();
+    //     // Receive the message on the rest of the sockets
+    //     // factory_assert (&(*factory_1));
+    //     factory_assert (&(*factory_2));
+    //     // factory_assert (&(*factory_3));
+    //     // holder_assert (&holder_1);
+    //     // holder_assert (&holder_3);
+    // }
 }
