@@ -400,7 +400,6 @@ impl Neighborhood {
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
-        trace!(self.logger, "Handling route query message: {:?}", msg);
         let msg_str = format!("{:?}", msg);
         let route_result = if msg.minimum_hop_count == 0 {
             Ok(self.zero_hop_route_response())

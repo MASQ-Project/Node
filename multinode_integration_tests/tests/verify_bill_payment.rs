@@ -31,7 +31,6 @@ use web3::types::{Address, Bytes};
 use web3::Web3;
 
 #[test]
-#[ignore] //TODO lift this before we merge this code!!!
 fn verify_bill_payment() {
     let mut cluster = match MASQNodeCluster::start() {
         Ok(cluster) => cluster,
@@ -240,7 +239,7 @@ fn verify_bill_payment() {
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        "99997886658000000000",
+        "99997886466000000000",
         "471999999700000000000000000",
     );
 

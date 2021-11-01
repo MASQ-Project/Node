@@ -48,19 +48,16 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 300; // now 5 minutes TODO adjusted temporarily for a test, used to be one hour
-pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 300; //now 5 minutes // TODO adjusted temporarily for a test, used to be one hour
+pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600;
+pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600;
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
-//TODO this is for tracking the issues with composing valid routes; will be adjusted more properly later
-const TEST_TIME_PERIOD_SEC: i64 = 720; //12 minutes
-
 lazy_static! {
     pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
-        payment_suggested_after_sec: TEST_TIME_PERIOD_SEC,
-        payment_grace_before_ban_sec: TEST_TIME_PERIOD_SEC,
-        permanent_debt_allowed_gwub: 5_000_000,
+        payment_suggested_after_sec: SECONDS_PER_DAY,
+        payment_grace_before_ban_sec: SECONDS_PER_DAY,
+        permanent_debt_allowed_gwub: 10_000_000,
         balance_to_decrease_from_gwub: 1_000_000_000,
         balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
         unban_when_balance_below_gwub: 5_000_000,
@@ -280,7 +277,7 @@ impl Accountant {
         debug!(
             self.logger,
             "{}",
-            Self::debt_extremes(&all_non_pending_payables)
+            Self::calculate_debt_extremes(&all_non_pending_payables)
         );
         let qualified_payables = all_non_pending_payables
             .into_iter()
@@ -294,7 +291,7 @@ impl Accountant {
         debug!(
             self.logger,
             "{}",
-            Self::chosen_payments_summary(&qualified_payables)
+            Self::payments_debugging_summary(&qualified_payables)
         );
         if !qualified_payables.is_empty() {
             let report_sent_payments = self.report_sent_payments_sub.clone();
@@ -544,7 +541,7 @@ impl Accountant {
     }
 
     //for debugging only
-    fn debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
+    fn calculate_debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
         if all_non_pending_payables.is_empty() {
             "Payable scan found no debts".to_string()
         } else {
@@ -590,8 +587,7 @@ impl Accountant {
         }
     }
 
-    //for debugging only
-    fn chosen_payments_summary(qualified_payables: &[PayableAccount]) -> String {
+    fn payments_debugging_summary(qualified_payables: &[PayableAccount]) -> String {
         let now = SystemTime::now();
         let list = qualified_payables
             .iter()
