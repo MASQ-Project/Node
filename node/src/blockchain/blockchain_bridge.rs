@@ -95,7 +95,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
         msg: ReportAccountsPayable,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<ReportAccountsPayable>>::Result {
-        self.handle_report_account_payable(msg)
+        self.handle_report_accounts_payable(msg)
     }
 }
 
@@ -134,7 +134,7 @@ impl BlockchainBridge {
         }
     }
 
-    fn handle_report_account_payable(
+    fn handle_report_accounts_payable(
         &self,
         creditors_msg: ReportAccountsPayable,
     ) -> MessageResult<ReportAccountsPayable> {
@@ -559,7 +559,7 @@ mod tests {
             }],
         };
 
-        let result = subject.handle_report_account_payable(request);
+        let result = subject.handle_report_accounts_payable(request);
 
         assert_eq!(
             result.0,
@@ -590,7 +590,7 @@ mod tests {
             }],
         };
 
-        let result = subject.handle_report_account_payable(request);
+        let result = subject.handle_report_accounts_payable(request);
 
         assert_eq!(result.0, Err("No consuming wallet specified".to_string()));
     }
@@ -616,7 +616,7 @@ mod tests {
             }],
         };
 
-        let result = subject.handle_report_account_payable(request);
+        let result = subject.handle_report_accounts_payable(request);
 
         assert_eq!(
             result.0,

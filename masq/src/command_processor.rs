@@ -51,6 +51,7 @@ pub struct CommandProcessorReal {
 }
 
 impl CommandProcessor for CommandProcessorReal {
+    #[allow(clippy::branches_sharing_code)]
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError> {
         if let Some(synchronizer) = self.context.terminal_interface.clone() {
             let _lock = synchronizer.lock();
