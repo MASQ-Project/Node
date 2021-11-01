@@ -229,10 +229,16 @@ mod tests {
             format!("{}{:?}{}", first_part, slice, third_part_jrc)
         }
         let all_transactions = format!(
-            "[{}, {}, {}]",
-            compose(first_part_tx_1, slice_of_sclices[0]),
-            compose(first_part_tx_2, slice_of_sclices[1]),
-            compose(first_part_tx_3, slice_of_sclices[2])
+            "[{}]",
+            vec![first_part_tx_1, first_part_tx_2, first_part_tx_3]
+                .iter()
+                .zip(slice_of_sclices.iter())
+                .zip((0usize..2))
+                .fold(String::new(), |so_far, actual| [
+                    so_far,
+                    compose(actual.0 .0, actual.0 .1)
+                ]
+                .join(if actual.1 == 0 { "" } else { ", " }))
         );
         let txs: Vec<(RawTransaction, Signing)> = serde_json::from_str(&all_transactions).unwrap();
         let constant_parts = &[
@@ -252,11 +258,8 @@ mod tests {
                 0, 0, 0, 0, 0, 0, 96, 0, 87,
             ][..],
         ];
-        let lengths_of_constant_parts = vec![
-            constant_parts[0].len(),
-            constant_parts[1].len(),
-            constant_parts[2].len(),
-        ];
+        let lengths_of_constant_parts: Vec<usize> =
+            constant_parts.iter().map(|part| part.len()).collect();
         for (((tx, signed), length), constant_part) in txs
             .iter()
             .zip(lengths_of_constant_parts)
