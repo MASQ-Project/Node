@@ -1759,8 +1759,8 @@ pub mod tests {
     fn accountant_logs_error_when_blockchain_bridge_responds_with_error() {
         init_test_logging();
         let earning_wallet = make_wallet("earner3000");
-        let blockchain_bridge =
-            Recorder::new().retrieve_transactions_response(Err(BlockchainError::QueryFailed("blah".to_string())));
+        let blockchain_bridge = Recorder::new()
+            .retrieve_transactions_response(Err(BlockchainError::QueryFailed("blah".to_string())));
         let blockchain_bridge_awaiter = blockchain_bridge.get_awaiter();
         let blockchain_bridge_recording = blockchain_bridge.get_recording();
         let config = bc_from_ac_plus_earning_wallet(

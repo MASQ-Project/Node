@@ -685,7 +685,13 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Err(BlockchainError::QueryFailed(r#"Decoder error: Error("invalid hex character: Q, at 5", line: 0, column: 0)"#.to_string())), result);
+        assert_eq!(
+            Err(BlockchainError::QueryFailed(
+                r#"Decoder error: Error("invalid hex character: Q, at 5", line: 0, column: 0)"#
+                    .to_string()
+            )),
+            result
+        );
     }
 
     #[test]
@@ -775,7 +781,12 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Err(BlockchainError::QueryFailed(r#"Api error: Decoder error: Error("invalid hex", line: 0, column: 0)"#.to_string())), result);
+        assert_eq!(
+            Err(BlockchainError::QueryFailed(
+                r#"Api error: Decoder error: Error("invalid hex", line: 0, column: 0)"#.to_string()
+            )),
+            result
+        );
     }
 
     #[test]
