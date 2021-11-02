@@ -32,6 +32,7 @@ use web3::types::{Address, Bytes};
 use web3::Web3;
 
 #[test]
+#[ignore]
 fn verify_bill_payment() {
     let mut cluster = match MASQNodeCluster::start() {
         Ok(cluster) => cluster,

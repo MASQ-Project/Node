@@ -49,7 +49,7 @@ pub enum BlockchainError {
     InvalidUrl,
     InvalidAddress,
     InvalidResponse,
-    QueryFailed,
+    QueryFailed(String),
     TransactionFailed(String),
 }
 
@@ -233,7 +233,7 @@ where
                             Ok(transactions)
                         }
                     }
-                    Err(_) => Err(BlockchainError::QueryFailed),
+                    Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
                 })
             })
             .wait()
@@ -300,7 +300,7 @@ where
         self.web3
             .eth()
             .balance(wallet.address(), None)
-            .map_err(|_| BlockchainError::QueryFailed)
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 
@@ -313,7 +313,7 @@ where
                 Options::with(|_| {}),
                 None,
             )
-            .map_err(|_| BlockchainError::QueryFailed)
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 
@@ -321,7 +321,7 @@ where
         self.web3
             .eth()
             .transaction_count(wallet.address(), Some(BlockNumber::Pending))
-            .map_err(|_| BlockchainError::QueryFailed)
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 }
@@ -685,7 +685,7 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Err(BlockchainError::QueryFailed), result);
+        assert_eq!(Err(BlockchainError::QueryFailed(r#"Decoder error: Error("invalid hex character: Q, at 5", line: 0, column: 0)"#.to_string())), result);
     }
 
     #[test]
@@ -775,7 +775,7 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Err(BlockchainError::QueryFailed), result);
+        assert_eq!(Err(BlockchainError::QueryFailed(r#"Api error: Decoder error: Error("invalid hex", line: 0, column: 0)"#.to_string())), result);
     }
 
     #[test]
@@ -844,7 +844,7 @@ mod tests {
             2u64,
         );
 
-        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0b8e83e714af8bf1685b496912ee4aeff7007ba0f4c29ae50f513bc71ce6a18f4a06a923088306b4ee9cbfcdc62c9b396385f9b1c380134bf046d6c9ae47dea6578""#)]);
+        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900080a0b8e83e714af8bf1685b496912ee4aeff7007ba0f4c29ae50f513bc71ce6a18f4a06a923088306b4ee9cbfcdc62c9b396385f9b1c380134bf046d6c9ae47dea6578""#)]);
         transport.assert_no_more_requests();
         assert_eq!(result, Ok(H256::from_uint(&U256::from(1))));
     }

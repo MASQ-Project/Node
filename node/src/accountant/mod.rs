@@ -48,19 +48,19 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
-pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
+pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 600; // one hour
+pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 600; // one hour
 
-const SECONDS_PER_DAY: i64 = 86_400;
+//const SECONDS_PER_DAY: i64 = 86_400;
 
 lazy_static! {
     pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
-        payment_suggested_after_sec: SECONDS_PER_DAY,
-        payment_grace_before_ban_sec: SECONDS_PER_DAY,
-        permanent_debt_allowed_gwub: 10_000_000,
-        balance_to_decrease_from_gwub: 1_000_000_000,
-        balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
-        unban_when_balance_below_gwub: 10_000_000,
+        payment_suggested_after_sec: 500,
+        payment_grace_before_ban_sec: 500,
+        permanent_debt_allowed_gwub: 500_000,
+        balance_to_decrease_from_gwub: 10_000_000,
+        balance_decreases_for_sec: 30 * 50_000,
+        unban_when_balance_below_gwub: 5_000_000,
     };
 }
 
@@ -1760,7 +1760,7 @@ pub mod tests {
         init_test_logging();
         let earning_wallet = make_wallet("earner3000");
         let blockchain_bridge =
-            Recorder::new().retrieve_transactions_response(Err(BlockchainError::QueryFailed));
+            Recorder::new().retrieve_transactions_response(Err(BlockchainError::QueryFailed("blah".to_string())));
         let blockchain_bridge_awaiter = blockchain_bridge.get_awaiter();
         let blockchain_bridge_recording = blockchain_bridge.get_recording();
         let config = bc_from_ac_plus_earning_wallet(

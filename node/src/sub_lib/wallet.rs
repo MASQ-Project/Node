@@ -139,6 +139,7 @@ impl Wallet {
     pub fn sign(&self, msg: &dyn AsRef<[u8]>) -> Result<Signature, WalletError> {
         match self.kind {
             WalletKind::KeyPair(ref key_pair) => key_pair
+                .secret()
                 .sign(msg.as_ref())
                 .map_err(|e| WalletError::Signature(format!("{:?}", e))),
             _ => Err(WalletError::Signature(format!(
