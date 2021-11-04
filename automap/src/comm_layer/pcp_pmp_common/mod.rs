@@ -25,8 +25,7 @@ use std::process::Command;
 use std::time::Duration;
 
 pub const ROUTER_PORT: u16 = 5351; // from the PCP and PMP RFCs
-pub const ANNOUNCEMENT_PORT: u16 = 5350; // from the PCP and PMP RFCs
-pub const ANNOUNCEMENT_READ_TIMEOUT_MILLIS: u64 = 1000;
+pub const HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS: u64 = 1000;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MappingConfig {

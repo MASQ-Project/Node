@@ -1,9 +1,24 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::any::Any;
+use std::convert::TryFrom;
+use std::io::ErrorKind;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
+use crossbeam_channel::{unbounded, Receiver, Sender};
+
+use masq_lib::logger::Logger;
+use masq_lib::utils::AutomapProtocol;
+use masq_lib::{debug, error, info, warning};
+
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig,
-    UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_PORT,
-    ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
+    UdpSocketFactoryReal, UdpSocketWrapperFactory, HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS,
+    ROUTER_PORT,
 };
 use crate::comm_layer::{AutomapError, AutomapErrorCause, HousekeepingThreadCommand, Transactor};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
@@ -11,19 +26,6 @@ use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
 use crate::protocols::pmp::pmp_packet::{Opcode, PmpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
-use crossbeam_channel::{unbounded, Receiver, Sender};
-use masq_lib::logger::Logger;
-use masq_lib::utils::AutomapProtocol;
-use masq_lib::{debug, error, info, warning};
-use pretty_hex::PrettyHex;
-use std::any::Any;
-use std::convert::TryFrom;
-use std::io::ErrorKind;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
 
 const PMP_READ_TIMEOUT_MS: u64 = 3000;
 
@@ -45,7 +47,6 @@ pub struct PmpTransactor {
     mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>>,
     factories_arc: Arc<Mutex<Factories>>,
     router_port: u16,
-    listen_port: u16,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     join_handle_opt: Option<JoinHandle<ChangeHandler>>,
     read_timeout_millis: u64,
@@ -168,7 +169,7 @@ impl Transactor for PmpTransactor {
         if let Some(_housekeeper_commander) = &self.housekeeper_commander_opt {
             return Err(AutomapError::HousekeeperAlreadyRunning);
         }
-       let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded();
         self.housekeeper_commander_opt = Some(tx.clone());
         let thread_guts = ThreadGuts::new(self, router_ip, change_handler, rx);
         self.join_handle_opt = Some(thread_guts.go());
@@ -217,9 +218,8 @@ impl Default for PmpTransactor {
             mapping_adder_arc: Arc::new(Mutex::new(Box::new(MappingAdderReal::default()))),
             factories_arc: Arc::new(Mutex::new(Factories::default())),
             router_port: ROUTER_PORT,
-            listen_port: ANNOUNCEMENT_PORT,
             housekeeper_commander_opt: None,
-            read_timeout_millis: ANNOUNCEMENT_READ_TIMEOUT_MILLIS,
+            read_timeout_millis: HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS,
             join_handle_opt: None,
             logger: Logger::new("PmpTransactor"),
         }
@@ -372,7 +372,7 @@ impl ThreadGuts {
             }
             Err(_) => (),
         };
-        thread::sleep (Duration::from_millis (self.read_timeout_millis)); // used to be a read timeout
+        thread::sleep(Duration::from_millis(self.read_timeout_millis)); // used to be a read timeout
         true
     }
 
@@ -393,139 +393,6 @@ impl ThreadGuts {
                 self.change_handler.as_ref()(AutomapChange::Error(e));
             }
             *last_remapped = Instant::now();
-        }
-    }
-
-    fn parse_buffer(
-        &self,
-        buffer: &[u8],
-        source_address: SocketAddr,
-    ) -> Result<Ipv4Addr, AutomapError> {
-        match PmpPacket::try_from(buffer) {
-            Ok(packet) => {
-                if packet.direction != Direction::Response {
-                    let err_msg = format!(
-                        "Unexpected PMP Get request (request!) from router at {}: ignoring",
-                        source_address
-                    );
-                    warning!(&self.logger, "{}", err_msg);
-                    return Err(AutomapError::ProtocolError(err_msg));
-                }
-                if packet.opcode == Opcode::Get {
-                    let opcode_data = packet
-                        .opcode_data
-                        .as_any()
-                        .downcast_ref::<GetOpcodeData>()
-                        .expect("A Get opcode shouldn't parse anything but GetOpcodeData");
-                    Ok(opcode_data
-                        .external_ip_address_opt
-                        .expect("A Response should always produce an external ip address"))
-                } else {
-                    let err_msg = format!(
-                        "Unexpected PMP {:?} response (instead of Get) from router at {}: ignoring",
-                        packet.opcode, source_address
-                    );
-                    warning!(&self.logger, "{}", err_msg);
-                    Err(AutomapError::ProtocolError(err_msg))
-                }
-            }
-            Err(e) => {
-                error!(
-                    &self.logger,
-                    "Unparseable PMP packet ({:?}):\n{}",
-                    &e,
-                    PrettyHex::hex_dump(&buffer)
-                );
-                let err_msg = format!(
-                    "Unparseable packet ({:?}) from router at {}: ignoring",
-                    &e, source_address
-                );
-                warning!(
-                    &self.logger,
-                    "{}\n{}",
-                    err_msg,
-                    PrettyHex::hex_dump(&buffer)
-                );
-                Err(AutomapError::ProtocolError(err_msg))
-            }
-        }
-    }
-
-    fn handle_announcement(&self, public_ip: Ipv4Addr, mapping_config_opt: &Option<MappingConfig>) {
-        match mapping_config_opt {
-            Some(mapping_config) => {
-                let mut packet = PmpPacket {
-                    opcode: Opcode::MapTcp,
-                    direction: Direction::Request,
-                    ..Default::default()
-                };
-                let opcode_data = MapOpcodeData {
-                    epoch_opt: None,
-                    internal_port: mapping_config.hole_port,
-                    external_port: mapping_config.hole_port,
-                    lifetime: mapping_config.next_lifetime_secs(),
-                };
-                packet.opcode_data = Box::new(opcode_data);
-                debug!(
-                    &self.logger,
-                    "Sending mapping request to {} and waiting for response", self.router_addr
-                );
-                match PmpTransactor::transact(
-                    &self.factories_arc,
-                    self.router_addr,
-                    &packet,
-                    PMP_READ_TIMEOUT_MS,
-                    &self.logger,
-                ) {
-                    Ok(response) => match response.result_code_opt {
-                        Some(ResultCode::Success) => {
-                            debug!(
-                                &self.logger,
-                                "Remapping successful; triggering change handler"
-                            );
-                            self.change_handler.as_ref()(AutomapChange::NewIp(IpAddr::V4(
-                                public_ip,
-                            )));
-                        }
-                        Some(result_code) => {
-                            let err_msg = format!(
-                                "Remapping after IP change failed; Node is useless: {:?}",
-                                result_code
-                            );
-                            error!(&self.logger, "{}\n{:?}", err_msg, packet);
-                            let automap_error = if result_code.is_permanent() {
-                                AutomapError::PermanentMappingError(err_msg)
-                            } else {
-                                AutomapError::TemporaryMappingError(err_msg)
-                            };
-                            self.change_handler.as_ref()(AutomapChange::Error(automap_error));
-                        }
-                        None => {
-                            let err_msg = "Remapping after IP change failed; Node is useless: Received request when expecting response".to_string();
-                            error!(&self.logger, "{}\n{:?}", err_msg, packet);
-                            self.change_handler.as_ref()(AutomapChange::Error(
-                                AutomapError::ProtocolError(err_msg),
-                            ));
-                        }
-                    },
-                    Err(e) => {
-                        error!(
-                            &self.logger,
-                            "Remapping after IP change failed; Node is useless: {:?}", e
-                        );
-                        self.change_handler.as_ref()(AutomapChange::Error(
-                            AutomapError::SocketReceiveError(AutomapErrorCause::SocketFailure),
-                        ));
-                    }
-                }
-            }
-            None => {
-                debug!(
-                    &self.logger,
-                    "Public IP change detected; triggering change handler"
-                );
-                self.change_handler.as_ref()(AutomapChange::NewIp(IpAddr::V4(public_ip)));
-            }
         }
     }
 
@@ -648,19 +515,6 @@ impl MappingAdder for MappingAdderReal {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::comm_layer::pcp_pmp_common::{MappingConfig, UdpSocket};
-    use crate::comm_layer::AutomapErrorCause;
-    use crate::control_layer::automap_control::AutomapChange;
-    use crate::mocks::{FreePortFactoryMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
-    use crate::protocols::pmp::get_packet::GetOpcodeData;
-    use crate::protocols::pmp::map_packet::MapOpcodeData;
-    use crate::protocols::pmp::pmp_packet::{Opcode, PmpOpcodeData, PmpPacket, ResultCode};
-    use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
-    use lazy_static::lazy_static;
-    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::utils::{find_free_port, localhost, AutomapProtocol};
     use std::cell::RefCell;
     use std::io::ErrorKind;
     use std::net::{Ipv4Addr, SocketAddr};
@@ -669,6 +523,22 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
+
+    use lazy_static::lazy_static;
+
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::utils::AutomapProtocol;
+
+    use crate::comm_layer::pcp_pmp_common::MappingConfig;
+    use crate::comm_layer::AutomapErrorCause;
+    use crate::control_layer::automap_control::AutomapChange;
+    use crate::mocks::{FreePortFactoryMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
+    use crate::protocols::pmp::get_packet::GetOpcodeData;
+    use crate::protocols::pmp::map_packet::MapOpcodeData;
+    use crate::protocols::pmp::pmp_packet::{Opcode, PmpOpcodeData, PmpPacket, ResultCode};
+    use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
+
+    use super::*;
 
     lazy_static! {
         static ref ROUTER_ADDR: SocketAddr = SocketAddr::from_str("1.2.3.4:5351").unwrap();
@@ -1220,7 +1090,6 @@ mod tests {
         let set_read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
         let send_to_params_arc = Arc::new(Mutex::new(vec![]));
         let recv_from_params_arc = Arc::new(Mutex::new(vec![]));
-        let announcement_socket = UdpSocketWrapperMock::new();
         let main_socket = UdpSocketWrapperMock::new()
             .set_read_timeout_params(&set_read_timeout_params_arc)
             .set_read_timeout_result(Ok(()))
@@ -1231,9 +1100,7 @@ mod tests {
                 Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 response_buffer[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketWrapperFactoryMock::new()
-            .make_result(Ok(announcement_socket))
-            .make_result(Ok(main_socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(main_socket));
         let mut subject = make_subject(socket_factory);
         subject
             .start_housekeeping_thread(Box::new(|_| ()), router_ip)
@@ -1362,7 +1229,6 @@ mod tests {
         let set_read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
         let send_to_params_arc = Arc::new(Mutex::new(vec![]));
         let recv_from_params_arc = Arc::new(Mutex::new(vec![]));
-        let announcement_socket = UdpSocketWrapperMock::new();
         let main_socket = UdpSocketWrapperMock::new()
             .set_read_timeout_params(&set_read_timeout_params_arc)
             .set_read_timeout_result(Ok(()))
@@ -1373,9 +1239,7 @@ mod tests {
                 Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 response_buffer[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketWrapperFactoryMock::new()
-            .make_result(Ok(announcement_socket))
-            .make_result(Ok(main_socket));
+        let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(main_socket));
         let mut subject = make_subject(socket_factory);
         subject
             .start_housekeeping_thread(Box::new(|_| ()), router_ip)
@@ -1400,129 +1264,6 @@ mod tests {
         );
         let recv_from_params = recv_from_params_arc.lock().unwrap();
         assert_eq!(*recv_from_params, vec![()])
-    }
-
-    #[test]
-    fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
-        let _ = EnvironmentGuard::new();
-        let announcement_receive_port = find_free_port();
-        let router_port = find_free_port();
-        let announcement_send_port = find_free_port();
-        let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
-        let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
-        let mut subject = PmpTransactor::default();
-        subject.router_port = router_port;
-        subject.listen_port = announcement_receive_port;
-        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
-        let mapping_config = MappingConfig {
-            hole_port: 1234,
-            next_lifetime: Duration::from_millis(321),
-            remap_interval: Duration::from_millis(0),
-        };
-        let changes_arc = Arc::new(Mutex::new(vec![]));
-        let changes_arc_inner = changes_arc.clone();
-        let change_handler = move |change| {
-            changes_arc_inner.lock().unwrap().push(change);
-        };
-
-        let tx = subject
-            .start_housekeeping_thread(Box::new(change_handler), router_ip)
-            .unwrap();
-
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
-            mapping_config,
-        ))
-        .unwrap();
-        assert!(subject.housekeeper_commander_opt.is_some());
-        let announcement_receive_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announcement_send_socket =
-            UdpSocket::bind(SocketAddr::new(localhost(), announcement_send_port)).unwrap();
-        announcement_send_socket
-            .set_read_timeout(Some(Duration::from_millis(1000)))
-            .unwrap();
-        announcement_send_socket.set_broadcast(true).unwrap();
-        announcement_send_socket
-            .connect(SocketAddr::new(
-                announcement_receive_ip,
-                announcement_receive_port,
-            ))
-            .unwrap();
-        let mut packet = PmpPacket::default();
-        packet.opcode = Opcode::Get;
-        packet.direction = Direction::Response;
-        packet.result_code_opt = Some(ResultCode::Success);
-        packet.opcode_data = make_get_response(0, Ipv4Addr::from_str("1.2.3.4").unwrap());
-        let mut buffer = [0u8; 100];
-        let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let sent_len = announcement_send_socket
-            .send(&buffer[0..len_to_send])
-            .unwrap();
-        assert_eq!(sent_len, len_to_send);
-        thread::sleep(Duration::from_millis(1)); // yield timeslice
-        let _ = subject.stop_housekeeping_thread();
-        assert!(subject.housekeeper_commander_opt.is_none());
-        let changes = changes_arc.lock().unwrap();
-        assert_eq!(*changes, vec![]);
-    }
-
-    #[test]
-    fn housekeeping_thread_rejects_data_that_causes_parse_errors() {
-        let _ = EnvironmentGuard::new();
-        init_test_logging();
-        let change_handler_port = find_free_port();
-        let router_port = find_free_port();
-        let announce_port = find_free_port();
-        let router_ip = localhost();
-        let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
-        let mut subject = PmpTransactor::default();
-        subject.router_port = router_port;
-        subject.listen_port = change_handler_port;
-        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
-        let mapping_config = MappingConfig {
-            hole_port: 1234,
-            next_lifetime: Duration::from_millis(321),
-            remap_interval: Duration::from_millis(0),
-        };
-        let changes_arc = Arc::new(Mutex::new(vec![]));
-        let changes_arc_inner = changes_arc.clone();
-        let change_handler = move |change| {
-            changes_arc_inner.lock().unwrap().push(change);
-        };
-
-        let tx = subject
-            .start_housekeeping_thread(Box::new(change_handler), router_ip)
-            .unwrap();
-
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
-            mapping_config,
-        ))
-        .unwrap();
-        assert!(subject.housekeeper_commander_opt.is_some());
-        let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announce_port)).unwrap();
-        announce_socket
-            .set_read_timeout(Some(Duration::from_millis(1000)))
-            .unwrap();
-        announce_socket.set_broadcast(true).unwrap();
-        announce_socket
-            .connect(SocketAddr::new(change_handler_ip, change_handler_port))
-            .unwrap();
-        let mut packet = PmpPacket::default();
-        packet.opcode = Opcode::Get;
-        packet.direction = Direction::Request; // should be Response
-        packet.result_code_opt = Some(ResultCode::Success);
-        packet.opcode_data = make_get_response(0, Ipv4Addr::from_str("1.2.3.4").unwrap());
-        let mut buffer = [0u8; 100];
-        let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
-        assert_eq!(sent_len, len_to_send);
-        thread::sleep(Duration::from_millis(1)); // yield timeslice
-        let _ = subject.stop_housekeeping_thread();
-        assert!(subject.housekeeper_commander_opt.is_none());
-        let changes = changes_arc.lock().unwrap();
-        assert_eq!(*changes, vec![]);
-        let err_msg = "Unexpected PMP Get request (request!) from router at ";
-        TestLogHandler::new().exists_log_containing(&format!("WARN: PmpTransactor: {}", err_msg));
     }
 
     #[test]
@@ -1608,12 +1349,7 @@ mod tests {
             remap_interval: Duration::from_secs(10),
         };
         let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new(
-            &transactor,
-            ROUTER_ADDR.ip(),
-            Box::new(move |_| {}),
-            rx,
-        );
+        let mut subject = ThreadGuts::new(&transactor, ROUTER_ADDR.ip(), Box::new(move |_| {}), rx);
         subject.mapping_adder_arc = Arc::new(Mutex::new(mapping_adder));
         subject.logger = Logger::new("no_remap_test");
         tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
@@ -1648,12 +1384,7 @@ mod tests {
             remap_interval: Duration::from_millis(80),
         };
         let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new(
-            &transactor,
-            ROUTER_ADDR.ip(),
-            Box::new(move |_| {}),
-            rx,
-        );
+        let mut subject = ThreadGuts::new(&transactor, ROUTER_ADDR.ip(), Box::new(move |_| {}), rx);
         subject.mapping_adder_arc = mapping_adder_arc;
         subject.factories_arc = Arc::new(Mutex::new(factories));
         subject.logger = Logger::new("timed_remap_test");
@@ -1714,12 +1445,8 @@ mod tests {
         let mut last_remapped = Instant::now().sub(Duration::from_secs(3600));
         let logger = Logger::new("maybe_remap_handles_remapping_error");
         let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new(
-            &transactor,
-            router_addr.ip(),
-            change_handler,
-            unbounded().1,
-        );
+        let mut subject =
+            ThreadGuts::new(&transactor, router_addr.ip(), change_handler, unbounded().1);
         subject.mapping_adder_arc = mapping_adder_arc;
         // subject.factories_arc = factories_arc;
         subject.logger = logger;
@@ -1736,164 +1463,6 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             "ERROR: maybe_remap_handles_remapping_error: Automatic PMP remapping failed for port 6689: ProtocolError(\"Booga\")"
         );
-    }
-
-    #[test]
-    fn parse_buffer_rejects_request_packet() {
-        init_test_logging();
-        let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
-        let mut packet = PmpPacket::default();
-        packet.opcode = Opcode::Get;
-        packet.direction = Direction::Request;
-        let mut buffer = [0u8; 100];
-        let buflen = packet.marshal(&mut buffer).unwrap();
-        let logger = Logger::new("parse_buffer_rejects_request_packet");
-        let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new(
-            &transactor,
-            router_ip,
-            Box::new(|_| ()),
-            unbounded().1,
-        );
-        subject.logger = logger;
-
-        let result = subject.parse_buffer(&buffer[0..buflen], SocketAddr::new(router_ip, 5351));
-
-        let err_msg = "Unexpected PMP Get request (request!) from router at 4.3.2.1:5351: ignoring";
-        assert_eq!(
-            result,
-            Err(AutomapError::ProtocolError(err_msg.to_string()))
-        );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: parse_buffer_rejects_request_packet: {}",
-            err_msg
-        ));
-    }
-
-    #[test]
-    fn parse_buffer_rejects_packet_other_than_get() {
-        init_test_logging();
-        let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
-        let mut packet = PmpPacket::default();
-        packet.opcode = Opcode::MapUdp;
-        packet.direction = Direction::Response;
-        packet.opcode_data = Box::new(MapOpcodeData::default());
-        let mut buffer = [0u8; 100];
-        let buflen = packet.marshal(&mut buffer).unwrap();
-        let logger = Logger::new("parse_buffer_rejects_packet_other_than_get");
-        let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new(
-            &transactor,
-            router_ip,
-            Box::new(|_| ()),
-            unbounded().1,
-        );
-        subject.logger = logger;
-
-        let result = subject.parse_buffer(&buffer[0..buflen], SocketAddr::new(router_ip, 5351));
-
-        let err_msg =
-            "Unexpected PMP MapUdp response (instead of Get) from router at 4.3.2.1:5351: ignoring";
-        assert_eq!(
-            result,
-            Err(AutomapError::ProtocolError(err_msg.to_string()))
-        );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: parse_buffer_rejects_packet_other_than_get: {}",
-            err_msg
-        ));
-    }
-
-    #[test]
-    fn parse_buffer_rejects_unparseable_packet() {
-        init_test_logging();
-        let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
-        let buffer = [0xFFu8; 100];
-        let logger = Logger::new("parse_buffer_rejects_unparseable_packet");
-        let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new(
-            &transactor,
-            router_ip,
-            Box::new(|_| ()),
-            unbounded().1,
-        );
-        subject.logger = logger;
-
-        let result = subject.parse_buffer(
-            &buffer[0..2], // wayyy too short
-            SocketAddr::new(router_ip, 5351),
-        );
-
-        let err_msg =
-            "Unparseable packet (WrongVersion(255)) from router at 4.3.2.1:5351: ignoring";
-        assert_eq!(
-            result,
-            Err(AutomapError::ProtocolError(err_msg.to_string()))
-        );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: parse_buffer_rejects_unparseable_packet: {}",
-            err_msg
-        ));
-    }
-
-    #[test]
-    fn handle_announcement_rejects_permanently_unsuccessful_result_code() {
-        init_test_logging();
-        let router_address = SocketAddr::from_str("7.7.7.7:1234").unwrap();
-        let mut packet = PmpPacket::default();
-        packet.direction = Direction::Response;
-        packet.opcode = Opcode::MapTcp;
-        packet.result_code_opt = Some(ResultCode::UnsupportedVersion);
-        packet.opcode_data = Box::new(MapOpcodeData::default());
-        let mut buffer = [0u8; 100];
-        let buflen = packet.marshal(&mut buffer).unwrap();
-        let socket = UdpSocketWrapperMock::new()
-            .set_read_timeout_result(Ok(()))
-            .send_to_result(Ok(100))
-            .recv_from_result(Ok((buflen, router_address)), buffer[0..buflen].to_vec());
-        let factories = Factories {
-            socket_factory: Box::new(UdpSocketWrapperFactoryMock::new().make_result(Ok(socket))),
-            free_port_factory: Box::new(FreePortFactoryMock::new().make_result(1234)),
-        };
-        let change_handler_log_arc = Arc::new(Mutex::new(vec![]));
-        let change_handler_log_inner = change_handler_log_arc.clone();
-        let change_handler: ChangeHandler =
-            Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
-        let logger =
-            Logger::new("handle_announcement_rejects_permanently_unsuccessful_result_code");
-        let transactor = PmpTransactor::new();
-        let mut subject = ThreadGuts::new(
-            &transactor,
-            router_address.ip(),
-            change_handler,
-            unbounded().1,
-        );
-        subject.router_addr = router_address;
-        subject.factories_arc = Arc::new(Mutex::new(factories));
-        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(MappingAdderMock::new())));
-        subject.logger = logger;
-
-        subject.handle_announcement(
-            Ipv4Addr::from_str("4.3.2.1").unwrap(),
-            &mut Some(MappingConfig {
-                hole_port: 2222,
-                next_lifetime: Duration::from_secs(10),
-                remap_interval: Duration::from_secs(0),
-            }),
-        );
-
-        let change_handler_log = change_handler_log_arc.lock().unwrap();
-        let err_msg = "Remapping after IP change failed; Node is useless: UnsupportedVersion";
-        assert_eq!(
-            *change_handler_log,
-            vec![AutomapChange::Error(AutomapError::PermanentMappingError(
-                err_msg.to_string()
-            ))]
-        );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: handle_announcement_rejects_permanently_unsuccessful_result_code: {}",
-            err_msg
-        ));
     }
 
     #[test]

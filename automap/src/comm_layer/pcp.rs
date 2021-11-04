@@ -1,9 +1,27 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::any::Any;
+use std::convert::TryFrom;
+use std::io::ErrorKind;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+use std::{io, thread};
+
+use crossbeam_channel::{unbounded, Receiver, Sender};
+use rand::RngCore;
+
+use masq_lib::error;
+use masq_lib::info;
+use masq_lib::logger::Logger;
+use masq_lib::utils::AutomapProtocol;
+use masq_lib::{debug, warning};
+
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig,
-    UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_PORT,
-    ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
+    UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory,
+    HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS, ROUTER_PORT,
 };
 use crate::comm_layer::{
     AutomapError, AutomapErrorCause, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal,
@@ -13,22 +31,6 @@ use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
-use crossbeam_channel::{unbounded, Receiver, Sender};
-use masq_lib::error;
-use masq_lib::info;
-use masq_lib::logger::Logger;
-use masq_lib::utils::AutomapProtocol;
-use masq_lib::{debug, warning};
-use pretty_hex::PrettyHex;
-use rand::RngCore;
-use std::any::Any;
-use std::convert::TryFrom;
-use std::io::ErrorKind;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
-use std::{io, thread};
 
 trait MappingNonceFactory: Send {
     fn make(&self) -> [u8; 12];
@@ -76,7 +78,6 @@ struct PcpTransactorInner {
 pub struct PcpTransactor {
     inner_arc: Arc<Mutex<PcpTransactorInner>>,
     router_port: u16,
-    listen_port: u16,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     join_handle_opt: Option<JoinHandle<ChangeHandler>>,
     read_timeout_millis: u64,
@@ -257,10 +258,9 @@ impl Default for PcpTransactor {
                 factories: Factories::default(),
             })),
             router_port: ROUTER_PORT,
-            listen_port: ANNOUNCEMENT_PORT,
             housekeeper_commander_opt: None,
             join_handle_opt: None,
-            read_timeout_millis: ANNOUNCEMENT_READ_TIMEOUT_MILLIS,
+            read_timeout_millis: HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS,
             logger: Logger::new("PcpTransactor"),
         }
     }
@@ -284,7 +284,6 @@ impl PcpTransactor {
     ) -> ChangeHandler {
         let mut last_remapped = Instant::now();
         let mut mapping_config_opt: Option<MappingConfig> = None;
-        let mut buffer = [0u8; 100];
         loop {
             match rx.try_recv() {
                 Ok(HousekeepingThreadCommand::Stop) => {
@@ -314,7 +313,7 @@ impl PcpTransactor {
                 }
                 Err(_) => (),
             }
-            thread::sleep (Duration::from_millis(read_timeout_millis)); // replaces IP-change check
+            thread::sleep(Duration::from_millis(read_timeout_millis)); // replaces IP-change check
             let since_last_remapped = last_remapped.elapsed();
             match &mut mapping_config_opt {
                 None => (),
@@ -357,44 +356,6 @@ impl PcpTransactor {
             .mapping_transactor
             .transact(&inner.factories, router_addr, mapping_config)?
             .0)
-    }
-
-    fn handle_announcement(
-        inner: &PcpTransactorInner,
-        router_addr: SocketAddr,
-        change_handler: &ChangeHandler,
-        mapping_config_opt: &mut Option<MappingConfig>,
-        logger: &Logger,
-    ) {
-        let mut local_mapping_config = MappingConfig {
-            hole_port: 9, // meaningless port suggested in PCP RFC document
-            next_lifetime: Duration::from_secs(0),
-            remap_interval: Duration::from_secs(0),
-        };
-        let mapping_config = match mapping_config_opt.as_mut() {
-            Some(mc) => mc,
-            None => &mut local_mapping_config,
-        };
-        match inner
-            .mapping_transactor
-            .transact(&inner.factories, router_addr, mapping_config)
-        {
-            Ok((_, opcode_data)) => {
-                debug!(
-                    logger,
-                    "Received announcement that public IP address changed to {}",
-                    opcode_data.external_ip_address
-                );
-                change_handler(AutomapChange::NewIp(opcode_data.external_ip_address))
-            }
-            Err(e) => {
-                error!(
-                    logger,
-                    "Remapping after IP change failed, Node is useless: {:?}", e
-                );
-                change_handler(AutomapChange::Error(e))
-            }
-        }
     }
 }
 
@@ -603,7 +564,19 @@ impl MappingTransactorReal {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use core::ptr::addr_of;
+    use std::cell::RefCell;
+    use std::collections::HashSet;
+    use std::io::ErrorKind;
+    use std::net::{SocketAddr, SocketAddrV4};
+    use std::str::FromStr;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use std::{io, thread};
+
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::utils::localhost;
+
     use crate::comm_layer::pcp_pmp_common::ROUTER_PORT;
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
     use crate::mocks::{
@@ -612,19 +585,8 @@ mod tests {
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
-    use core::ptr::addr_of;
-    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::utils::{find_free_port, localhost};
-    use pretty_hex::*;
-    use std::cell::RefCell;
-    use std::collections::HashSet;
-    use std::io::ErrorKind;
-    use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
-    use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
-    use std::{io, thread};
+
+    use super::*;
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -1336,140 +1298,6 @@ mod tests {
     }
 
     #[test]
-    fn housekeeping_thread_works() {
-        let _ = EnvironmentGuard::new();
-        let change_handler_port = find_free_port();
-        let router_port = find_free_port();
-        let announce_port = find_free_port();
-        let router_ip = localhost();
-        let mut subject = PcpTransactor::default();
-        subject.router_port = router_port;
-        subject.listen_port = change_handler_port;
-        let mapping_config = MappingConfig {
-            hole_port: 1234,
-            next_lifetime: Duration::from_secs(321),
-            remap_interval: Duration::from_secs(160),
-        };
-        let changes_arc = Arc::new(Mutex::new(vec![]));
-        let changes_arc_inner = changes_arc.clone();
-        let change_handler = move |change| {
-            changes_arc_inner.lock().unwrap().push(change);
-        };
-
-        let commander = subject
-            .start_housekeeping_thread(Box::new(change_handler), router_ip)
-            .unwrap();
-
-        commander
-            .try_send(HousekeepingThreadCommand::InitializeMappingConfig(
-                mapping_config,
-            ))
-            .unwrap();
-        let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announce_port)).unwrap();
-        announce_socket
-            .set_read_timeout(Some(Duration::from_millis(1000)))
-            .unwrap();
-        announce_socket.set_broadcast(true).unwrap();
-        announce_socket
-            .connect(SocketAddr::new(change_handler_ip, change_handler_port))
-            .unwrap();
-        let mut packet = vanilla_response();
-        packet.opcode = Opcode::Announce;
-        packet.lifetime = 0;
-        packet.epoch_time_opt = Some(0);
-        let mut buffer = [0u8; 100];
-        let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
-        let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
-        assert_eq!(sent_len, len_to_send);
-        let (recv_len, remapping_socket_addr) = mapping_socket.recv_from(&mut buffer).unwrap();
-        let packet = PcpPacket::try_from(&buffer[0..recv_len]).unwrap();
-        assert_eq!(packet.opcode, Opcode::Map);
-        assert_eq!(packet.lifetime, 321);
-        let opcode_data: &MapOpcodeData = packet.opcode_data.as_any().downcast_ref().unwrap();
-        assert_eq!(opcode_data.external_port, 1234);
-        assert_eq!(opcode_data.internal_port, 1234);
-        let mut packet = vanilla_response();
-        packet.opcode = Opcode::Map;
-        let mut opcode_data = MapOpcodeData::default();
-        opcode_data.external_ip_address = IpAddr::from_str("4.5.6.7").unwrap();
-        packet.opcode_data = Box::new(opcode_data);
-        let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let sent_len = mapping_socket
-            .send_to(&buffer[0..len_to_send], remapping_socket_addr)
-            .unwrap();
-        assert_eq!(sent_len, len_to_send);
-        thread::yield_now();
-        let _ = subject.stop_housekeeping_thread();
-        assert!(subject.housekeeper_commander_opt.is_none());
-        let changes = changes_arc.lock().unwrap();
-        assert_eq!(
-            *changes,
-            vec![AutomapChange::NewIp(IpAddr::from_str("4.5.6.7").unwrap())]
-        )
-    }
-
-    #[test]
-    fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
-        let _ = EnvironmentGuard::new();
-        let change_handler_port = find_free_port();
-        let router_port = find_free_port();
-        let announcement_port = find_free_port();
-        let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
-        let mut subject = PcpTransactor::default();
-        subject.router_port = router_port;
-        subject.listen_port = change_handler_port;
-        let changes_arc = Arc::new(Mutex::new(vec![]));
-        let changes_arc_inner = changes_arc.clone();
-        let change_handler = move |change| {
-            changes_arc_inner.lock().unwrap().push(change);
-        };
-
-        subject
-            .start_housekeeping_thread(Box::new(change_handler), router_ip)
-            .unwrap();
-
-        assert!(subject.housekeeper_commander_opt.is_some());
-        let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announce_socket =
-            UdpSocket::bind(SocketAddr::new(localhost(), announcement_port)).unwrap();
-        announce_socket
-            .set_read_timeout(Some(Duration::from_millis(1000)))
-            .unwrap();
-        announce_socket.set_broadcast(true).unwrap();
-        announce_socket
-            .connect(SocketAddr::new(change_handler_ip, change_handler_port))
-            .unwrap();
-        let mut packet = vanilla_response();
-        packet.opcode = Opcode::Announce;
-        packet.lifetime = 0;
-        packet.epoch_time_opt = Some(0);
-        let mut buffer = [0u8; 100];
-        let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
-        mapping_socket
-            .set_read_timeout(Some(Duration::from_millis(100)))
-            .unwrap();
-        let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
-        assert_eq!(sent_len, len_to_send);
-        match mapping_socket.recv_from(&mut buffer) {
-            Err(e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => {
-                ()
-            }
-            Err(e) => panic!("{:?}", e),
-            Ok((recv_len, remapping_socket_addr)) => {
-                let dump = pretty_hex(&buffer[0..recv_len].to_vec());
-                panic!(
-                    "Should have timed out; but received from {}:\n{}",
-                    remapping_socket_addr, dump
-                );
-            }
-        }
-        let _ = subject.stop_housekeeping_thread();
-    }
-
-    #[test]
     fn start_housekeeping_thread_doesnt_work_if_change_handler_stopper_is_populated() {
         let mut subject = PcpTransactor::default();
         subject.housekeeper_commander_opt = Some(unbounded().0);
@@ -1790,50 +1618,6 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             "ERROR: thread_guts_complains_if_remapping_fails: Remapping failure: TemporaryMappingError(\"NoResources\")",
         );
-    }
-
-    #[test]
-    fn handle_announcement_logs_if_remapping_fails() {
-        init_test_logging();
-        let mut factories = Factories::default();
-        factories.socket_factory = Box::new(
-            UdpSocketWrapperFactoryMock::new()
-                .make_result(Err(io::Error::from(ErrorKind::AlreadyExists))),
-        );
-        factories.free_port_factory = Box::new(FreePortFactoryMock::new().make_result(2345));
-        let change_log_arc = Arc::new(Mutex::new(vec![]));
-        let change_log_inner = change_log_arc.clone();
-        let change_handler: ChangeHandler =
-            Box::new(move |change| change_log_inner.lock().unwrap().push(change));
-        let mapping_config = MappingConfig {
-            hole_port: 0,
-            next_lifetime: Default::default(),
-            remap_interval: Default::default(),
-        };
-        let logger = Logger::new("handle_announcement_logs_if_remapping_fails");
-        let mapping_transactor = Box::new(MappingTransactorReal::default());
-        let inner = PcpTransactorInner {
-            mapping_transactor,
-            factories,
-        };
-
-        PcpTransactor::handle_announcement(
-            &inner,
-            SocketAddr::new(localhost(), 0),
-            &change_handler,
-            &mut Some(mapping_config),
-            &logger,
-        );
-
-        let change_log = change_log_arc.lock().unwrap();
-        assert_eq!(
-            *change_log,
-            vec![AutomapChange::Error(AutomapError::SocketBindingError(
-                "Kind(AlreadyExists)".to_string(),
-                SocketAddr::from_str("0.0.0.0:2345").unwrap()
-            ))]
-        );
-        TestLogHandler::new().exists_log_containing ("ERROR: handle_announcement_logs_if_remapping_fails: Remapping after IP change failed, Node is useless: SocketBindingError(\"Kind(AlreadyExists)\", 0.0.0.0:2345");
     }
 
     #[test]
