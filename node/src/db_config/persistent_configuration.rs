@@ -416,7 +416,7 @@ impl PersistentConfigurationReal {
     }
 
     fn validate_derivation_path(derivation_path: &str) -> bool {
-        let mnemonic = Bip39::mnemonic(MnemonicType::Words24, Language::English);
+        let mnemonic = Bip39::mnemonic(MnemonicType::Words12, Language::English);
         let seed = Bip39::seed(&mnemonic, "");
         Bip32ECKeyPair::from_raw(seed.as_bytes(), derivation_path).is_ok()
     }
@@ -924,7 +924,7 @@ mod tests {
     }
 
     fn make_seed_info(db_password: &str) -> (PlainData, String) {
-        let mnemonic = Bip39::mnemonic(MnemonicType::Words24, Language::English);
+        let mnemonic = Bip39::mnemonic(MnemonicType::Words12, Language::English);
         let mnemonic_seed = Bip39::seed(&mnemonic, "");
         let seed_bytes = PlainData::new(mnemonic_seed.as_ref());
         let encoded_seed = encode_bytes(Some(seed_bytes.clone())).unwrap().unwrap();
