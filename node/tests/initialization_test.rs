@@ -15,7 +15,6 @@ use node_lib::database::db_initializer::DATABASE_FILE;
 #[cfg(not(target_os = "windows"))]
 use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-use std::fs;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 use utils::CommandConfig;
