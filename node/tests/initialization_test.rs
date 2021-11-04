@@ -61,7 +61,6 @@ fn initialization_sequence_integration() {
     );
     let mut initialization_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL);
     let data_directory = node_home_directory("integration", "initialization_sequence_integration");
-    let _ = fs::create_dir_all(&data_directory);
     let _: UiSetupRequest = initialization_client
         .transact(UiSetupRequest::new(vec![
             ("dns-servers", Some("1.1.1.1")),

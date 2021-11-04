@@ -44,12 +44,13 @@ use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
+use std::ops::Add;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600;
-pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600;
+pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
+pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
@@ -60,7 +61,7 @@ lazy_static! {
         permanent_debt_allowed_gwub: 10_000_000,
         balance_to_decrease_from_gwub: 1_000_000_000,
         balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
-        unban_when_balance_below_gwub: 5_000_000,
+        unban_when_balance_below_gwub: 10_000_000,
     };
 }
 
@@ -277,7 +278,7 @@ impl Accountant {
         debug!(
             self.logger,
             "{}",
-            Self::calculate_debt_extremes(&all_non_pending_payables)
+            Self::investigate_debt_extremes(&all_non_pending_payables)
         );
         let qualified_payables = all_non_pending_payables
             .into_iter()
@@ -291,7 +292,7 @@ impl Accountant {
         debug!(
             self.logger,
             "{}",
-            Self::payments_debugging_summary(&qualified_payables)
+            Self::payments_debug_summary(&qualified_payables)
         );
         if !qualified_payables.is_empty() {
             let report_sent_payments = self.report_sent_payments_sub.clone();
@@ -541,7 +542,7 @@ impl Accountant {
     }
 
     //for debugging only
-    fn calculate_debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
+    fn investigate_debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
         if all_non_pending_payables.is_empty() {
             "Payable scan found no debts".to_string()
         } else {
@@ -565,18 +566,22 @@ impl Accountant {
                 let p_age = now
                     .duration_since(p.last_paid_timestamp)
                     .expect("Payable time is corrupt");
-                if (p.balance > biggest.balance)
-                    || (p.balance == biggest.balance && p_age > biggest.age)
                 {
-                    biggest = PayableInfo {
-                        balance: p.balance,
-                        age: p_age,
+                    let check_age_significance_across =
+                        || -> bool { p.balance == biggest.balance && p_age > biggest.age };
+                    if p.balance > biggest.balance || check_age_significance_across() {
+                        biggest = PayableInfo {
+                            balance: p.balance,
+                            age: p_age,
+                        }
                     }
-                }
-                if (p_age > oldest.age) || (p_age == oldest.age && p.balance > oldest.balance) {
-                    oldest = PayableInfo {
-                        balance: p.balance,
-                        age: p_age,
+                    let check_balance_significance_across =
+                        || -> bool { p_age == oldest.age && p.balance > oldest.balance };
+                    if p_age > oldest.age || check_balance_significance_across() {
+                        oldest = PayableInfo {
+                            balance: p.balance,
+                            age: p_age,
+                        }
                     }
                 }
                 (biggest, oldest)
@@ -587,25 +592,26 @@ impl Accountant {
         }
     }
 
-    fn payments_debugging_summary(qualified_payables: &[PayableAccount]) -> String {
+    fn payments_debug_summary(qualified_payables: &[PayableAccount]) -> String {
         let now = SystemTime::now();
         let list = qualified_payables
             .iter()
-            .fold("".to_string(), |sofar, payable| {
+            .map(|payable| {
                 let p_age = now
                     .duration_since(payable.last_paid_timestamp)
                     .expect("Payable time is corrupt");
                 let threshold =
                     Self::payable_exceeded_threshold(payable).expect("Threshold suddenly changed!");
                 format!(
-                    "{}\n    {} owed for {}sec exceeds threshold: {}",
-                    sofar,
+                    "{} owed for {}sec exceeds threshold: {}; creditor: {}",
                     payable.balance,
                     p_age.as_secs(),
-                    threshold
+                    threshold,
+                    payable.wallet
                 )
-            });
-        format!("Paying qualified debts:{}", list)
+            })
+            .join("\n");
+        String::from("Paying qualified debts:\n").add(&list)
     }
 
     fn handle_bind_message(&mut self, msg: BindMessage) {
@@ -1854,8 +1860,9 @@ pub mod tests {
     fn accountant_logs_error_when_blockchain_bridge_responds_with_error() {
         init_test_logging();
         let earning_wallet = make_wallet("earner3000");
-        let blockchain_bridge = Recorder::new()
-            .retrieve_transactions_response(Err(BlockchainError::QueryFailed("blah".to_string())));
+        let blockchain_bridge = Recorder::new().retrieve_transactions_response(Err(
+            BlockchainError::QueryFailed("really bad".to_string()),
+        ));
         let blockchain_bridge_awaiter = blockchain_bridge.get_awaiter();
         let blockchain_bridge_recording = blockchain_bridge.get_recording();
         let config = bc_from_ac_plus_earning_wallet(
@@ -1900,7 +1907,7 @@ pub mod tests {
         assert_eq!(earning_wallet, retrieve_transactions_message.recipient);
 
         TestLogHandler::new().exists_log_containing(
-            "WARN: Accountant: Unable to retrieve transactions from Blockchain Bridge: QueryFailed",
+            r#"WARN: Accountant: Unable to retrieve transactions from Blockchain Bridge: QueryFailed("really bad")"#,
         );
     }
 
@@ -2959,6 +2966,77 @@ pub mod tests {
             wallet,
             H256::from_uint(&U256::from(1))
         ));
+    }
+
+    #[test]
+    fn investigate_debt_extremes_picks_the_most_relevant_records() {
+        let now = to_time_t(SystemTime::now());
+        let same_amount_significance = 2_000_000;
+        let same_age_significance = from_time_t(now - 30000);
+        let payables = &[
+            PayableAccount {
+                wallet: make_wallet("wallet0"),
+                balance: same_amount_significance,
+                last_paid_timestamp: from_time_t(now - 5000),
+                pending_payment_transaction: None,
+            },
+            //this debt is more significant because beside being high in amount it's also older, so should be prioritized and picked
+            PayableAccount {
+                wallet: make_wallet("wallet1"),
+                balance: same_amount_significance,
+                last_paid_timestamp: from_time_t(now - 10000),
+                pending_payment_transaction: None,
+            },
+            //similarly these two wallets have debts equally old but the first have a bigger balance and should be chosen
+            PayableAccount {
+                wallet: make_wallet("wallet3"),
+                balance: 100,
+                last_paid_timestamp: same_age_significance,
+                pending_payment_transaction: None,
+            },
+            PayableAccount {
+                wallet: make_wallet("wallet2"),
+                balance: 330,
+                last_paid_timestamp: same_age_significance,
+                pending_payment_transaction: None,
+            },
+        ];
+
+        let result = Accountant::investigate_debt_extremes(payables);
+
+        //the age of the biggest debt it is
+        assert_eq!(result,"Payable scan found 4 debts; the biggest is 2000000 owed for 10000sec, the oldest is 330 owed for 30000sec")
+    }
+
+    #[test]
+    fn payment_debug_summary_prints_a_nice_summary() {
+        let now = to_time_t(SystemTime::now());
+        let qualified_payables = &[
+            PayableAccount {
+                wallet: make_wallet("wallet0"),
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1000,
+                last_paid_timestamp: from_time_t(
+                    now - PAYMENT_CURVES.balance_decreases_for_sec - 1234,
+                ),
+                pending_payment_transaction: None,
+            },
+            PayableAccount {
+                wallet: make_wallet("wallet1"),
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1,
+                last_paid_timestamp: from_time_t(
+                    now - PAYMENT_CURVES.balance_decreases_for_sec - 1,
+                ),
+                pending_payment_transaction: None,
+            },
+        ];
+
+        let result = Accountant::payments_debug_summary(qualified_payables);
+
+        assert_eq!(result,
+                   "Paying qualified debts:\n\
+                   10001000 owed for 2593234sec exceeds threshold: 9512428; creditor: 0x0000000000000000000000000077616c6c657430\n\
+                   10000001 owed for 2592001sec exceeds threshold: 9999604; creditor: 0x0000000000000000000000000077616c6c657431"
+        )
     }
 
     #[test]

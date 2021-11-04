@@ -747,7 +747,6 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
 
@@ -755,13 +754,12 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(
-            result,
-            Err(BlockchainError::QueryFailed(
-                r#"Decoder error: Error("invalid hex character: Q, at 5", line: 0, column: 0)"#
-                    .to_string()
-            ))
-        );
+        match result {
+            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
+                ()
+            }
+            x => panic!("Expected complaint about hex character, but got {:?}", x),
+        };
     }
 
     #[test]
@@ -841,12 +839,10 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(
-            result,
-            Err(BlockchainError::QueryFailed(
-                r#"Api error: Decoder error: Error("invalid hex", line: 0, column: 0)"#.to_string()
-            ))
-        );
+        match result {
+            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex") => (),
+            x => panic!("Expected complaint about hex character, but got {:?}", x),
+        }
     }
 
     #[test]
