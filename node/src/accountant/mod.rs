@@ -567,6 +567,7 @@ impl Accountant {
                     .duration_since(p.last_paid_timestamp)
                     .expect("Payable time is corrupt");
                 {
+                    //seek for a test for this if you don't understand the purpose
                     let check_age_significance_across =
                         || -> bool { p.balance == biggest.balance && p_age > biggest.age };
                     if p.balance > biggest.balance || check_age_significance_across() {
@@ -2987,7 +2988,7 @@ pub mod tests {
                 last_paid_timestamp: from_time_t(now - 10000),
                 pending_payment_transaction: None,
             },
-            //similarly these two wallets have debts equally old but the first have a bigger balance and should be chosen
+            //similarly these two wallets have debts equally old but the second has a bigger balance and should be chosen
             PayableAccount {
                 wallet: make_wallet("wallet3"),
                 balance: 100,
@@ -3004,7 +3005,6 @@ pub mod tests {
 
         let result = Accountant::investigate_debt_extremes(payables);
 
-        //the age of the biggest debt it is
         assert_eq!(result,"Payable scan found 4 debts; the biggest is 2000000 owed for 10000sec, the oldest is 330 owed for 30000sec")
     }
 
