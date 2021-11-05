@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::neighborhood_database::NeighborhoodDatabaseError::NodeKeyNotFound;
 use crate::neighborhood::dot_graph::{
     render_dot_graph, DotRenderable, EdgeRenderable, NodeRenderable, NodeRenderableInner,

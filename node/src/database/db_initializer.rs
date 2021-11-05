@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::blockchain::blockchain_interface::{
     chain_name_from_id, contract_creation_block_from_chain_id,
 };

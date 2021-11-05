@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::utils::derivation_path;
