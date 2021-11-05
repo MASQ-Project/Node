@@ -9,6 +9,4 @@ IntelliJ is not. If you run these tests from IntelliJ, make sure to run only
 one at a time. If you want to run several, use `ci/all.sh` or a specific 
 `cargo` command that works like `ci/all.sh` does.
 
-Copyright (c) 2019-2021, MASQ Network
-
-Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
