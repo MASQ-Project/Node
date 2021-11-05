@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Recipient;
