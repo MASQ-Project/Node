@@ -1087,7 +1087,7 @@ mod tests {
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let next_key = PublicKey::new(&[65, 65, 65]);
-        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&main_cryptde.public_key(), &next_key],
@@ -1183,7 +1183,7 @@ mod tests {
             ),
             main_cryptde,
             Some(paying_wallet.clone()),
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
@@ -1342,7 +1342,7 @@ mod tests {
             &make_request_payload(0, main_cryptde),
         ));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
-        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let live_hops: Vec<LiveHop> = vec![
             LiveHop::new(
                 &public_key,
@@ -1447,7 +1447,7 @@ mod tests {
             &make_request_payload(0, &destination_cryptde),
         ));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
-        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let live_hops: Vec<LiveHop> = vec![
             LiveHop::new(
                 &current_key,
@@ -1537,7 +1537,7 @@ mod tests {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
-        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         BAN_CACHE.insert(paying_wallet.clone());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -1614,7 +1614,7 @@ mod tests {
             ),
             main_cryptde,
             Some(paying_wallet.clone()),
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         route.shift(main_cryptde).unwrap();

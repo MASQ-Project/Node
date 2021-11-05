@@ -211,7 +211,7 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "chain_name",
-            Some(chain.record().plain_text_name),
+            Some(chain.rec().plain_text_name),
             false,
             "the chain the database is created for",
         );
@@ -219,9 +219,9 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "start_block",
-            Some(&chain.record().contract_creation_block.to_string()),
+            Some(&chain.rec().contract_creation_block.to_string()),
             false,
-            format!("{} start block", chain.record().plain_text_name).as_str(),
+            format!("{} start block", chain.rec().plain_text_name).as_str(),
         );
         Self::set_config_value(
             conn,
@@ -749,7 +749,7 @@ mod tests {
         verify(
             &mut config_vec,
             "chain_name",
-            Some(TEST_DEFAULT_CHAIN.record().plain_text_name),
+            Some(TEST_DEFAULT_CHAIN.rec().plain_text_name),
         );
         let clandestine_port_str_opt = verify_name(&mut config_vec, "clandestine_port");
         let clandestine_port: u16 = clandestine_port_str_opt.unwrap().parse().unwrap();
@@ -774,10 +774,7 @@ mod tests {
             "start_block",
             Some(&format!(
                 "{}",
-                &TEST_DEFAULT_CHAIN
-                    .record()
-                    .contract_creation_block
-                    .to_string()
+                &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string()
             )),
         );
         assert_eq!(config_vec, vec![]);

@@ -340,7 +340,7 @@ pub struct ExternalMigrationParameters {
 impl ExternalMigrationParameters {
     pub fn new(chain: Chain) -> Self {
         Self {
-            chain_name: chain.record().plain_text_name.to_string(),
+            chain_name: chain.rec().plain_text_name.to_string(),
         }
     }
 }
@@ -492,7 +492,7 @@ mod tests {
 
     fn make_external_migration_parameters() -> ExternalMigrationParameters {
         ExternalMigrationParameters {
-            chain_name: DEFAULT_CHAIN.record().plain_text_name.to_string(),
+            chain_name: DEFAULT_CHAIN.rec().plain_text_name.to_string(),
         }
     }
 

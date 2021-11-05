@@ -116,7 +116,6 @@ pub mod standard {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::WrapResult;
     use rustc_hex::FromHex;
-    use std::ops::Deref;
     use std::str::FromStr;
 
     pub fn server_initializer_collected_params<'a>(
@@ -236,7 +235,7 @@ pub mod standard {
         persistent_config_opt: Option<&mut dyn PersistentConfiguration>,
     ) -> Result<(), ConfiguratorError> {
         unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
-        let user_specified = multi_config.deref().occurrences_of("gas-price") > 0;
+        let user_specified = multi_config.occurrences_of("gas-price") > 0;
         unprivileged_config.blockchain_bridge_config.gas_price = if user_specified {
             value_m!(multi_config, "gas-price", u64).expect_v("gas price")
         } else {
@@ -380,7 +379,7 @@ pub mod standard {
                         }
                     };
                     let chain_name = value_m!(multi_config, "chain", String)
-                        .unwrap_or_else(|| DEFAULT_CHAIN.record().plain_text_name.to_string());
+                        .unwrap_or_else(|| DEFAULT_CHAIN.rec().plain_text_name.to_string());
                     let results =
                     cli_configs
                         .into_iter()
@@ -395,8 +394,8 @@ pub mod standard {
                                     } else{
                                         Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
                                                                                   chain_name, MASQ_URL_PREFIX,
-                                                                                  desired_chain.record().chain_identifier,
-                                                                                  competence_from_descriptor.record().plain_text_name)))
+                                                                                  desired_chain.rec().chain_identifier,
+                                                                                  competence_from_descriptor.rec().plain_text_name)))
                                     }
                                 }
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
@@ -808,7 +807,7 @@ pub mod standard {
                 "--neighbors",
                 "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678",
                 "--chain",
-                DEFAULT_CHAIN.record().plain_text_name,
+                DEFAULT_CHAIN.rec().plain_text_name,
             ]);
 
             let result = standard::convert_ci_configs(&multi_config).err().unwrap();
@@ -1493,7 +1492,7 @@ mod tests {
         let payer = bootstrapper_config
             .consuming_wallet
             .unwrap()
-            .as_payer(&public_key, &TEST_DEFAULT_CHAIN.record().contract);
+            .as_payer(&public_key, &TEST_DEFAULT_CHAIN.rec().contract);
         let cryptdenull = CryptDENull::from(&public_key, TEST_DEFAULT_CHAIN);
         assert!(
             payer.owns_secret_key(&cryptdenull.digest()),
@@ -1788,8 +1787,8 @@ mod tests {
         assert_eq!(
             config.data_directory,
             PathBuf::from("/home/booga/.local/share/MASQ")
-                .join(DEFAULT_CHAIN.record().directory_by_platform)
-                .join(DEFAULT_CHAIN.record().plain_text_name)
+                .join(DEFAULT_CHAIN.rec().directory_by_platform)
+                .join(DEFAULT_CHAIN.rec().plain_text_name)
         );
 
         #[cfg(target_os = "macos")]
@@ -2279,7 +2278,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--chain",
-            TEST_DEFAULT_CHAIN.record().plain_text_name,
+            TEST_DEFAULT_CHAIN.rec().plain_text_name,
         ];
 
         let config = subject
@@ -2301,12 +2300,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            config
-                .blockchain_bridge_config
-                .chain
-                .record()
-                .plain_text_name,
-            DEFAULT_CHAIN.record().plain_text_name
+            config.blockchain_bridge_config.chain.rec().plain_text_name,
+            DEFAULT_CHAIN.rec().plain_text_name
         );
     }
 
@@ -2319,7 +2314,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--chain",
-            TEST_DEFAULT_CHAIN.record().plain_text_name,
+            TEST_DEFAULT_CHAIN.rec().plain_text_name,
         ];
 
         let bootstrapper_config = subject

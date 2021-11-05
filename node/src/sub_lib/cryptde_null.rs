@@ -143,7 +143,7 @@ impl CryptDENull {
         }
         let private_key = PrivateKey::from(&private_key[..]);
         let public_key = Self::public_from_private(&private_key);
-        let digest = cryptde::create_digest(&public_key, &chain.record().contract);
+        let digest = cryptde::create_digest(&public_key, &chain.rec().contract);
         Self {
             private_key,
             public_key,
@@ -161,7 +161,7 @@ impl CryptDENull {
     pub fn set_key_pair(&mut self, public_key: &PublicKey, chain: Chain) {
         self.public_key = public_key.clone();
         self.private_key = CryptDENull::private_from_public(public_key);
-        self.digest = cryptde::create_digest(public_key, &chain.record().contract);
+        self.digest = cryptde::create_digest(public_key, &chain.rec().contract);
     }
 
     pub fn private_from_public(in_key: &PublicKey) -> PrivateKey {
@@ -675,7 +675,7 @@ mod tests {
         let subject = &main_cryptde();
         let merged = [
             subject.public_key().as_ref(),
-            TEST_DEFAULT_CHAIN.record().contract.as_ref(),
+            TEST_DEFAULT_CHAIN.rec().contract.as_ref(),
         ]
         .concat();
         let expected_digest = merged.keccak256();

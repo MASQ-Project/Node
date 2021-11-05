@@ -376,7 +376,7 @@ mod tests {
         let wallet = make_wallet("smelly");
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(result)
-            .contract_address_result(TEST_DEFAULT_CHAIN.record().contract);
+            .contract_address_result(TEST_DEFAULT_CHAIN.rec().contract);
         let retrieve_transactions_parameters = blockchain_interface_mock
             .retrieve_transactions_parameters
             .clone();
@@ -411,7 +411,7 @@ mod tests {
             .get_transaction_count_result(Ok(U256::from(2)))
             .send_transaction_result(Ok(H256::from("sometransactionhash".keccak256())))
             .send_transaction_result(Ok(H256::from("someothertransactionhash".keccak256())))
-            .contract_address_result(TEST_DEFAULT_CHAIN.record().contract);
+            .contract_address_result(TEST_DEFAULT_CHAIN.rec().contract);
         let send_parameters = blockchain_interface_mock
             .send_transaction_parameters
             .clone();

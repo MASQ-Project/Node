@@ -115,7 +115,7 @@ impl Default for BlockchainInterfaceClandestine {
 
 impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn contract_address(&self) -> Address {
-        self.chain.record().contract
+        self.chain.rec().contract
     }
 
     fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> Transactions {
@@ -177,7 +177,7 @@ where
     T: Transport + Debug,
 {
     fn contract_address(&self) -> Address {
-        self.chain.record().contract
+        self.chain.rec().contract
     }
 
     fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
@@ -186,7 +186,7 @@ where
             "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
             start_block,
             recipient,
-            self.chain.record().num_chain_id, //TODO maybe we want implement Display for Chain alone?
+            self.chain.rec().num_chain_id,
             self.contract_address()
         );
         let filter = FilterBuilder::default()
@@ -253,7 +253,7 @@ where
             amount,
             recipient,
             consuming_wallet,
-            self.chain.record().num_chain_id, //TODO maybe we want implement Display for Chain alone?
+            self.chain.rec().num_chain_id,
             self.contract_address()
         );
         let mut data = [0u8; 4 + 32 + 32];
@@ -333,7 +333,7 @@ where
     pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
         let web3 = Web3::new(transport);
         let contract =
-            Contract::from_json(web3.eth(), chain.record().contract, CONTRACT_ABI.as_bytes())
+            Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
                 .expect("Unable to initialize contract.");
         Self {
             logger: Logger::new("BlockchainInterface"),

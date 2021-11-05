@@ -30,7 +30,7 @@ pub struct RawTransaction {
 impl RawTransaction {
     /// Signs and returns the RLP-encoded transaction
     pub fn sign(&self, wallet: &Wallet, chain: Chain) -> Vec<u8> {
-        let chain_id = chain.record().num_chain_id;
+        let chain_id = chain.rec().num_chain_id;
         let hash = self.tx_hash(chain_id);
         let sig = ecdsa_sign(&hash, wallet, chain_id);
         let mut tx = RlpStream::new();
@@ -233,7 +233,7 @@ mod tests {
             vec![first_part_tx_1, first_part_tx_2, first_part_tx_3]
                 .iter()
                 .zip(slice_of_sclices.iter())
-                .zip((0usize..2))
+                .zip(0usize..2)
                 .fold(String::new(), |so_far, actual| [
                     so_far,
                     compose(actual.0 .0, actual.0 .1)

@@ -1980,7 +1980,7 @@ mod tests {
             main_cryptde,
             Some(consuming_wallet),
             1234,
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
@@ -4142,7 +4142,7 @@ mod tests {
             main_cryptde(),
             Some(make_paying_wallet(b"consuming")),
             1234,
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(
@@ -4264,7 +4264,7 @@ mod tests {
             main_cryptde(),
             Some(make_paying_wallet(b"consuming")),
             1234,
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(

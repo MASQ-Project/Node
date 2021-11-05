@@ -183,7 +183,7 @@ pub fn make_meaningless_route() -> Route {
         ),
         main_cryptde(),
         Some(make_paying_wallet(b"irrelevant")),
-        Some(TEST_DEFAULT_CHAIN.record().contract),
+        Some(TEST_DEFAULT_CHAIN.rec().contract),
     )
     .unwrap()
 }
@@ -464,7 +464,7 @@ pub fn dummy_address_to_hex(dummy_address: &str) -> String {
 
 pub fn make_payer(secret: &[u8], public_key: &PublicKey) -> Payer {
     let wallet = make_paying_wallet(secret);
-    wallet.as_payer(public_key, &TEST_DEFAULT_CHAIN.record().contract)
+    wallet.as_payer(public_key, &TEST_DEFAULT_CHAIN.rec().contract)
 }
 
 pub fn make_paying_wallet(secret: &[u8]) -> Wallet {

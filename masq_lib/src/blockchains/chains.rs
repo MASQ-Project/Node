@@ -33,7 +33,7 @@ impl From<&str> for Chain {
 }
 
 impl Chain {
-    pub fn record(&self) -> &BlockchainRecord {
+    pub fn rec(&self) -> &BlockchainRecord {
         CHAINS
             .iter()
             .find(|b| &b.literal_chain_id == self)

@@ -337,7 +337,7 @@ impl Neighborhood {
             config.earning_wallet.clone(),
             cryptde,
         );
-        let is_mainnet = config.blockchain_bridge_config.chain == Chain::EthMainnet;
+        let is_mainnet = Self::is_mainnet_by_chain(config.blockchain_bridge_config.chain);
         let initial_neighbors: Vec<NodeDescriptor> = neighborhood_config
             .mode
             .neighbor_configs()
@@ -397,7 +397,17 @@ impl Neighborhood {
     }
 
     fn is_mainnet_by_descriptor(nd: &NodeDescriptor) -> bool {
-        nd.blockchain == Chain::EthMainnet || nd.blockchain == Chain::PolyMainnet
+        Self::mainnets().iter().any(|chain| &nd.blockchain == chain)
+    }
+
+    fn is_mainnet_by_chain(chain: Chain) -> bool {
+        Self::mainnets()
+            .iter()
+            .any(|mainnet_chain| mainnet_chain == &chain)
+    }
+
+    fn mainnets() -> &'static [Chain] {
+        &[Chain::PolyMainnet, Chain::EthMainnet]
     }
 
     fn handle_start_message(&mut self) {
@@ -841,7 +851,7 @@ impl Neighborhood {
                 self.cryptde,
                 self.consuming_wallet_opt.clone(),
                 return_route_id,
-                Some(self.chain.record().contract),
+                Some(self.chain.rec().contract),
             )
             .expect("Internal error: bad route"),
             expected_services: ExpectedServices::RoundTrip(
@@ -2044,7 +2054,7 @@ mod tests {
         system.run();
 
         let result = data_route.wait().unwrap().unwrap();
-        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
                 segment(&[p, q, r], &Component::ProxyClient),
@@ -2267,7 +2277,7 @@ mod tests {
             cryptde,
             Some(make_paying_wallet(b"consuming")),
             0,
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let expected_after_route = Route::round_trip(
@@ -2276,7 +2286,7 @@ mod tests {
             cryptde,
             Some(expected_new_wallet.clone()),
             1,
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
 
@@ -4219,10 +4229,7 @@ mod tests {
     #[test]
     fn is_mainnet_by_descriptor_knows_about_all_mainnets() {
         let searched_str = "mainnet";
-        assert!(CHAINS
-            .iter()
-            .find(|blockchain_record| blockchain_record.plain_text_name.contains(searched_str))
-            .is_some());
+        assert_mainnet_exist();
         CHAINS.iter().for_each(|blockchain_record| {
             if blockchain_record.plain_text_name.contains(searched_str) {
                 let descriptor = NodeDescriptor {
@@ -4233,6 +4240,25 @@ mod tests {
                 assert_eq!(Neighborhood::is_mainnet_by_descriptor(&descriptor), true)
             }
         })
+    }
+
+    #[test]
+    fn is_mainnet_by_chain_knows_about_all_mainnets() {
+        let searched_str = "mainnet";
+        assert_mainnet_exist();
+        CHAINS.iter().for_each(|blockchain_record| {
+            if blockchain_record.plain_text_name.contains(searched_str) {
+                let chain = blockchain_record.literal_chain_id;
+                assert_eq!(Neighborhood::is_mainnet_by_chain(chain), true)
+            }
+        })
+    }
+
+    fn assert_mainnet_exist() {
+        assert!(CHAINS
+            .iter()
+            .find(|blockchain_record| blockchain_record.plain_text_name.contains("mainnet"))
+            .is_some());
     }
 
     fn make_standard_subject() -> Neighborhood {

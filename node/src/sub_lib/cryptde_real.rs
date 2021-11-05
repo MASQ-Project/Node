@@ -187,8 +187,8 @@ impl CryptDEReal {
         let (e_public, e_secret) = encryption::gen_keypair();
         let (s_public, s_secret) = signing::gen_keypair();
         let public_key = Self::local_public_key_from(&e_public, &s_public);
-        let digest = cryptde::create_digest(&public_key, &chain.record().contract);
-        let pre_shared_data = chain.record().contract.0;
+        let digest = cryptde::create_digest(&public_key, &chain.rec().contract);
+        let pre_shared_data = chain.rec().contract.0;
 
         Self {
             public_key,
@@ -590,7 +590,7 @@ mod tests {
         let subject = &CryptDEReal::default();
         let merged = [
             subject.public_key().as_ref(),
-            &TEST_DEFAULT_CHAIN.record().contract.as_ref(),
+            &TEST_DEFAULT_CHAIN.rec().contract.as_ref(),
         ]
         .concat();
         let expected_digest = merged.keccak256();

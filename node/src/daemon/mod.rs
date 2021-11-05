@@ -754,10 +754,7 @@ mod tests {
                             "data-directory",
                             format!("{:?}", home_dir).as_str(),
                         ),
-                        UiSetupRequestValue::new(
-                            "chain",
-                            TEST_DEFAULT_CHAIN.record().plain_text_name,
-                        ),
+                        UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN.rec().plain_text_name),
                         UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                     ],
                 }
@@ -784,11 +781,7 @@ mod tests {
         assert_eq!(
             actual_pairs.contains(&(
                 "chain".to_string(),
-                UiSetupResponseValue::new(
-                    "chain",
-                    TEST_DEFAULT_CHAIN.record().plain_text_name,
-                    Set
-                )
+                UiSetupResponseValue::new("chain", TEST_DEFAULT_CHAIN.rec().plain_text_name, Set)
             )),
             true
         );
@@ -817,7 +810,7 @@ mod tests {
             body: UiSetupRequest {
                 values: vec![
                     UiSetupRequestValue::new("data-directory", data_dir.to_str().unwrap()),
-                    UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN.record().plain_text_name),
+                    UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN.rec().plain_text_name),
                     UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                 ],
             }
@@ -845,7 +838,7 @@ mod tests {
                 assert_eq!(
                     actual_pairs.contains(&(
                         "chain".to_string(),
-                        TEST_DEFAULT_CHAIN.record().plain_text_name.to_string()
+                        TEST_DEFAULT_CHAIN.rec().plain_text_name.to_string()
                     )),
                     true
                 );

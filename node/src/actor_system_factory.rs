@@ -417,7 +417,7 @@ fn validate_database_chain_correctness(
     chain: Chain,
     persistent_config: &dyn PersistentConfiguration,
 ) {
-    let required_chain = chain.record().plain_text_name.to_string();
+    let required_chain = chain.rec().plain_text_name.to_string();
     let chain_in_db = persistent_config.chain_name();
     if required_chain != chain_in_db {
         panic!(

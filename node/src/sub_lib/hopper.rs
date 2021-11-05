@@ -221,7 +221,7 @@ mod tests {
             RouteSegment::new(vec![&key12, &key34, &key56], Component::ProxyClient),
             cryptde,
             Some(paying_wallet),
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
@@ -270,7 +270,7 @@ mod tests {
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),
             cryptde,
             Some(paying_wallet.clone()),
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();

@@ -806,7 +806,7 @@ mod tests {
             ),
             main_cryptde,
             None,
-            Some(Chain::EthRopsten.record().contract),
+            Some(Chain::EthRopsten.rec().contract),
         )
         .unwrap();
         let package = ExpiredCoresPackage::new(

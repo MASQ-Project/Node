@@ -198,7 +198,7 @@ impl NodeDescriptor {
             Some(node_addr) => node_addr.to_string(),
             None => ":".to_string(),
         };
-        let chain_identifier = self.blockchain.record().chain_identifier;
+        let chain_identifier = self.blockchain.rec().chain_identifier;
         format!(
             "{}{}{}{}{}{}",
             MASQ_URL_PREFIX,

@@ -165,13 +165,13 @@ mod tests {
             "dump_config_creates_database_if_nonexistent",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN.record().directory_by_platform)
-        .join(TEST_DEFAULT_CHAIN.record().plain_text_name);
+        .join(TEST_DEFAULT_CHAIN.rec().directory_by_platform)
+        .join(TEST_DEFAULT_CHAIN.rec().plain_text_name);
         let mut holder = FakeStreamHolder::new();
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.record().plain_text_name)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().plain_text_name)
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
@@ -186,7 +186,7 @@ mod tests {
             other => panic!("Was expecting Value::Object, got {:?} instead", other),
         };
         let expected_value = json!({
-           "chainName": TEST_DEFAULT_CHAIN.record().plain_text_name.to_string(),
+           "chainName": TEST_DEFAULT_CHAIN.rec().plain_text_name.to_string(),
            "clandestinePort": actual_map.get ("clandestinePort"),
            "consumingWalletDerivationPath": null,
            "consumingWalletPublicKey": null,
@@ -197,7 +197,7 @@ mod tests {
            "pastNeighbors": null,
            "schemaVersion": CURRENT_SCHEMA_VERSION.to_string(),
            "seed": null,
-           "startBlock": &TEST_DEFAULT_CHAIN.record().contract_creation_block.to_string(),
+           "startBlock": &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
         });
         assert_eq!(actual_value, expected_value);
         assert!(output.ends_with("\n}\n"))
@@ -211,8 +211,8 @@ mod tests {
             "dump_config_dumps_existing_database_without_password",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN.record().directory_by_platform)
-        .join(TEST_DEFAULT_CHAIN.record().plain_text_name);
+        .join(TEST_DEFAULT_CHAIN.rec().directory_by_platform)
+        .join(TEST_DEFAULT_CHAIN.rec().plain_text_name);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -254,7 +254,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.record().plain_text_name)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().plain_text_name)
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
@@ -292,10 +292,7 @@ mod tests {
         check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
-            &TEST_DEFAULT_CHAIN
-                .record()
-                .contract_creation_block
-                .to_string(),
+            &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
         );
         check(
             "exampleEncrypted",
@@ -312,8 +309,8 @@ mod tests {
             "dump_config_dumps_existing_database_with_correct_password",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN.record().directory_by_platform)
-        .join(TEST_DEFAULT_CHAIN.record().plain_text_name);
+        .join(TEST_DEFAULT_CHAIN.rec().directory_by_platform)
+        .join(TEST_DEFAULT_CHAIN.rec().plain_text_name);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -355,7 +352,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.record().plain_text_name)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().plain_text_name)
             .param("--db-password", "password")
             .opt("--dump-config")
             .into();
@@ -391,10 +388,7 @@ mod tests {
         check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
-            &TEST_DEFAULT_CHAIN
-                .record()
-                .contract_creation_block
-                .to_string(),
+            &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
         );
         let expected_ee_entry = dao.get("example_encrypted").unwrap().value_opt.unwrap();
         let expected_ee_decrypted = Bip39::decrypt_bytes(&expected_ee_entry, "password").unwrap();
@@ -416,8 +410,8 @@ mod tests {
             "dump_config_dumps_existing_database_with_incorrect_password",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN.record().directory_by_platform)
-        .join(TEST_DEFAULT_CHAIN.record().plain_text_name);
+        .join(TEST_DEFAULT_CHAIN.rec().directory_by_platform)
+        .join(TEST_DEFAULT_CHAIN.rec().plain_text_name);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -459,7 +453,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.record().plain_text_name)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().plain_text_name)
             .param("--db-password", "incorrect")
             .opt("--dump-config")
             .into();
@@ -498,10 +492,7 @@ mod tests {
         check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
-            &TEST_DEFAULT_CHAIN
-                .record()
-                .contract_creation_block
-                .to_string(),
+            &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
         );
         check(
             "exampleEncrypted",

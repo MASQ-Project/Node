@@ -221,7 +221,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet),
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
@@ -268,7 +268,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet),
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();

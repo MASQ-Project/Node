@@ -74,7 +74,7 @@ fn server_relays_cores_package() {
         ),
         cryptde,
         Some(make_paying_wallet(b"consuming")),
-        Some(cluster.chain.record().contract),
+        Some(cluster.chain.rec().contract),
     )
     .unwrap();
     let incipient = IncipientCoresPackage::new(
@@ -119,7 +119,7 @@ fn one_mock_node_talks_to_another() {
         ),
         cryptde,
         Some(make_paying_wallet(b"consuming")),
-        Some(cluster.chain.record().contract),
+        Some(cluster.chain.rec().contract),
     )
     .unwrap();
     let incipient_cores_package = IncipientCoresPackage::new(

@@ -510,7 +510,7 @@ impl Bootstrapper {
             None => format!(
                 "{}{}{}{}{}:",
                 MASQ_URL_PREFIX,
-                chain.record().chain_identifier,
+                chain.rec().chain_identifier,
                 CHAIN_IDENTIFIER_DELIMITER,
                 cryptde.public_key_to_descriptor_fragment(cryptde.public_key()),
                 CENTRAL_DELIMITER

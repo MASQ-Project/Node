@@ -327,7 +327,7 @@ fn create_request_icp(
             originating_node.main_cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
             return_route_id,
-            Some(chain.record().contract),
+            Some(chain.rec().contract),
         )
         .unwrap(),
         MessageType::ClientRequest(VersionedData::new(
@@ -372,7 +372,7 @@ fn create_meaningless_icp(
             originating_node.main_cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
             1357,
-            Some(TEST_DEFAULT_MULTINODE_CHAIN.record().contract),
+            Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
         )
         .unwrap(),
         MessageType::ClientRequest(VersionedData::new(
@@ -415,7 +415,7 @@ fn create_server_drop_report(
         originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
-        Some(TEST_DEFAULT_MULTINODE_CHAIN.record().contract),
+        Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
     )
     .unwrap();
     route
@@ -462,7 +462,7 @@ fn create_client_drop_report(
         originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
-        Some(TEST_DEFAULT_MULTINODE_CHAIN.record().contract),
+        Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
     )
     .unwrap();
     let payload = MessageType::ClientRequest(VersionedData::new(

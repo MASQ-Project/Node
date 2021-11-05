@@ -73,6 +73,10 @@ impl SetupReporter for SetupReporterReal {
                     blanked_out_former_values.insert(v.name.clone(), former_value);
                 };
             });
+        //we had troubles at clearance of this parameter on an error resulting in a diverging chain from data_dir
+        if blanked_out_former_values.get("chain").is_some() {
+            let _ = blanked_out_former_values.remove("chain");
+        }
         let mut incoming_setup = incoming_setup
             .into_iter()
             .filter(|v| v.value.is_some())
@@ -245,7 +249,7 @@ impl SetupReporterReal {
             (Some(_), Some(uisrv)) if uisrv.status == Set => uisrv.value.clone(),
             (Some(chain_str), Some(_)) => chain_str,
             (None, Some(uisrv)) => uisrv.value.clone(),
-            (None, None) => DEFAULT_CHAIN.record().plain_text_name.to_string(),
+            (None, None) => DEFAULT_CHAIN.rec().plain_text_name.to_string(),
         };
         let data_directory_opt = match (
             value_m!(multi_config, "data-directory", String),
@@ -491,7 +495,7 @@ impl ValueRetriever for Chain {
         _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        Some((DEFAULT_CHAIN.record().plain_text_name.to_string(), Default))
+        Some((DEFAULT_CHAIN.rec().plain_text_name.to_string(), Default))
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -1016,7 +1020,7 @@ mod tests {
             };
         let expected_result = vec![
             ("blockchain-service-url", "", Required),
-            ("chain", DEFAULT_CHAIN.record().plain_text_name, Default),
+            ("chain", DEFAULT_CHAIN.rec().plain_text_name, Default),
             ("clandestine-port", "1234", Default),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),
@@ -1067,7 +1071,7 @@ mod tests {
         );
         let existing_setup = setup_cluster_from(vec![
             ("blockchain-service-url", "https://example.com", Set),
-            ("chain", TEST_DEFAULT_CHAIN.record().plain_text_name, Set),
+            ("chain", TEST_DEFAULT_CHAIN.rec().plain_text_name, Set),
             ("clandestine-port", "1234", Set),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
             ("crash-point", "Message", Set),
@@ -1090,7 +1094,7 @@ mod tests {
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Set),
-            ("chain", TEST_DEFAULT_CHAIN.record().plain_text_name, Set),
+            ("chain", TEST_DEFAULT_CHAIN.rec().plain_text_name, Set),
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
@@ -1125,7 +1129,7 @@ mod tests {
         );
         let incoming_setup = vec![
             ("blockchain-service-url", "https://example.com"),
-            ("chain", TEST_DEFAULT_CHAIN.record().plain_text_name),
+            ("chain", TEST_DEFAULT_CHAIN.rec().plain_text_name),
             ("clandestine-port", "1234"),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("crash-point", "Message"),
@@ -1152,7 +1156,7 @@ mod tests {
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Set),
-            ("chain", TEST_DEFAULT_CHAIN.record().plain_text_name, Set),
+            ("chain", TEST_DEFAULT_CHAIN.rec().plain_text_name, Set),
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
@@ -1188,7 +1192,7 @@ mod tests {
         );
         vec![
             ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
-            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.record().plain_text_name),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().plain_text_name),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("MASQ_CRASH_POINT", "Error"),
@@ -1213,7 +1217,7 @@ mod tests {
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Configured),
-            ("chain", TEST_DEFAULT_CHAIN.record().plain_text_name, Configured),
+            ("chain", TEST_DEFAULT_CHAIN.rec().plain_text_name, Configured),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
@@ -1249,8 +1253,8 @@ mod tests {
         let data_root = home_dir.join("data_root");
         let mainnet_dir = data_root
             .join("MASQ")
-            .join(DEFAULT_CHAIN.record().directory_by_platform)
-            .join(DEFAULT_CHAIN.record().plain_text_name);
+            .join(DEFAULT_CHAIN.rec().directory_by_platform)
+            .join(DEFAULT_CHAIN.rec().plain_text_name);
         {
             std::fs::create_dir_all(mainnet_dir.clone()).unwrap();
             let mut config_file = File::create(mainnet_dir.join("config.toml")).unwrap();
@@ -1279,8 +1283,8 @@ mod tests {
         }
         let ropsten_dir = data_root
             .join("MASQ")
-            .join(TEST_DEFAULT_CHAIN.record().directory_by_platform)
-            .join(TEST_DEFAULT_CHAIN.record().plain_text_name);
+            .join(TEST_DEFAULT_CHAIN.rec().directory_by_platform)
+            .join(TEST_DEFAULT_CHAIN.rec().plain_text_name);
         {
             std::fs::create_dir_all(ropsten_dir.clone()).unwrap();
             let mut config_file = File::create(ropsten_dir.join("config.toml")).unwrap();
@@ -1315,12 +1319,12 @@ mod tests {
 
         let params = vec![UiSetupRequestValue::new(
             "chain",
-            DEFAULT_CHAIN.record().plain_text_name,
+            DEFAULT_CHAIN.rec().plain_text_name,
         )];
         let existing_setup = subject.get_modified_setup(HashMap::new(), params).unwrap();
         let params = vec![UiSetupRequestValue::new(
             "chain",
-            TEST_DEFAULT_CHAIN.record().plain_text_name,
+            TEST_DEFAULT_CHAIN.rec().plain_text_name,
         )];
 
         let result = subject.get_modified_setup(existing_setup, params).unwrap();
@@ -1331,7 +1335,7 @@ mod tests {
                 "https://www.ropsten.com",
                 Configured,
             ),
-            ("chain", TEST_DEFAULT_CHAIN.record().plain_text_name, Set),
+            ("chain", TEST_DEFAULT_CHAIN.rec().plain_text_name, Set),
             ("clandestine-port", "8877", Configured),
             ("config-file", "config.toml", Default),
             (
@@ -1347,7 +1351,7 @@ mod tests {
             ),
             (
                 "db-password",
-                TEST_DEFAULT_CHAIN.record().plain_text_name,
+                TEST_DEFAULT_CHAIN.rec().plain_text_name,
                 Configured,
             ),
             ("dns-servers", "8.7.6.5", Configured),
@@ -1394,7 +1398,7 @@ mod tests {
         );
         vec![
             ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
-            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.record().plain_text_name),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().plain_text_name),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("MASQ_CRASH_POINT", "Panic"),
@@ -1466,7 +1470,7 @@ mod tests {
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Configured),
-            ("chain", TEST_DEFAULT_CHAIN.record().plain_text_name, Configured),
+            ("chain", TEST_DEFAULT_CHAIN.rec().plain_text_name, Configured),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
@@ -1511,10 +1515,10 @@ mod tests {
         );
         let current_data_dir = base_dir
             .join("MASQ")
-            .join(DEFAULT_CHAIN.record().plain_text_name);
+            .join(DEFAULT_CHAIN.rec().plain_text_name);
         let existing_setup = setup_cluster_from(vec![
             ("neighborhood-mode", "zero-hop", Set),
-            ("chain", DEFAULT_CHAIN.record().plain_text_name, Default),
+            ("chain", DEFAULT_CHAIN.rec().plain_text_name, Default),
             (
                 "data-directory",
                 &current_data_dir.to_string_lossy().to_string(),
@@ -1528,15 +1532,15 @@ mod tests {
                 Default,
             ),
         ]);
-        let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN.record().plain_text_name)]
+        let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN.rec().plain_text_name)]
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
         let base_data_dir = base_dir.join("data_dir");
         let expected_data_directory = base_data_dir
             .join("MASQ")
-            .join(TEST_DEFAULT_CHAIN.record().directory_by_platform)
-            .join(TEST_DEFAULT_CHAIN.record().plain_text_name);
+            .join(TEST_DEFAULT_CHAIN.rec().directory_by_platform)
+            .join(TEST_DEFAULT_CHAIN.rec().plain_text_name);
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(base_data_dir))
@@ -1561,10 +1565,10 @@ mod tests {
         );
         let current_data_dir = base_dir
             .join("MASQ")
-            .join(DEFAULT_CHAIN.record().plain_text_name);
+            .join(DEFAULT_CHAIN.rec().plain_text_name);
         let existing_setup = setup_cluster_from(vec![
             ("blockchain-service-url", "", Required),
-            ("chain", DEFAULT_CHAIN.record().plain_text_name, Default),
+            ("chain", DEFAULT_CHAIN.rec().plain_text_name, Default),
             ("clandestine-port", "7788", Default),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),
@@ -1593,15 +1597,15 @@ mod tests {
                 Default,
             ),
         ]);
-        let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN.record().plain_text_name)]
+        let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN.rec().plain_text_name)]
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
         let base_data_dir = base_dir.join("data_dir");
         let expected_data_directory = base_data_dir
             .join("MASQ")
-            .join(TEST_DEFAULT_CHAIN.record().directory_by_platform)
-            .join(TEST_DEFAULT_CHAIN.record().plain_text_name);
+            .join(TEST_DEFAULT_CHAIN.rec().directory_by_platform)
+            .join(TEST_DEFAULT_CHAIN.rec().plain_text_name);
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(base_data_dir))
@@ -1615,6 +1619,74 @@ mod tests {
             .unwrap()
             .0;
 
+        let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
+        assert_eq!(actual_data_directory, expected_data_directory);
+    }
+
+    #[test]
+    fn get_modified_setup_data_directory_on_error_with_input_trying_to_blank_chain_out() {
+        //by blanking the original chain the default values is set to its place
+        let _guard = EnvironmentGuard::new();
+        let base_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_setup_data_directory_depends_on_new_chain_on_error",
+        );
+        let current_data_dir = base_dir
+            .join("MASQ")
+            .join(BlockChain::PolyMumbai.rec().plain_text_name); //not a default
+        let existing_setup = setup_cluster_from(vec![
+            ("blockchain-service-url", "", Required),
+            ("chain", BlockChain::PolyMumbai.rec().plain_text_name, Set),
+            ("clandestine-port", "7788", Default),
+            ("config-file", "config.toml", Default),
+            ("consuming-private-key", "", Blank),
+            (
+                "data-directory",
+                &current_data_dir.to_string_lossy().to_string(),
+                Default,
+            ),
+            ("db-password", "", Required),
+            ("dns-servers", "1.1.1.1", Default),
+            (
+                "earning-wallet",
+                "0x47fb8671db83008d382c2e6ea67fa377378c0cea",
+                Default,
+            ),
+            ("gas-price", "1", Default),
+            ("ip", "1.2.3.4", Set),
+            ("log-level", "warn", Default),
+            ("neighborhood-mode", "originate-only", Set),
+            ("neighbors", "", Blank),
+            (
+                "real-user",
+                &crate::bootstrapper::RealUser::new(None, None, None)
+                    .populate(&DirsWrapperReal {})
+                    .to_string(),
+                Default,
+            ),
+        ]);
+        let incoming_setup = vec![UiSetupRequestValue::clear("chain")];
+        let base_data_dir = base_dir.join("data_dir");
+        let expected_chain = DEFAULT_CHAIN.rec().plain_text_name;
+        let expected_data_directory = base_data_dir
+            .join("MASQ")
+            .join(DEFAULT_CHAIN.rec().directory_by_platform)
+            .join(DEFAULT_CHAIN.rec().plain_text_name);
+        let dirs_wrapper = Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(base_data_dir))
+                .home_dir_result(Some(base_dir)),
+        );
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let result = subject
+            .get_modified_setup(existing_setup, incoming_setup)
+            .err()
+            .unwrap()
+            .0;
+
+        let actual_chain = &result.get("chain").unwrap().value;
+        assert_eq!(actual_chain, expected_chain);
         let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
         assert_eq!(actual_data_directory, expected_data_directory);
     }
@@ -1650,7 +1722,7 @@ mod tests {
     fn calculate_fundamentals_with_only_environment() {
         let _guard = EnvironmentGuard::new();
         vec![
-            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.record().plain_text_name),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().plain_text_name),
             ("MASQ_DATA_DIRECTORY", "env_dir"),
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ]
@@ -1677,7 +1749,7 @@ mod tests {
     fn calculate_fundamentals_with_environment_and_obsolete_setup() {
         let _guard = EnvironmentGuard::new();
         vec![
-            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.record().plain_text_name),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().plain_text_name),
             ("MASQ_DATA_DIRECTORY", "env_dir"),
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ]
@@ -1708,7 +1780,7 @@ mod tests {
     fn calculate_fundamentals_with_environment_and_overriding_setup() {
         let _guard = EnvironmentGuard::new();
         vec![
-            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.record().plain_text_name),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().plain_text_name),
             ("MASQ_DATA_DIRECTORY", "env_dir"),
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ]
@@ -1810,7 +1882,7 @@ mod tests {
         let actual_chain = result.get("chain").unwrap();
         assert_eq!(
             actual_chain,
-            &UiSetupResponseValue::new("chain", DEFAULT_CHAIN.record().plain_text_name, Default)
+            &UiSetupResponseValue::new("chain", DEFAULT_CHAIN.rec().plain_text_name, Default)
         );
     }
 
@@ -2042,7 +2114,7 @@ mod tests {
             .data_dir()
             .unwrap()
             .join("MASQ")
-            .join(DEFAULT_CHAIN.record().plain_text_name);
+            .join(DEFAULT_CHAIN.rec().plain_text_name);
         let setup = vec![
             // no config-file setting
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
@@ -2077,7 +2149,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Some((DEFAULT_CHAIN.record().plain_text_name.to_string(), Default))
+            Some((DEFAULT_CHAIN.rec().plain_text_name.to_string(), Default))
         );
     }
 

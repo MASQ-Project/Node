@@ -672,7 +672,7 @@ mod tests {
     fn sign_with_uninitialized_wallets_panic() {
         Wallet::new("").as_payer(
             &CryptdePublicKey::new(&[1, 2, 3]),
-            &TEST_DEFAULT_CHAIN.record().contract,
+            &TEST_DEFAULT_CHAIN.rec().contract,
         );
     }
 

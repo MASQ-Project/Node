@@ -397,7 +397,7 @@ mod tests {
             RouteSegment::new(vec![], Component::ProxyClient),
             cryptde,
             Some(paying_wallet.clone()),
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .err()
         .unwrap();
@@ -423,7 +423,7 @@ mod tests {
             cryptde,
             Some(paying_wallet.clone()),
             0,
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .err()
         .unwrap();
@@ -467,7 +467,7 @@ mod tests {
         let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let return_route_id = 4321;
-        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
 
         let subject = Route::round_trip(
             RouteSegment::new(vec![&a_key, &b_key, &c_key, &d_key], Component::ProxyClient),
@@ -577,7 +577,7 @@ mod tests {
         let b_key = PublicKey::new(&[66, 66, 66]);
         let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
-        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
 
         let subject = Route::one_way(
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),
@@ -616,7 +616,7 @@ mod tests {
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
-        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let subject = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::Neighborhood),
             cryptde,
@@ -671,7 +671,7 @@ mod tests {
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
-        let contract_address = TEST_DEFAULT_CHAIN.record().contract;
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let mut subject = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::Neighborhood),
             cryptde,
@@ -748,7 +748,7 @@ mod tests {
             cryptde,
             Some(paying_wallet),
             1234,
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
 
@@ -769,7 +769,7 @@ mod tests {
             RouteSegment::new(vec![&key1, &key2, &key3], Component::Neighborhood),
             main_cryptde(),
             Some(paying_wallet),
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
 
@@ -803,7 +803,7 @@ Encrypted with AwQFBg: LiveHop { public_key: , payer: Some(Payer { wallet: Walle
             &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN),
             Some(paying_wallet),
             1234,
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
 

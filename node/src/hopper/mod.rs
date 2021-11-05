@@ -206,7 +206,7 @@ mod tests {
             ),
             main_cryptde,
             Some(paying_wallet),
-            Some(TEST_DEFAULT_CHAIN.record().contract),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let incipient_package = IncipientCoresPackage::new(

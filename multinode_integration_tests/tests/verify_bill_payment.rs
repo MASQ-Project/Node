@@ -52,7 +52,7 @@ fn verify_bill_payment() {
     let contract_addr = deploy_smart_contract(&contract_owner_wallet, &web3, cluster.chain);
     assert_eq!(
         contract_addr,
-        cluster.chain.record().contract,
+        cluster.chain.rec().contract,
         "Ganache is not as predictable as we thought: Update blockchain_interface::MULTINODE_CONTRACT_ADDRESS with {:?}",
         contract_addr
     );
