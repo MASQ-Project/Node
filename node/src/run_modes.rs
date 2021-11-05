@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::apps::{app_config_dumper, app_daemon, app_node};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};

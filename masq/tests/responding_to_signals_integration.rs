@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 #![cfg(not(target_os = "windows"))]
 //sadly enough, I cannot come up with an idea of how to simulate the Windows ctrl-c event

@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_cli_lib::terminal::integration_test_utils::{
     MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE,
