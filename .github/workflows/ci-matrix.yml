@@ -12,8 +12,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # os: [macOS-latest, ubuntu-latest, windows-latest]
-        os: [ubuntu-latest, windows-latest]
+        os: [macOS-latest, ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v2
       - name: Cache sccache results
