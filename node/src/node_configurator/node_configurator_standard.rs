@@ -1795,8 +1795,8 @@ mod tests {
         assert_eq!(
             config.data_directory,
             PathBuf::from("/home/booga/Library/Application Support/MASQ")
-                .join(DEFAULT_CHAIN.record().directory_by_platform)
-                .join(DEFAULT_CHAIN.record().plain_text_name)
+                .join(DEFAULT_CHAIN.rec().directory_by_platform)
+                .join(DEFAULT_CHAIN.rec().plain_text_name)
         );
     }
 
