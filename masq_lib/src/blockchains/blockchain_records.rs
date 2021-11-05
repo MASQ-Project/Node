@@ -132,7 +132,7 @@ mod tests {
     }
 
     fn assert_returns_correct_record(chain: Chain, expected_id: u64) -> Chain {
-        assert_eq!(chain.record().num_chain_id, expected_id);
+        assert_eq!(chain.rec().num_chain_id, expected_id);
         chain
     }
 
@@ -149,7 +149,7 @@ mod tests {
     }
 
     fn assert_from_str(chain: Chain) -> Chain {
-        assert_eq!(Chain::from(chain.record().plain_text_name), chain);
+        assert_eq!(Chain::from(chain.rec().plain_text_name), chain);
         chain
     }
 
