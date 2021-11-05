@@ -1,14 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use actix::Message;
-use actix::Recipient;
-use core::fmt;
-use itertools::Itertools;
-use lazy_static::lazy_static;
-use serde_derive::{Deserialize, Serialize};
-use std::fmt::{Debug, Display, Formatter};
-use std::net::IpAddr;
-use std::str::FromStr;
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::configurator::NewPasswordMessage;
@@ -22,10 +13,19 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::wallet::Wallet;
+use actix::Message;
+use actix::Recipient;
+use core::fmt;
+use itertools::Itertools;
+use lazy_static::lazy_static;
 use masq_lib::blockchains::blockchain_records::CHAINS;
 use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
 use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX};
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use serde_derive::{Deserialize, Serialize};
+use std::fmt::{Debug, Display, Formatter};
+use std::net::IpAddr;
+use std::str::FromStr;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
