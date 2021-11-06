@@ -90,7 +90,7 @@ impl fmt::Display for NodeReference {
             f,
             "{}{}{}{}{}{}:{}",
             MASQ_URL_PREFIX,
-            self.chain.rec().chain_identifier,
+            self.chain.rec().descriptor_identifier,
             CHAIN_IDENTIFIER_DELIMITER,
             public_key_string,
             CENTRAL_DELIMITER,
@@ -445,12 +445,12 @@ mod tests {
 
     #[test]
     fn node_reference_can_display_itself() {
-        let chain_id = TEST_DEFAULT_MULTINODE_CHAIN;
+        let chain = TEST_DEFAULT_MULTINODE_CHAIN;
         let subject = NodeReference::new(
             PublicKey::new(&b"Booga"[..]),
             Some(IpAddr::from_str("12.34.56.78").unwrap()),
             vec![1234, 5678],
-            chain_id,
+            chain,
         );
 
         let result = format!("{}", subject);

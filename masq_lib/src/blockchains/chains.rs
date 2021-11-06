@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchains::blockchain_records::{BlockchainRecord, CHAINS};
 use crate::constants::DEFAULT_CHAIN;
@@ -27,7 +27,7 @@ impl From<&str> for Chain {
             "mumbai" => Chain::PolyMumbai,
             "ropsten" => Chain::EthRopsten,
             "dev" => Chain::Dev,
-            x => panic!("Clap let in a wrong value for chain: '{}'", x),
+            x => panic!("Clap let in a wrong value for chain: '{}'; if this happens we need to track down the slit", x),
         }
     }
 }
@@ -36,15 +36,15 @@ impl Chain {
     pub fn rec(&self) -> &BlockchainRecord {
         CHAINS
             .iter()
-            .find(|b| &b.literal_chain_id == self)
+            .find(|b| &b.self_id == self)
             .unwrap_or_else(|| panic!("BlockchainRecord for '{:?}' doesn't exist", self))
-        //untested panic - but works as expect()
+        //untested panic - but works as an expect()
     }
 }
 
 pub fn chain_from_chain_identifier_opt(identifier: &str) -> Option<Chain> {
-    return_record_opt_standard_impl(&|b: &&BlockchainRecord| b.chain_identifier == identifier)
-        .map(|record| record.literal_chain_id)
+    return_record_opt_standard_impl(&|b: &&BlockchainRecord| b.descriptor_identifier == identifier)
+        .map(|record| record.self_id)
 }
 
 fn return_record_opt_standard_impl(
@@ -78,15 +78,15 @@ mod tests {
     fn return_record_opt_panics_if_more_records_meet_the_condition_from_the_closure() {
         let searched_name = "BruhBruh";
         let mut record_one = make_defaulted_blockchain_record();
-        record_one.plain_text_name = searched_name;
+        record_one.commandline_name = searched_name;
         let mut record_two = make_defaulted_blockchain_record();
-        record_two.plain_text_name = "Jooodooo";
+        record_two.commandline_name = "Jooodooo";
         let mut record_three = make_defaulted_blockchain_record();
-        record_three.plain_text_name = searched_name;
+        record_three.commandline_name = searched_name;
         let collection = [record_one, record_two, record_three];
 
         let _ = return_record_opt_body(
-            &|b: &&BlockchainRecord| b.plain_text_name == searched_name,
+            &|b: &&BlockchainRecord| b.commandline_name == searched_name,
             &collection,
         );
     }
@@ -116,18 +116,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Clap let in a wrong value for chain: 'olala'")]
+    #[should_panic(
+        expected = "Clap let in a wrong value for chain: 'olala'; if this happens we need to track down the slit"
+    )]
     fn gibberish_causes_a_panic() {
         let _ = Chain::from("olala");
     }
 
-    fn make_defaulted_blockchain_record() -> BlockchainRecord {
+    fn make_defaulted_blockchain_record<'a>() -> BlockchainRecord {
         BlockchainRecord {
             num_chain_id: 0,
-            literal_chain_id: Chain::EthMainnet,
-            plain_text_name: "",
-            directory_by_platform: "",
-            chain_identifier: "",
+            self_id: Chain::EthMainnet,
+            commandline_name: "",
+            family_directory: "",
+            descriptor_identifier: "",
             contract: Default::default(),
             contract_creation_block: 0,
         }

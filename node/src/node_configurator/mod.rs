@@ -93,7 +93,7 @@ pub fn real_user_with_data_directory_opt_and_chain(
 ) -> (RealUser, Option<PathBuf>, Chain) {
     let real_user = real_user_from_multi_config_or_populate(multi_config, dirs_wrapper);
     let chain_name = value_m!(multi_config, "chain", String)
-        .unwrap_or_else(|| DEFAULT_CHAIN.rec().plain_text_name.to_string());
+        .unwrap_or_else(|| DEFAULT_CHAIN.rec().commandline_name.to_string());
     let data_directory_opt = value_m!(multi_config, "data-directory", PathBuf);
     (
         real_user,
@@ -129,11 +129,11 @@ pub fn data_directory_from_context(
                 .to_string();
             let right_local_data_dir =
                 wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
-            let platform = chain.rec().directory_by_platform;
+            let platform = chain.rec().family_directory;
             PathBuf::from(right_local_data_dir)
                 .join("MASQ")
                 .join(platform)
-                .join(chain.rec().plain_text_name)
+                .join(chain.rec().commandline_name)
         }
     }
 }
@@ -220,12 +220,12 @@ mod tests {
         let expected_root = DirsWrapperReal {}.data_dir().unwrap();
         let expected_directory = expected_root
             .join("MASQ")
-            .join(DEFAULT_CHAIN.rec().directory_by_platform)
-            .join(DEFAULT_CHAIN.rec().plain_text_name);
+            .join(DEFAULT_CHAIN.rec().family_directory)
+            .join(DEFAULT_CHAIN.rec().commandline_name);
         assert_eq!(directory, expected_directory);
         assert_eq!(
-            chain.rec().plain_text_name,
-            DEFAULT_CHAIN.rec().plain_text_name
+            chain.rec().commandline_name,
+            DEFAULT_CHAIN.rec().commandline_name
         );
     }
 

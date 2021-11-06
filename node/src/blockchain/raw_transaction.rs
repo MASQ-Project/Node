@@ -220,7 +220,7 @@ mod tests {
         assert_signature(Chain::PolyMumbai, signatures)
     }
 
-    fn assert_signature(chain: Chain, slice_of_sclices: &[&[u8]]) {
+    fn assert_signature(chain: Chain, collection_of_tx_signatures: &[&[u8]]) {
         let first_part_tx_1 = r#"[{"nonce": "0x9", "gasPrice": "0x4a817c800", "gasLimit": "0x5208", "to": "0x3535353535353535353535353535353535353535", "value": "0xde0b6b3a7640000", "data": []}, {"private_key": "0x4646464646464646464646464646464646464646464646464646464646464646", "signed": "#;
         let first_part_tx_2 = r#"[{"nonce": "0x0", "gasPrice": "0xd55698372431", "gasLimit": "0x1e8480", "to": "0xF0109fC8DF283027b6285cc889F5aA624EaC1F55", "value": "0x3b9aca00", "data": []}, {"private_key": "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318", "signed": "#;
         let first_part_tx_3 = r#"[{"nonce": "0x00", "gasPrice": "0x09184e72a000", "gasLimit": "0x2710", "to": null, "value": "0x00", "data": [127,116,101,115,116,50,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,96,0,87]}, {"private_key": "0xe331b6d69882b4cb4ea581d88e0b604039a3de5967688d3dcffdd2270c0fd109", "signed": "#;
@@ -232,7 +232,7 @@ mod tests {
             "[{}]",
             vec![first_part_tx_1, first_part_tx_2, first_part_tx_3]
                 .iter()
-                .zip(slice_of_sclices.iter())
+                .zip(collection_of_tx_signatures.iter())
                 .zip(0usize..2)
                 .fold(String::new(), |so_far, actual| [
                     so_far,
@@ -276,7 +276,7 @@ mod tests {
         }
     }
 
-    //TODO I think the tests below just copy what the other tests already tested
+    //TODO I think the tests below just duplicate what the other tests already tested
 
     #[test]
     fn test_transfer_transaction_signing_ropsten() {
