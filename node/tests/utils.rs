@@ -313,7 +313,7 @@ impl MASQNode {
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )
-            .pair("--chain", TEST_DEFAULT_CHAIN.rec().plain_text_name)
+            .pair("--chain", TEST_DEFAULT_CHAIN.rec().commandline_name)
             .pair("--log-level", "trace")
             .args
     }

@@ -165,13 +165,13 @@ mod tests {
             "dump_config_creates_database_if_nonexistent",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN.rec().directory_by_platform)
-        .join(TEST_DEFAULT_CHAIN.rec().plain_text_name);
+        .join(TEST_DEFAULT_CHAIN.rec().family_directory)
+        .join(TEST_DEFAULT_CHAIN.rec().commandline_name);
         let mut holder = FakeStreamHolder::new();
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.rec().plain_text_name)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().commandline_name)
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
@@ -186,7 +186,7 @@ mod tests {
             other => panic!("Was expecting Value::Object, got {:?} instead", other),
         };
         let expected_value = json!({
-           "chainName": TEST_DEFAULT_CHAIN.rec().plain_text_name.to_string(),
+           "chainName": TEST_DEFAULT_CHAIN.rec().commandline_name.to_string(),
            "clandestinePort": actual_map.get ("clandestinePort"),
            "consumingWalletDerivationPath": null,
            "consumingWalletPublicKey": null,
@@ -211,8 +211,8 @@ mod tests {
             "dump_config_dumps_existing_database_without_password",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN.rec().directory_by_platform)
-        .join(TEST_DEFAULT_CHAIN.rec().plain_text_name);
+        .join(TEST_DEFAULT_CHAIN.rec().family_directory)
+        .join(TEST_DEFAULT_CHAIN.rec().commandline_name);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -254,7 +254,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.rec().plain_text_name)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().commandline_name)
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
@@ -309,8 +309,8 @@ mod tests {
             "dump_config_dumps_existing_database_with_correct_password",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN.rec().directory_by_platform)
-        .join(TEST_DEFAULT_CHAIN.rec().plain_text_name);
+        .join(TEST_DEFAULT_CHAIN.rec().family_directory)
+        .join(TEST_DEFAULT_CHAIN.rec().commandline_name);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -352,7 +352,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.rec().plain_text_name)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().commandline_name)
             .param("--db-password", "password")
             .opt("--dump-config")
             .into();
@@ -410,8 +410,8 @@ mod tests {
             "dump_config_dumps_existing_database_with_incorrect_password",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN.rec().directory_by_platform)
-        .join(TEST_DEFAULT_CHAIN.rec().plain_text_name);
+        .join(TEST_DEFAULT_CHAIN.rec().family_directory)
+        .join(TEST_DEFAULT_CHAIN.rec().commandline_name);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -453,7 +453,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.rec().plain_text_name)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().commandline_name)
             .param("--db-password", "incorrect")
             .opt("--dump-config")
             .into();

@@ -155,7 +155,7 @@ pub fn chain_arg<'a>() -> Arg<'a, 'a> {
 }
 
 pub fn official_chain_names() -> &'static [&'static str] {
-    &["polygon-mainnet", "eth-mainnet", "mumbai", "ropsten", "dev"] //TODO one day 'dev' may be left out
+    &["polygon-mainnet", "eth-mainnet", "mumbai", "ropsten", "dev"]
 }
 
 pub fn db_password_arg(help: &str) -> Arg {

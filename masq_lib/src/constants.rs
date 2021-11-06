@@ -1,5 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use const_format::concatcp;
+
 use crate::blockchains::chains::Chain;
 
 pub const DEFAULT_CHAIN: Chain = Chain::EthMainnet;
@@ -15,14 +17,6 @@ pub const DEFAULT_UI_PORT: u16 = 5333;
 pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 
 pub const MASQ_PROMPT: &str = "masq> ";
-
-pub const ETH_MAINNET_IDENTIFIER: &str = "eth-mainnet";
-pub const ETH_ROPSTEN_IDENTIFIER: &str = "eth-ropsten";
-pub const DEV_CHAIN_IDENTIFIER: &str = "dev";
-pub const POLY_MAINNET_IDENTIFIER: &str = "polygon-mainnet";
-pub const POLY_MUMBAI_IDENTIFIER: &str = "polygon-mumbai";
-pub const CENTRAL_DELIMITER: char = '@';
-pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
 
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
 pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
@@ -55,3 +49,20 @@ pub const NODE_ALREADY_RUNNING_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 3;
 pub const UNMARSHAL_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 4;
 pub const SETUP_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 5;
 pub const TIMEOUT_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 6;
+
+//descriptor
+pub const CENTRAL_DELIMITER: char = '@';
+pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
+
+//chains
+pub const POLYGON_MAINNET_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, MAINNET);
+pub const POLYGON_MUMBAI_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, MUMBAI);
+pub const DEV_CHAIN_IDENTIFIER: &str = "dev";
+pub const ETH_MAINNET_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, MAINNET);
+pub const ETH_ROPSTEN_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, ROPSTEN);
+pub const POLYGON_FAMILY: &str = "polygon";
+pub const ETH_FAMILY: &str = "eth";
+pub const MUMBAI: &str = "mumbai";
+pub const ROPSTEN: &str = "ropsten";
+const MAINNET: &str = "mainnet";
+const LINK: &str = "-";

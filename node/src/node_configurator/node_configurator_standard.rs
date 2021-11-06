@@ -379,7 +379,7 @@ pub mod standard {
                         }
                     };
                     let chain_name = value_m!(multi_config, "chain", String)
-                        .unwrap_or_else(|| DEFAULT_CHAIN.rec().plain_text_name.to_string());
+                        .unwrap_or_else(|| DEFAULT_CHAIN.rec().commandline_name.to_string());
                     let results =
                     cli_configs
                         .into_iter()
@@ -394,8 +394,8 @@ pub mod standard {
                                     } else{
                                         Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
                                                                                   chain_name, MASQ_URL_PREFIX,
-                                                                                  desired_chain.rec().chain_identifier,
-                                                                                  competence_from_descriptor.rec().plain_text_name)))
+                                                                                  desired_chain.rec().descriptor_identifier,
+                                                                                  competence_from_descriptor.rec().commandline_name)))
                                     }
                                 }
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
@@ -807,7 +807,7 @@ pub mod standard {
                 "--neighbors",
                 "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678",
                 "--chain",
-                DEFAULT_CHAIN.rec().plain_text_name,
+                DEFAULT_CHAIN.rec().commandline_name,
             ]);
 
             let result = standard::convert_ci_configs(&multi_config).err().unwrap();
@@ -1787,8 +1787,8 @@ mod tests {
         assert_eq!(
             config.data_directory,
             PathBuf::from("/home/booga/.local/share/MASQ")
-                .join(DEFAULT_CHAIN.rec().directory_by_platform)
-                .join(DEFAULT_CHAIN.rec().plain_text_name)
+                .join(DEFAULT_CHAIN.rec().family_directory)
+                .join(DEFAULT_CHAIN.rec().commandline_name)
         );
 
         #[cfg(target_os = "macos")]
@@ -2278,7 +2278,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--chain",
-            TEST_DEFAULT_CHAIN.rec().plain_text_name,
+            TEST_DEFAULT_CHAIN.rec().commandline_name,
         ];
 
         let config = subject
@@ -2300,8 +2300,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            config.blockchain_bridge_config.chain.rec().plain_text_name,
-            DEFAULT_CHAIN.rec().plain_text_name
+            config.blockchain_bridge_config.chain.rec().commandline_name,
+            DEFAULT_CHAIN.rec().commandline_name
         );
     }
 
@@ -2314,7 +2314,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--chain",
-            TEST_DEFAULT_CHAIN.rec().plain_text_name,
+            TEST_DEFAULT_CHAIN.rec().commandline_name,
         ];
 
         let bootstrapper_config = subject
