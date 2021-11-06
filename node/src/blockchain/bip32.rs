@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use bip39::Seed;
+use ethereum_types::Address;
 use ethsign::keyfile::Crypto;
 use ethsign::{Protected, PublicKey, SecretKey, Signature};
 use serde::de;
@@ -9,35 +10,35 @@ use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
 use tiny_hderive::bip32::ExtendedPrivKey;
-use web3::types::Address;
+use crate::blockchain::dual_secret::DualSecret;
+use masq_lib::utils::WrapResult;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
 pub struct Bip32ECKeyPair {
     public: PublicKey,
-    secret: SecretKey,
+    secrets: DualSecret
 }
 
 impl Bip32ECKeyPair {
     pub fn from_raw(seed: &[u8], derivation_path: &str) -> Result<Self, String> {
-        match ExtendedPrivKey::derive(seed, derivation_path) {
-            Ok(extended_priv_key) => match SecretKey::from_raw(&extended_priv_key.secret()) {
-                Ok(secret) => Ok(Self::from(secret)),
-                Err(e) => Err(format!("{:?}", e)),
-            },
-            Err(e) => Err(format!("{:?}", e)),
-        }
+        let extended_private_key = match ExtendedPrivKey::derive(seed, derivation_path) {
+            Ok(extended_priv_key) => extended_priv_key,
+            Err(e) => return Err(format!("{:?}", e)),
+        };
+        let dual_secrets= DualSecret::try_from(&extended_private_key.secret()[..])?; //TODO is this tested?
+        Self{ public: dual_secrets.ethsign_secret.public(), secrets: dual_secrets }.wrap_to_ok()
     }
 
     pub fn extended_private_key(seed: &Seed, derivation_path: &str) -> ExtendedPrivKey {
         ExtendedPrivKey::derive(seed.as_bytes(), derivation_path).expect("Expected a valid path")
     }
 
-    pub fn from_raw_secret(secret: &[u8]) -> Result<Self, String> {
-        match SecretKey::from_raw(secret) {
+    pub fn from_raw_secret(secret_raw: &[u8]) -> Result<Self, String> {
+        match SecretKey::from_raw(secret_raw) {
             Ok(secret) => Ok(Bip32ECKeyPair {
                 public: secret.public(),
-                secret,
+                secrets: DualSecret::try_from(secret_raw)?
             }),
             Err(e) => Err(format!("{:?}", e)),
         }
@@ -53,12 +54,12 @@ impl Bip32ECKeyPair {
         }
     }
 
-    pub fn secret(&self) -> &SecretKey {
-        &self.secret
+    pub fn secret(&self) -> &DualSecret {
+        &self.secrets
     }
 
     pub fn sign(&self, msg: &[u8]) -> Result<Signature, String> {
-        self.secret.sign(msg).map_err(|e| format!("{:?}", e))
+        self.secrets.ethsign_secret.sign(msg).map_err(|e| format!("{:?}", e))
     }
 
     pub fn verify(&self, signature: &Signature, msg: &[u8]) -> Result<bool, String> {
@@ -67,8 +68,8 @@ impl Bip32ECKeyPair {
             .map_err(|e| format!("{:?}", e))
     }
 
-    pub fn clone_secret(&self) -> SecretKey {
-        match self.secret.to_crypto(
+    pub fn clone_secrets(&self) -> (SecretKey,secp256k1::key::SecretKey) {
+        let ethsign_secret = match self.secrets.ethsign_secret.to_crypto(
             &Protected::from("secret"),
             NonZeroU32::new(1).expect("Could not create"),
         ) {
@@ -77,7 +78,9 @@ impl Bip32ECKeyPair {
                 Err(e) => panic!("{:?}", e),
             },
             Err(e) => panic!("{:?}", e),
-        }
+        };
+        let secp256k1_secret = self.secrets.secp256k1_secret.clone();
+        (ethsign_secret,secp256k1_secret)
     }
 }
 
@@ -90,21 +93,28 @@ impl TryFrom<(&[u8], &str)> for Bip32ECKeyPair {
             Err(format!("Invalid Seed Length: {}", seed.len()))
         } else {
             match ExtendedPrivKey::derive(seed, derivation_path) {
-                Ok(extended_priv_key) => match SecretKey::from_raw(&extended_priv_key.secret()) {
-                    Ok(secret) => Ok(Self::from(secret)),
-                    Err(e) => Err(format!("{:?}", e)),
-                },
+                Ok(extended_priv_key) =>
+                   Self::from(DualSecret::try_from(&extended_priv_key.secret()[..])?).wrap_to_ok(),
                 Err(e) => Err(format!("{:?}", e)),
             }
         }
     }
 }
 
-impl From<SecretKey> for Bip32ECKeyPair {
-    fn from(secret: SecretKey) -> Self {
+impl From<(SecretKey,secp256k1::key::SecretKey)> for Bip32ECKeyPair {
+    fn from(secrets: (SecretKey,secp256k1::key::SecretKey)) -> Self {
+        let (ethsign_secret,secp256k1_secret) = secrets;
         Self {
-            public: secret.public(),
-            secret,
+            public: ethsign_secret.public(),
+            secrets: DualSecret::from((ethsign_secret,secp256k1_secret))
+        }
+    }
+}
+
+impl From<DualSecret> for Bip32ECKeyPair{
+    fn from(dual_secret: DualSecret) -> Self {
+        Self{ public: dual_secret.ethsign_secret.public(),
+            secrets: dual_secret
         }
     }
 }
@@ -128,7 +138,7 @@ impl Serialize for Bip32ECKeyPair {
         S: Serializer,
     {
         let result = self
-            .secret
+            .secrets.ethsign_secret //TODO this might be a problem...do I need to serialize also the other secret key
             .to_crypto(
                 &Protected::from("secret"),
                 NonZeroU32::new(1).expect("Could not create"),
@@ -216,7 +226,7 @@ mod tests {
 
         assert_eq!(
             format!("{:?}", SecretKey::from_raw(expected_secret_key).unwrap()),
-            format!("{:?}", key_pair.secret)
+            format!("{:?}", key_pair.secrets.ethsign_secret)
         );
 
         let account =

@@ -6,6 +6,8 @@ pub mod blockchain_interface;
 pub mod payer;
 pub mod raw_transaction;
 pub mod signature;
+pub mod dual_secret;
 
 #[cfg(test)]
 pub mod test_utils;
+

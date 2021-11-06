@@ -47,7 +47,7 @@ impl Clone for WalletKind {
         match self {
             WalletKind::Address(address) => WalletKind::Address(Address { 0: address.0 }),
             WalletKind::KeyPair(keypair) => {
-                WalletKind::KeyPair(Bip32ECKeyPair::from(keypair.clone_secret()))
+                WalletKind::KeyPair(Bip32ECKeyPair::from(keypair.clone_secrets()))
             }
             WalletKind::PublicKey(public) => WalletKind::PublicKey(
                 PublicKey::from_slice(public.bytes()).expect("Failed to clone from PublicKey"),
@@ -141,6 +141,16 @@ impl Wallet {
             WalletKind::KeyPair(ref key_pair) => key_pair
                 .sign(msg.as_ref())
                 .map_err(|e| WalletError::Signature(format!("{:?}", e))),
+            _ => Err(WalletError::Signature(format!(
+                "Cannot sign with non-keypair wallet: {:?}.",
+                self.kind
+            ))),
+        }
+    }
+
+    pub fn prepare_secret_key(&self) -> Result<secp256k1::key::SecretKey, WalletError> {
+        match self.kind {
+            WalletKind::KeyPair(ref key_pair) => Ok(key_pair.clone_secrets().1), //TODO make it better
             _ => Err(WalletError::Signature(format!(
                 "Cannot sign with non-keypair wallet: {:?}.",
                 self.kind

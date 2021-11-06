@@ -230,8 +230,7 @@ mod tests {
         let secret: Vec<u8> = "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
             .from_hex()
             .unwrap();
-        let consuming_private_key = SecretKey::from_raw(&secret).unwrap();
-        let consuming_wallet = Wallet::from(Bip32ECKeyPair::from(consuming_private_key));
+        let consuming_wallet = Wallet::from(Bip32ECKeyPair::from_raw_secret(&secret).unwrap());
         let subject = BlockchainBridge::new(
             &bc_from_wallet(Some(consuming_wallet.clone())),
             stub_bi(),

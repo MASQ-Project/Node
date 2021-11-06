@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::raw_transaction::RawTransaction;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -191,7 +190,7 @@ where
         );
         let filter = FilterBuilder::default()
             .address(vec![self.contract_address()])
-            .from_block(BlockNumber::Number(start_block))
+            .from_block(BlockNumber::Number(ethereum_types::U64::from(start_block)))
             .to_block(BlockNumber::Latest)
             .topics(
                 Some(vec![TRANSACTION_LITERAL]),
@@ -275,24 +274,30 @@ where
         )
         .expect("Internal error");
 
-        let tx = RawTransaction {
-            nonce: converted_nonce,
+        let transaction_parameters = web3::types::TransactionParameters{
+            nonce: Some(converted_nonce),
             to: Some(ethereum_types::Address {
                 0: self.contract_address().0,
             }),
+            gas: gas_limit,
+            gas_price:Some(gas_price),
             value: ethereum_types::U256::zero(),
-            gas_price,
-            gas_limit,
-            data: data.to_vec(),
+            data: Bytes(data.to_vec()),
+            chain_id: Some(self.chain.rec().num_chain_id)
         };
-        match self
-            .web3
-            .eth()
-            .send_raw_transaction(Bytes(tx.sign(consuming_wallet, self.chain)))
-            .wait()
-        {
-            Ok(result) => Ok(result),
-            Err(e) => Err(BlockchainError::TransactionFailed(format!("{:?}", e))),
+
+        let key = match consuming_wallet.prepare_secret_key(){
+            Ok(secret) => secret,  //TODO tests?
+            Err(e) => unimplemented!("WalletError {}",e)
+        };
+
+        let signed_transaction = match self.web3.accounts().sign_transaction(transaction_parameters,&key).wait(){
+            Ok(tx) =>tx,
+            Err(e) => unimplemented!()  //BlockchainError
+        };
+        match self.web3.eth().send_raw_transaction(signed_transaction.raw_transaction).wait(){
+            Ok(hash) => Ok(hash),
+            Err(e) => unimplemented!()
         }
     }
 

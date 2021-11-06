@@ -7,7 +7,7 @@ use crate::constants::{
     MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     POLY_MAINNET_IDENTIFIER, POLY_MUMBAI_IDENTIFIER, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
 };
-use web3::types::Address;
+use ethereum_types::Address;
 
 //chains are ordered by their significance for the community of users (the order reflects in some error or help messages)
 pub const CHAINS: [BlockchainRecord; 5] = [

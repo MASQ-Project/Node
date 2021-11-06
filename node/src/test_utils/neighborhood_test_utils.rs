@@ -138,7 +138,7 @@ impl NodeRecord {
         let key_slice = public_key.as_slice();
         data[64 - key_slice.len()..].copy_from_slice(key_slice);
         match ethsign::PublicKey::from_slice(&data) {
-            Ok(public) => Some(Wallet::from(web3::types::Address {
+            Ok(public) => Some(Wallet::from(ethereum_types::Address {
                 0: *public.address(),
             })),
             Err(_) => None,
