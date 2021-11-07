@@ -1,8 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use const_format::concatcp;
-
 use crate::blockchains::chains::Chain;
+use const_format::concatcp;
 
 pub const DEFAULT_CHAIN: Chain = Chain::EthMainnet;
 
@@ -55,14 +54,12 @@ pub const CENTRAL_DELIMITER: char = '@';
 pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
 
 //chains
-pub const POLYGON_MAINNET_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, MAINNET);
-pub const POLYGON_MUMBAI_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, MUMBAI);
-pub const DEV_CHAIN_IDENTIFIER: &str = "dev";
-pub const ETH_MAINNET_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, MAINNET);
-pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, ROPSTEN);
-pub const POLYGON_FAMILY: &str = "polygon";
-pub const ETH_FAMILY: &str = "eth";
-pub const MUMBAI: &str = "mumbai";
-pub const ROPSTEN: &str = "ropsten";
 const MAINNET: &str = "mainnet";
-const LINK: &str = "-";
+const POLYGON_FAMILY: &str = "polygon";
+const ETH_FAMILY: &str = "eth";
+const LINK: char = '-';
+pub const POLYGON_MAINNET_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, MAINNET);
+pub const POLYGON_MUMBAI_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, "mumbai");
+pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
+pub const ETH_MAINNET_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, MAINNET);
+pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "ropsten");

@@ -7,7 +7,7 @@ pub mod payer;
 pub mod raw_transaction;
 pub mod signature;
 pub mod dual_secret;
-pub mod web3_wrapper;
+pub mod tool_wrappers;
 
 #[cfg(test)]
 pub mod test_utils;

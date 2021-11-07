@@ -340,7 +340,7 @@ pub struct ExternalMigrationParameters {
 impl ExternalMigrationParameters {
     pub fn new(chain: Chain) -> Self {
         Self {
-            chain_name: chain.rec().commandline_name.to_string(),
+            chain_name: chain.rec().literal_identifier.to_string(),
         }
     }
 }
@@ -492,7 +492,7 @@ mod tests {
 
     fn make_external_migration_parameters() -> ExternalMigrationParameters {
         ExternalMigrationParameters {
-            chain_name: DEFAULT_CHAIN.rec().commandline_name.to_string(),
+            chain_name: DEFAULT_CHAIN.rec().literal_identifier.to_string(),
         }
     }
 
@@ -1042,7 +1042,7 @@ mod tests {
                 "select name, value, encrypted from config where name = 'schema_version'",
             );
         assert_eq!(chn_name, "chain_name".to_string());
-        assert_eq!(chn_value, Some("ropsten".to_string()));
+        assert_eq!(chn_value, Some("eth-ropsten".to_string()));
         assert_eq!(chn_encrypted, 0);
         assert_eq!(cs_name, "schema_version".to_string());
         assert_eq!(cs_value, Some("2".to_string()));
