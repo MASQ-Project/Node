@@ -11,7 +11,7 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
-use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, H256, U256};
+use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, H256, U256, TransactionParameters};
 use web3::{Transport, Web3};
 
 pub const CONTRACT_ABI: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
@@ -48,6 +48,7 @@ pub enum BlockchainError {
     InvalidUrl,
     InvalidAddress,
     InvalidResponse,
+    UnusableWallet(String),
     QueryFailed,
     TransactionFailed(String),
 }
@@ -274,7 +275,7 @@ where
         )
         .expect("Internal error");
 
-        let transaction_parameters = web3::types::TransactionParameters{
+        let transaction_parameters = TransactionParameters{
             nonce: Some(converted_nonce),
             to: Some(ethereum_types::Address {
                 0: self.contract_address().0,
@@ -286,9 +287,9 @@ where
             chain_id: Some(self.chain.rec().num_chain_id)
         };
 
-        let key = match consuming_wallet.prepare_secret_key(){
-            Ok(secret) => secret,  //TODO tests?
-            Err(e) => unimplemented!("WalletError {}",e)
+        let key = match consuming_wallet.prepare_secp256k1_secret(){
+            Ok(secret) => secret,
+            Err(e) => return Err(BlockchainError::UnusableWallet(e.to_string()))
         };
 
         let signed_transaction = match self.web3.accounts().sign_transaction(transaction_parameters,&key).wait(){
@@ -830,11 +831,9 @@ mod tests {
     #[test]
     fn blockchain_interface_non_clandestine_can_transfer_tokens() {
         let mut transport = TestTransport::default();
-
         transport.add_response(json!(
             "0x0000000000000000000000000000000000000000000000000000000000000001"
         ));
-
         let subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),
@@ -855,13 +854,36 @@ mod tests {
     }
 
     #[test]
+    fn send_transaction_fails_on_badly_prepared_consuming_wallet_without_secret() {
+        let mut transport = TestTransport::default();
+        let address_only_wallet = Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport.clone(),
+            make_fake_event_loop_handle(),
+            TEST_DEFAULT_CHAIN,
+        );
+
+        let result = subject.send_transaction(
+            &address_only_wallet,
+            &make_wallet("blah123"),
+            9000,
+            U256::from(1),
+            2u64,
+        );
+
+        assert_eq!(result,
+                   Err(BlockchainError::UnusableWallet(
+                       "Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()
+                   ))
+        )
+    }
+
+    #[test]
     fn blockchain_interface_non_clandestine_can_fetch_nonce() {
         let mut transport = TestTransport::default();
-
         transport.add_response(json!(
             "0x0000000000000000000000000000000000000000000000000000000000000001"
         ));
-
         let subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),

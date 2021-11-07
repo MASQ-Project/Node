@@ -148,7 +148,7 @@ impl Wallet {
         }
     }
 
-    pub fn prepare_secret_key(&self) -> Result<secp256k1::key::SecretKey, WalletError> {
+    pub fn prepare_secp256k1_secret(&self) -> Result<secp256k1::key::SecretKey, WalletError> {
         match self.kind {
             WalletKind::KeyPair(ref key_pair) => Ok(key_pair.clone_secrets().1), //TODO make it better
             _ => Err(WalletError::Signature(format!(
