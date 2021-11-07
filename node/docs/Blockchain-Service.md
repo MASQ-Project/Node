@@ -2,8 +2,9 @@
 
 ### What is a blockchain service URL?
 
-A blockchain service url is a URL that MASQ Node uses to interact with the Rinkeby or Ropsten testnet or Ethereum
-mainnet blockchains. On mainnet, MASQ uses the MASQ token; on Rinkeby or Ropsten, it uses the SHRD token (think Shroud).
+A blockchain service url is a URL that MASQ Node uses to interact with various blockchains, either the Mumbai and Ropsten
+testnets or Polygon and Ethereum mainnets. On mainnet, MASQ uses the MASQ token; on testnets, it uses the SHRD token
+(think Shroud).
 
 To be fully functional MASQ Node needs access to:
 1. pay SHRD/MASQ to other Nodes for routing, blockchain, and exit services consumed, 
@@ -21,9 +22,7 @@ There are two general types of Blockchain Services MASQ Node currently supports.
 ### 1. Sign up for a free [Infura.io](https://infura.io/register) account.
 Follow the instructions here [Infura.io/docs](https://infura.io/docs) to create a "Project"
 Choose one of the following options for the Ropsten testnet:
-* Enter your Infura.io url `https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>` in the blockchain service url field of the UI.
-  
-    ![Image](images/Blockchain-Service-Url.png)
+* Enter your Infura.io url `https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>` in the blockchain service url field of the GUI.
   
 * For the `masq` command-line interface, use the `setup` command: 
   

@@ -90,7 +90,7 @@ impl fmt::Display for NodeReference {
             f,
             "{}{}{}{}{}{}:{}",
             MASQ_URL_PREFIX,
-            self.chain.rec().descriptor_identifier,
+            self.chain.rec().full_literal_identifier,
             CHAIN_IDENTIFIER_DELIMITER,
             public_key_string,
             CENTRAL_DELIMITER,
@@ -155,7 +155,7 @@ impl NodeReference {
         };
         if port_list_numbers.contains(&-1) {
             return Err(format!(
-                "The port list must be a semicolon-separated sequence of valid numbers, not '{}'",
+                "The port list must be a sequence of valid numbers separated by slashes, not '{}'",
                 slice
             ));
         }

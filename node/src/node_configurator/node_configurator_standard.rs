@@ -379,7 +379,7 @@ pub mod standard {
                         }
                     };
                     let chain_name = value_m!(multi_config, "chain", String)
-                        .unwrap_or_else(|| DEFAULT_CHAIN.rec().commandline_name.to_string());
+                        .unwrap_or_else(|| DEFAULT_CHAIN.rec().full_literal_identifier.to_string());
                     let results =
                     cli_configs
                         .into_iter()
@@ -394,8 +394,8 @@ pub mod standard {
                                     } else{
                                         Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
                                                                                   chain_name, MASQ_URL_PREFIX,
-                                                                                  desired_chain.rec().descriptor_identifier,
-                                                                                  competence_from_descriptor.rec().commandline_name)))
+                                                                                  desired_chain.rec().full_literal_identifier,
+                                                                                  competence_from_descriptor.rec().full_literal_identifier)))
                                     }
                                 }
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
@@ -807,7 +807,7 @@ pub mod standard {
                 "--neighbors",
                 "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678",
                 "--chain",
-                DEFAULT_CHAIN.rec().commandline_name,
+                DEFAULT_CHAIN.rec().full_literal_identifier,
             ]);
 
             let result = standard::convert_ci_configs(&multi_config).err().unwrap();
@@ -816,7 +816,7 @@ pub mod standard {
                 result,
                 ConfiguratorError::required(
                     "neighbors",
-                    "Mismatched chains. You are requiring access to 'eth-mainnet' (masq://eth-mainnet:<public key>@<node address>) with descriptor belonging to 'ropsten'"
+                    "Mismatched chains. You are requiring access to 'eth-mainnet' (masq://eth-mainnet:<public key>@<node address>) with descriptor belonging to 'eth-ropsten'"
                 )
             )
         }
@@ -1788,7 +1788,7 @@ mod tests {
             config.data_directory,
             PathBuf::from("/home/booga/.local/share/MASQ")
                 .join(DEFAULT_CHAIN.rec().family_directory)
-                .join(DEFAULT_CHAIN.rec().commandline_name)
+                .join(DEFAULT_CHAIN.rec().full_literal_identifier)
         );
 
         #[cfg(target_os = "macos")]
@@ -1796,7 +1796,7 @@ mod tests {
             config.data_directory,
             PathBuf::from("/home/booga/Library/Application Support/MASQ")
                 .join(DEFAULT_CHAIN.rec().family_directory)
-                .join(DEFAULT_CHAIN.rec().commandline_name)
+                .join(DEFAULT_CHAIN.rec().full_literal_identifier)
         );
     }
 
@@ -2278,7 +2278,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--chain",
-            TEST_DEFAULT_CHAIN.rec().commandline_name,
+            TEST_DEFAULT_CHAIN.rec().full_literal_identifier,
         ];
 
         let config = subject
@@ -2300,8 +2300,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            config.blockchain_bridge_config.chain.rec().commandline_name,
-            DEFAULT_CHAIN.rec().commandline_name
+            config
+                .blockchain_bridge_config
+                .chain
+                .rec()
+                .full_literal_identifier,
+            DEFAULT_CHAIN.rec().full_literal_identifier
         );
     }
 
@@ -2314,7 +2318,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--chain",
-            TEST_DEFAULT_CHAIN.rec().commandline_name,
+            TEST_DEFAULT_CHAIN.rec().full_literal_identifier,
         ];
 
         let bootstrapper_config = subject

@@ -197,7 +197,7 @@ impl NodeDescriptor {
             Some(node_addr) => node_addr.to_string(),
             None => ":".to_string(),
         };
-        let chain_identifier = self.blockchain.rec().descriptor_identifier;
+        let chain_identifier = self.blockchain.rec().full_literal_identifier;
         format!(
             "{}{}{}{}{}{}",
             MASQ_URL_PREFIX,
@@ -310,7 +310,7 @@ impl Display for DescriptorParsingError<'_> {
             Self::PrefixMissing(descriptor) => write!(f,"Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'",descriptor),
             Self::WrongChainIdentifier(identifier) => write!(f, "Chain identifier '{}' is not valid; possible values are '{}' while formatted as 'masq://<chain identifier>:<public key>@<node address>'",
                                                              identifier,
-                                                             CHAINS.iter().map(|record|record.descriptor_identifier).filter(|identifier|*identifier != "dev").join("', '")
+                                                             CHAINS.iter().map(|record|record.full_literal_identifier).filter(|identifier|*identifier != "dev").join("', '")
             )
         }
     }
@@ -698,7 +698,7 @@ mod tests {
     fn wrong_chain_identifier_error_does_not_mention_dev_chain() {
         assert!(CHAINS
             .iter()
-            .find(|record| record.descriptor_identifier == "dev")
+            .find(|record| record.full_literal_identifier == "dev")
             .is_some());
 
         let result = DescriptorParsingError::WrongChainIdentifier("blah").to_string();

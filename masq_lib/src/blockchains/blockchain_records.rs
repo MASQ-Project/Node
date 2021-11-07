@@ -2,11 +2,11 @@
 
 use crate::blockchains::chains::Chain;
 use crate::constants::{
-    DEV_CHAIN_IDENTIFIER, ETH_FAMILY, ETH_MAINNET_CONTRACT_CREATION_BLOCK,
+    DEV_CHAIN_FULL_IDENTIFIER, ETH_FAMILY, ETH_MAINNET_CONTRACT_CREATION_BLOCK,
     ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER,
-    MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, MUMBAI, MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
+    MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
     POLYGON_FAMILY, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_FULL_IDENTIFIER,
-    POLYGON_MUMBAI_FULL_IDENTIFIER, ROPSTEN, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
+    POLYGON_MUMBAI_FULL_IDENTIFIER, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
 };
 use web3::types::Address;
 
@@ -15,45 +15,40 @@ pub const CHAINS: [BlockchainRecord; 5] = [
     BlockchainRecord {
         self_id: Chain::PolyMainnet,
         num_chain_id: 137,
-        commandline_name: POLYGON_MAINNET_FULL_IDENTIFIER,
         family_directory: POLYGON_FAMILY,
-        descriptor_identifier: POLYGON_MAINNET_FULL_IDENTIFIER,
+        full_literal_identifier: POLYGON_MAINNET_FULL_IDENTIFIER,
         contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
         self_id: Chain::EthMainnet,
         num_chain_id: 1,
-        commandline_name: ETH_MAINNET_FULL_IDENTIFIER,
         family_directory: ETH_FAMILY,
-        descriptor_identifier: ETH_MAINNET_FULL_IDENTIFIER,
+        full_literal_identifier: ETH_MAINNET_FULL_IDENTIFIER,
         contract: ETH_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
         self_id: Chain::PolyMumbai,
         num_chain_id: 80001,
-        commandline_name: MUMBAI,
         family_directory: POLYGON_FAMILY,
-        descriptor_identifier: POLYGON_MUMBAI_FULL_IDENTIFIER,
+        full_literal_identifier: POLYGON_MUMBAI_FULL_IDENTIFIER,
         contract: MUMBAI_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
         self_id: Chain::EthRopsten,
         num_chain_id: 3,
-        commandline_name: ROPSTEN,
         family_directory: ETH_FAMILY,
-        descriptor_identifier: ETH_ROPSTEN_FULL_IDENTIFIER,
+        full_literal_identifier: ETH_ROPSTEN_FULL_IDENTIFIER,
         contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
         self_id: Chain::Dev,
         num_chain_id: 2,
-        commandline_name: DEV_CHAIN_IDENTIFIER,
-        family_directory: DEV_CHAIN_IDENTIFIER,
-        descriptor_identifier: DEV_CHAIN_IDENTIFIER,
+        family_directory: DEV_CHAIN_FULL_IDENTIFIER,
+        full_literal_identifier: DEV_CHAIN_FULL_IDENTIFIER,
         contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
     },
@@ -63,9 +58,8 @@ pub const CHAINS: [BlockchainRecord; 5] = [
 pub struct BlockchainRecord {
     pub self_id: Chain,
     pub num_chain_id: u64,
-    pub commandline_name: &'static str,
     pub family_directory: &'static str,
-    pub descriptor_identifier: &'static str,
+    pub full_literal_identifier: &'static str,
     pub contract: Address,
     pub contract_creation_block: u64,
 }
@@ -149,7 +143,7 @@ mod tests {
     }
 
     fn assert_from_str(chain: Chain) -> Chain {
-        assert_eq!(Chain::from(chain.rec().commandline_name), chain);
+        assert_eq!(Chain::from(chain.rec().full_literal_identifier), chain);
         chain
     }
 
@@ -185,9 +179,8 @@ mod tests {
             &BlockchainRecord {
                 num_chain_id: 1,
                 self_id: examined_chain,
-                commandline_name: "eth-mainnet",
                 family_directory: "eth",
-                descriptor_identifier: "eth-mainnet",
+                full_literal_identifier: "eth-mainnet",
                 contract: ETH_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
             }
@@ -203,9 +196,8 @@ mod tests {
             &BlockchainRecord {
                 num_chain_id: 2,
                 self_id: examined_chain,
-                commandline_name: "dev",
                 family_directory: "dev",
-                descriptor_identifier: "dev",
+                full_literal_identifier: "dev",
                 contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: 0
             }
@@ -221,9 +213,8 @@ mod tests {
             &BlockchainRecord {
                 num_chain_id: 3,
                 self_id: examined_chain,
-                commandline_name: "ropsten",
                 family_directory: "eth",
-                descriptor_identifier: "eth-ropsten",
+                full_literal_identifier: "eth-ropsten",
                 contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
             }
@@ -239,9 +230,8 @@ mod tests {
             &BlockchainRecord {
                 num_chain_id: 137,
                 self_id: examined_chain,
-                commandline_name: "polygon-mainnet",
                 family_directory: "polygon",
-                descriptor_identifier: "polygon-mainnet",
+                full_literal_identifier: "polygon-mainnet",
                 contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK
             }
@@ -257,9 +247,8 @@ mod tests {
             &BlockchainRecord {
                 num_chain_id: 80001,
                 self_id: examined_chain,
-                commandline_name: "mumbai",
                 family_directory: "polygon",
-                descriptor_identifier: "polygon-mumbai",
+                full_literal_identifier: "polygon-mumbai",
                 contract: MUMBAI_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK
             }

@@ -123,6 +123,7 @@ mod tests {
         assert_signature(Chain::EthMainnet, signatures)
     }
 
+    //TODO this signature is quite likely to change with GH-503 where we finally should be able to do things right
     #[test]
     fn signs_transactions_for_poly_mainnet() {
         let signatures = &[
@@ -188,6 +189,7 @@ mod tests {
         assert_signature(Chain::EthRopsten, signatures)
     }
 
+    //TODO this signature is quite likely to change with GH-503 where we finally should be able to do things right
     #[test]
     fn signs_transaction_for_mumbai() {
         let signatures = &[

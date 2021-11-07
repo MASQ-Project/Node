@@ -2,8 +2,8 @@
 
 use crate::blockchains::blockchain_records::{BlockchainRecord, CHAINS};
 use crate::constants::{
-    DEFAULT_CHAIN, DEV_CHAIN_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER, MUMBAI,
-    POLYGON_MAINNET_FULL_IDENTIFIER, ROPSTEN,
+    DEFAULT_CHAIN, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
+    ETH_ROPSTEN_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use serde_derive::{Deserialize, Serialize};
 
@@ -28,11 +28,11 @@ impl From<&str> for Chain {
             Chain::PolyMainnet
         } else if str == ETH_MAINNET_FULL_IDENTIFIER {
             Chain::EthMainnet
-        } else if str == MUMBAI {
+        } else if str == POLYGON_MUMBAI_FULL_IDENTIFIER {
             Chain::PolyMumbai
-        } else if str == ROPSTEN {
+        } else if str == ETH_ROPSTEN_FULL_IDENTIFIER {
             Chain::EthRopsten
-        } else if str == DEV_CHAIN_IDENTIFIER {
+        } else if str == DEV_CHAIN_FULL_IDENTIFIER {
             Chain::Dev
         } else {
             panic!("Clap let in a wrong value for chain: '{}'; if this happens we need to track down the slit", str)
@@ -51,8 +51,10 @@ impl Chain {
 }
 
 pub fn chain_from_chain_identifier_opt(identifier: &str) -> Option<Chain> {
-    return_record_opt_standard_impl(&|b: &&BlockchainRecord| b.descriptor_identifier == identifier)
-        .map(|record| record.self_id)
+    return_record_opt_standard_impl(&|b: &&BlockchainRecord| {
+        b.full_literal_identifier == identifier
+    })
+    .map(|record| record.self_id)
 }
 
 fn return_record_opt_standard_impl(
@@ -85,15 +87,15 @@ mod tests {
     fn return_record_opt_panics_if_more_records_meet_the_condition_from_the_closure() {
         let searched_name = "BruhBruh";
         let mut record_one = make_defaulted_blockchain_record();
-        record_one.commandline_name = searched_name;
+        record_one.full_literal_identifier = searched_name;
         let mut record_two = make_defaulted_blockchain_record();
-        record_two.commandline_name = "Jooodooo";
+        record_two.full_literal_identifier = "Jooodooo";
         let mut record_three = make_defaulted_blockchain_record();
-        record_three.commandline_name = searched_name;
+        record_three.full_literal_identifier = searched_name;
         let collection = [record_one, record_two, record_three];
 
         let _ = return_record_opt_body(
-            &|b: &&BlockchainRecord| b.commandline_name == searched_name,
+            &|b: &&BlockchainRecord| b.full_literal_identifier == searched_name,
             &collection,
         );
     }
@@ -123,9 +125,8 @@ mod tests {
         BlockchainRecord {
             num_chain_id: 0,
             self_id: Chain::EthMainnet,
-            commandline_name: "",
+            full_literal_identifier: "",
             family_directory: "",
-            descriptor_identifier: "",
             contract: Default::default(),
             contract_creation_block: 0,
         }

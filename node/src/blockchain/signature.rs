@@ -1,8 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use serde_derive::{Deserialize, Serialize};
 
-//TODO what is this for? It seems unused.
-
 #[derive(Deserialize, Serialize)]
 #[serde(remote = "ethsign::Signature")]
 pub struct SerializableSignature {

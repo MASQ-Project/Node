@@ -4231,7 +4231,10 @@ mod tests {
         let searched_str = "mainnet";
         assert_mainnet_exist();
         CHAINS.iter().for_each(|blockchain_record| {
-            if blockchain_record.commandline_name.contains(searched_str) {
+            if blockchain_record
+                .full_literal_identifier
+                .contains(searched_str)
+            {
                 let descriptor = NodeDescriptor {
                     blockchain: blockchain_record.self_id,
                     encryption_public_key: PublicKey::from(&b"blah"[..]),
@@ -4247,7 +4250,10 @@ mod tests {
         let searched_str = "mainnet";
         assert_mainnet_exist();
         CHAINS.iter().for_each(|blockchain_record| {
-            if blockchain_record.commandline_name.contains(searched_str) {
+            if blockchain_record
+                .full_literal_identifier
+                .contains(searched_str)
+            {
                 let chain = blockchain_record.self_id;
                 assert_eq!(Neighborhood::is_mainnet_by_chain(chain), true)
             }
@@ -4257,7 +4263,9 @@ mod tests {
     fn assert_mainnet_exist() {
         assert!(CHAINS
             .iter()
-            .find(|blockchain_record| blockchain_record.commandline_name.contains("mainnet"))
+            .find(|blockchain_record| blockchain_record
+                .full_literal_identifier
+                .contains("mainnet"))
             .is_some());
     }
 

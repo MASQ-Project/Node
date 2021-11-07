@@ -166,12 +166,12 @@ mod tests {
         )
         .join("MASQ")
         .join(TEST_DEFAULT_CHAIN.rec().family_directory)
-        .join(TEST_DEFAULT_CHAIN.rec().commandline_name);
+        .join(TEST_DEFAULT_CHAIN.rec().full_literal_identifier);
         let mut holder = FakeStreamHolder::new();
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.rec().commandline_name)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().full_literal_identifier)
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
@@ -186,7 +186,7 @@ mod tests {
             other => panic!("Was expecting Value::Object, got {:?} instead", other),
         };
         let expected_value = json!({
-           "chainName": TEST_DEFAULT_CHAIN.rec().commandline_name.to_string(),
+           "chainName": TEST_DEFAULT_CHAIN.rec().full_literal_identifier.to_string(),
            "clandestinePort": actual_map.get ("clandestinePort"),
            "consumingWalletDerivationPath": null,
            "consumingWalletPublicKey": null,
@@ -212,7 +212,7 @@ mod tests {
         )
         .join("MASQ")
         .join(TEST_DEFAULT_CHAIN.rec().family_directory)
-        .join(TEST_DEFAULT_CHAIN.rec().commandline_name);
+        .join(TEST_DEFAULT_CHAIN.rec().full_literal_identifier);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -254,7 +254,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.rec().commandline_name)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().full_literal_identifier)
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
@@ -310,7 +310,7 @@ mod tests {
         )
         .join("MASQ")
         .join(TEST_DEFAULT_CHAIN.rec().family_directory)
-        .join(TEST_DEFAULT_CHAIN.rec().commandline_name);
+        .join(TEST_DEFAULT_CHAIN.rec().full_literal_identifier);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -352,7 +352,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.rec().commandline_name)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().full_literal_identifier)
             .param("--db-password", "password")
             .opt("--dump-config")
             .into();
@@ -411,7 +411,7 @@ mod tests {
         )
         .join("MASQ")
         .join(TEST_DEFAULT_CHAIN.rec().family_directory)
-        .join(TEST_DEFAULT_CHAIN.rec().commandline_name);
+        .join(TEST_DEFAULT_CHAIN.rec().full_literal_identifier);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -453,7 +453,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.rec().commandline_name)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().full_literal_identifier)
             .param("--db-password", "incorrect")
             .opt("--dump-config")
             .into();
