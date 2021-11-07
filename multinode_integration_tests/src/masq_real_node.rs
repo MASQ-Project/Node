@@ -201,7 +201,7 @@ impl NodeStartupConfig {
             args.push(blockchain_service_url.to_string());
         }
         args.push("--chain".to_string());
-        args.push(self.chain.rec().full_literal_identifier.to_string());
+        args.push(self.chain.rec().literal_identifier.to_string());
 
         if let Some(ref db_password) = self.db_password_opt {
             args.push("--db-password".to_string());
@@ -1409,7 +1409,7 @@ mod tests {
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
                 "--chain",
-                TEST_DEFAULT_MULTINODE_CHAIN.rec().full_literal_identifier,
+                TEST_DEFAULT_MULTINODE_CHAIN.rec().literal_identifier,
                 "--db-password",
                 "password",
             ))

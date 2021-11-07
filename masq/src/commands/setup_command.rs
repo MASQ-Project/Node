@@ -206,7 +206,7 @@ mod tests {
                     values: vec![
                         UiSetupRequestValue::new(
                             "chain",
-                            TEST_DEFAULT_CHAIN.rec().full_literal_identifier
+                            TEST_DEFAULT_CHAIN.rec().literal_identifier
                         ),
                         UiSetupRequestValue::clear("log-level"),
                         UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),

@@ -54,12 +54,12 @@ pub const CENTRAL_DELIMITER: char = '@';
 pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
 
 //chains
-pub const POLYGON_FAMILY: &str = "polygon";
-pub const ETH_FAMILY: &str = "eth";
+const MAINNET: &str = "mainnet";
+const POLYGON_FAMILY: &str = "polygon";
+const ETH_FAMILY: &str = "eth";
+const LINK: char = '-';
 pub const POLYGON_MAINNET_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, MAINNET);
 pub const POLYGON_MUMBAI_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, "mumbai");
 pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
 pub const ETH_MAINNET_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, MAINNET);
 pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "ropsten");
-const MAINNET: &str = "mainnet";
-const LINK: char = '-';

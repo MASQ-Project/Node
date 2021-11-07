@@ -2,11 +2,11 @@
 
 use crate::blockchains::chains::Chain;
 use crate::constants::{
-    DEV_CHAIN_FULL_IDENTIFIER, ETH_FAMILY, ETH_MAINNET_CONTRACT_CREATION_BLOCK,
-    ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER,
-    MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
-    POLYGON_FAMILY, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_FULL_IDENTIFIER,
-    POLYGON_MUMBAI_FULL_IDENTIFIER, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
+    DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_FULL_IDENTIFIER,
+    ETH_ROPSTEN_FULL_IDENTIFIER, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
+    MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
+    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
 };
 use web3::types::Address;
 
@@ -15,40 +15,35 @@ pub const CHAINS: [BlockchainRecord; 5] = [
     BlockchainRecord {
         self_id: Chain::PolyMainnet,
         num_chain_id: 137,
-        family_directory: POLYGON_FAMILY,
-        full_literal_identifier: POLYGON_MAINNET_FULL_IDENTIFIER,
+        literal_identifier: POLYGON_MAINNET_FULL_IDENTIFIER,
         contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
         self_id: Chain::EthMainnet,
         num_chain_id: 1,
-        family_directory: ETH_FAMILY,
-        full_literal_identifier: ETH_MAINNET_FULL_IDENTIFIER,
+        literal_identifier: ETH_MAINNET_FULL_IDENTIFIER,
         contract: ETH_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
         self_id: Chain::PolyMumbai,
         num_chain_id: 80001,
-        family_directory: POLYGON_FAMILY,
-        full_literal_identifier: POLYGON_MUMBAI_FULL_IDENTIFIER,
+        literal_identifier: POLYGON_MUMBAI_FULL_IDENTIFIER,
         contract: MUMBAI_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
         self_id: Chain::EthRopsten,
         num_chain_id: 3,
-        family_directory: ETH_FAMILY,
-        full_literal_identifier: ETH_ROPSTEN_FULL_IDENTIFIER,
+        literal_identifier: ETH_ROPSTEN_FULL_IDENTIFIER,
         contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
         self_id: Chain::Dev,
         num_chain_id: 2,
-        family_directory: DEV_CHAIN_FULL_IDENTIFIER,
-        full_literal_identifier: DEV_CHAIN_FULL_IDENTIFIER,
+        literal_identifier: DEV_CHAIN_FULL_IDENTIFIER,
         contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
     },
@@ -58,8 +53,7 @@ pub const CHAINS: [BlockchainRecord; 5] = [
 pub struct BlockchainRecord {
     pub self_id: Chain,
     pub num_chain_id: u64,
-    pub family_directory: &'static str,
-    pub full_literal_identifier: &'static str,
+    pub literal_identifier: &'static str,
     pub contract: Address,
     pub contract_creation_block: u64,
 }
@@ -143,7 +137,7 @@ mod tests {
     }
 
     fn assert_from_str(chain: Chain) -> Chain {
-        assert_eq!(Chain::from(chain.rec().full_literal_identifier), chain);
+        assert_eq!(Chain::from(chain.rec().literal_identifier), chain);
         chain
     }
 
@@ -179,8 +173,7 @@ mod tests {
             &BlockchainRecord {
                 num_chain_id: 1,
                 self_id: examined_chain,
-                family_directory: "eth",
-                full_literal_identifier: "eth-mainnet",
+                literal_identifier: "eth-mainnet",
                 contract: ETH_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
             }
@@ -196,8 +189,7 @@ mod tests {
             &BlockchainRecord {
                 num_chain_id: 2,
                 self_id: examined_chain,
-                family_directory: "dev",
-                full_literal_identifier: "dev",
+                literal_identifier: "dev",
                 contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: 0
             }
@@ -213,8 +205,7 @@ mod tests {
             &BlockchainRecord {
                 num_chain_id: 3,
                 self_id: examined_chain,
-                family_directory: "eth",
-                full_literal_identifier: "eth-ropsten",
+                literal_identifier: "eth-ropsten",
                 contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
             }
@@ -230,8 +221,7 @@ mod tests {
             &BlockchainRecord {
                 num_chain_id: 137,
                 self_id: examined_chain,
-                family_directory: "polygon",
-                full_literal_identifier: "polygon-mainnet",
+                literal_identifier: "polygon-mainnet",
                 contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK
             }
@@ -247,8 +237,7 @@ mod tests {
             &BlockchainRecord {
                 num_chain_id: 80001,
                 self_id: examined_chain,
-                family_directory: "polygon",
-                full_literal_identifier: "polygon-mumbai",
+                literal_identifier: "polygon-mumbai",
                 contract: MUMBAI_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK
             }

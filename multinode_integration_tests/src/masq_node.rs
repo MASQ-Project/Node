@@ -90,7 +90,7 @@ impl fmt::Display for NodeReference {
             f,
             "{}{}{}{}{}{}:{}",
             MASQ_URL_PREFIX,
-            self.chain.rec().full_literal_identifier,
+            self.chain.rec().literal_identifier,
             CHAIN_IDENTIFIER_DELIMITER,
             public_key_string,
             CENTRAL_DELIMITER,
