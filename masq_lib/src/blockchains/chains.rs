@@ -1,7 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchains::blockchain_records::{BlockchainRecord, CHAINS};
-use crate::constants::DEFAULT_CHAIN;
+use crate::constants::{
+    DEFAULT_CHAIN, DEV_CHAIN_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER, MUMBAI,
+    POLYGON_MAINNET_FULL_IDENTIFIER, ROPSTEN,
+};
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -21,13 +24,18 @@ impl Default for Chain {
 
 impl From<&str> for Chain {
     fn from(str: &str) -> Self {
-        match str {
-            "polygon-mainnet" => Chain::PolyMainnet,
-            "eth-mainnet" => Chain::EthMainnet,
-            "mumbai" => Chain::PolyMumbai,
-            "ropsten" => Chain::EthRopsten,
-            "dev" => Chain::Dev,
-            x => panic!("Clap let in a wrong value for chain: '{}'; if this happens we need to track down the slit", x),
+        if str == POLYGON_MAINNET_FULL_IDENTIFIER {
+            Chain::PolyMainnet
+        } else if str == ETH_MAINNET_FULL_IDENTIFIER {
+            Chain::EthMainnet
+        } else if str == MUMBAI {
+            Chain::PolyMumbai
+        } else if str == ROPSTEN {
+            Chain::EthRopsten
+        } else if str == DEV_CHAIN_IDENTIFIER {
+            Chain::Dev
+        } else {
+            panic!("Clap let in a wrong value for chain: '{}'; if this happens we need to track down the slit", str)
         }
     }
 }
@@ -71,7 +79,6 @@ fn return_record_opt_body<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared_schema::official_chain_names;
 
     #[test]
     #[should_panic(expected = "Non-unique identifier used to query a BlockchainRecord")]
@@ -102,17 +109,6 @@ mod tests {
                 .unwrap()
             )
         });
-    }
-
-    #[test]
-    fn chain_from_str_works_reliably() {
-        let mut iterator = official_chain_names().iter();
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMumbai);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
-        assert_eq!(iterator.next(), None)
     }
 
     #[test]
