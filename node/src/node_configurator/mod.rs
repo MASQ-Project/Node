@@ -93,7 +93,7 @@ pub fn real_user_with_data_directory_opt_and_chain(
 ) -> (RealUser, Option<PathBuf>, Chain) {
     let real_user = real_user_from_multi_config_or_populate(multi_config, dirs_wrapper);
     let chain_name = value_m!(multi_config, "chain", String)
-        .unwrap_or_else(|| DEFAULT_CHAIN.rec().full_literal_identifier.to_string());
+        .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string());
     let data_directory_opt = value_m!(multi_config, "data-directory", PathBuf);
     (
         real_user,
@@ -129,11 +129,9 @@ pub fn data_directory_from_context(
                 .to_string();
             let right_local_data_dir =
                 wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
-            let platform = chain.rec().family_directory;
             PathBuf::from(right_local_data_dir)
                 .join("MASQ")
-                .join(platform)
-                .join(chain.rec().full_literal_identifier)
+                .join(chain.rec().literal_identifier)
         }
     }
 }
@@ -166,7 +164,6 @@ impl DirsWrapper for DirsWrapperReal {
 mod tests {
     use super::*;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::test_utils::pure_test_utils::make_simplified_multi_config;
     use crate::test_utils::ArgsBuilder;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::utils::find_free_port;
@@ -203,30 +200,9 @@ mod tests {
         assert_eq!(
             result,
             PathBuf::from(
-                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/eth/eth-ropsten".to_string()
+                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/eth-ropsten".to_string()
             )
         )
-    }
-
-    #[test]
-    fn correct_directory_for_default_chain_is_picked() {
-        let multi_config = make_simplified_multi_config(["MASQNode"]);
-        let (real_user, data_directory_opt, chain) =
-            real_user_with_data_directory_opt_and_chain(&DirsWrapperReal, &multi_config);
-
-        let directory =
-            data_directory_from_context(&DirsWrapperReal, &real_user, &data_directory_opt, chain);
-
-        let expected_root = DirsWrapperReal {}.data_dir().unwrap();
-        let expected_directory = expected_root
-            .join("MASQ")
-            .join(DEFAULT_CHAIN.rec().family_directory)
-            .join(DEFAULT_CHAIN.rec().full_literal_identifier);
-        assert_eq!(directory, expected_directory);
-        assert_eq!(
-            chain.rec().full_literal_identifier,
-            DEFAULT_CHAIN.rec().full_literal_identifier
-        );
     }
 
     #[test]

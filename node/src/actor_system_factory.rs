@@ -15,7 +15,8 @@ use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
-    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
+    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
+    REQUESTS_IN_PARALLEL,
 };
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_initializer::{
@@ -417,7 +418,7 @@ fn validate_database_chain_correctness(
     chain: Chain,
     persistent_config: &dyn PersistentConfiguration,
 ) {
-    let required_chain = chain.rec().full_literal_identifier.to_string();
+    let required_chain = chain.rec().literal_identifier.to_string();
     let chain_in_db = persistent_config.chain_name();
     if required_chain != chain_in_db {
         panic!(

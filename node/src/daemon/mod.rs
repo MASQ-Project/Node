@@ -756,7 +756,7 @@ mod tests {
                         ),
                         UiSetupRequestValue::new(
                             "chain",
-                            TEST_DEFAULT_CHAIN.rec().full_literal_identifier,
+                            TEST_DEFAULT_CHAIN.rec().literal_identifier,
                         ),
                         UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                     ],
@@ -786,7 +786,7 @@ mod tests {
                 "chain".to_string(),
                 UiSetupResponseValue::new(
                     "chain",
-                    TEST_DEFAULT_CHAIN.rec().full_literal_identifier,
+                    TEST_DEFAULT_CHAIN.rec().literal_identifier,
                     Set
                 )
             )),
@@ -817,10 +817,7 @@ mod tests {
             body: UiSetupRequest {
                 values: vec![
                     UiSetupRequestValue::new("data-directory", data_dir.to_str().unwrap()),
-                    UiSetupRequestValue::new(
-                        "chain",
-                        TEST_DEFAULT_CHAIN.rec().full_literal_identifier,
-                    ),
+                    UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
                     UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                 ],
             }
@@ -848,7 +845,7 @@ mod tests {
                 assert_eq!(
                     actual_pairs.contains(&(
                         "chain".to_string(),
-                        TEST_DEFAULT_CHAIN.rec().full_literal_identifier.to_string()
+                        TEST_DEFAULT_CHAIN.rec().literal_identifier.to_string()
                     )),
                     true
                 );
