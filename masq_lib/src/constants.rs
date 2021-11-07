@@ -65,4 +65,4 @@ pub const ETH_FAMILY: &str = "eth";
 pub const MUMBAI: &str = "mumbai";
 pub const ROPSTEN: &str = "ropsten";
 const MAINNET: &str = "mainnet";
-const LINK: &str = "-";
+const LINK: char = '-';
