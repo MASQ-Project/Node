@@ -1,5 +1,6 @@
 use crate::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
+    DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, ETH_MAINNET_FULL_IDENTIFIER, HIGHEST_USABLE_PORT,
+    LOWEST_USABLE_INSECURE_PORT, MUMBAI, POLYGON_MAINNET_FULL_IDENTIFIER, ROPSTEN,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -155,7 +156,13 @@ pub fn chain_arg<'a>() -> Arg<'a, 'a> {
 }
 
 pub fn official_chain_names() -> &'static [&'static str] {
-    &["polygon-mainnet", "eth-mainnet", "mumbai", "ropsten", "dev"]
+    &[
+        POLYGON_MAINNET_FULL_IDENTIFIER,
+        ETH_MAINNET_FULL_IDENTIFIER,
+        MUMBAI,
+        ROPSTEN,
+        "dev",
+    ]
 }
 
 pub fn db_password_arg(help: &str) -> Arg {
@@ -498,7 +505,8 @@ impl ConfiguratorError {
 #[cfg(test)]
 mod tests {
 
-    use crate::shared_schema::common_validators;
+    use crate::blockchains::chains::Chain;
+    use crate::shared_schema::{common_validators, official_chain_names};
 
     #[test]
     fn validate_private_key_requires_a_key_that_is_64_characters_long() {
@@ -645,5 +653,16 @@ mod tests {
         let result = common_validators::validate_gas_price("0x0".to_string());
         assert!(result.is_err());
         assert_eq!(Err(String::from("0x0")), result);
+    }
+
+    #[test]
+    fn official_chain_names_are_reliable() {
+        let mut iterator = official_chain_names().iter();
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMumbai);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
+        assert_eq!(iterator.next(), None)
     }
 }

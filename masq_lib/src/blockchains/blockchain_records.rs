@@ -2,11 +2,11 @@
 
 use crate::blockchains::chains::Chain;
 use crate::constants::{
-    DEV_CHAIN_IDENTIFIER, ETH_FAMILY, ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_IDENTIFIER,
-    ETH_ROPSTEN_IDENTIFIER, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, MUMBAI,
-    MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_FAMILY,
-    POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_IDENTIFIER, POLYGON_MUMBAI_IDENTIFIER,
-    ROPSTEN, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
+    DEV_CHAIN_IDENTIFIER, ETH_FAMILY, ETH_MAINNET_CONTRACT_CREATION_BLOCK,
+    ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER,
+    MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, MUMBAI, MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
+    POLYGON_FAMILY, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_FULL_IDENTIFIER,
+    POLYGON_MUMBAI_FULL_IDENTIFIER, ROPSTEN, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
 };
 use ethereum_types::Address;
 
@@ -15,18 +15,18 @@ pub const CHAINS: [BlockchainRecord; 5] = [
     BlockchainRecord {
         self_id: Chain::PolyMainnet,
         num_chain_id: 137,
-        commandline_name: POLYGON_MAINNET_IDENTIFIER,
+        commandline_name: POLYGON_MAINNET_FULL_IDENTIFIER,
         family_directory: POLYGON_FAMILY,
-        descriptor_identifier: POLYGON_MAINNET_IDENTIFIER,
+        descriptor_identifier: POLYGON_MAINNET_FULL_IDENTIFIER,
         contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
         self_id: Chain::EthMainnet,
         num_chain_id: 1,
-        commandline_name: ETH_MAINNET_IDENTIFIER,
+        commandline_name: ETH_MAINNET_FULL_IDENTIFIER,
         family_directory: ETH_FAMILY,
-        descriptor_identifier: ETH_MAINNET_IDENTIFIER,
+        descriptor_identifier: ETH_MAINNET_FULL_IDENTIFIER,
         contract: ETH_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
     },
@@ -35,7 +35,7 @@ pub const CHAINS: [BlockchainRecord; 5] = [
         num_chain_id: 80001,
         commandline_name: MUMBAI,
         family_directory: POLYGON_FAMILY,
-        descriptor_identifier: POLYGON_MUMBAI_IDENTIFIER,
+        descriptor_identifier: POLYGON_MUMBAI_FULL_IDENTIFIER,
         contract: MUMBAI_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
     },
@@ -44,7 +44,7 @@ pub const CHAINS: [BlockchainRecord; 5] = [
         num_chain_id: 3,
         commandline_name: ROPSTEN,
         family_directory: ETH_FAMILY,
-        descriptor_identifier: ETH_ROPSTEN_IDENTIFIER,
+        descriptor_identifier: ETH_ROPSTEN_FULL_IDENTIFIER,
         contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
     },
