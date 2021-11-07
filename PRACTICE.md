@@ -158,4 +158,28 @@ If the pull request does not pass review or testing, you'll be notified and the 
 Awaiting Development, from whence you can reclaim it if you like.
 
 ## Quality Assurance
-[Somebody who knows QA should fill this in]
+
+[Software testing](https://en.wikipedia.org/wiki/Software_testing) is an investigation conducted to provide project managers and developers with information about the quality of the software product or service under test. Software testing can also provide an objective, independent view of the software to allow key project members to appreciate and understand the risks of software implementation.
+
+Software testing involves the execution of a software component or system component to evaluate one or more properties of interest.
+
+### In general, these properties indicate the extent to which the component or system under test:
+
+ - [ ] Meets the requirements that guided its design and development
+ - [ ] responds correctly to all kinds of inputs
+ - [ ] performs its functions within an acceptable time
+ - [ ] is sufficiently usable
+ - [ ] can be installed and run in its intended environments
+ - [ ] achieves the general result its stakeholders desire
+
+As the number of possible tests for even simple software components is practically infinite, all software testing uses some strategy to select tests that are feasible for the available time and resources. As a result, software testing typically, but not exclusively, attempts to execute a program or application with the intent of finding failures due to software faults. The job of testing is an iterative process as when one fault is fixed, it can illuminate other failures due to deeper faults, or can even create new ones.
+
+Software testing can be conducted as soon as executable software (even if partially complete) exists. The overall approach to software development often determines when and how testing is conducted. For example, in a phased process, most testing occurs after system requirements have been defined and then implemented in testable programs.
+
+In the MASQ Network project, the process of QA is triggered when a card is moved into the 'Quality Assurance In Progress' column on our [Card Wall](https://github.com/MASQ-Project/Node/blob/master/COLUMNS.md)
+
+The QA Manager is responsible for passing or failing a card based on the feedback from the test team across the different operating systems being supported.
+
+CLI-based QA requires some basic CL knowledge and understanding of the Node itself.
+
+If you would like to contribute to QA testing, and have a good foundational knowledge of CLI, please reach out to our team by [email](mailto:info@masq.ai) or join our [Discord](https://discord.gg/masq) and tag one of our admins.
