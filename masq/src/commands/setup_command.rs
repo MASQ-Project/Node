@@ -140,12 +140,12 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::communications::broadcast_handler::StreamFactory;
     use crate::test_utils::mocks::{CommandContextMock, TerminalPassiveMock, TestStreamFactory};
+    use masq_lib::constants::ETH_ROPSTEN_FULL_IDENTIFIER;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default, Set};
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::sync::{Arc, Mutex};
-    use masq_lib::constants::ETH_ROPSTEN_FULL_IDENTIFIER;
 
     #[test]
     fn setup_command_with_syntax_error() {
