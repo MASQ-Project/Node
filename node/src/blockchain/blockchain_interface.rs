@@ -13,7 +13,7 @@ use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
 use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, H256, U256, TransactionParameters};
 use web3::{Transport, Web3};
-use crate::blockchain::tool_wrappers::{SendTransactionToolsWrapper, SendTransactionToolsWrapperReal};
+use crate::blockchain::tool_wrappers::{SendTransactionTools, SendTransactionToolsWrapperReal, SendTransactionToolsFactory};
 use std::pin::Pin;
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
@@ -80,7 +80,7 @@ pub trait BlockchainInterface {
         amount: u64,
         nonce: U256,
         gas_price: u64,
-        send_transaction_tools:&'a dyn SendTransactionToolsWrapper
+        send_transaction_tools:&'a dyn SendTransactionTools
     ) -> BlockchainResult<H256>;
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
@@ -96,7 +96,7 @@ pub trait BlockchainInterface {
 
     fn get_transaction_count(&self, address: &Wallet) -> Nonce;
 
-    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolsWrapper +'a>;
+    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionTools +'a>;
 }
 
 // TODO: This probably should go away
@@ -138,7 +138,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _amount: u64,
         _nonce: U256,
         _gas_price: u64,
-        _send_transaction_tools:&'a dyn SendTransactionToolsWrapper
+        _send_transaction_tools:&'a dyn SendTransactionTools
     ) -> BlockchainResult<H256> {
         let msg = "Can't send transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
@@ -159,7 +159,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         unimplemented!()
     }
 
-    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolsWrapper +'a>{
+    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionTools +'a>{
         intentionally_blank!()
     }
 }
@@ -171,6 +171,7 @@ pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
     _event_loop_handle: EventLoopHandle,
     web3: Web3<T>,
     contract: Contract<T>,
+    send_transaction_tools_factory: Box<dyn SendTransactionToolsFactory>
 }
 
 const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
@@ -258,7 +259,7 @@ where
         amount: u64,
         nonce: U256,
         gas_price: u64,
-        send_transaction_tools:&'a dyn SendTransactionToolsWrapper
+        send_transaction_tools:&'a dyn SendTransactionTools
     ) -> BlockchainResult<H256> {
         debug!(
             self.logger,
@@ -344,8 +345,8 @@ where
             .wait()
     }
 
-    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolsWrapper +'a> {
-        Box::new(SendTransactionToolsWrapperReal::new(&self.web3))
+    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionTools +'a> {
+        Box::new(SendTransactionToolsWrapperReal::new(&self.web3))  //TODO should I go deeper and make even this mockable?
     }
 }
 
@@ -353,7 +354,7 @@ impl<T> BlockchainInterfaceNonClandestine<T>
 where
     T: Transport + Debug
 {
-    pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
+    pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain,send_transaction_tools_factory:Box<dyn SendTransactionToolsFactory>) -> Self {
         let web3 = Web3::new(transport);
         let contract =
             Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
@@ -364,6 +365,7 @@ where
             _event_loop_handle: event_loop_handle,
             web3,
             contract,
+            send_transaction_tools_factory
         }
     }
 }
@@ -390,6 +392,7 @@ mod tests {
     use std::str::FromStr;
     use std::thread;
     use web3::{transports::Http, Error, RequestId, Transport};
+    use crate::blockchain::tool_wrappers::SendTransactionToolsFactoryReal;
 
     #[derive(Debug, Default, Clone)]
     pub struct TestTransport {
@@ -480,6 +483,7 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject
@@ -518,6 +522,7 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject
@@ -549,6 +554,7 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.retrieve_transactions(
@@ -583,6 +589,7 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.retrieve_transactions(
@@ -615,6 +622,7 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.retrieve_transactions(
@@ -646,6 +654,7 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject
@@ -672,6 +681,7 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result =
@@ -701,6 +711,7 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.get_eth_balance(
@@ -738,6 +749,7 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject
@@ -763,6 +775,7 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result =
@@ -795,6 +808,7 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.get_token_balance(
@@ -830,6 +844,7 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let results: (Balance, Balance) = await_value(None, || {
@@ -860,6 +875,7 @@ mod tests {
             transport.clone(),
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.send_transaction(
@@ -884,6 +900,34 @@ mod tests {
             transport,
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
+        );
+
+        let result = subject.send_transaction(
+            &address_only_wallet,
+            &make_wallet("blah123"),
+            9000,
+            U256::from(1),
+            2u64,
+            subject.send_transaction_tools().as_ref()
+        );
+
+        assert_eq!(result,
+                   Err(BlockchainError::UnusableWallet(
+                       "Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()
+                   ))
+        )
+    }
+
+    #[test]
+    fn send_transaction_fails_on_signing_transaction() {
+        let transport = TestTransport::default();
+        let address_only_wallet = Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.send_transaction(
@@ -912,6 +956,7 @@ mod tests {
             transport.clone(),
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
+            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.get_transaction_count(&make_paying_wallet(b"gdasgsa"));

@@ -14,7 +14,19 @@ pub enum TransactionToolsError{
 
 }
 
-pub trait SendTransactionToolsWrapper {
+pub trait SendTransactionToolsFactory {
+    fn make(&self)->Box<dyn SendTransactionTools>;
+}
+
+pub struct SendTransactionToolsFactoryReal;
+
+impl SendTransactionToolsFactory for SendTransactionToolsFactoryReal {
+    fn make(&self) -> Box<dyn SendTransactionTools> {
+        todo!()
+    }
+}
+
+pub trait SendTransactionTools {
   fn sign_transaction(&self,transaction_params: TransactionParameters,key: &SecretKey)-> Result<SignedTransaction,TransactionToolsError>;
   fn send_raw_transaction(&self, rlp: Bytes)->Result<H256,TransactionToolsError>;
 }
@@ -29,7 +41,7 @@ impl <'a,T: Transport + Debug> SendTransactionToolsWrapperReal<'a,T>{
     }
 }
 
-impl <'a,T:Transport + Debug> SendTransactionToolsWrapper for SendTransactionToolsWrapperReal<'a,T>{
+impl <'a,T:Transport + Debug> SendTransactionTools for SendTransactionToolsWrapperReal<'a,T>{
     fn sign_transaction(&self,transaction_params: TransactionParameters,key: &SecretKey) -> Result<SignedTransaction, TransactionToolsError> {
         match self.web3.accounts().sign_transaction(transaction_params,key).wait(){
             Ok(tx) => Ok(tx),
@@ -46,9 +58,9 @@ impl <'a,T:Transport + Debug> SendTransactionToolsWrapper for SendTransactionToo
     }
 }
 
-pub struct SendTransactionToolsWrapperNull;
+pub struct SendTransactionToolsNull;
 
-impl SendTransactionToolsWrapper for SendTransactionToolsWrapperNull{
+impl SendTransactionTools for SendTransactionToolsNull {
     fn sign_transaction(&self, _transaction_params: TransactionParameters, key: &SecretKey) -> Result<SignedTransaction, TransactionToolsError> {
         panic!("sing_transaction() for a null object - should never be called")
     }
@@ -60,7 +72,7 @@ impl SendTransactionToolsWrapper for SendTransactionToolsWrapperNull{
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::tool_wrappers::{SendTransactionToolsWrapperNull, SendTransactionToolsWrapper};
+    use crate::blockchain::tool_wrappers::{SendTransactionToolsNull, SendTransactionTools};
     use web3::types::{TransactionParameters, Bytes};
     use secp256k1::key::SecretKey;
 
@@ -78,7 +90,7 @@ mod tests {
         };
         let secret_key = SecretKey::from_slice(b"000000000000000000000000000000aa").unwrap();
 
-        let _ = SendTransactionToolsWrapperNull.sign_transaction(transaction_parameters,&secret_key);
+        let _ = SendTransactionToolsNull.sign_transaction(transaction_parameters, &secret_key);
     }
 
     #[test]
@@ -86,6 +98,6 @@ mod tests {
     fn null_send_raw_transaction_stops_the_run(){
         let rlp = Bytes(b"data".to_vec());
 
-        let _ = SendTransactionToolsWrapperNull.send_raw_transaction(rlp);
+        let _ = SendTransactionToolsNull.send_raw_transaction(rlp);
     }
 }

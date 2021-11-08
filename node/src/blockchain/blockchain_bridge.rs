@@ -221,7 +221,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
-    use crate::blockchain::tool_wrappers::{SendTransactionToolsWrapper, SendTransactionToolsWrapperNull};
+    use crate::blockchain::tool_wrappers::{SendTransactionTools, SendTransactionToolsNull};
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -337,7 +337,7 @@ mod tests {
             amount: u64,
             nonce: U256,
             gas_price: u64,
-            send_transaction_tools:&'a dyn SendTransactionToolsWrapper
+            send_transaction_tools:&'a dyn SendTransactionTools
         ) -> BlockchainResult<H256> {
             self.send_transaction_parameters.lock().unwrap().push((
                 consuming_wallet.clone(),
@@ -365,8 +365,8 @@ mod tests {
             self.get_transaction_count_results.borrow_mut().remove(0)
         }
 
-        fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolsWrapper +'a>{
-            Box::new(SendTransactionToolsWrapperNull)
+        fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionTools +'a>{
+            Box::new(SendTransactionToolsNull)
         }
     }
 
