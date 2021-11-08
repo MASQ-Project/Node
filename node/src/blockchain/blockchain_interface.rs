@@ -1,5 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::tool_wrappers::{
+    SendTransactionToolsWrapper, SendTransactionToolsWrapperReal,
+};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -11,10 +14,10 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
-use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, H256, U256, TransactionParameters};
+use web3::types::{
+    Address, BlockNumber, Bytes, FilterBuilder, Log, TransactionParameters, H256, U256,
+};
 use web3::{Transport, Web3};
-use crate::blockchain::tool_wrappers::{SendTransactionTools, SendTransactionToolsWrapperReal, SendTransactionToolsFactory};
-use std::pin::Pin;
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -80,7 +83,7 @@ pub trait BlockchainInterface {
         amount: u64,
         nonce: U256,
         gas_price: u64,
-        send_transaction_tools:&'a dyn SendTransactionTools
+        send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
     ) -> BlockchainResult<H256>;
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
@@ -96,7 +99,9 @@ pub trait BlockchainInterface {
 
     fn get_transaction_count(&self, address: &Wallet) -> Nonce;
 
-    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionTools +'a>;
+    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolsWrapper + 'a> {
+        intentionally_blank!()
+    }
 }
 
 // TODO: This probably should go away
@@ -138,7 +143,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _amount: u64,
         _nonce: U256,
         _gas_price: u64,
-        _send_transaction_tools:&'a dyn SendTransactionTools
+        _send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
     ) -> BlockchainResult<H256> {
         let msg = "Can't send transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
@@ -158,10 +163,6 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn get_transaction_count(&self, _address: &Wallet) -> Nonce {
         unimplemented!()
     }
-
-    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionTools +'a>{
-        intentionally_blank!()
-    }
 }
 
 pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
@@ -171,7 +172,6 @@ pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
     _event_loop_handle: EventLoopHandle,
     web3: Web3<T>,
     contract: Contract<T>,
-    send_transaction_tools_factory: Box<dyn SendTransactionToolsFactory>
 }
 
 const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
@@ -259,7 +259,7 @@ where
         amount: u64,
         nonce: U256,
         gas_price: u64,
-        send_transaction_tools:&'a dyn SendTransactionTools
+        send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
     ) -> BlockchainResult<H256> {
         debug!(
             self.logger,
@@ -289,30 +289,31 @@ where
         )
         .expect("Internal error");
 
-        let transaction_parameters = TransactionParameters{
+        let transaction_parameters = TransactionParameters {
             nonce: Some(converted_nonce),
             to: Some(ethereum_types::Address {
                 0: self.contract_address().0,
             }),
             gas: gas_limit,
-            gas_price:Some(gas_price),
+            gas_price: Some(gas_price),
             value: ethereum_types::U256::zero(),
             data: Bytes(data.to_vec()),
-            chain_id: Some(self.chain.rec().num_chain_id)
+            chain_id: Some(self.chain.rec().num_chain_id),
         };
 
-        let key = match consuming_wallet.prepare_secp256k1_secret(){
+        let key = match consuming_wallet.prepare_secp256k1_secret() {
             Ok(secret) => secret,
-            Err(e) => return Err(BlockchainError::UnusableWallet(e.to_string()))
+            Err(e) => return Err(BlockchainError::UnusableWallet(e.to_string())),
         };
 
-        let signed_transaction = match send_transaction_tools.sign_transaction(transaction_parameters,&key){
-            Ok(tx) =>tx,
-            Err(e) => unimplemented!()  //BlockchainError
-        };
-        match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction){
+        let signed_transaction =
+            match send_transaction_tools.sign_transaction(transaction_parameters, &key) {
+                Ok(tx) => tx,
+                Err(e) => return Err(BlockchainError::TransactionFailed(e.to_string())),
+            };
+        match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
             Ok(hash) => Ok(hash),
-            Err(e) => unimplemented!()
+            Err(e) => Err(BlockchainError::TransactionFailed(e.to_string())),
         }
     }
 
@@ -345,16 +346,16 @@ where
             .wait()
     }
 
-    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionTools +'a> {
-        Box::new(SendTransactionToolsWrapperReal::new(&self.web3))  //TODO should I go deeper and make even this mockable?
+    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolsWrapper + 'a> {
+        Box::new(SendTransactionToolsWrapperReal::new(&self.web3))
     }
 }
 
 impl<T> BlockchainInterfaceNonClandestine<T>
 where
-    T: Transport + Debug
+    T: Transport + Debug,
 {
-    pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain,send_transaction_tools_factory:Box<dyn SendTransactionToolsFactory>) -> Self {
+    pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
         let web3 = Web3::new(transport);
         let contract =
             Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
@@ -365,7 +366,6 @@ where
             _event_loop_handle: event_loop_handle,
             web3,
             contract,
-            send_transaction_tools_factory
         }
     }
 }
@@ -373,92 +373,82 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::test_utils::TestTransport;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use crate::test_utils::{await_value, make_paying_wallet};
     use crossbeam_channel::unbounded;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
-    use jsonrpc_core as rpc;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
     use serde_json::json;
     use serde_json::Value;
     use simple_server::Server;
     use std::cell::RefCell;
-    use std::collections::VecDeque;
     use std::net::Ipv4Addr;
-    use std::rc::Rc;
     use std::str::FromStr;
+    use std::sync::{Arc, Mutex};
     use std::thread;
-    use web3::{transports::Http, Error, RequestId, Transport};
-    use crate::blockchain::tool_wrappers::SendTransactionToolsFactoryReal;
-
-    #[derive(Debug, Default, Clone)]
-    pub struct TestTransport {
-        asserted: usize,
-        requests: Rc<RefCell<Vec<(String, Vec<rpc::Value>)>>>,
-        responses: Rc<RefCell<VecDeque<rpc::Value>>>,
-    }
-
-    impl Transport for TestTransport {
-        type Out = web3::Result<rpc::Value>;
-
-        fn prepare(&self, method: &str, params: Vec<rpc::Value>) -> (RequestId, rpc::Call) {
-            let request = web3::helpers::build_request(1, method, params.clone());
-            self.requests.borrow_mut().push((method.into(), params));
-            (self.requests.borrow().len(), request)
-        }
-
-        fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
-            match self.responses.borrow_mut().pop_front() {
-                Some(response) => Box::new(futures::finished(response)),
-                None => {
-                    println!("Unexpected request (id: {:?}): {:?}", id, request);
-                    Box::new(futures::failed(Error::Unreachable))
-                }
-            }
-        }
-    }
-
-    impl TestTransport {
-        pub fn add_response(&mut self, value: rpc::Value) {
-            self.responses.borrow_mut().push_back(value);
-        }
-
-        pub fn assert_request(&mut self, method: &str, params: &[String]) {
-            let idx = self.asserted;
-            self.asserted += 1;
-
-            let (m, p) = self
-                .requests
-                .borrow()
-                .get(idx)
-                .expect("Expected result.")
-                .clone();
-            assert_eq!(&m, method);
-            let p: Vec<String> = p
-                .into_iter()
-                .map(|p| serde_json::to_string(&p).unwrap())
-                .collect();
-            assert_eq!(p, params);
-        }
-
-        pub fn assert_no_more_requests(&mut self) {
-            let requests = self.requests.borrow();
-            assert_eq!(
-                self.asserted,
-                requests.len(),
-                "Expected no more requests, got: {:?}",
-                &requests[self.asserted..]
-            );
-        }
-    }
+    use web3::transports::Http;
+    use web3::types::SignedTransaction;
+    use web3::Error as Web3Error;
 
     fn make_fake_event_loop_handle() -> EventLoopHandle {
         Http::with_max_parallel("http://86.75.30.9", REQUESTS_IN_PARALLEL)
             .unwrap()
             .0
+    }
+
+    #[derive(Default)]
+    struct SendTransactionToolsWrapperMock {
+        sign_transaction_params:
+            Arc<Mutex<Vec<(TransactionParameters, secp256k1::key::SecretKey)>>>,
+        sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
+        send_raw_transaction_params: Arc<Mutex<Vec<Bytes>>>,
+        send_raw_transaction_results: RefCell<Vec<Result<H256, Web3Error>>>,
+    }
+
+    impl SendTransactionToolsWrapper for SendTransactionToolsWrapperMock {
+        fn sign_transaction(
+            &self,
+            transaction_params: TransactionParameters,
+            key: &secp256k1::key::SecretKey,
+        ) -> Result<SignedTransaction, Web3Error> {
+            self.sign_transaction_params
+                .lock()
+                .unwrap()
+                .push((transaction_params.clone(), key.clone()));
+            self.sign_transaction_results.borrow_mut().remove(0)
+        }
+
+        fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error> {
+            self.send_raw_transaction_params.lock().unwrap().push(rlp);
+            self.send_raw_transaction_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl SendTransactionToolsWrapperMock {
+        pub fn sign_transaction_params(
+            mut self,
+            params: &Arc<Mutex<Vec<(TransactionParameters, secp256k1::key::SecretKey)>>>,
+        ) -> Self {
+            self.sign_transaction_params = params.clone();
+            self
+        }
+        pub fn sign_transaction_result(self, result: Result<SignedTransaction, Web3Error>) -> Self {
+            self.sign_transaction_results.borrow_mut().push(result);
+            self
+        }
+        pub fn send_raw_transaction_params(mut self, params: &Arc<Mutex<Vec<Bytes>>>) -> Self {
+            self.send_raw_transaction_params = params.clone();
+            self
+        }
+        pub fn send_raw_transaction_result(self, result: Result<H256, Web3Error>) -> Self {
+            self.send_raw_transaction_results.borrow_mut().push(result);
+            self
+        }
     }
 
     #[test]
@@ -483,7 +473,6 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject
@@ -522,7 +511,6 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject
@@ -554,7 +542,6 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.retrieve_transactions(
@@ -589,7 +576,6 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.retrieve_transactions(
@@ -622,7 +608,6 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.retrieve_transactions(
@@ -654,7 +639,6 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject
@@ -681,7 +665,6 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result =
@@ -711,7 +694,6 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.get_eth_balance(
@@ -749,7 +731,6 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject
@@ -775,7 +756,6 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result =
@@ -808,7 +788,6 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.get_token_balance(
@@ -844,7 +823,6 @@ mod tests {
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let results: (Balance, Balance) = await_value(None, || {
@@ -865,6 +843,7 @@ mod tests {
         assert_eq!(token_balance, U256::from(1))
     }
 
+    //test with real web3
     #[test]
     fn blockchain_interface_non_clandestine_can_transfer_tokens() {
         let mut transport = TestTransport::default();
@@ -875,7 +854,6 @@ mod tests {
             transport.clone(),
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.send_transaction(
@@ -884,7 +862,7 @@ mod tests {
             9000,
             U256::from(1),
             2u64,
-            subject.send_transaction_tools().as_ref()
+            subject.send_transaction_tools().as_ref(),
         );
 
         transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0b8e83e714af8bf1685b496912ee4aeff7007ba0f4c29ae50f513bc71ce6a18f4a06a923088306b4ee9cbfcdc62c9b396385f9b1c380134bf046d6c9ae47dea6578""#)]);
@@ -893,14 +871,84 @@ mod tests {
     }
 
     #[test]
+    fn components_of_send_transactions_work_together_properly() {
+        let transport = TestTransport::default();
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            Chain::EthMainnet,
+        );
+        let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let send_raw_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let transaction_parameters_expected = TransactionParameters {
+            nonce: Some(U256::from(5)),
+            to: Some(subject.contract_address()),
+            gas: U256::from(56296),
+            gas_price: Some(U256::from(123000000000_u64)),
+            value: Default::default(),
+            data: Bytes(vec![
+                169, 5, 156, 187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 98, 108, 97, 104, 49, 50, 51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 45, 121, 136, 61, 32, 0,
+            ]),
+            chain_id: Some(1),
+        };
+        let consuming_wallet_secret_raw_bytes = b"my-wallet";
+        let secret =
+            Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
+                .unwrap()
+                .secret()
+                .secp256k1_secret;
+        let signed_transaction = subject
+            .web3
+            .accounts()
+            .sign_transaction(transaction_parameters_expected.clone(), &secret)
+            .wait()
+            .unwrap();
+        let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
+            .sign_transaction_params(&sign_transaction_params_arc)
+            .sign_transaction_result(Ok(signed_transaction.clone()))
+            .send_raw_transaction_params(&send_raw_transaction_params_arc)
+            .send_raw_transaction_result(Ok(H256::from_uint(&U256::from(5))));
+        let recipient_wallet = make_wallet("blah123");
+
+        let result = subject.send_transaction(
+            &make_paying_wallet(consuming_wallet_secret_raw_bytes),
+            &recipient_wallet,
+            50000,
+            U256::from(5),
+            123u64,
+            send_transaction_tools,
+        );
+
+        assert_eq!(result, Ok(H256::from_uint(&U256::from(5))));
+        let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
+        let (transaction_params, secret) = sign_transaction_params.remove(0);
+        assert!(sign_transaction_params.is_empty());
+        assert_eq!(transaction_params, transaction_parameters_expected);
+        assert_eq!(
+            secret,
+            Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
+                .unwrap()
+                .secret()
+                .secp256k1_secret
+        );
+        let send_raw_transaction = send_raw_transaction_params_arc.lock().unwrap();
+        assert_eq!(
+            *send_raw_transaction,
+            vec![signed_transaction.raw_transaction]
+        )
+    }
+
+    #[test]
     fn send_transaction_fails_on_badly_prepared_consuming_wallet_without_secret() {
         let transport = TestTransport::default();
-        let address_only_wallet = Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
+        let address_only_wallet =
+            Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.send_transaction(
@@ -909,7 +957,7 @@ mod tests {
             9000,
             U256::from(1),
             2u64,
-            subject.send_transaction_tools().as_ref()
+            subject.send_transaction_tools().as_ref(),
         );
 
         assert_eq!(result,
@@ -922,28 +970,70 @@ mod tests {
     #[test]
     fn send_transaction_fails_on_signing_transaction() {
         let transport = TestTransport::default();
-        let address_only_wallet = Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
+        let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
+            .sign_transaction_result(Err(Web3Error::Signing(secp256k1::Error::InvalidSecretKey)));
+        let consuming_wallet_secret_raw_bytes = b"okay-wallet";
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             make_fake_event_loop_handle(),
-            TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
+            Chain::PolyMumbai,
         );
 
         let result = subject.send_transaction(
-            &address_only_wallet,
+            &make_paying_wallet(consuming_wallet_secret_raw_bytes),
             &make_wallet("blah123"),
             9000,
             U256::from(1),
             2u64,
-            subject.send_transaction_tools().as_ref()
+            send_transaction_tools,
         );
 
-        assert_eq!(result,
-                   Err(BlockchainError::UnusableWallet(
-                       "Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()
-                   ))
-        )
+        assert_eq!(
+            result,
+            Err(BlockchainError::TransactionFailed(
+                "Signing error: secp: malformed or out-of-range secret key".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn send_transaction_fails_on_sending_raw_tx() {
+        let transport = TestTransport::default();
+        let signed_transaction = SignedTransaction {
+            message_hash: Default::default(),
+            v: 0,
+            r: Default::default(),
+            s: Default::default(),
+            raw_transaction: Default::default(),
+            transaction_hash: Default::default(),
+        };
+        let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
+            .sign_transaction_result(Ok(signed_transaction))
+            .send_raw_transaction_result(Err(Web3Error::Transport(
+                "Transaction crashed".to_string(),
+            )));
+        let consuming_wallet_secret_raw_bytes = b"okay-wallet";
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            Chain::PolyMumbai,
+        );
+
+        let result = subject.send_transaction(
+            &make_paying_wallet(consuming_wallet_secret_raw_bytes),
+            &make_wallet("blah123"),
+            5000,
+            U256::from(1),
+            2u64,
+            send_transaction_tools,
+        );
+
+        assert_eq!(
+            result,
+            Err(BlockchainError::TransactionFailed(
+                "Transport error: Transaction crashed".to_string()
+            ))
+        );
     }
 
     #[test]
@@ -956,7 +1046,6 @@ mod tests {
             transport.clone(),
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
-            Box::new(SendTransactionToolsFactoryReal)
         );
 
         let result = subject.get_transaction_count(&make_paying_wallet(b"gdasgsa"));

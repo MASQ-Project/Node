@@ -51,7 +51,6 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
 use std::path::Path;
 use web3::transports::Http;
-use crate::blockchain::tool_wrappers::SendTransactionToolsFactoryReal;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -368,7 +367,6 @@ impl ActorFactory for ActorFactoryReal {
                             transport,
                             event_loop_handle,
                             config.blockchain_bridge_config.chain,
-                            Box::new(SendTransactionToolsFactoryReal)
                         ))
                     }
                     Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
