@@ -19,17 +19,17 @@ impl DualSecret{
 impl TryFrom<&[u8]> for DualSecret{
     type Error = String;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Self{ ethsign_secret: unimplemented!(), secp256k1_secret: unimplemented!() })
-        // let ethsign_secret = match SecretKey::from_raw(&extended_priv_key.secret()) {
-        //     Ok(secret) => secret,
-        //     Err(e) => return Err(format!("{:?}", e)), //TODO check that this is under tests
-        // };
-        // let secp256k1_secret = match secp256k1::key::SecretKey::from_slice(&extended_private_key.secret())
-        // {
-        //     Ok(secret)=> unimplemented!(),
-        //     Err(e) => unimplemented!("{}",e)
-        // };
+    fn try_from(raw_secret: &[u8]) -> Result<Self, Self::Error> {
+        let ethsign_secret = match SecretKey::from_raw(raw_secret) {
+            Ok(secret) => secret,
+            Err(e) => unimplemented!(), //   return Err(format!("{:?}", e)), //TODO check that this is under tests
+        };
+        let secp256k1_secret = match secp256k1::key::SecretKey::from_slice(raw_secret)
+        {
+            Ok(secret)=> secret,
+            Err(e) => unimplemented!("{}",e)
+        };
+        Ok(Self{ ethsign_secret, secp256k1_secret})
     }
 }
 

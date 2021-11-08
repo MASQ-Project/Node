@@ -13,7 +13,8 @@ use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
 use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, H256, U256, TransactionParameters};
 use web3::{Transport, Web3};
-use crate::blockchain::tool_wrappers::SendTransactionToolsWrapper;
+use crate::blockchain::tool_wrappers::{SendTransactionToolsWrapper, SendTransactionToolsWrapperReal};
+use std::pin::Pin;
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -72,14 +73,14 @@ pub trait BlockchainInterface {
 
     fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions;
 
-    fn send_transaction(
+    fn send_transaction<'a>(
         &self,
         consuming_wallet: &Wallet,
         recipient: &Wallet,
         amount: u64,
         nonce: U256,
         gas_price: u64,
-        send_transaction_tools:&dyn SendTransactionToolsWrapper
+        send_transaction_tools:&'a dyn SendTransactionToolsWrapper
     ) -> BlockchainResult<H256>;
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
@@ -94,6 +95,8 @@ pub trait BlockchainInterface {
     }
 
     fn get_transaction_count(&self, address: &Wallet) -> Nonce;
+
+    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolsWrapper +'a>;
 }
 
 // TODO: This probably should go away
@@ -128,14 +131,14 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Err(BlockchainError::TransactionFailed(msg))
     }
 
-    fn send_transaction(
+    fn send_transaction<'a>(
         &self,
         _consuming_wallet: &Wallet,
         _recipient: &Wallet,
         _amount: u64,
         _nonce: U256,
         _gas_price: u64,
-        _send_transaction_tools: &dyn SendTransactionToolsWrapper
+        _send_transaction_tools:&'a dyn SendTransactionToolsWrapper
     ) -> BlockchainResult<H256> {
         let msg = "Can't send transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
@@ -154,6 +157,10 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
 
     fn get_transaction_count(&self, _address: &Wallet) -> Nonce {
         unimplemented!()
+    }
+
+    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolsWrapper +'a>{
+        intentionally_blank!()
     }
 }
 
@@ -244,14 +251,14 @@ where
             .wait()
     }
 
-    fn send_transaction(
+    fn send_transaction<'a>(
         &self,
         consuming_wallet: &Wallet,
         recipient: &Wallet,
         amount: u64,
         nonce: U256,
         gas_price: u64,
-        send_transaction_tools: &dyn SendTransactionToolsWrapper
+        send_transaction_tools:&'a dyn SendTransactionToolsWrapper
     ) -> BlockchainResult<H256> {
         debug!(
             self.logger,
@@ -298,11 +305,11 @@ where
             Err(e) => return Err(BlockchainError::UnusableWallet(e.to_string()))
         };
 
-        let signed_transaction = match self.web3.accounts().sign_transaction(transaction_parameters,&key).wait(){
+        let signed_transaction = match send_transaction_tools.sign_transaction(transaction_parameters,&key){
             Ok(tx) =>tx,
             Err(e) => unimplemented!()  //BlockchainError
         };
-        match self.web3.eth().send_raw_transaction(signed_transaction.raw_transaction).wait(){
+        match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction){
             Ok(hash) => Ok(hash),
             Err(e) => unimplemented!()
         }
@@ -336,11 +343,15 @@ where
             .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
+
+    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolsWrapper +'a> {
+        Box::new(SendTransactionToolsWrapperReal::new(&self.web3))
+    }
 }
 
 impl<T> BlockchainInterfaceNonClandestine<T>
 where
-    T: Transport + Debug,
+    T: Transport + Debug
 {
     pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
         let web3 = Web3::new(transport);
@@ -791,7 +802,7 @@ mod tests {
         );
 
         match result {
-            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex") => (),
+            Err(BlockchainError::QueryFailed(msg)) if msg.contains("Invalid hex") => (),
             x => panic!("Expected complaint about hex character, but got {:?}", x),
         }
     }
@@ -857,6 +868,7 @@ mod tests {
             9000,
             U256::from(1),
             2u64,
+            subject.send_transaction_tools().as_ref()
         );
 
         transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0b8e83e714af8bf1685b496912ee4aeff7007ba0f4c29ae50f513bc71ce6a18f4a06a923088306b4ee9cbfcdc62c9b396385f9b1c380134bf046d6c9ae47dea6578""#)]);
@@ -866,10 +878,10 @@ mod tests {
 
     #[test]
     fn send_transaction_fails_on_badly_prepared_consuming_wallet_without_secret() {
-        let mut transport = TestTransport::default();
+        let transport = TestTransport::default();
         let address_only_wallet = Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
         let subject = BlockchainInterfaceNonClandestine::new(
-            transport.clone(),
+            transport,
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
         );
@@ -880,6 +892,7 @@ mod tests {
             9000,
             U256::from(1),
             2u64,
+            subject.send_transaction_tools().as_ref()
         );
 
         assert_eq!(result,

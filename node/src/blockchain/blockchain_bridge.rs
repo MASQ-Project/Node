@@ -22,6 +22,7 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::convert::TryFrom;
+use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperReal;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -179,6 +180,7 @@ impl BlockchainBridge {
                             amount,
                             nonce,
                             gas_price,
+                            self.blockchain_interface.send_transaction_tools().as_ref()
                         ) {
                             Ok(hash) => Ok(Payment::new(payable.wallet.clone(), amount, hash)),
                             Err(e) => Err(e),
@@ -219,6 +221,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
+    use crate::blockchain::tool_wrappers::{SendTransactionToolsWrapper, SendTransactionToolsWrapperNull};
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -327,13 +330,14 @@ mod tests {
             self.retrieve_transactions_results.borrow_mut().remove(0)
         }
 
-        fn send_transaction(
+        fn send_transaction<'a>(
             &self,
             consuming_wallet: &Wallet,
             recipient: &Wallet,
             amount: u64,
             nonce: U256,
             gas_price: u64,
+            send_transaction_tools:&'a dyn SendTransactionToolsWrapper
         ) -> BlockchainResult<H256> {
             self.send_transaction_parameters.lock().unwrap().push((
                 consuming_wallet.clone(),
@@ -359,6 +363,10 @@ mod tests {
                 .unwrap()
                 .push(wallet.clone());
             self.get_transaction_count_results.borrow_mut().remove(0)
+        }
+
+        fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolsWrapper +'a>{
+            Box::new(SendTransactionToolsWrapperNull)
         }
     }
 
