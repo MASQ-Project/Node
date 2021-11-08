@@ -14,6 +14,8 @@ use web3::transports::EventLoopHandle;
 use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, H256, U256};
 use web3::{Transport, Web3};
 
+pub const REQUESTS_IN_PARALLEL: usize = 1;
+
 // SHRD (Ropsten)
 pub const ROPSTEN_TESTNET_CONTRACT_ADDRESS: Address = Address {
     0: [
@@ -53,7 +55,7 @@ const CONTRACTS: [Address; 5] = [
 ];
 
 pub const MAINNET_CONTRACT_CREATION_BLOCK: u64 = 9_415_932;
-pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
+pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 11_050_000;
 pub const RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 5_893_771;
 
 pub const CONTRACT_CREATION_BLOCK: [u64; 5] = [
@@ -138,7 +140,7 @@ pub enum BlockchainError {
     InvalidUrl,
     InvalidAddress,
     InvalidResponse,
-    QueryFailed,
+    QueryFailed(String),
     TransactionFailed(String),
 }
 
@@ -322,7 +324,7 @@ where
                             Ok(transactions)
                         }
                     }
-                    Err(_) => Err(BlockchainError::QueryFailed),
+                    Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
                 })
             })
             .wait()
@@ -389,7 +391,7 @@ where
         self.web3
             .eth()
             .balance(wallet.address(), None)
-            .map_err(|_| BlockchainError::QueryFailed)
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 
@@ -402,7 +404,7 @@ where
                 Options::with(|_| {}),
                 None,
             )
-            .map_err(|_| BlockchainError::QueryFailed)
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 
@@ -410,7 +412,7 @@ where
         self.web3
             .eth()
             .transaction_count(wallet.address(), Some(BlockNumber::Pending))
-            .map_err(|_| BlockchainError::QueryFailed)
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 }
@@ -522,7 +524,9 @@ mod tests {
     }
 
     fn make_fake_event_loop_handle() -> EventLoopHandle {
-        Http::new("http://86.75.30.9").unwrap().0
+        Http::with_max_parallel("http://86.75.30.9", REQUESTS_IN_PARALLEL)
+            .unwrap()
+            .0
     }
 
     #[test]
@@ -538,11 +542,10 @@ mod tests {
             }).listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
@@ -560,12 +563,12 @@ mod tests {
             body["params"][0]["topics"][2].to_string(),
         );
         assert_eq!(
+            result,
             vec![Transaction {
                 block_number: 4_974_179u64,
                 from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
                 gwei_amount: 4_503_599u64,
-            }],
-            result,
+            }]
         )
     }
 
@@ -574,8 +577,11 @@ mod tests {
     fn blockchain_interface_non_clandestine_retrieve_transactions_returns_an_error_if_the_to_address_is_invalid(
     ) {
         let port = 8545;
-        let (event_loop_handle, transport) =
-            Http::new(&format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port)).unwrap();
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
 
@@ -583,8 +589,8 @@ mod tests {
             .retrieve_transactions(42, &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"));
 
         assert_eq!(
-            BlockchainError::InvalidAddress,
-            result.expect_err("Expected an Err, got Ok")
+            result.expect_err("Expected an Err, got Ok"),
+            BlockchainError::InvalidAddress
         );
     }
 
@@ -599,11 +605,10 @@ mod tests {
             }).listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
@@ -614,8 +619,8 @@ mod tests {
         );
 
         assert_eq!(
-            BlockchainError::InvalidResponse,
-            result.expect_err("Expected an Err, got Ok")
+            result.expect_err("Expected an Err, got Ok"),
+            BlockchainError::InvalidResponse
         );
     }
 
@@ -630,11 +635,10 @@ mod tests {
             }).listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
 
         let subject =
@@ -645,7 +649,7 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Err(BlockchainError::InvalidResponse), result);
+        assert_eq!(result, Err(BlockchainError::InvalidResponse));
     }
 
     #[test]
@@ -660,11 +664,10 @@ mod tests {
                 .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
 
         let subject =
@@ -675,7 +678,7 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Ok(vec![]), result);
+        assert_eq!(result, Ok(vec![]));
     }
 
     #[test]
@@ -689,21 +692,22 @@ mod tests {
             .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
 
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
 
-        let result = subject.get_eth_balance(
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
+        let result = subject
+            .get_eth_balance(
+                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+            )
+            .unwrap();
 
-        assert_eq!(U256::from(65_535), result.unwrap());
+        assert_eq!(result, U256::from(65_535));
     }
 
     #[test]
@@ -711,11 +715,10 @@ mod tests {
     fn blockchain_interface_non_clandestine_returns_an_error_when_requesting_eth_balance_of_an_invalid_wallet(
     ) {
         let port = 8545;
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
 
         let subject =
@@ -724,7 +727,7 @@ mod tests {
         let result =
             subject.get_eth_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
 
-        assert_eq!(Err(BlockchainError::InvalidAddress), result);
+        assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
 
     #[test]
@@ -739,13 +742,11 @@ mod tests {
             .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
-
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
 
@@ -753,7 +754,12 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Err(BlockchainError::QueryFailed), result);
+        match result {
+            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
+                ()
+            }
+            x => panic!("Expected complaint about hex character, but got {:?}", x),
+        };
     }
 
     #[test]
@@ -770,20 +776,21 @@ mod tests {
                 .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
 
-        let result = subject.get_token_balance(
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
+        let result = subject
+            .get_token_balance(
+                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+            )
+            .unwrap();
 
-        assert_eq!(U256::from(65_535), result.unwrap());
+        assert_eq!(result, U256::from(65_535));
     }
 
     #[test]
@@ -791,11 +798,10 @@ mod tests {
     fn blockchain_interface_non_clandestine_returns_an_error_when_requesting_token_balance_of_an_invalid_wallet(
     ) {
         let port = 8545;
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
@@ -803,7 +809,7 @@ mod tests {
         let result =
             subject.get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
 
-        assert_eq!(Err(BlockchainError::InvalidAddress), result);
+        assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
 
     #[test]
@@ -821,11 +827,10 @@ mod tests {
             .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
@@ -834,7 +839,10 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(Err(BlockchainError::QueryFailed), result);
+        match result {
+            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex") => (),
+            x => panic!("Expected complaint about hex character, but got {:?}", x),
+        }
     }
 
     #[test]
@@ -851,11 +859,10 @@ mod tests {
             .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
         .unwrap();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
@@ -874,8 +881,8 @@ mod tests {
         let eth_balance = results.0.unwrap();
         let token_balance = results.1.unwrap();
 
-        assert_eq!(U256::from(1), eth_balance);
-        assert_eq!(U256::from(1), token_balance)
+        assert_eq!(eth_balance, U256::from(1),);
+        assert_eq!(token_balance, U256::from(1))
     }
 
     #[test]

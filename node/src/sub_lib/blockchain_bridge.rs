@@ -36,6 +36,10 @@ pub struct ReportAccountsPayable {
     pub accounts: Vec<PayableAccount>,
 }
 
+impl Message for ReportAccountsPayable {
+    type Result = Result<Vec<BlockchainResult<Payment>>, String>;
+}
+
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct SetDbPasswordMsg {
     pub client_id: u64,
@@ -46,10 +50,6 @@ pub struct SetDbPasswordMsg {
 pub struct SetGasPriceMsg {
     pub client_id: u64,
     pub gas_price: String,
-}
-
-impl Message for ReportAccountsPayable {
-    type Result = Result<Vec<BlockchainResult<Payment>>, String>;
 }
 
 #[cfg(test)]
