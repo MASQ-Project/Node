@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::apps::{app_config_dumper, app_daemon, app_node};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
@@ -739,7 +739,7 @@ parm2 - msg2\n"
         use chrono::offset::Utc;
         use chrono::NaiveDate;
         //this line here makes us aware that this issue is still unresolved; you may want to set this date more forward if we still cannot answer this
-        if Utc::today().and_hms(0, 0, 0).naive_utc().date() >= NaiveDate::from_ymd(2021, 10, 30) {
+        if Utc::today().and_hms(0, 0, 0).naive_utc().date() >= NaiveDate::from_ymd(2021, 12, 31) {
             let subject = RunModes::new();
             let mut daemon_v_holder = FakeStreamHolder::new();
             let mut node_v_holder = FakeStreamHolder::new();
