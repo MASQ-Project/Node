@@ -1,9 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchains::chains::Chain;
+use const_format::concatcp;
+
+pub const DEFAULT_CHAIN: Chain = Chain::EthMainnet;
+
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
 pub const HTTP_PORT: u16 = 80;
 pub const TLS_PORT: u16 = 443;
-pub const DEFAULT_CHAIN_NAME: &str = "mainnet"; //TODO look, this is different here and in the node's crate; there we call a default 'ropsten' which is quite concerning anyway
+pub const MASQ_URL_PREFIX: &str = "masq://";
 pub const DEFAULT_GAS_PRICE: &str = "1";
 pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
 pub const HIGHEST_USABLE_PORT: u16 = 65535;
@@ -11,6 +16,12 @@ pub const DEFAULT_UI_PORT: u16 = 5333;
 pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 
 pub const MASQ_PROMPT: &str = "masq> ";
+
+pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
+pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
+pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
+pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
+pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 18_750_537;
 
 //error codes
 
@@ -37,3 +48,18 @@ pub const NODE_ALREADY_RUNNING_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 3;
 pub const UNMARSHAL_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 4;
 pub const SETUP_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 5;
 pub const TIMEOUT_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 6;
+
+//descriptor
+pub const CENTRAL_DELIMITER: char = '@';
+pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
+
+//chains
+const MAINNET: &str = "mainnet";
+const POLYGON_FAMILY: &str = "polygon";
+const ETH_FAMILY: &str = "eth";
+const LINK: char = '-';
+pub const POLYGON_MAINNET_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, MAINNET);
+pub const POLYGON_MUMBAI_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, "mumbai");
+pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
+pub const ETH_MAINNET_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, MAINNET);
+pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "ropsten");

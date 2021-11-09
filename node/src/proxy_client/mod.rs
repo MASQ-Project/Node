@@ -321,7 +321,6 @@ struct StreamContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::ROPSTEN_TESTNET_CONTRACT_ADDRESS;
     use crate::proxy_client::local_test_utils::ResolverWrapperFactoryMock;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::resolver_wrapper::ResolverWrapper;
@@ -347,6 +346,7 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::*;
     use actix::System;
+    use masq_lib::blockchains::chains::Chain;
     use std::cell::RefCell;
     use std::net::IpAddr;
     use std::net::SocketAddr;
@@ -806,7 +806,7 @@ mod tests {
             ),
             main_cryptde,
             None,
-            Some(ROPSTEN_TESTNET_CONTRACT_ADDRESS),
+            Some(Chain::EthRopsten.rec().contract),
         )
         .unwrap();
         let package = ExpiredCoresPackage::new(

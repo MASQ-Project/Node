@@ -1536,8 +1536,10 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let node_descriptors = vec![
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
-            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234")
+                .unwrap(),
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345")
+                .unwrap(),
         ];
         let node_descriptors_bytes =
             PlainData::new(&serde_cbor::ser::to_vec(&node_descriptors).unwrap());
@@ -1576,8 +1578,10 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let node_descriptors = vec![
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
-            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234")
+                .unwrap(),
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345")
+                .unwrap(),
         ];
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = Box::new(

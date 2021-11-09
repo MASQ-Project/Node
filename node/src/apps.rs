@@ -84,12 +84,9 @@ const NODE_HELP_TEXT: &str = indoc!(
     indicates the required port needing to be forwarded by the network router. The port is
     the last number in the descriptor, as shown below:
 
-    95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw:86.75.30.9:1234 for testnet
-                                               ^           ^^^^
-    95VjByq5tEUUpDcczA//zXWGE6+7YFEvzN4CDVoPbWw@86.75.30.9:1234 for mainnet
-                                               ^           ^^^^
-    Note: testnet uses ':' to separate the encoded key from the IP address.
-          mainnet uses '@' to separate the encoded key from the IP address.
+        masq://eth-mainnet:6hXbJTZWUKboREQsEMl9iQxsjRz6LQxh-zGZmGCvA3k@86.75.30.9:1234
+                                                                                  ^^^^
+
     Steps To Forwarding Ports In The Router
         1. Log in to the router.
         2. Navigate to the router's port forwarding section, also frequently called virtual server.

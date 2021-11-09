@@ -3,7 +3,6 @@ use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
-use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -37,11 +36,15 @@ use crate::sub_lib::wallet::Wallet;
 use futures::try_ready;
 use itertools::Itertools;
 use log::LevelFilter;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT};
+use masq_lib::constants::{
+    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, DEFAULT_UI_PORT, MASQ_URL_PREFIX,
+};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
@@ -333,9 +336,8 @@ impl BootstrapperConfig {
                 ui_port: DEFAULT_UI_PORT,
             },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                chain_id: 3u8, /*DEFAULT_CHAIN_ID*/
-                //TODO this seems wrong, why do we want Ropsten to be a default chain?
+                blockchain_service_url_opt: None,
+                chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
             },
             port_configurations: HashMap::new(),
@@ -429,13 +431,13 @@ impl ConfiguredByPrivilege for Bootstrapper {
         let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
             &self.config.main_cryptde_null_opt,
             &self.config.alias_cryptde_null_opt,
-            self.config.blockchain_bridge_config.chain_id,
+            self.config.blockchain_bridge_config.chain,
         );
         self.config.node_descriptor_opt = Some(Bootstrapper::report_local_descriptor(
             cryptde_ref,
             self.config.neighborhood_config.mode.node_addr_opt(),
             streams,
-            self.config.blockchain_bridge_config.chain_id,
+            self.config.blockchain_bridge_config.chain,
         ));
         let stream_handler_pool_subs = self
             .actor_system_factory
@@ -468,26 +470,26 @@ impl Bootstrapper {
         Self::initialize_cryptdes(
             main_cryptde_null_opt,
             alias_cryptde_null_opt,
-            masq_lib::test_utils::utils::DEFAULT_CHAIN_ID,
+            masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN,
         )
     }
 
     fn initialize_cryptdes<'a, 'b>(
         main_cryptde_null_opt: &Option<CryptDENull>,
         alias_cryptde_null_opt: &Option<CryptDENull>,
-        chain_id: u8,
+        chain: Chain,
     ) -> (&'a dyn CryptDE, &'b dyn CryptDE) {
         match main_cryptde_null_opt {
             Some(cryptde_null) => unsafe {
                 MAIN_CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone()))
             },
-            None => unsafe { MAIN_CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain_id))) },
+            None => unsafe { MAIN_CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain))) },
         }
         match alias_cryptde_null_opt {
             Some(cryptde_null) => unsafe {
                 ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone()))
             },
-            None => unsafe { ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain_id))) },
+            None => unsafe { ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain))) },
         }
         (main_cryptde_ref(), alias_cryptde_ref())
     }
@@ -496,21 +498,21 @@ impl Bootstrapper {
         cryptde: &dyn CryptDE,
         node_addr_opt: Option<NodeAddr>,
         streams: &mut StdStreams<'_>,
-        chain_id: u8,
+        chain: Chain,
     ) -> String {
         let descriptor = match node_addr_opt {
             Some(node_addr) => {
-                let node_descriptor = NodeDescriptor::from((
-                    cryptde.public_key(),
-                    &node_addr,
-                    chain_id == chain_id_from_name(DEFAULT_CHAIN_NAME),
-                    cryptde,
-                ));
+                let node_descriptor =
+                    NodeDescriptor::from((cryptde.public_key(), &node_addr, chain, cryptde));
                 node_descriptor.to_string(cryptde)
             }
             None => format!(
-                "{}::",
-                cryptde.public_key_to_descriptor_fragment(cryptde.public_key())
+                "{}{}{}{}{}:",
+                MASQ_URL_PREFIX,
+                chain.rec().literal_identifier,
+                CHAIN_IDENTIFIER_DELIMITER,
+                cryptde.public_key_to_descriptor_fragment(cryptde.public_key()),
+                CENTRAL_DELIMITER
             ),
         };
         let descriptor_msg = format!("MASQ Node local descriptor: {}", descriptor);
@@ -526,7 +528,7 @@ impl Bootstrapper {
             let conn = DbInitializerReal::default()
                 .initialize(
                     &self.config.data_directory,
-                    self.config.blockchain_bridge_config.chain_id,
+                    self.config.blockchain_bridge_config.chain,
                     true,
                 )
                 .expect("Cannot initialize database");
@@ -582,9 +584,29 @@ impl Bootstrapper {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::cell::RefCell;
+    use std::io;
+    use std::io::ErrorKind;
+    use std::marker::Sync;
+    use std::net::{IpAddr, SocketAddr};
+    use std::ops::{DerefMut, Not};
+    use std::str::FromStr;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    use actix::Recipient;
+    use actix::System;
+    use crossbeam_channel::unbounded;
+    use lazy_static::lazy_static;
+    use regex::Regex;
+    use tokio;
+    use tokio::prelude::Async;
+
+    use masq_lib::test_utils::environment_guard::ClapGuard;
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+
     use crate::actor_system_factory::ActorFactory;
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::{
@@ -615,26 +637,9 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use crate::test_utils::{assert_contains, rate_pack};
-    use actix::Recipient;
-    use actix::System;
-    use crossbeam_channel::unbounded;
-    use lazy_static::lazy_static;
-    use masq_lib::constants::DEFAULT_CHAIN_NAME;
-    use masq_lib::test_utils::environment_guard::ClapGuard;
-    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
-    use regex::Regex;
-    use std::cell::RefCell;
-    use std::io;
-    use std::io::ErrorKind;
-    use std::marker::Sync;
-    use std::net::{IpAddr, SocketAddr};
-    use std::ops::{DerefMut, Not};
-    use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    use tokio;
-    use tokio::prelude::Async;
+    use masq_lib::blockchains::chains::Chain;
+
+    use super::*;
 
     lazy_static! {
         static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
@@ -1188,7 +1193,7 @@ mod tests {
     #[test]
     fn initialize_cryptde_without_cryptde_null_uses_cryptde_real() {
         let _lock = INITIALIZATION.lock();
-        let (cryptde_init, _) = Bootstrapper::initialize_cryptdes(&None, &None, DEFAULT_CHAIN_ID);
+        let (cryptde_init, _) = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
 
         assert_eq!(main_cryptde_ref().public_key(), cryptde_init.public_key());
         // Brittle assertion: this may not be true forever
@@ -1203,7 +1208,7 @@ mod tests {
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
         let (cryptde, _) =
-            Bootstrapper::initialize_cryptdes(&Some(cryptde_null), &None, DEFAULT_CHAIN_ID);
+            Bootstrapper::initialize_cryptdes(&Some(cryptde_null), &None, TEST_DEFAULT_CHAIN);
 
         assert_eq!(cryptde.public_key(), &cryptde_null_public_key);
         assert_eq!(main_cryptde_ref().public_key(), cryptde.public_key());
@@ -1222,19 +1227,19 @@ mod tests {
             let mut streams = holder.streams();
 
             let (cryptde_ref, _) =
-                Bootstrapper::initialize_cryptdes(&None, &None, DEFAULT_CHAIN_ID);
+                Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
             Bootstrapper::report_local_descriptor(
                 cryptde_ref,
                 Some(node_addr),
                 &mut streams,
-                DEFAULT_CHAIN_ID,
+                TEST_DEFAULT_CHAIN,
             );
 
             cryptde_ref
         };
         let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
-            "{}:2.3.4.5:3456;4567",
+            "masq://eth-ropsten:{}@2.3.4.5:3456/4567",
             cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
         );
         let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")
@@ -1279,19 +1284,19 @@ mod tests {
             let mut streams = holder.streams();
 
             let (main_cryptde_ref, alias_cryptde_ref) =
-                Bootstrapper::initialize_cryptdes(&None, &None, DEFAULT_CHAIN_ID);
+                Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
             Bootstrapper::report_local_descriptor(
                 main_cryptde_ref,
                 None,
                 &mut streams,
-                DEFAULT_CHAIN_ID,
+                TEST_DEFAULT_CHAIN,
             );
 
             (main_cryptde_ref, alias_cryptde_ref)
         };
         let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
-            "{}::",
+            "masq://eth-ropsten:{}@:",
             main_cryptde_ref.public_key_to_descriptor_fragment(main_cryptde_ref.public_key())
         );
         let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")
@@ -1527,7 +1532,7 @@ mod tests {
             "bootstrapper",
             "establish_clandestine_port_handles_specified_port",
         );
-        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
+        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {
@@ -1536,7 +1541,7 @@ mod tests {
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                    DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                    Chain::EthMainnet,
                     cryptde,
                 ))],
                 rate_pack(100),
@@ -1544,7 +1549,7 @@ mod tests {
         };
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = Some(1234);
-        let chain_id = config.blockchain_bridge_config.chain_id;
+        let chain_id = config.blockchain_bridge_config.chain;
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(listener_handler))
@@ -1592,7 +1597,7 @@ mod tests {
 
     #[test]
     fn set_up_clandestine_port_handles_unspecified_port_in_standard_mode() {
-        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
+        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1605,7 +1610,7 @@ mod tests {
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                    DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                    Chain::EthRopsten,
                     cryptde,
                 ))],
                 rate_pack(100),
@@ -1613,7 +1618,7 @@ mod tests {
         };
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = None;
-        let chain_id = config.blockchain_bridge_config.chain_id;
+        let chain_id = config.blockchain_bridge_config.chain;
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(listener_handler))
@@ -1642,7 +1647,7 @@ mod tests {
 
     #[test]
     fn set_up_clandestine_port_handles_originate_only() {
-        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
+        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1656,7 +1661,7 @@ mod tests {
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                    DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                    Chain::EthRopsten,
                     cryptde,
                 ))],
                 rate_pack(100),
@@ -1680,7 +1685,7 @@ mod tests {
 
     #[test]
     fn set_up_clandestine_port_handles_consume_only() {
-        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
+        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1693,7 +1698,7 @@ mod tests {
             mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from((
                 cryptde.public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                Chain::EthRopsten,
                 cryptde,
             ))]),
         };

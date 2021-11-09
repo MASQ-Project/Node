@@ -1,11 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchain_interface::{
-    chain_name_from_id, contract_creation_block_from_chain_id,
-};
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
 use crate::database::db_migrations::{DbMigrator, DbMigratorReal, ExternalMigrationParameters};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -35,14 +33,14 @@ pub trait DbInitializer {
     fn initialize(
         &self,
         path: &Path,
-        chain_id: u8,
+        chain: Chain,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 
     fn initialize_to_version(
         &self,
         path: &Path,
-        chain_id: u8,
+        chain: Chain,
         target_version: usize,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
@@ -64,16 +62,16 @@ impl DbInitializer for DbInitializerReal {
     fn initialize(
         &self,
         path: &Path,
-        chain_id: u8,
+        chain: Chain,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-        self.initialize_to_version(path, chain_id, CURRENT_SCHEMA_VERSION, create_if_necessary)
+        self.initialize_to_version(path, chain, CURRENT_SCHEMA_VERSION, create_if_necessary)
     }
 
     fn initialize_to_version(
         &self,
         path: &Path,
-        chain_id: u8,
+        chain: Chain,
         target_version: usize,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
@@ -88,7 +86,7 @@ impl DbInitializer for DbInitializerReal {
             Ok(conn) => {
                 eprintln!("Opened existing database at {:?}", database_file_path);
                 let config = self.extract_configurations(&conn);
-                let external_parameters = ExternalMigrationParameters::new(chain_id);
+                let external_parameters = ExternalMigrationParameters::new(chain);
                 let migrator = Box::new(DbMigratorReal::new(external_parameters));
                 self.update_if_required_and_get_connection(
                     conn,
@@ -106,7 +104,7 @@ impl DbInitializer for DbInitializerReal {
                 match Connection::open_with_flags(database_file_path, flags) {
                     Ok(conn) => {
                         eprintln!("Created new database at {:?}", database_file_path);
-                        self.create_database_tables(&conn, chain_id);
+                        self.create_database_tables(&conn, chain);
                         Ok(Box::new(ConnectionWrapperReal::new(conn)))
                     }
                     Err(e) => Err(InitializationError::SqliteError(e)),
@@ -141,9 +139,9 @@ impl DbInitializerReal {
         }
     }
 
-    fn create_database_tables(&self, conn: &Connection, chain_id: u8) {
+    fn create_database_tables(&self, conn: &Connection, chain: Chain) {
         self.create_config_table(conn);
-        self.initialize_config(conn, chain_id);
+        self.initialize_config(conn, chain);
         self.create_payable_table(conn);
         self.create_receivable_table(conn);
         self.create_banned_table(conn);
@@ -166,7 +164,7 @@ impl DbInitializerReal {
         .expect("Can't create config name index");
     }
 
-    fn initialize_config(&self, conn: &Connection, chain_id: u8) {
+    fn initialize_config(&self, conn: &Connection, chain: Chain) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
             conn,
@@ -213,7 +211,7 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "chain_name",
-            Some(chain_name_from_id(chain_id)),
+            Some(chain.rec().literal_identifier),
             false,
             "the chain the database is created for",
         );
@@ -221,9 +219,9 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "start_block",
-            Some(&contract_creation_block_from_chain_id(chain_id).to_string()),
+            Some(&chain.rec().contract_creation_block.to_string()),
             false,
-            format!("{} start block", chain_name_from_id(chain_id)).as_str(),
+            format!("{} start block", chain.rec().literal_identifier).as_str(),
         );
         Self::set_config_value(
             conn,
@@ -420,11 +418,11 @@ impl DbInitializerReal {
 pub fn connection_or_panic(
     db_initializer: &dyn DbInitializer,
     path: &Path,
-    chain_id: u8,
+    chain: Chain,
     create_if_necessary: bool,
 ) -> Box<dyn ConnectionWrapper> {
     db_initializer
-        .initialize(path, chain_id, create_if_necessary)
+        .initialize(path, chain, create_if_necessary)
         .unwrap_or_else(|_| {
             panic!(
                 "Failed to connect to database at {:?}",
@@ -437,6 +435,7 @@ pub fn connection_or_panic(
 pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::{DbInitializer, InitializationError};
+    use masq_lib::blockchains::chains::Chain;
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
@@ -445,7 +444,7 @@ pub mod test_utils {
 
     #[derive(Debug, Default)]
     pub struct ConnectionWrapperMock<'b, 'a: 'b> {
-        prepare_parameters: Arc<Mutex<Vec<String>>>,
+        prepare_params: Arc<Mutex<Vec<String>>>,
         prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
         transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
     }
@@ -466,7 +465,7 @@ pub mod test_utils {
 
     impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
         fn prepare(&self, query: &str) -> Result<Statement, Error> {
-            self.prepare_parameters
+            self.prepare_params
                 .lock()
                 .unwrap()
                 .push(String::from(query));
@@ -480,7 +479,7 @@ pub mod test_utils {
 
     #[derive(Default)]
     pub struct DbInitializerMock {
-        pub initialize_parameters: Arc<Mutex<Vec<(PathBuf, u8, bool)>>>,
+        pub initialize_params: Arc<Mutex<Vec<(PathBuf, Chain, bool)>>>,
         pub initialize_results:
             RefCell<Vec<Result<Box<dyn ConnectionWrapper>, InitializationError>>>,
     }
@@ -489,12 +488,12 @@ pub mod test_utils {
         fn initialize(
             &self,
             path: &Path,
-            chain_id: u8,
+            chain: Chain,
             create_if_necessary: bool,
         ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-            self.initialize_parameters.lock().unwrap().push((
+            self.initialize_params.lock().unwrap().push((
                 path.to_path_buf(),
-                chain_id,
+                chain,
                 create_if_necessary,
             ));
             self.initialize_results.borrow_mut().remove(0)
@@ -504,7 +503,7 @@ pub mod test_utils {
         fn initialize_to_version(
             &self,
             path: &Path,
-            chain_id: u8,
+            chain: Chain,
             target_version: usize,
             create_if_necessary: bool,
         ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
@@ -522,9 +521,9 @@ pub mod test_utils {
 
         pub fn initialize_parameters(
             mut self,
-            parameters: Arc<Mutex<Vec<(PathBuf, u8, bool)>>>,
+            parameters: Arc<Mutex<Vec<(PathBuf, Chain, bool)>>>,
         ) -> DbInitializerMock {
-            self.initialize_parameters = parameters;
+            self.initialize_params = parameters;
             self
         }
 
@@ -541,7 +540,6 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::test_utils::database_utils::{
         revive_tables_of_the_version_0_and_return_the_connection_to_the_db, DbMigratorMock,
     };
@@ -549,7 +547,7 @@ mod tests {
     use itertools::Itertools;
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-        DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+        TEST_DEFAULT_CHAIN,
     };
     use rusqlite::types::Type::Null;
     use rusqlite::{Error, OpenFlags};
@@ -569,7 +567,7 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(&home_dir, DEFAULT_CHAIN_ID, false);
+        let result = subject.initialize(&home_dir, TEST_DEFAULT_CHAIN, false);
 
         assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
         let result = Connection::open(&home_dir.join(DATABASE_FILE));
@@ -587,7 +585,7 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(&home_dir, DEFAULT_CHAIN_ID, false);
+        let result = subject.initialize(&home_dir, TEST_DEFAULT_CHAIN, false);
 
         assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
         let mut flags = OpenFlags::empty();
@@ -608,7 +606,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         subject
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -629,7 +627,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         subject
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -652,7 +650,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         subject
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -713,7 +711,7 @@ mod tests {
         let subject = DbInitializerReal::default();
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
                 .unwrap();
         }
         {
@@ -728,7 +726,7 @@ mod tests {
         }
 
         subject
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -748,7 +746,11 @@ mod tests {
             value
         };
 
-        verify(&mut config_vec, "chain_name", Some(TEST_DEFAULT_CHAIN_NAME));
+        verify(
+            &mut config_vec,
+            "chain_name",
+            Some(TEST_DEFAULT_CHAIN.rec().literal_identifier),
+        );
         let clandestine_port_str_opt = verify_name(&mut config_vec, "clandestine_port");
         let clandestine_port: u16 = clandestine_port_str_opt.unwrap().parse().unwrap();
         assert!(clandestine_port >= 1025);
@@ -772,7 +774,7 @@ mod tests {
             "start_block",
             Some(&format!(
                 "{}",
-                contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
+                &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string()
             )),
         );
         assert_eq!(config_vec, vec![]);
@@ -786,7 +788,7 @@ mod tests {
         );
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
                 .unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -799,7 +801,7 @@ mod tests {
         }
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(&home_dir, DEFAULT_CHAIN_ID, true);
+        let result = subject.initialize(&home_dir, TEST_DEFAULT_CHAIN, true);
 
         assert_eq!(
             result.err().unwrap(),
@@ -819,7 +821,7 @@ mod tests {
         );
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
                 .unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -832,7 +834,7 @@ mod tests {
         }
         let subject = DbInitializerReal::default();
 
-        let _ = subject.initialize(&home_dir, DEFAULT_CHAIN_ID, true);
+        let _ = subject.initialize(&home_dir, TEST_DEFAULT_CHAIN, true);
     }
 
     #[test]
@@ -855,10 +857,10 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         let _ = subject
-            .initialize(&updated_db_path_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&updated_db_path_dir, TEST_DEFAULT_CHAIN, true)
             .unwrap();
         let _ = subject
-            .initialize(&from_scratch_db_path_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&from_scratch_db_path_dir, TEST_DEFAULT_CHAIN, true)
             .unwrap();
 
         let conn_updated = Connection::open_with_flags(
@@ -976,7 +978,7 @@ mod tests {
             ensure_node_home_directory_exists("db_initializer", "initialize_config_with_seed");
 
         DbInitializerReal::default()
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
             .unwrap();
 
         let mut flags = OpenFlags::empty();
