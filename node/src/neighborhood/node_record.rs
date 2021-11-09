@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord};
@@ -10,7 +9,7 @@ use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
-use masq_lib::constants::DEFAULT_CHAIN_NAME;
+use masq_lib::blockchains::chains::Chain;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
@@ -96,12 +95,8 @@ impl NodeRecord {
         self.metadata.node_addr_opt.clone()
     }
 
-    pub fn node_descriptor(&self, chain_id: u8, cryptde: &dyn CryptDE) -> NodeDescriptor {
-        NodeDescriptor::from((
-            self,
-            chain_id == chain_id_from_name(DEFAULT_CHAIN_NAME),
-            cryptde,
-        ))
+    pub fn node_descriptor(&self, chain: Chain, cryptde: &dyn CryptDE) -> NodeDescriptor {
+        NodeDescriptor::from((self, chain, cryptde))
     }
 
     pub fn set_node_addr(
@@ -356,7 +351,7 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
     use crate::test_utils::{assert_contains, main_cryptde, rate_pack};
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
 
@@ -417,11 +412,15 @@ mod tests {
             &[1234, 2345],
         ));
 
-        let result = subject.node_descriptor(DEFAULT_CHAIN_ID, cryptde);
+        let result = subject.node_descriptor(TEST_DEFAULT_CHAIN, cryptde);
 
         assert_eq!(
             result,
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA:1.2.3.4:1234;2345").unwrap()
+            NodeDescriptor::from_str(
+                main_cryptde(),
+                "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345"
+            )
+            .unwrap()
         );
     }
 
@@ -430,11 +429,11 @@ mod tests {
         let cryptde: &dyn CryptDE = main_cryptde();
         let subject: NodeRecord = make_node_record(1234, false);
 
-        let result = subject.node_descriptor(DEFAULT_CHAIN_ID, cryptde);
+        let result = subject.node_descriptor(TEST_DEFAULT_CHAIN, cryptde);
 
         assert_eq!(
             result,
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA::").unwrap()
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth-ropsten:AQIDBA@:").unwrap()
         );
     }
 
@@ -973,7 +972,7 @@ mod tests {
     #[test]
     fn regenerate_signed_data_regenerates_signed_gossip_and_resigns() {
         let mut subject = make_node_record(1234, true);
-        let cryptde = CryptDENull::from(subject.public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(subject.public_key(), TEST_DEFAULT_CHAIN);
         let initial_signed_gossip = subject.signed_gossip().clone();
         subject.increment_version();
 

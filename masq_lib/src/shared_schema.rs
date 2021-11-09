@@ -1,6 +1,7 @@
 use crate::constants::{
-    DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HIGHEST_USABLE_PORT,
-    LOWEST_USABLE_INSECURE_PORT,
+    DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
+    ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
+    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -9,7 +10,8 @@ use lazy_static::lazy_static;
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
-     https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID).";
+     https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+     https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID";
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
     Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.";
@@ -55,13 +57,24 @@ pub const LOG_LEVEL_HELP: &str =
      You should probably not specify a level higher than the default unless you have security concerns about \
      persistent logs being kept on your computer: if your Node crashes, it's good to know why.";
 pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in the MASQ \
-     Network to which you'd like your Node to connect on startup. A Node descriptor looks like \
-     this:\n\ngBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ:86.75.30.9:5542 (initial ':' for testnet) and\n\
-     gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg/EN6zQ@86.75.30.9:5542 (initial '@' for mainnet)\n\n\
-     If you have more than one, separate them with commas (but no spaces). There is no default value; \
+     One or more Node descriptors for active Nodes in the MASQ Network to which you'd like your Node to connect \
+     on startup. A Node descriptor looks similar to one of these:\n\n\
+          masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
+          masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
+          masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+          masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642\n\n\
+     Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
+     and also the network the descriptor belongs to (mainnet or a testnet).\n\n\
+     If you have more than one descriptor, separate them with commas (but no spaces). There is no default value; \
      if you don't specify a neighbor, your Node will start without being connected to any MASQ \
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
      --neighbors is meaningless in --neighborhood-mode zero-hop.";
+
+// generated valid encoded keys for future needs
+// UJNoZW5p/PDVqEjpr3b+8jZ/93yPG8i5dOAgE1bhK+A
+// ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk
+// BE1ZIbcxwGTQjzzkkq3qSAK6YKsu8ncVzUfMxTdw5fc
+
 pub const NEIGHBORHOOD_MODE_HELP: &str = "This configures the way the Node relates to other Nodes.\n\n\
      zero-hop means that your Node will operate as its own MASQ Network and will not communicate with any \
      other Nodes. --ip, --neighbors, and --clandestine-port are incompatible with --neighborhood_mode \
@@ -139,8 +152,18 @@ pub fn chain_arg<'a>() -> Arg<'a, 'a> {
         .value_name("CHAIN")
         .min_values(0)
         .max_values(1)
-        .possible_values(&["dev", DEFAULT_CHAIN_NAME, "ropsten", "rinkeby"])
+        .possible_values(official_chain_names())
         .help(CHAIN_HELP)
+}
+
+pub fn official_chain_names() -> &'static [&'static str] {
+    &[
+        POLYGON_MAINNET_FULL_IDENTIFIER,
+        ETH_MAINNET_FULL_IDENTIFIER,
+        POLYGON_MUMBAI_FULL_IDENTIFIER,
+        ETH_ROPSTEN_FULL_IDENTIFIER,
+        DEV_CHAIN_FULL_IDENTIFIER,
+    ]
 }
 
 pub fn db_password_arg(help: &str) -> Arg {
@@ -483,7 +506,8 @@ impl ConfiguratorError {
 #[cfg(test)]
 mod tests {
 
-    use crate::shared_schema::common_validators;
+    use crate::blockchains::chains::Chain;
+    use crate::shared_schema::{common_validators, official_chain_names};
 
     #[test]
     fn validate_private_key_requires_a_key_that_is_64_characters_long() {
@@ -630,5 +654,16 @@ mod tests {
         let result = common_validators::validate_gas_price("0x0".to_string());
         assert!(result.is_err());
         assert_eq!(Err(String::from("0x0")), result);
+    }
+
+    #[test]
+    fn official_chain_names_are_reliable() {
+        let mut iterator = official_chain_names().iter();
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMumbai);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
+        assert_eq!(iterator.next(), None)
     }
 }

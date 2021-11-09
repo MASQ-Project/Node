@@ -163,13 +163,13 @@ fn required_chain_name_from_input_meets_different_db_chain_name_and_panics_integ
     )
     .unwrap();
     conn.execute(
-        "UPDATE config SET value='mainnet' WHERE name='chain_name'",
+        "UPDATE config SET value='eth-mainnet' WHERE name='chain_name'",
         NO_PARAMS,
     )
     .unwrap();
 
     let mut node = MASQNode::start_standard_in_unsterilized_environment(&db_dir);
 
-    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with the wrong chain name detected; expected: ropsten, was: mainnet";
+    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with the wrong chain name detected; expected: eth-ropsten, was: eth-mainnet";
     node.wait_for_log(regex_pattern, Some(1000));
 }

@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::masq_node::MASQNode;
-use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::neighborhood::gossip::{GossipNodeRecord, Gossip_0v1};
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
@@ -309,7 +310,7 @@ impl From<&Vec<AccessibleGossipRecord>> for Standard {
 impl Standard {}
 
 pub struct StandardBuilder {
-    chain_id: u8,
+    chain: Chain,
     agrs: Vec<AccessibleGossipRecord>,
 }
 
@@ -328,7 +329,7 @@ impl Default for StandardBuilder {
 impl StandardBuilder {
     pub fn new() -> StandardBuilder {
         StandardBuilder {
-            chain_id: DEFAULT_CHAIN_ID,
+            chain: TEST_DEFAULT_MULTINODE_CHAIN,
             agrs: vec![],
         }
     }
@@ -359,13 +360,13 @@ impl StandardBuilder {
             .half_neighbors(another, one)
     }
 
-    pub fn chain_id(mut self, chain_id: u8) -> Self {
-        self.chain_id = chain_id;
+    pub fn chain_id(mut self, chain: Chain) -> Self {
+        self.chain = chain;
         self
     }
 
     pub fn build(self) -> Standard {
-        let chain_id = self.chain_id;
+        let chain_id = self.chain;
         Standard {
             nodes: self
                 .agrs

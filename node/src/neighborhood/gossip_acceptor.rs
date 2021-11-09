@@ -1125,7 +1125,7 @@ mod tests {
         db_from_node, make_meaningless_db, make_node_record, make_node_record_f,
     };
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::convert::TryInto;
     use std::str::FromStr;
 
@@ -1144,7 +1144,7 @@ mod tests {
         let mut db = db_from_node(&root_node);
         let neighbor_key = &db.add_node(make_node_record(3456, true)).unwrap();
         db.add_arbitrary_full_neighbor(root_node.public_key(), neighbor_key);
-        let cryptde = CryptDENull::from(db.root().public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let subject = DebutHandler::new(Logger::new("test"));
 
@@ -1174,7 +1174,7 @@ mod tests {
         let mut db = db_from_node(&root_node);
         let neighbor_key = &db.add_node(make_node_record(3456, true)).unwrap();
         db.add_arbitrary_full_neighbor(root_node.public_key(), neighbor_key);
-        let cryptde = CryptDENull::from(db.root().public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let subject = DebutHandler::new(Logger::new("test"));
 
@@ -1200,7 +1200,7 @@ mod tests {
     fn proper_debut_of_node_cant_produce_introduction_because_of_common_neighbor() {
         let src_root = make_node_record(1234, true);
         let mut src_db = db_from_node(&src_root);
-        let cryptde = CryptDENull::from(src_db.root().public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(src_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let dest_root = make_node_record(2345, true);
         let mut dest_db = db_from_node(&dest_root);
         let one_common_neighbor = make_node_record(3456, true);
@@ -1240,7 +1240,7 @@ mod tests {
     fn proper_debut_of_node_cant_be_passed_because_of_common_neighbors() {
         let src_root = make_node_record(1234, true);
         let mut src_db = db_from_node(&src_root);
-        let cryptde = CryptDENull::from(src_db.root().public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(src_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let dest_root = make_node_record(2345, true);
         let mut dest_db = db_from_node(&dest_root);
         (0..MAX_DEGREE as u16).into_iter().for_each(|index| {
@@ -1352,7 +1352,7 @@ mod tests {
         let mut src_db = db_from_node(&src_root);
         let dest_root = make_node_record(2345, true);
         let mut dest_db = db_from_node(&dest_root);
-        let dest_cryptde = CryptDENull::from(dest_root.public_key(), DEFAULT_CHAIN_ID);
+        let dest_cryptde = CryptDENull::from(dest_root.public_key(), TEST_DEFAULT_CHAIN);
         let common_neighbor = make_node_record(3456, true);
         let dest_neighbor = make_node_record(4567, true);
         src_db.add_node(common_neighbor.clone()).unwrap();
@@ -1383,7 +1383,7 @@ mod tests {
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let subject = PassHandler::new();
         let mut dest_db = make_meaningless_db();
-        let cryptde = CryptDENull::from(dest_db.root().public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let qualifies_result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
@@ -1618,7 +1618,7 @@ mod tests {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
         let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
-        let cryptde = CryptDENull::from(dest_db.root().public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let introducer_key = &agrs[0].inner.public_key;
@@ -1668,7 +1668,7 @@ mod tests {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
         let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
-        let cryptde = CryptDENull::from(dest_db.root().public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
@@ -1711,7 +1711,7 @@ mod tests {
             let key = dest_db.add_node(make_node_record(i, true)).unwrap();
             dest_db.add_arbitrary_full_neighbor(dest_root.public_key(), &key);
         }
-        let cryptde = CryptDENull::from(dest_db.root().public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
@@ -1726,7 +1726,7 @@ mod tests {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
         let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
-        let cryptde = CryptDENull::from(dest_db.root().public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         dest_db.add_node(NodeRecord::from(&agrs[0])).unwrap();
@@ -1779,7 +1779,7 @@ mod tests {
                 .unwrap();
             dest_db.add_arbitrary_half_neighbor(dest_root.public_key(), half_neighbor_key);
         }
-        let cryptde = CryptDENull::from(dest_db.root().public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         dest_db.add_node(NodeRecord::from(&agrs[0])).unwrap();
@@ -1964,7 +1964,7 @@ mod tests {
             .node(node_b_key, false)
             .build();
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let cryptde = CryptDENull::from(dest_db.root().public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let gossip_source: SocketAddr = src_root.node_addr_opt().unwrap().into();
 
@@ -2008,7 +2008,7 @@ mod tests {
         src_db.add_node(dest_root.clone()).unwrap();
         src_db.add_arbitrary_full_neighbor(five_neighbors[0].public_key(), dest_root.public_key());
         let mut dest_db = db_from_node(&dest_root);
-        let dest_cryptde = CryptDENull::from(dest_root.public_key(), DEFAULT_CHAIN_ID);
+        let dest_cryptde = CryptDENull::from(dest_root.public_key(), TEST_DEFAULT_CHAIN);
         add_neighbors(&mut dest_db, MAX_DEGREE);
         dest_db.add_node(src_root.clone()).unwrap();
         dest_db.add_arbitrary_full_neighbor(five_neighbors[0].public_key(), src_root.public_key());
@@ -2112,7 +2112,7 @@ mod tests {
     #[test]
     fn first_debut_is_handled() {
         let mut root_node = make_node_record(1234, true);
-        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), DEFAULT_CHAIN_ID);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&root_node);
         let (gossip, debut_node, gossip_source) = make_debut(2345, Mode::Standard);
         let subject = GossipAcceptorReal::new(&root_node_cryptde);
@@ -2135,7 +2135,7 @@ mod tests {
     #[test]
     fn second_debut_is_handled() {
         let mut root_node = make_node_record(1234, true);
-        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), DEFAULT_CHAIN_ID);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&root_node);
         let existing_node_key = &dest_db.add_node(make_node_record(3456, true)).unwrap();
         dest_db.add_arbitrary_full_neighbor(root_node.public_key(), existing_node_key);
@@ -2179,7 +2179,7 @@ mod tests {
     #[test]
     fn fourth_debut_is_handled() {
         let mut root_node = make_node_record(1234, true);
-        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), DEFAULT_CHAIN_ID);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&root_node);
         let existing_node_1_key = &dest_db.add_node(make_node_record(3456, true)).unwrap();
         let existing_node_2_key = &dest_db.add_node(make_node_record(4567, true)).unwrap();
@@ -2260,7 +2260,7 @@ mod tests {
     #[test]
     fn fifth_debut_is_handled() {
         let mut root_node = make_node_record(1234, true);
-        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), DEFAULT_CHAIN_ID);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&root_node);
         let existing_node_1_key = &dest_db.add_node(make_node_record(3456, true)).unwrap();
         let existing_node_2_key = &dest_db.add_node(make_node_record(4567, true)).unwrap();
@@ -2339,7 +2339,7 @@ mod tests {
     #[test]
     fn debut_when_degree_is_five_is_passed_to_least_connected_neighbor() {
         let mut root_node = make_node_record(1234, true);
-        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), DEFAULT_CHAIN_ID);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&root_node);
         let existing_node_1_key = &dest_db.add_node(make_node_record(3456, true)).unwrap();
         let existing_node_2_key = &dest_db.add_node(make_node_record(4567, true)).unwrap();
@@ -2654,7 +2654,7 @@ mod tests {
     #[test]
     fn standard_gossip_does_not_stimulate_introduction_response_for_gossip_source() {
         let dest_node = make_node_record(1234, true);
-        let dest_node_cryptde = CryptDENull::from(&dest_node.public_key(), DEFAULT_CHAIN_ID);
+        let dest_node_cryptde = CryptDENull::from(&dest_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&dest_node);
         let src_node = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_node);

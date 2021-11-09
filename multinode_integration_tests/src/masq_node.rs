@@ -1,10 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use base64::STANDARD_NO_PAD;
-use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT};
+use base64::URL_SAFE_NO_PAD;
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::{
+    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT,
+    MASQ_URL_PREFIX,
+};
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::neighborhood::RatePack;
+use node_lib::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
@@ -26,20 +30,33 @@ use std::time::Instant;
 pub struct NodeReference {
     pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
+    pub chain: Chain,
 }
 
 impl FromStr for NodeReference {
     type Err = String;
 
-    fn from_str(string_rep: &str) -> Result<Self, <Self as FromStr>::Err> {
-        let pieces: Vec<&str> = string_rep.split(':').collect();
-        if pieces.len() != 3 {
-            return Err(format!("A NodeReference must have the form <public_key>:<IP address>:<port list>, not '{}'", string_rep));
-        }
-        let public_key = Self::extract_public_key(pieces[0])?;
-        let ip_addr = Self::extract_ip_addr(pieces[1])?;
-        let port_list = Self::extract_port_list(pieces[2])?;
-        Ok(NodeReference::new(public_key, ip_addr, port_list))
+    fn from_str(node_ref_str: &str) -> Result<Self, <Self as FromStr>::Err> {
+        let (chain, key, tail) = NodeDescriptor::parse_url(node_ref_str)?;
+        let public_key = Self::extract_public_key(key)?;
+        let (ip_addr_str, ports) = strip_ports(tail);
+        let ip_addr = Self::extract_ip_addr(ip_addr_str.as_str())?;
+        let port_list = Self::extract_port_list(ports.as_str())?;
+        Ok(NodeReference::new(public_key, ip_addr, port_list, chain))
+    }
+}
+
+fn strip_ports(tail_half: &str) -> (String, String) {
+    let idx_opt = tail_half.chars().rev().position(|char| char == ':');
+    if let Some(idx) = idx_opt {
+        let lenght = tail_half.len();
+        let reversed_idx = lenght - idx;
+        (
+            tail_half[..reversed_idx - 1].to_string(),
+            tail_half[reversed_idx..].to_string(),
+        )
+    } else {
+        (tail_half.to_string(), String::new())
     }
 }
 
@@ -48,13 +65,14 @@ impl From<&dyn MASQNode> for NodeReference {
         NodeReference {
             public_key: masq_node.main_public_key().clone(),
             node_addr_opt: Some(masq_node.node_addr()),
+            chain: masq_node.chain(),
         }
     }
 }
 
 impl fmt::Display for NodeReference {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let public_key_string = base64::encode_config(&self.public_key.as_slice(), STANDARD_NO_PAD);
+        let public_key_string = base64::encode_config(&self.public_key.as_slice(), URL_SAFE_NO_PAD);
         let ip_addr_string = match &self.node_addr_opt {
             Some(node_addr) => format!("{}", node_addr.ip_addr()),
             None => String::new(),
@@ -65,13 +83,19 @@ impl fmt::Display for NodeReference {
                 .iter()
                 .map(|port| port.to_string())
                 .collect::<Vec<String>>()
-                .join(","),
+                .join(NodeAddr::PORTS_SEPARATOR),
             None => String::new(),
         };
         write!(
             f,
-            "{}:{}:{}",
-            public_key_string, ip_addr_string, port_list_string
+            "{}{}{}{}{}{}:{}",
+            MASQ_URL_PREFIX,
+            self.chain.rec().literal_identifier,
+            CHAIN_IDENTIFIER_DELIMITER,
+            public_key_string,
+            CENTRAL_DELIMITER,
+            ip_addr_string,
+            port_list_string
         )
         .unwrap();
         Ok(())
@@ -83,21 +107,24 @@ impl NodeReference {
         public_key: PublicKey,
         ip_addr_opt: Option<IpAddr>,
         ports: Vec<u16>,
+        chain: Chain,
     ) -> NodeReference {
         match ip_addr_opt {
             Some(ip_addr) => NodeReference {
                 public_key,
                 node_addr_opt: Some(NodeAddr::new(&ip_addr, &ports)),
+                chain,
             },
             None => NodeReference {
                 public_key,
                 node_addr_opt: None,
+                chain,
             },
         }
     }
 
     fn extract_public_key(slice: &str) -> Result<PublicKey, String> {
-        match base64::decode(slice) {
+        match base64::decode_config(slice,URL_SAFE_NO_PAD) {
             Ok (data) => Ok (PublicKey::new (&data[..])),
             Err (_) => Err (format!("The public key of a NodeReference must be represented as a valid Base64 string, not '{}'", slice))
         }
@@ -122,13 +149,13 @@ impl NodeReference {
             vec![]
         } else {
             String::from(slice)
-                .split(',')
+                .split(NodeAddr::PORTS_SEPARATOR)
                 .map(|x| x.parse::<i64>().unwrap_or(-1))
                 .collect()
         };
         if port_list_numbers.contains(&-1) {
             return Err(format!(
-                "The port list must be a comma-separated sequence of valid numbers, not '{}'",
+                "The port list must be a sequence of valid numbers separated by slashes, not '{}'",
                 slice
             ));
         }
@@ -176,8 +203,7 @@ pub trait MASQNode: Any {
     fn consuming_wallet(&self) -> Option<Wallet>;
     // The RatePack this Node will use to charge fees.
     fn rate_pack(&self) -> RatePack;
-    // Valid values are "dev, "ropsten", "rinkeby" for now. Add "mainnet" when it's time.
-    fn chain(&self) -> Option<String>;
+    fn chain(&self) -> Chain;
     fn accepts_connections(&self) -> bool;
     fn routes_data(&self) -> bool;
 }
@@ -273,19 +299,42 @@ impl MASQNodeUtils {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{decode_config, STANDARD_NO_PAD};
+    use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 
     #[test]
-    fn node_reference_from_string_fails_if_there_are_not_three_fields() {
-        let string = String::from("Only two:fields");
+    fn strip_ports_works_single_port() {
+        let tail = "1.2.3.4:4444";
 
-        let result = NodeReference::from_str(string.as_str());
+        let result = strip_ports(tail);
 
-        assert_eq! (result, Err (String::from ("A NodeReference must have the form <public_key>:<IP address>:<port list>, not 'Only two:fields'")));
+        assert_eq!(result, ("1.2.3.4".to_string(), "4444".to_string()))
     }
 
     #[test]
-    fn node_reference_from_string_fails_if_key_is_not_valid_base64() {
-        let string = String::from(";;;:12.34.56.78:1234,2345");
+    fn strip_ports_works_multiple_ports() {
+        let tail = "4.3.2.9:4444/1212/11133";
+
+        let result = strip_ports(tail);
+
+        assert_eq!(
+            result,
+            ("4.3.2.9".to_string(), "4444/1212/11133".to_string())
+        )
+    }
+
+    #[test]
+    fn node_reference_from_str_fails_if_there_are_not_two_fields_to_divide_to() {
+        let string = String::from("masq://two@fields@nope");
+
+        let result = NodeReference::from_str(string.as_str());
+
+        assert_eq! (result, Err (String::from ("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'masq://two@fields@nope'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as 'fields@nope'")));
+    }
+
+    #[test]
+    fn node_reference_from_str_fails_if_key_is_not_valid_base64() {
+        let string = String::from("masq://dev:;;;@12.34.56.78:1234/2345");
 
         let result = NodeReference::from_str(string.as_str());
 
@@ -293,34 +342,34 @@ mod tests {
     }
 
     #[test]
-    fn node_reference_from_string_fails_if_ip_address_is_not_valid() {
+    fn node_reference_from_str_fails_if_ip_address_is_not_valid() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("{}:blippy:1234,2345", key);
+        let string = format!("masq://dev:{}@blippy:1234/2345", key);
 
         let result = NodeReference::from_str(string.as_str());
 
         assert_eq!(
             result,
             Err(String::from(
-                "The IP address of a NodeReference must be valid, not 'blippy'"
+                "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'masq://dev:Qm9vZ2E@blippy:1234/2345'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as 'blippy:1234/2345'"
             ))
         );
     }
 
     #[test]
-    fn node_reference_from_string_fails_if_a_port_number_is_not_valid() {
+    fn node_reference_from_str_fails_if_a_port_number_is_not_valid() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("{}:12.34.56.78:weeble,frud", key);
+        let string = format!("masq://dev:{}@12.34.56.78:weeble/frud", key);
 
         let result = NodeReference::from_str(string.as_str());
 
-        assert_eq! (result, Err (String::from ("The port list must be a comma-separated sequence of valid numbers, not 'weeble,frud'")));
+        assert_eq! (result, Err (String::from("Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'masq://dev:Qm9vZ2E@12.34.56.78:weeble/frud'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as '12.34.56.78:weeble/frud'")));
     }
 
     #[test]
-    fn node_reference_from_string_fails_if_a_port_number_is_too_big() {
+    fn node_reference_from_str_fails_if_a_port_number_is_too_big() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("{}:12.34.56.78:1234,65536", key);
+        let string = format!("masq://dev:{}@12.34.56.78:1234/65536", key);
 
         let result = NodeReference::from_str(string.as_str());
 
@@ -333,9 +382,9 @@ mod tests {
     }
 
     #[test]
-    fn node_reference_from_string_happy() {
+    fn node_reference_from_str_happy_path() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("{}:12.34.56.78:1234,2345", key);
+        let string = format!("masq://dev:{}@12.34.56.78:1234/2345", key);
 
         let result = NodeReference::from_str(string.as_str()).unwrap();
 
@@ -350,9 +399,37 @@ mod tests {
     }
 
     #[test]
+    fn node_reference_from_str_complains_about_slash_in_the_key() {
+        let result = NodeReference::from_str(
+            "masq://dev:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+        );
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "The public key of a NodeReference must be represented as a valid Base64 string, not 'abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw'"
+            ))
+        );
+    }
+
+    #[test]
+    fn node_reference_from_str_complains_about_plus_in_the_key() {
+        let result = NodeReference::from_str(
+            "masq://dev:abJ5XvhVbmVy+GejkYUmftF09pmGZGKgkPzRNnWQxFw@12.23.34.45:5678",
+        );
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "The public key of a NodeReference must be represented as a valid Base64 string, not 'abJ5XvhVbmVy+GejkYUmftF09pmGZGKgkPzRNnWQxFw'"
+            ))
+        );
+    }
+
+    #[test]
     fn node_reference_from_string_works_if_there_are_no_ports() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("{}:12.34.56.78:", key);
+        let string = format!("masq://dev:{}@12.34.56.78:", key);
 
         let result = NodeReference::from_str(string.as_str()).unwrap();
 
@@ -368,14 +445,31 @@ mod tests {
 
     #[test]
     fn node_reference_can_display_itself() {
+        let chain = TEST_DEFAULT_MULTINODE_CHAIN;
         let subject = NodeReference::new(
             PublicKey::new(&b"Booga"[..]),
             Some(IpAddr::from_str("12.34.56.78").unwrap()),
             vec![1234, 5678],
+            chain,
         );
 
         let result = format!("{}", subject);
 
-        assert_eq!(result, String::from("Qm9vZ2E:12.34.56.78:1234,5678"));
+        assert_eq!(
+            result,
+            String::from("masq://dev:Qm9vZ2E@12.34.56.78:1234/5678")
+        );
+    }
+
+    #[test]
+    fn display_works_with_base64_as_url_safe_no_pad() {
+        let public_key_badly_encoded = "abJ5XvhVbmVy+GejkYUmftF/9pmGZGKgkPzRNnWQxFw";
+        let decoded_key_bytes = decode_config(public_key_badly_encoded, STANDARD_NO_PAD).unwrap();
+        let decoded_key = PublicKey::new(&decoded_key_bytes);
+        let node_reference = NodeReference::new(decoded_key, None, vec![], Chain::Dev);
+
+        let str_form = node_reference.to_string();
+
+        assert!(str_form.contains("abJ5XvhVbmVy-GejkYUmftF_9pmGZGKgkPzRNnWQxFw"))
     }
 }

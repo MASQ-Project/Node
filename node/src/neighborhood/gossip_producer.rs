@@ -111,7 +111,7 @@ mod tests {
     use crate::test_utils::assert_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
     use itertools::Itertools;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::collections::btree_set::BTreeSet;
     use std::convert::TryFrom;
 
@@ -345,7 +345,7 @@ mod tests {
         );
         let result_node_record_inner = NodeRecordInner_0v1::try_from(result_gossip_record).unwrap();
         assert_eq!(result_node_record_inner, our_node_record.inner);
-        let our_cryptde = CryptDENull::from(our_node_record.public_key(), DEFAULT_CHAIN_ID);
+        let our_cryptde = CryptDENull::from(our_node_record.public_key(), TEST_DEFAULT_CHAIN);
         assert_eq!(
             our_cryptde.verify_signature(
                 &our_node_record.signed_gossip,
@@ -370,7 +370,7 @@ mod tests {
         assert_eq!(result_gossip_record.node_addr_opt, None);
         let result_node_record_inner = NodeRecordInner_0v1::try_from(result_gossip_record).unwrap();
         assert_eq!(result_node_record_inner, our_node_record.inner);
-        let our_cryptde = CryptDENull::from(our_node_record.public_key(), DEFAULT_CHAIN_ID);
+        let our_cryptde = CryptDENull::from(our_node_record.public_key(), TEST_DEFAULT_CHAIN);
         assert_eq!(
             our_cryptde.verify_signature(
                 &our_node_record.signed_gossip,

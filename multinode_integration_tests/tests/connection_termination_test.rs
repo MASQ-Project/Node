@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, PortSelector};
@@ -9,7 +10,6 @@ use multinode_integration_tests_lib::masq_node_server::MASQNodeServer;
 use multinode_integration_tests_lib::masq_real_node::MASQRealNode;
 use multinode_integration_tests_lib::multinode_gossip::{parse_gossip, GossipType};
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
-use node_lib::blockchain::blockchain_interface::contract_address;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
@@ -44,7 +44,7 @@ const HTTP_RESPONSE: &[u8] =
 fn actual_client_drop() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
-    let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain_id);
+    let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain);
     let mut client = real_node.make_client(8080);
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
@@ -76,7 +76,7 @@ fn actual_client_drop() {
 fn reported_server_drop() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
-    let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain_id);
+    let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain);
     let mut client = real_node.make_client(8080);
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
@@ -121,7 +121,7 @@ fn actual_server_drop() {
                 stream_key,
                 return_route_id,
                 &server,
-                cluster.chain_id,
+                cluster.chain,
             ),
             &masquerader,
             real_node.main_public_key(),
@@ -183,7 +183,7 @@ fn reported_client_drop() {
                 stream_key,
                 return_route_id,
                 &server,
-                cluster.chain_id,
+                cluster.chain,
             ),
             &masquerader,
             real_node.main_public_key(),
@@ -305,7 +305,7 @@ fn create_request_icp(
     stream_key: StreamKey,
     return_route_id: u32,
     server: &MASQNodeServer,
-    chain_id: u8,
+    chain: Chain,
 ) -> IncipientCoresPackage {
     IncipientCoresPackage::new(
         originating_node.main_cryptde_null().unwrap(),
@@ -327,7 +327,7 @@ fn create_request_icp(
             originating_node.main_cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
             return_route_id,
-            Some(contract_address(chain_id)),
+            Some(chain.rec().contract),
         )
         .unwrap(),
         MessageType::ClientRequest(VersionedData::new(
@@ -372,7 +372,7 @@ fn create_meaningless_icp(
             originating_node.main_cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
             1357,
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
         )
         .unwrap(),
         MessageType::ClientRequest(VersionedData::new(
@@ -415,7 +415,7 @@ fn create_server_drop_report(
         originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
-        Some(contract_address(DEFAULT_CHAIN_ID)),
+        Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
     )
     .unwrap();
     route
@@ -462,7 +462,7 @@ fn create_client_drop_report(
         originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
-        Some(contract_address(DEFAULT_CHAIN_ID)),
+        Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
     )
     .unwrap();
     let payload = MessageType::ClientRequest(VersionedData::new(

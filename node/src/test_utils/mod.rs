@@ -17,7 +17,6 @@ pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
-use crate::blockchain::blockchain_interface::contract_address;
 use crate::blockchain::payer::Payer;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
@@ -41,7 +40,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
-use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use regex::Regex;
 use rustc_hex::ToHex;
 use std::collections::btree_set::BTreeSet;
@@ -61,8 +60,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 lazy_static! {
-    static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
-    static ref ALIAS_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
+    static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
+    static ref ALIAS_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
 }
 
 pub fn main_cryptde() -> &'static CryptDENull {
@@ -184,7 +183,7 @@ pub fn make_meaningless_route() -> Route {
         ),
         main_cryptde(),
         Some(make_paying_wallet(b"irrelevant")),
-        Some(contract_address(DEFAULT_CHAIN_ID)),
+        Some(TEST_DEFAULT_CHAIN.rec().contract),
     )
     .unwrap()
 }
@@ -465,7 +464,7 @@ pub fn dummy_address_to_hex(dummy_address: &str) -> String {
 
 pub fn make_payer(secret: &[u8], public_key: &PublicKey) -> Payer {
     let wallet = make_paying_wallet(secret);
-    wallet.as_payer(public_key, &contract_address(DEFAULT_CHAIN_ID))
+    wallet.as_payer(public_key, &TEST_DEFAULT_CHAIN.rec().contract)
 }
 
 pub fn make_paying_wallet(secret: &[u8]) -> Wallet {
