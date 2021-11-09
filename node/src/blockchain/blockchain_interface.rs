@@ -14,9 +14,7 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
-use web3::types::{
-    Address, BlockNumber, Bytes, FilterBuilder, Log, TransactionParameters, H256, U256,
-};
+use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, TransactionParameters, H256, U256, SignedTransaction};
 use web3::{Transport, Web3};
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
@@ -270,47 +268,7 @@ where
             self.chain.rec().num_chain_id,
             self.contract_address()
         );
-        let mut data = [0u8; 4 + 32 + 32];
-        data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
-        data[16..36].copy_from_slice(&recipient.address().0[..]);
-        to_wei(amount).to_big_endian(&mut data[36..68]);
-        let gas_limit = ethereum_types::U256::try_from(
-            data.iter()
-                .fold(55_000u64, |acc, v| acc + if v == &0u8 { 4 } else { 68 }),
-        )
-        .expect("Internal error");
-
-        let converted_nonce = serde_json::from_value::<ethereum_types::U256>(
-            serde_json::to_value(nonce).expect("Internal error"),
-        )
-        .expect("Internal error");
-        let gas_price = serde_json::from_value::<ethereum_types::U256>(
-            serde_json::to_value(to_wei(gas_price)).expect("Internal error"),
-        )
-        .expect("Internal error");
-
-        let transaction_parameters = TransactionParameters {
-            nonce: Some(converted_nonce),
-            to: Some(ethereum_types::Address {
-                0: self.contract_address().0,
-            }),
-            gas: gas_limit,
-            gas_price: Some(gas_price),
-            value: ethereum_types::U256::zero(),
-            data: Bytes(data.to_vec()),
-            chain_id: Some(self.chain.rec().num_chain_id),
-        };
-
-        let key = match consuming_wallet.prepare_secp256k1_secret() {
-            Ok(secret) => secret,
-            Err(e) => return Err(BlockchainError::UnusableWallet(e.to_string())),
-        };
-
-        let signed_transaction =
-            match send_transaction_tools.sign_transaction(transaction_parameters, &key) {
-                Ok(tx) => tx,
-                Err(e) => return Err(BlockchainError::TransactionFailed(e.to_string())),
-            };
+        let signed_transaction = self.prepare_signed_transaction(consuming_wallet,recipient,amount,nonce,gas_price,send_transaction_tools)?;
         match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
             Ok(hash) => Ok(hash),
             Err(e) => Err(BlockchainError::TransactionFailed(e.to_string())),
@@ -366,6 +324,58 @@ where
             _event_loop_handle: event_loop_handle,
             web3,
             contract,
+        }
+    }
+
+    fn prepare_signed_transaction<'a>(
+        &self,
+        consuming_wallet: &Wallet,
+        recipient: &Wallet,
+        amount: u64,
+        nonce: U256,
+        gas_price: u64,
+        send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
+    )-> Result<SignedTransaction,BlockchainError>{
+        let mut data = [0u8; 4 + 32 + 32];
+        data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
+        data[16..36].copy_from_slice(&recipient.address().0[..]);
+        to_wei(amount).to_big_endian(&mut data[36..68]);
+        let base_value = unimplemented!();
+        let gas_limit = ethereum_types::U256::try_from(
+            data.iter()
+                .fold(55_000u64, |acc, v| acc + if v == &0u8 { 4 } else { 68 }),
+        )
+            .expect("Internal error");
+
+        let converted_nonce = serde_json::from_value::<ethereum_types::U256>(
+            serde_json::to_value(nonce).expect("Internal error"),
+        )
+            .expect("Internal error");
+        let gas_price = serde_json::from_value::<ethereum_types::U256>(
+            serde_json::to_value(to_wei(gas_price)).expect("Internal error"),
+        )
+            .expect("Internal error");
+
+        let transaction_parameters = TransactionParameters {
+            nonce: Some(converted_nonce),
+            to: Some(ethereum_types::Address {
+                0: self.contract_address().0,
+            }),
+            gas: gas_limit,
+            gas_price: Some(gas_price),
+            value: ethereum_types::U256::zero(),
+            data: Bytes(data.to_vec()),
+            chain_id: Some(self.chain.rec().num_chain_id),
+        };
+
+        let key = match consuming_wallet.prepare_secp256k1_secret() {
+            Ok(secret) => secret,
+            Err(e) => return Err(BlockchainError::UnusableWallet(e.to_string())),
+        };
+
+        match send_transaction_tools.sign_transaction(transaction_parameters, &key) {
+            Ok(tx) => Ok(tx),
+            Err(e) => return Err(BlockchainError::TransactionFailed(e.to_string())),
         }
     }
 }
@@ -871,7 +881,7 @@ mod tests {
     }
 
     #[test]
-    fn components_of_send_transactions_work_together_properly() {
+    fn non_clandestine_interface_components_of_send_transactions_work_together_properly() {
         let transport = TestTransport::default();
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
@@ -938,6 +948,61 @@ mod tests {
             *send_raw_transaction,
             vec![signed_transaction.raw_transaction]
         )
+    }
+
+    #[test]
+    fn non_clandestine_gas_limit_for_polygon_mainnet_starts_on_70000_as_the_base() {
+        let transport = TestTransport::default();
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            Chain::PolyMainnet,
+        );
+
+        assert_gas_limit_is_not_under(subject,70000)
+    }
+
+    #[test]
+    fn non_clandestine_gas_limit_for_polygon_mumbai_starts_on_70000_as_the_base() {
+        let transport = TestTransport::default();
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            Chain::PolyMumbai,
+        );
+
+        assert_gas_limit_is_not_under(subject,70000)
+    }
+
+    fn assert_gas_limit_is_not_under<T: Transport + Debug>(subject: BlockchainInterfaceNonClandestine<T>, not_under_this_value: u64){
+        let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let consuming_wallet_secret_raw_bytes = b"my-wallet";
+        let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
+            .sign_transaction_params(&sign_transaction_params_arc)
+            //I don't want to set up all the mocks - I want see just the params coming in
+            .sign_transaction_result(Err(Web3Error::Internal));
+        let recipient_wallet = make_wallet("blah123");
+
+        let result = subject.send_transaction(
+            &make_paying_wallet(consuming_wallet_secret_raw_bytes),
+            &recipient_wallet,
+            50000,
+            U256::from(5),
+            123u64,
+            send_transaction_tools,
+        );
+
+        let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
+        let (transaction_params, secret) = sign_transaction_params.remove(0);
+        assert!(sign_transaction_params.is_empty());
+        assert!(transaction_params.gas > U256::from(not_under_this_value));
+        assert_eq!(
+            secret,
+            Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
+                .unwrap()
+                .secret()
+                .secp256k1_secret
+        );
     }
 
     #[test]
