@@ -496,6 +496,7 @@ pub mod pure_test_utils {
     use masq_lib::utils::SliceToVec;
     use std::cell::RefCell;
     use std::collections::HashMap;
+    use std::num::ParseIntError;
     use std::path::PathBuf;
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
@@ -557,6 +558,13 @@ pub mod pure_test_utils {
             .data_dir_result(Some(PathBuf::from(
                 "/unexisting_home/unexisting_alice/mock_directory",
             )))
+    }
+
+    pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+            .collect()
     }
 }
 

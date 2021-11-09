@@ -7,14 +7,17 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use futures::{future, Future};
-use masq_lib::blockchains::chains::Chain;
+use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::constants::DEFAULT_CHAIN;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
-use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, TransactionParameters, H256, U256, SignedTransaction};
+use web3::types::{
+    Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
+    H256, U256,
+};
 use web3::{Transport, Web3};
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
@@ -268,7 +271,14 @@ where
             self.chain.rec().num_chain_id,
             self.contract_address()
         );
-        let signed_transaction = self.prepare_signed_transaction(consuming_wallet,recipient,amount,nonce,gas_price,send_transaction_tools)?;
+        let signed_transaction = self.prepare_signed_transaction(
+            consuming_wallet,
+            recipient,
+            amount,
+            nonce,
+            gas_price,
+            send_transaction_tools,
+        )?;
         match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
             Ok(hash) => Ok(hash),
             Err(e) => Err(BlockchainError::TransactionFailed(e.to_string())),
@@ -335,26 +345,29 @@ where
         nonce: U256,
         gas_price: u64,
         send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
-    )-> Result<SignedTransaction,BlockchainError>{
+    ) -> Result<SignedTransaction, BlockchainError> {
         let mut data = [0u8; 4 + 32 + 32];
         data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
         data[16..36].copy_from_slice(&recipient.address().0[..]);
         to_wei(amount).to_big_endian(&mut data[36..68]);
-        let base_value = unimplemented!();
-        let gas_limit = ethereum_types::U256::try_from(
-            data.iter()
-                .fold(55_000u64, |acc, v| acc + if v == &0u8 { 4 } else { 68 }),
-        )
+        let base_gas_limit = match self.chain.rec().chain_family {
+            ChainFamily::Polygon => 70_000,
+            ChainFamily::Eth => 55_000,
+            ChainFamily::Dev => 55_000,
+        };
+        let gas_limit =
+            ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
+                acc + if v == &0u8 { 4 } else { 68 }
+            }))
             .expect("Internal error");
-
         let converted_nonce = serde_json::from_value::<ethereum_types::U256>(
             serde_json::to_value(nonce).expect("Internal error"),
         )
-            .expect("Internal error");
+        .expect("Internal error");
         let gas_price = serde_json::from_value::<ethereum_types::U256>(
             serde_json::to_value(to_wei(gas_price)).expect("Internal error"),
         )
-            .expect("Internal error");
+        .expect("Internal error");
 
         let transaction_parameters = TransactionParameters {
             nonce: Some(converted_nonce),
@@ -387,6 +400,7 @@ mod tests {
     use crate::blockchain::test_utils::TestTransport;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
+    use crate::test_utils::pure_test_utils::decode_hex;
     use crate::test_utils::{await_value, make_paying_wallet};
     use crossbeam_channel::unbounded;
     use ethereum_types::BigEndianHash;
@@ -959,7 +973,7 @@ mod tests {
             Chain::PolyMainnet,
         );
 
-        assert_gas_limit_is_not_under(subject,70000)
+        assert_gas_limit_is_not_under(subject, 70000, u64::MAX)
     }
 
     #[test]
@@ -971,10 +985,50 @@ mod tests {
             Chain::PolyMumbai,
         );
 
-        assert_gas_limit_is_not_under(subject,70000)
+        assert_gas_limit_is_not_under(subject, 70000, u64::MAX)
     }
 
-    fn assert_gas_limit_is_not_under<T: Transport + Debug>(subject: BlockchainInterfaceNonClandestine<T>, not_under_this_value: u64){
+    #[test]
+    fn non_clandestine_gas_limit_for_dev_lies_within_limits() {
+        let transport = TestTransport::default();
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            Chain::Dev,
+        );
+
+        assert_gas_limit_is_not_under(subject, 55000, 65000)
+    }
+
+    #[test]
+    fn non_clandestine_gas_limit_for_eth_mainnet_lies_within_limits() {
+        let transport = TestTransport::default();
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            Chain::EthMainnet,
+        );
+
+        assert_gas_limit_is_not_under(subject, 55000, 65000)
+    }
+
+    #[test]
+    fn non_clandestine_gas_limit_for_ropsten_lies_within_limits() {
+        let transport = TestTransport::default();
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            Chain::EthRopsten,
+        );
+
+        assert_gas_limit_is_not_under(subject, 55000, 65000)
+    }
+
+    fn assert_gas_limit_is_not_under<T: Transport + Debug>(
+        subject: BlockchainInterfaceNonClandestine<T>,
+        not_under_this_value: u64,
+        not_above_this_value: u64,
+    ) {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let consuming_wallet_secret_raw_bytes = b"my-wallet";
         let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
@@ -983,7 +1037,7 @@ mod tests {
             .sign_transaction_result(Err(Web3Error::Internal));
         let recipient_wallet = make_wallet("blah123");
 
-        let result = subject.send_transaction(
+        let _ = subject.send_transaction(
             &make_paying_wallet(consuming_wallet_secret_raw_bytes),
             &recipient_wallet,
             50000,
@@ -996,6 +1050,7 @@ mod tests {
         let (transaction_params, secret) = sign_transaction_params.remove(0);
         assert!(sign_transaction_params.is_empty());
         assert!(transaction_params.gas > U256::from(not_under_this_value));
+        assert!(transaction_params.gas < U256::from(not_above_this_value));
         assert_eq!(
             secret,
             Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
@@ -1099,6 +1154,81 @@ mod tests {
                 "Transport error: Transaction crashed".to_string()
             ))
         );
+    }
+
+    fn test_consuming_wallet_with_secret() -> Wallet {
+        let key_pair = Bip32ECKeyPair::from_raw_secret(
+            &decode_hex("97923d8fd8de4a00f912bfb77ef483141dec551bd73ea59343ef5c4aac965d04")
+                .unwrap(),
+        )
+        .unwrap();
+        Wallet::from(key_pair)
+    }
+
+    fn test_recipient_wallet() -> Wallet {
+        let hex_part = &"0x7788df76BBd9a0C7c3e5bf0f77bb28C60a167a7b"[2..];
+        let recipient_address_bytes = decode_hex(hex_part).unwrap();
+        let address = Address::from_slice(&recipient_address_bytes);
+        Wallet::from(address)
+    }
+
+    const TEST_PAYMENT_AMOUNT: u64 = 1000;
+    const TEST_GAS_PRICE_ETH: u64 = 110;
+    const TEST_GAS_PRICE_POLYGON: u64 = 50;
+
+    fn assert_that_signed_transactions_agrees_with_template(
+        chain: Chain,
+        nonce: u64,
+        template: &[u8],
+    ) {
+        let transport = TestTransport::default();
+        let subject =
+            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
+        let send_transaction_tools = subject.send_transaction_tools();
+        let consuming_wallet = test_consuming_wallet_with_secret();
+        let recipient_wallet = test_recipient_wallet();
+        let nonce_of_the_real_transaction = U256::from(nonce);
+        let gas_price = match chain.rec().chain_family {
+            ChainFamily::Eth => TEST_GAS_PRICE_ETH,
+            ChainFamily::Polygon => TEST_GAS_PRICE_POLYGON,
+            _ => panic!("isn't our interest in this test"),
+        };
+
+        let signed_transaction = subject
+            .prepare_signed_transaction(
+                &consuming_wallet,
+                &recipient_wallet,
+                TEST_PAYMENT_AMOUNT,
+                nonce_of_the_real_transaction,
+                gas_price,
+                send_transaction_tools.as_ref(),
+            )
+            .unwrap();
+
+        let byte_set_to_compare = signed_transaction.raw_transaction.0;
+        assert_eq!(&byte_set_to_compare, template)
+    }
+
+    //with a real confirmation on a transaction sent with this data to the network
+    #[test]
+    fn non_clandestine_signing_a_transaction_works_for_polygon_mumbai() {
+        let chain = Chain::PolyMumbai;
+        let nonce = 5; //must stay like this!
+        let signed_transaction_data = "f8ad05850ba43b740083011980944dfeee01f17e23632b15851717b811720af82e0f80b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000000e8d4a5100083027126a07ef7ca63022eb309f63e3e28bc5b33494c274f293383da21df7f884fae0a9906a03217dab00d8bf2ad5f37263b82c8ba174ff13d9266cd853b4dbb69459880d40b";
+        let in_bytes = decode_hex(signed_transaction_data).unwrap();
+
+        assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
+    }
+
+    //with a real confirmation on a transaction sent with this data to the network
+    #[test]
+    fn non_clandestine_signing_a_transaction_works_for_eth_ropsten() {
+        let chain = Chain::EthRopsten;
+        let nonce = 1; //must stay like this!
+        let signed_transaction_data = "f8a90185199c82cc0082dee894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000000e8d4a510002aa0635fbb3652e1c3063afac6ffdf47220e0431825015aef7daff9251694e449bfca00b2ed6d556bd030ac75291bf58817da15a891cd027a4c261bb80b51f33b78adf";
+        let in_bytes = decode_hex(signed_transaction_data).unwrap();
+
+        assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
     }
 
     #[test]
