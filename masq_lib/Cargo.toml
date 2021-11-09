@@ -5,12 +5,13 @@ authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
 copyright = "Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved."
 description = "Code common to Node and masq; also, temporarily, to dns_utility"
-edition = "2018"
+edition = "2021"
 workspace = "../node"
 
 [dependencies]
 actix = "0.7.9"
 clap = "2.33.3"
+const_format = "0.2.22"
 crossbeam-channel = "0.5.0"
 itertools = "0.8.0"
 lazy_static = "1.4.0"
@@ -20,6 +21,7 @@ serde_derive = "1.0.99"
 serde_json = "1.0.40"
 tiny-hderive = "0.2.1"
 toml = "0.5.3"
+web3 = {version = "0.8.0", default-features = false}
 websocket = {version = "0.26.0", default-features = false, features = ["sync"]}
 
 [features]

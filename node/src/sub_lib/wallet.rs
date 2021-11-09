@@ -433,13 +433,12 @@ impl Serialize for Wallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::contract_address;
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
     use bip39::{Language, Mnemonic, Seed};
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::derivation_path;
     use rusqlite::Connection;
     use rustc_hex::FromHex;
@@ -673,7 +672,7 @@ mod tests {
     fn sign_with_uninitialized_wallets_panic() {
         Wallet::new("").as_payer(
             &CryptdePublicKey::new(&[1, 2, 3]),
-            &contract_address(DEFAULT_CHAIN_ID),
+            &TEST_DEFAULT_CHAIN.rec().contract,
         );
     }
 

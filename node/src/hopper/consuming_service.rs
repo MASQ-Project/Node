@@ -130,7 +130,6 @@ impl ConsumingService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::{Component, InboundClientData};
     use crate::sub_lib::node_addr::NodeAddr;
@@ -142,7 +141,7 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
     use actix::System;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
@@ -222,7 +221,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
@@ -269,7 +268,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();

@@ -449,7 +449,7 @@ mod tests {
     };
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageTarget::AllExcept;
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
     use std::cell::RefCell;
@@ -754,7 +754,10 @@ mod tests {
                             "data-directory",
                             format!("{:?}", home_dir).as_str(),
                         ),
-                        UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME),
+                        UiSetupRequestValue::new(
+                            "chain",
+                            TEST_DEFAULT_CHAIN.rec().literal_identifier,
+                        ),
                         UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                     ],
                 }
@@ -781,7 +784,11 @@ mod tests {
         assert_eq!(
             actual_pairs.contains(&(
                 "chain".to_string(),
-                UiSetupResponseValue::new("chain", TEST_DEFAULT_CHAIN_NAME, Set)
+                UiSetupResponseValue::new(
+                    "chain",
+                    TEST_DEFAULT_CHAIN.rec().literal_identifier,
+                    Set
+                )
             )),
             true
         );
@@ -810,7 +817,7 @@ mod tests {
             body: UiSetupRequest {
                 values: vec![
                     UiSetupRequestValue::new("data-directory", data_dir.to_str().unwrap()),
-                    UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME),
+                    UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
                     UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                 ],
             }
@@ -828,20 +835,22 @@ mod tests {
                 .get_record::<NodeToUiMessage>(idx)
                 .clone()
         };
-        let check_payload = |running: bool,
-                             values: Vec<UiSetupResponseValue>,
-                             errors: Vec<(String, String)>| {
-            assert_eq!(running, false);
-            let actual_pairs: HashSet<(String, String)> = values
-                .into_iter()
-                .map(|value| (value.name, value.value))
-                .collect();
-            assert_eq!(
-                actual_pairs.contains(&("chain".to_string(), TEST_DEFAULT_CHAIN_NAME.to_string())),
-                true
-            );
-            assert_eq!(errors, vec![]);
-        };
+        let check_payload =
+            |running: bool, values: Vec<UiSetupResponseValue>, errors: Vec<(String, String)>| {
+                assert_eq!(running, false);
+                let actual_pairs: HashSet<(String, String)> = values
+                    .into_iter()
+                    .map(|value| (value.name, value.value))
+                    .collect();
+                assert_eq!(
+                    actual_pairs.contains(&(
+                        "chain".to_string(),
+                        TEST_DEFAULT_CHAIN.rec().literal_identifier.to_string()
+                    )),
+                    true
+                );
+                assert_eq!(errors, vec![]);
+            };
         let record = get_record(0);
         assert_eq!(record.target, ClientId(1234));
         let (payload, context_id): (UiSetupResponse, u64) =

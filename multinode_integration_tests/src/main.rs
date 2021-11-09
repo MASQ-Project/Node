@@ -223,7 +223,7 @@ impl MockNode {
     }
 
     fn usage(stderr: &mut dyn Write) -> u8 {
-        writeln! (stderr, "Usage: MockNode <IP address>:<port>,[<port>,...] where <IP address> is the address MockNode is running on and <port> is between {} and {}",
+        writeln! (stderr, "Usage: MockNode <IP address>:<port>/<port>/... where <IP address> is the address MockNode is running on and <port> is between {} and {}",
             LOWEST_USABLE_INSECURE_PORT,
             HIGHEST_USABLE_PORT,
         ).unwrap ();
@@ -364,7 +364,7 @@ mod tests {
 
         assert_eq!(result, 1);
         let stderr = holder.stderr;
-        assert_eq! (stderr.get_string (), String::from ("Usage: MockNode <IP address>:<port>,[<port>,...] where <IP address> is the address MockNode is running on and <port> is between 1025 and 65535\n\n"));
+        assert_eq! (stderr.get_string (), String::from ("Usage: MockNode <IP address>:<port>/<port>/... where <IP address> is the address MockNode is running on and <port> is between 1025 and 65535\n\n"));
     }
 
     #[test]
@@ -382,7 +382,7 @@ mod tests {
         assert_eq!(
             stderr.get_string(),
             String::from(
-                "NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not 'Booga'\n"
+                "NodeAddr should be expressed as '<IP address>:<port>/<port>/...', not 'Booga'\n"
             )
         );
     }

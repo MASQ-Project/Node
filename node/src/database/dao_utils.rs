@@ -2,6 +2,7 @@
 use crate::accountant::jackass_unsigned_to_signed;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
+use masq_lib::blockchains::chains::Chain;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::SystemTime;
@@ -24,15 +25,15 @@ pub fn from_time_t(time_t: i64) -> SystemTime {
 
 pub struct DaoFactoryReal {
     pub data_directory: PathBuf,
-    pub chain_id: u8,
+    pub chain: Chain,
     pub create_if_necessary: bool,
 }
 
 impl DaoFactoryReal {
-    pub fn new(data_directory: &Path, chain_id: u8, create_if_necessary: bool) -> Self {
+    pub fn new(data_directory: &Path, chain: Chain, create_if_necessary: bool) -> Self {
         Self {
             data_directory: data_directory.to_path_buf(),
-            chain_id,
+            chain,
             create_if_necessary,
         }
     }
@@ -41,7 +42,7 @@ impl DaoFactoryReal {
         connection_or_panic(
             &DbInitializerReal::default(),
             &self.data_directory,
-            self.chain_id,
+            self.chain,
             self.create_if_necessary,
         )
     }
@@ -50,7 +51,7 @@ impl DaoFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::str::FromStr;
 
     #[test]
@@ -58,7 +59,7 @@ mod tests {
     fn connection_panics_if_connection_cannot_be_made() {
         let subject = DaoFactoryReal::new(
             &PathBuf::from_str("nonexistent").unwrap(),
-            DEFAULT_CHAIN_ID,
+            TEST_DEFAULT_CHAIN,
             false,
         );
 
