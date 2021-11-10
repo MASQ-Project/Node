@@ -384,7 +384,7 @@ where
 
         match send_transaction_tools.sign_transaction(transaction_parameters, &key) {
             Ok(tx) => Ok(tx),
-            Err(e) => return Err(BlockchainError::TransactionFailed(e.to_string())),
+            Err(e) => Err(BlockchainError::TransactionFailed(e.to_string())),
         }
     }
 
@@ -408,15 +408,15 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::test_utils::TestTransport;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::make_wallet;
     use crate::test_utils::pure_test_utils::decode_hex;
     use crate::test_utils::{await_value, make_paying_wallet};
+    use crate::test_utils::{make_wallet, TestRawTransaction};
     use crossbeam_channel::unbounded;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
-    use serde_derive::{Deserialize, Serialize};
+    use serde_derive::Deserialize;
     use serde_json::json;
     use serde_json::Value;
     use simple_server::Server;
@@ -1378,7 +1378,7 @@ mod tests {
                 ]
                 .join(if actual.1 == 0 { "" } else { ", " }))
         );
-        let txs: Vec<(RawTransactionSerde, Signing)> =
+        let txs: Vec<(TestRawTransaction, Signing)> =
             serde_json::from_str(&all_transactions).unwrap();
         let constant_parts = &[
             &[
@@ -1426,7 +1426,7 @@ mod tests {
     }
 
     fn convert_from_raw_transaction_to_transaction_parameters(
-        raw_transaction: &RawTransactionSerde,
+        raw_transaction: &TestRawTransaction,
         chain: Chain,
     ) -> TransactionParameters {
         TransactionParameters {
@@ -1438,18 +1438,6 @@ mod tests {
             data: Bytes(raw_transaction.data.clone()),
             chain_id: Some(chain.rec().num_chain_id),
         }
-    }
-
-    #[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
-    pub struct RawTransactionSerde {
-        pub nonce: U256,
-        pub to: Option<Address>,
-        pub value: U256,
-        #[serde(rename = "gasPrice")]
-        pub gas_price: U256,
-        #[serde(rename = "gasLimit")]
-        pub gas_limit: U256,
-        pub data: Vec<u8>,
     }
 
     #[test]

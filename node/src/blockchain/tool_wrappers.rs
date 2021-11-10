@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use ethereum_types::H256;
-use secp256k1::key::SecretKey;
 use std::fmt::Debug;
 use web3::futures::Future;
 use web3::types::{Bytes, SignedTransaction, TransactionParameters};
@@ -12,7 +11,7 @@ pub trait SendTransactionToolsWrapper {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
-        key: &SecretKey,
+        key: &secp256k1::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error>;
 }
@@ -33,7 +32,7 @@ impl<'a, T: Transport + Debug> SendTransactionToolsWrapper
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
-        key: &SecretKey,
+        key: &secp256k1::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error> {
         self.web3
             .accounts()
@@ -52,7 +51,7 @@ impl SendTransactionToolsWrapper for SendTransactionToolsWrapperNull {
     fn sign_transaction(
         &self,
         _transaction_params: TransactionParameters,
-        _key: &SecretKey,
+        _key: &secp256k1::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error> {
         panic!("sing_transaction() for a null object - should never be called")
     }
@@ -67,7 +66,6 @@ mod tests {
     use crate::blockchain::tool_wrappers::{
         SendTransactionToolsWrapper, SendTransactionToolsWrapperNull,
     };
-    use secp256k1::key::SecretKey;
     use web3::types::{Bytes, TransactionParameters};
 
     #[test]
@@ -82,7 +80,8 @@ mod tests {
             data: Default::default(),
             chain_id: None,
         };
-        let secret_key = SecretKey::from_slice(b"000000000000000000000000000000aa").unwrap();
+        let secret_key =
+            secp256k1::key::SecretKey::from_slice(b"000000000000000000000000000000aa").unwrap();
 
         let _ =
             SendTransactionToolsWrapperNull.sign_transaction(transaction_parameters, &secret_key);

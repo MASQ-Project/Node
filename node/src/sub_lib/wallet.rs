@@ -443,6 +443,7 @@ impl Serialize for Wallet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::bip32::Bip32ECKeyPairToolsWrapperReal;
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::test_utils::make_paying_wallet;
@@ -501,7 +502,12 @@ mod tests {
         let derivation_path = derivation_path(0, 5);
         let expected_seed = make_meaningless_seed();
         let wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(expected_seed.as_bytes(), &derivation_path).unwrap(),
+            Bip32ECKeyPair::from_raw(
+                expected_seed.as_bytes(),
+                &derivation_path,
+                Bip32ECKeyPairToolsWrapperReal,
+            )
+            .unwrap(),
         );
 
         let result = wallet.string_address_from_keypair();

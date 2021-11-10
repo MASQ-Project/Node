@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::blockchain::dual_secret::DualSecret;
-use bip39::Seed;
 use ethereum_types::Address;
 use ethsign::keyfile::Crypto;
 use ethsign::{Protected, PublicKey, SecretKey, Signature};
@@ -20,23 +19,48 @@ pub struct Bip32ECKeyPair {
     secrets: DualSecret,
 }
 
+pub trait Bip32ECKeyPairToolsWrapper {
+    fn generate_extended_private_key(
+        &self,
+        seed: &[u8],
+        derivation_path: &str,
+    ) -> Result<ExtendedPrivKey, String>;
+    fn create_dual_secret(&self, raw_secret: &[u8]) -> Result<DualSecret, String>;
+}
+
+pub struct Bip32ECKeyPairToolsWrapperReal;
+impl Bip32ECKeyPairToolsWrapper for Bip32ECKeyPairToolsWrapperReal {
+    fn generate_extended_private_key(
+        &self,
+        seed: &[u8],
+        derivation_path: &str,
+    ) -> Result<ExtendedPrivKey, String> {
+        ExtendedPrivKey::derive(seed, derivation_path).map_err(|e| format!("{:?}", e))
+    }
+
+    fn create_dual_secret(&self, raw_secret: &[u8]) -> Result<DualSecret, String> {
+        DualSecret::try_from(raw_secret)
+    }
+}
+
 impl Bip32ECKeyPair {
-    pub fn from_raw(seed: &[u8], derivation_path: &str) -> Result<Self, String> {
-        let extended_private_key = match ExtendedPrivKey::derive(seed, derivation_path) {
-            Ok(extended_priv_key) => extended_priv_key,
-            Err(e) => return Err(format!("{:?}", e)),
-        };
-        let dual_secrets = DualSecret::try_from(&extended_private_key.secret()[..])?; //TODO is this tested?
+    pub fn from_raw(
+        seed: &[u8],
+        derivation_path: &str,
+        tools: impl Bip32ECKeyPairToolsWrapper,
+    ) -> Result<Self, String> {
+        let extended_private_key = tools.generate_extended_private_key(seed, derivation_path)?;
+        let dual_secret = tools.create_dual_secret(&extended_private_key.secret())?;
         Self {
-            public: dual_secrets.ethsign_secret.public(),
-            secrets: dual_secrets,
+            public: dual_secret.ethsign_secret.public(),
+            secrets: dual_secret,
         }
         .wrap_to_ok()
     }
 
-    pub fn extended_private_key(seed: &Seed, derivation_path: &str) -> ExtendedPrivKey {
-        ExtendedPrivKey::derive(seed.as_bytes(), derivation_path).expect("Expected a valid path")
-    }
+    // pub fn extended_private_key(seed: &Seed, derivation_path: &str) -> ExtendedPrivKey {
+    //     ExtendedPrivKey::derive(seed.as_bytes(), derivation_path).expect("Expected a valid path")
+    // }
 
     pub fn from_raw_secret(secret_raw: &[u8]) -> Result<Self, String> {
         match SecretKey::from_raw(secret_raw) {
@@ -86,7 +110,7 @@ impl Bip32ECKeyPair {
             },
             Err(e) => panic!("{:?}", e),
         };
-        let secp256k1_secret = self.secrets.secp256k1_secret.clone();
+        let secp256k1_secret = self.secrets.secp256k1_secret;
         (ethsign_secret, secp256k1_secret)
     }
 }
@@ -148,7 +172,7 @@ impl Serialize for Bip32ECKeyPair {
     {
         let result = self
             .secrets
-            .ethsign_secret //TODO this might be a problem...do I need to serialize also the other secret key
+            .ethsign_secret
             .to_crypto(
                 &Protected::from("secret"),
                 NonZeroU32::new(1).expect("Could not create"),
@@ -178,7 +202,7 @@ mod tests {
     use crate::masq_lib::utils::{
         DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
-    use bip39::{Language, Mnemonic};
+    use bip39::{Language, Mnemonic, Seed};
     use std::collections::hash_map::DefaultHasher;
 
     #[test]

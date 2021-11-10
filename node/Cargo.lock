@@ -124,15 +124,6 @@ checksum = "a4c527152e37cf757a3f78aae5a06fbeefdb07ccc535c980a3208ee3060dd544"
 
 [[package]]
 name = "arrayvec"
-version = "0.4.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd9fd44efafa8690358b7408d253adf110036b88f55672a933f01d616ad9b1b9"
-dependencies = [
- "nodrop",
-]
-
-[[package]]
-name = "arrayvec"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cff77d8686867eceff3105329d4698d96c2391c176d5d03adc90c7389162b5b8"
@@ -228,7 +219,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8fb2d74254a3a0b5cac33ac9f8ed0e44aa50378d9dbb2e5d83bd21ed1dc2c8a"
 dependencies = [
  "arrayref",
- "arrayvec 0.5.1",
+ "arrayvec",
  "constant_time_eq",
 ]
 
@@ -660,20 +651,6 @@ dependencies = [
 
 [[package]]
 name = "derive_more"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a141330240c921ec6d074a3e188a7c7ef95668bb95e7d44fa0e5778ec2a7afe"
-dependencies = [
- "lazy_static",
- "proc-macro2 0.4.30",
- "quote 0.6.13",
- "regex",
- "rustc_version 0.2.3",
- "syn 0.15.44",
-]
-
-[[package]]
-name = "derive_more"
 version = "0.99.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40eebddd2156ce1bb37b20bbe5151340a31828b1f2d22ba4141f3531710e38df"
@@ -799,44 +776,16 @@ dependencies = [
 
 [[package]]
 name = "ethabi"
-version = "8.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebdeeea85a6d217b9fcc862906d7e283c047e04114165c433756baf5dce00a6c"
-dependencies = [
- "error-chain 0.12.4",
- "ethereum-types 0.6.0",
- "rustc-hex",
- "serde",
- "serde_derive",
- "serde_json",
- "tiny-keccak 1.5.0",
-]
-
-[[package]]
-name = "ethabi"
 version = "12.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "052a565e3de82944527d6d10a465697e6bb92476b772ca7141080c901f6a63c6"
 dependencies = [
- "ethereum-types 0.9.2",
+ "ethereum-types",
  "rustc-hex",
  "serde",
  "serde_json",
  "tiny-keccak 1.5.0",
- "uint 0.8.5",
-]
-
-[[package]]
-name = "ethbloom"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3932e82d64d347a045208924002930dc105a138995ccdc1479d0f05f0359f17c"
-dependencies = [
- "crunchy",
- "fixed-hash 0.3.2",
- "impl-rlp",
- "impl-serde 0.2.3",
- "tiny-keccak 1.5.0",
+ "uint",
 ]
 
 [[package]]
@@ -854,30 +803,16 @@ dependencies = [
 
 [[package]]
 name = "ethereum-types"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62d1bc682337e2c5ec98930853674dd2b4bd5d0d246933a9e98e5280f7c76c5f"
-dependencies = [
- "ethbloom 0.6.4",
- "fixed-hash 0.3.2",
- "impl-rlp",
- "impl-serde 0.2.3",
- "primitive-types 0.3.0",
- "uint 0.7.1",
-]
-
-[[package]]
-name = "ethereum-types"
 version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "473aecff686bd8e7b9db0165cbbb53562376b39bf35b427f0c60446a9e1634b0"
 dependencies = [
- "ethbloom 0.9.2",
+ "ethbloom",
  "fixed-hash 0.6.1",
  "impl-rlp",
  "impl-serde 0.3.1",
  "primitive-types 0.7.3",
- "uint 0.8.5",
+ "uint",
 ]
 
 [[package]]
@@ -955,19 +890,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0da54a593b34c71b889ee45f5b5bb900c74148c5f7f8c6a9479ee7899f69603c"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "fixed-hash"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1a683d1234507e4f3bf2736eeddf0de1dc65996dc0164d57eba0a74bcf29489"
-dependencies = [
- "byteorder",
- "heapsize",
- "rand 0.5.6",
- "rustc-hex",
- "static_assertions 0.2.5",
 ]
 
 [[package]]
@@ -1162,15 +1084,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
 
 [[package]]
-name = "heapsize"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1679e6ea370dee694f91f1dc469bf94cf8f52051d147aec3e1f9497c6fc22461"
-dependencies = [
- "winapi 0.3.9",
-]
-
-[[package]]
 name = "heck"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1346,15 +1259,6 @@ dependencies = [
 
 [[package]]
 name = "impl-codec"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2050d823639fbeae26b2b5ba09aca8907793117324858070ade0673c49f793b"
-dependencies = [
- "parity-codec",
-]
-
-[[package]]
-name = "impl-codec"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1be51a921b067b0eaca2fad532d9400041561aa922221cc65f95a85641c6bf53"
@@ -1473,19 +1377,6 @@ checksum = "dc6f3ad7b9d11a0c00842ff8de1b60ee58661048eb8049ed33c73594f359d7e6"
 
 [[package]]
 name = "jsonrpc-core"
-version = "11.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97b83fdc5e0218128d0d270f2f2e7a5ea716f3240c8518a58bc89e6716ba8581"
-dependencies = [
- "futures",
- "log 0.4.11",
- "serde",
- "serde_derive",
- "serde_json",
-]
-
-[[package]]
-name = "jsonrpc-core"
 version = "14.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0747307121ffb9703afd93afbd0fb4f854c38fb873f2c8b90e0e902f27c7b62"
@@ -1590,15 +1481,6 @@ dependencies = [
 
 [[package]]
 name = "lock_api"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed946d4529956a20f2d63ebe1b69996d5a2137c91913fe3ebbeff957f5bca7ff"
-dependencies = [
- "scopeguard 1.1.0",
-]
-
-[[package]]
-name = "lock_api"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4da24a77a3d8a6d4862d95f72e6fdb9c09a643ecdb402d754004a557f2bec75"
@@ -1656,7 +1538,7 @@ dependencies = [
  "clap",
  "const_format",
  "crossbeam-channel 0.5.0",
- "ethereum-types 0.9.2",
+ "ethereum-types",
  "itertools",
  "lazy_static",
  "nix 0.20.0",
@@ -1807,7 +1689,7 @@ version = "1.0.0"
 dependencies = [
  "base64 0.10.1",
  "crossbeam-channel 0.5.0",
- "ethereum-types 0.6.0",
+ "ethereum-types",
  "ethsign-crypto",
  "futures",
  "itertools",
@@ -1826,8 +1708,8 @@ dependencies = [
  "sha1",
  "tiny-bip39",
  "tiny-hderive",
- "uint 0.8.5",
- "web3 0.8.0",
+ "uint",
+ "web3",
 ]
 
 [[package]]
@@ -1905,7 +1787,7 @@ dependencies = [
  "crossbeam-channel 0.5.0",
  "daemonize",
  "dirs 2.0.2",
- "ethereum-types 0.9.2",
+ "ethereum-types",
  "ethsign",
  "ethsign-crypto",
  "fdlimit",
@@ -1916,7 +1798,7 @@ dependencies = [
  "indoc",
  "ipconfig 0.2.2",
  "itertools",
- "jsonrpc-core 14.2.0",
+ "jsonrpc-core",
  "lazy_static",
  "libc",
  "libsecp256k1",
@@ -1954,7 +1836,7 @@ dependencies = [
  "trust-dns-proto 0.8.0",
  "trust-dns-resolver 0.12.0",
  "unindent",
- "web3 0.11.0",
+ "web3",
  "websocket",
  "winreg 0.7.0",
 ]
@@ -2093,22 +1975,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "parity-codec"
-version = "3.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b9df1283109f542d8852cd6b30e9341acc2137481eb6157d2e62af68b0afec9"
-dependencies = [
- "arrayvec 0.4.12",
- "serde",
-]
-
-[[package]]
 name = "parity-scale-codec"
 version = "1.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c740e5fbcb6847058b40ac7e5574766c6388f585e184d769910fe0d3a2ca861"
 dependencies = [
- "arrayvec 0.5.1",
+ "arrayvec",
  "bitvec",
  "byte-slice-cast",
  "serde",
@@ -2122,17 +1994,6 @@ checksum = "ab41b4aed082705d1056416ae4468b6ea99d52599ecf3169b00088d43113e337"
 dependencies = [
  "lock_api 0.1.5",
  "parking_lot_core 0.4.0",
-]
-
-[[package]]
-name = "parking_lot"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa7767817701cce701d5585b9c4db3cdd02086398322c1d7e8bf5094a96a2ce7"
-dependencies = [
- "lock_api 0.2.0",
- "parking_lot_core 0.5.0",
- "rustc_version 0.2.3",
 ]
 
 [[package]]
@@ -2164,22 +2025,6 @@ checksum = "94c8c7923936b28d546dfd14d4472eaf34c99b14e1c973a32b3e6d4eb04298c9"
 dependencies = [
  "libc",
  "rand 0.6.5",
- "rustc_version 0.2.3",
- "smallvec 0.6.13",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "parking_lot_core"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb88cb1cb3790baa6776844f968fea3be44956cf184fa1be5a03341f5491278c"
-dependencies = [
- "cfg-if 0.1.10",
- "cloudabi",
- "libc",
- "rand 0.6.5",
- "redox_syscall",
  "rustc_version 0.2.3",
  "smallvec 0.6.13",
  "winapi 0.3.9",
@@ -2304,28 +2149,15 @@ checksum = "be91bcc43e73799dc46a6c194a55e7aae1d86cc867c860fd4a436019af21bd8c"
 
 [[package]]
 name = "primitive-types"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2288eb2a39386c4bc817974cc413afe173010dc80e470fcb1e9a35580869f024"
-dependencies = [
- "fixed-hash 0.3.2",
- "impl-codec 0.2.0",
- "impl-rlp",
- "impl-serde 0.2.3",
- "uint 0.7.1",
-]
-
-[[package]]
-name = "primitive-types"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83ef7b3b965c0eadcb6838f34f827e1dfb2939bdd5ebd43f9647e009b12b0371"
 dependencies = [
  "fixed-hash 0.4.0",
- "impl-codec 0.4.2",
+ "impl-codec",
  "impl-rlp",
  "impl-serde 0.2.3",
- "uint 0.8.5",
+ "uint",
 ]
 
 [[package]]
@@ -2335,10 +2167,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7dd39dcacf71411ba488570da7bbc89b717225e46478b30ba99b92db6b149809"
 dependencies = [
  "fixed-hash 0.6.1",
- "impl-codec 0.4.2",
+ "impl-codec",
  "impl-rlp",
  "impl-serde 0.3.1",
- "uint 0.8.5",
+ "uint",
 ]
 
 [[package]]
@@ -3788,18 +3620,6 @@ checksum = "56dee185309b50d1f11bfedef0fe6d036842e3fb77413abef29f8f8d1c5d4c1c"
 
 [[package]]
 name = "uint"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2143cded94692b156c356508d92888acc824db5bffc0b4089732264c6fcf86d4"
-dependencies = [
- "byteorder",
- "crunchy",
- "heapsize",
- "rustc-hex",
-]
-
-[[package]]
-name = "uint"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9db035e67dfaf7edd9aebfe8676afcd63eed53c8a4044fed514c8cccf1835177"
@@ -3962,45 +3782,19 @@ checksum = "1a143597ca7c7793eff794def352d41792a93c481eb1042423ff7ff72ba2c31f"
 
 [[package]]
 name = "web3"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "076f34ed252d74a8521e3b013254b1a39f94a98f23aae7cfc85cda6e7b395664"
-dependencies = [
- "arrayvec 0.4.12",
- "base64 0.10.1",
- "derive_more 0.15.0",
- "ethabi 8.0.1",
- "ethereum-types 0.6.0",
- "futures",
- "hyper 0.12.35",
- "hyper-tls",
- "jsonrpc-core 11.0.0",
- "log 0.4.11",
- "native-tls",
- "parking_lot 0.8.0",
- "rustc-hex",
- "serde",
- "serde_json",
- "tokio-core",
- "tokio-timer 0.1.2",
- "url 1.7.2",
-]
-
-[[package]]
-name = "web3"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a681e8d15deced7c510db88c59133d2eafa7b6298b6e91b545e2a3fed93b3fe"
 dependencies = [
- "arrayvec 0.5.1",
+ "arrayvec",
  "base64 0.12.3",
- "derive_more 0.99.16",
- "ethabi 12.0.0",
- "ethereum-types 0.9.2",
+ "derive_more",
+ "ethabi",
+ "ethereum-types",
  "futures",
  "hyper 0.12.35",
  "hyper-tls",
- "jsonrpc-core 14.2.0",
+ "jsonrpc-core",
  "log 0.4.11",
  "native-tls",
  "parking_lot 0.10.2",

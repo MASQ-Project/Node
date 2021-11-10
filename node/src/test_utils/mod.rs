@@ -43,6 +43,7 @@ use masq_lib::constants::HTTP_PORT;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use regex::Regex;
 use rustc_hex::ToHex;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::From;
@@ -58,6 +59,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use web3::types::{Address, U256};
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
@@ -483,6 +485,19 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
     let a_str = format!("{:?}", a);
     let b_str = format!("{:?}", b);
     assert_eq!(a_str, b_str);
+}
+
+//must stay without cfg(test) -- used in another crate
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
+pub struct TestRawTransaction {
+    pub nonce: U256,
+    pub to: Option<Address>,
+    pub value: U256,
+    #[serde(rename = "gasPrice")]
+    pub gas_price: U256,
+    #[serde(rename = "gasLimit")]
+    pub gas_limit: U256,
+    pub data: Vec<u8>,
 }
 
 #[cfg(test)]

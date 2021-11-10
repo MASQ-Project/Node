@@ -2,7 +2,6 @@
 
 use ethsign::{PublicKey, SecretKey};
 use itertools::Itertools;
-use secp256k1;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 
@@ -81,12 +80,12 @@ where
             }) as Box<dyn FnOnce() -> String>,
         ),
     ];
-    let summary = vec
+    let vec = vec
         .into_iter()
         .map(|(is_err, closure)| convert_into_string(is_err, closure))
         .filter(|item| !item.is_empty())
-        .join("; ");
-    summary
+        .collect_vec();
+    vec.join("; ")
 }
 
 #[cfg(test)]
