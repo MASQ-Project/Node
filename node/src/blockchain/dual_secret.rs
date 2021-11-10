@@ -5,10 +5,15 @@ use itertools::Itertools;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 
+
+#[derive(Clone,Copy,PartialEq,Debug)]
+pub struct SecretWrapper(pub secp256k1secrets::key::SecretKey);
+
+
 #[derive(Debug)]
 pub struct DualSecret {
     pub ethsign_secret: SecretKey,
-    pub secp256k1_secret: secp256k1::key::SecretKey,
+    pub secp256k1_secret: secp256k1secrets::key::SecretKey,
 }
 
 impl DualSecret {
@@ -23,23 +28,23 @@ impl TryFrom<&[u8]> for DualSecret {
     fn try_from(raw_secret: &[u8]) -> Result<Self, Self::Error> {
         match (
             SecretKey::from_raw(raw_secret),
-            secp256k1::key::SecretKey::from_slice(raw_secret),
+            secp256k1secrets::key::SecretKey::from_slice(raw_secret),
         ) {
             (Ok(ethsign_secret), Ok(secp256k1_secret)) => Ok(Self {
                 ethsign_secret,
-                secp256k1_secret,
+                secp256k1_secret
             }),
             tuple => Err(resolve_hetero_err(tuple)),
         }
     }
 }
 
-impl From<(SecretKey, secp256k1::key::SecretKey)> for DualSecret {
-    fn from(secrets: (SecretKey, secp256k1::SecretKey)) -> Self {
+impl From<(SecretKey, secp256k1secrets::key::SecretKey)> for DualSecret {
+    fn from(secrets: (SecretKey, secp256k1secrets::key::SecretKey)) -> Self {
         let (ethsign_secret, secp256k1_secret) = secrets;
         Self {
             ethsign_secret,
-            secp256k1_secret,
+            secp256k1_secret
         }
     }
 }
@@ -47,7 +52,7 @@ impl From<(SecretKey, secp256k1::key::SecretKey)> for DualSecret {
 fn resolve_hetero_err<T: Debug>(
     to_check: (
         Result<ethsign::SecretKey, T>,
-        Result<secp256k1::SecretKey, secp256k1::Error>,
+        Result<secp256k1secrets::key::SecretKey, secp256k1secrets::Error>,
     ),
 ) -> String
 where
@@ -101,7 +106,7 @@ mod tests {
         let debugable = Debugable;
         let results_for_left = (
             Err(debugable),
-            Ok(secp256k1::SecretKey::from_slice(b"000000000000000000000000000000aa").unwrap()),
+            Ok(secp256k1secrets::SecretKey::from_slice(b"000000000000000000000000000000aa").unwrap()),
         );
 
         let output = resolve_hetero_err(results_for_left);
@@ -113,7 +118,7 @@ mod tests {
     fn resolve_hetero_errors_catches_right_only() {
         let results_for_right: (Result<_, Debugable>, Result<_, _>) = (
             Ok(ethsign::SecretKey::from_raw(b"000000000000000000000000000000ab").unwrap()),
-            Err(secp256k1::Error::InvalidSecretKey),
+            Err(secp256k1secrets::Error::InvalidSecretKey),
         );
 
         let output = resolve_hetero_err(results_for_right);

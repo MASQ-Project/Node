@@ -438,7 +438,7 @@ mod tests {
     #[derive(Default)]
     struct SendTransactionToolsWrapperMock {
         sign_transaction_params:
-            Arc<Mutex<Vec<(TransactionParameters, secp256k1::key::SecretKey)>>>,
+            Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
         sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
         send_raw_transaction_params: Arc<Mutex<Vec<Bytes>>>,
         send_raw_transaction_results: RefCell<Vec<Result<H256, Web3Error>>>,
@@ -448,7 +448,7 @@ mod tests {
         fn sign_transaction(
             &self,
             transaction_params: TransactionParameters,
-            key: &secp256k1::key::SecretKey,
+            key: &secp256k1secrets::key::SecretKey,
         ) -> Result<SignedTransaction, Web3Error> {
             self.sign_transaction_params
                 .lock()
@@ -466,7 +466,7 @@ mod tests {
     impl SendTransactionToolsWrapperMock {
         pub fn sign_transaction_params(
             mut self,
-            params: &Arc<Mutex<Vec<(TransactionParameters, secp256k1::key::SecretKey)>>>,
+            params: &Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
         ) -> Self {
             self.sign_transaction_params = params.clone();
             self
@@ -1101,7 +1101,7 @@ mod tests {
     fn send_transaction_fails_on_signing_transaction() {
         let transport = TestTransport::default();
         let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
-            .sign_transaction_result(Err(Web3Error::Signing(secp256k1::Error::InvalidSecretKey)));
+            .sign_transaction_result(Err(Web3Error::Signing(secp256k1secrets::Error::InvalidSecretKey)));
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
@@ -1407,7 +1407,7 @@ mod tests {
             .zip(lengths_of_constant_parts)
             .zip(constant_parts)
         {
-            let secret = &Wallet::from(
+            let secret = Wallet::from(
                 Bip32ECKeyPair::from_raw_secret(&signed.private_key.0.as_ref()).unwrap(),
             )
             .prepare_secp256k1_secret()

@@ -11,7 +11,7 @@ pub trait SendTransactionToolsWrapper {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
-        key: &secp256k1::key::SecretKey,
+        key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error>;
 }
@@ -32,7 +32,7 @@ impl<'a, T: Transport + Debug> SendTransactionToolsWrapper
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
-        key: &secp256k1::key::SecretKey,
+        key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error> {
         self.web3
             .accounts()
@@ -51,7 +51,7 @@ impl SendTransactionToolsWrapper for SendTransactionToolsWrapperNull {
     fn sign_transaction(
         &self,
         _transaction_params: TransactionParameters,
-        _key: &secp256k1::key::SecretKey,
+        _key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error> {
         panic!("sing_transaction() for a null object - should never be called")
     }
@@ -81,7 +81,7 @@ mod tests {
             chain_id: None,
         };
         let secret_key =
-            secp256k1::key::SecretKey::from_slice(b"000000000000000000000000000000aa").unwrap();
+            secp256k1secrets::key::SecretKey::from_slice(b"000000000000000000000000000000aa").unwrap();
 
         let _ =
             SendTransactionToolsWrapperNull.sign_transaction(transaction_parameters, &secret_key);

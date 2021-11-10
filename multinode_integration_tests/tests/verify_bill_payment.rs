@@ -19,7 +19,6 @@ use node_lib::blockchain::blockchain_interface::{
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
-use node_lib::test_utils::TestRawTransaction;
 use rusqlite::NO_PARAMS;
 use rustc_hex::{FromHex, ToHex};
 use std::convert::TryFrom;
@@ -355,7 +354,7 @@ fn deploy_smart_contract(wallet: &Wallet, web3: &Web3<Http>, chain: Chain) -> Ad
             tx,
             &wallet
                 .prepare_secp256k1_secret()
-                .expect("wallet without secret"),
+                .expect("wallet without secret").0,
         )
         .wait()
         .expect("transaction preparation failed");

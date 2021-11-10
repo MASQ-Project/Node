@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::blockchain::dual_secret::DualSecret;
+use crate::blockchain::dual_secret::{DualSecret};
 use ethereum_types::Address;
 use ethsign::keyfile::Crypto;
 use ethsign::{Protected, PublicKey, SecretKey, Signature};
@@ -9,8 +9,8 @@ use serde::ser;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
-use std::num::NonZeroU32;
 use tiny_hderive::bip32::ExtendedPrivKey;
+use std::num::NonZeroU32;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
@@ -58,10 +58,6 @@ impl Bip32ECKeyPair {
         .wrap_to_ok()
     }
 
-    // pub fn extended_private_key(seed: &Seed, derivation_path: &str) -> ExtendedPrivKey {
-    //     ExtendedPrivKey::derive(seed.as_bytes(), derivation_path).expect("Expected a valid path")
-    // }
-
     pub fn from_raw_secret(secret_raw: &[u8]) -> Result<Self, String> {
         match SecretKey::from_raw(secret_raw) {
             Ok(secret) => Ok(Bip32ECKeyPair {
@@ -99,7 +95,7 @@ impl Bip32ECKeyPair {
             .map_err(|e| format!("{:?}", e))
     }
 
-    pub fn clone_secrets(&self) -> (SecretKey, secp256k1::key::SecretKey) {
+    pub fn clone_secrets(&self) -> (SecretKey, secp256k1secrets::key::SecretKey) {
         let ethsign_secret = match self.secrets.ethsign_secret.to_crypto(
             &Protected::from("secret"),
             NonZeroU32::new(1).expect("Could not create"),
@@ -133,8 +129,8 @@ impl TryFrom<(&[u8], &str)> for Bip32ECKeyPair {
     }
 }
 
-impl From<(SecretKey, secp256k1::key::SecretKey)> for Bip32ECKeyPair {
-    fn from(secrets: (SecretKey, secp256k1::key::SecretKey)) -> Self {
+impl From<(SecretKey, secp256k1secrets::key::SecretKey)> for Bip32ECKeyPair {
+    fn from(secrets: (SecretKey, secp256k1secrets::key::SecretKey)) -> Self {
         let (ethsign_secret, secp256k1_secret) = secrets;
         Self {
             public: ethsign_secret.public(),
