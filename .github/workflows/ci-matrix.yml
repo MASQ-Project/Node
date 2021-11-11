@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize]
     branches:
-      - master
+      - referential_branch_to_master_for_testing
 
 jobs:
   build:
