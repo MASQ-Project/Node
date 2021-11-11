@@ -49,7 +49,6 @@ use automap_lib::comm_layer::AutomapError;
 use automap_lib::control_layer::automap_control::{
     AutomapChange, AutomapControl, AutomapControlReal, ChangeHandler,
 };
-use crossbeam_channel::{unbounded, Sender};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
 use masq_lib::utils::{exit_process, AutomapProtocol};
@@ -77,12 +76,8 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
     ) -> StreamHandlerPoolSubs {
         let main_cryptde = bootstrapper::main_cryptde_ref();
         let alias_cryptde = bootstrapper::alias_cryptde_ref();
-        let (tx, rx) = unbounded();
 
-        self.prepare_initial_messages(main_cryptde, alias_cryptde, config, actor_factory, tx);
-
-        // TODO This looks like an embarrassing hack. Why not just return the StreamHandlerPoolSubs from prepare_initial_messages?
-        rx.recv().expect("Internal error: actor-system init thread died before initializing StreamHandlerPool subscribers")
+        self.prepare_initial_messages(main_cryptde, alias_cryptde, config, actor_factory)
     }
 }
 
@@ -93,8 +88,7 @@ impl ActorSystemFactoryReal {
         alias_cryptde: &'static dyn CryptDE,
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
-        tx: Sender<StreamHandlerPoolSubs>,
-    ) {
+    ) -> StreamHandlerPoolSubs {
         let db_initializer = DbInitializerReal::default();
         // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
@@ -207,8 +201,8 @@ impl ActorSystemFactoryReal {
         //after we've bound all the actors, send start messages to any actors that need it
         send_start_message!(peer_actors.neighborhood);
 
-        //send out the stream handler pool subs (to be bound to listeners)
-        tx.send(stream_handler_pool_subs).ok();
+        //return the stream handler pool subs (to be bound to listeners)
+        stream_handler_pool_subs
     }
 
     fn notify_of_public_ip_change(
@@ -1095,7 +1089,6 @@ mod tests {
                 ),
             },
         };
-        let (tx, rx) = unbounded();
         let system = System::new("MASQNode");
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ActorSystemFactoryReal::new();
@@ -1109,12 +1102,11 @@ mod tests {
             ),
         );
 
-        subject.prepare_initial_messages(
+        let _ = subject.prepare_initial_messages(
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
-            tx,
         );
 
         System::current().stop();
@@ -1187,8 +1179,6 @@ mod tests {
         );
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![1234, 2345]);
-        let _stream_handler_pool_subs = rx.recv().unwrap();
-        // more...more...what? How to check contents of _stream_handler_pool_subs?
     }
 
     #[test]
@@ -1229,12 +1219,11 @@ mod tests {
         let mut subject = ActorSystemFactoryReal::new();
         subject.automap_control_factory = Box::new(AutomapControlFactoryMock::new());
 
-        subject.prepare_initial_messages(
+        let _ = subject.prepare_initial_messages(
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
-            unbounded().0,
         );
 
         System::current().stop();
@@ -1290,7 +1279,6 @@ mod tests {
                 ),
             },
         };
-        let (tx, _) = unbounded();
         let system = System::new("MASQNode");
         let mut subject = ActorSystemFactoryReal::new();
         let make_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1304,12 +1292,11 @@ mod tests {
                 ),
         );
 
-        subject.prepare_initial_messages(
+        let _ = subject.prepare_initial_messages(
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
-            tx,
         );
 
         System::current().stop();
