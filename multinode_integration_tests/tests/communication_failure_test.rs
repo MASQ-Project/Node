@@ -4,7 +4,6 @@ use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::NodeStartupConfigBuilder;
-use node_lib::blockchain::blockchain_interface::chain_name_from_id;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
 use std::convert::TryInto;
@@ -15,31 +14,32 @@ use std::time::Duration;
 fn neighborhood_notified_of_newly_missing_node() {
     // Set up three-Node network, and add a mock witness Node.
     let mut cluster = MASQNodeCluster::start().unwrap();
+    let chain = cluster.chain;
     let neighbor = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .fake_public_key(&PublicKey::new(&[1, 2, 3, 4]))
-            .chain(chain_name_from_id(cluster.chain_id))
+            .chain(chain)
             .build(),
     );
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .neighbor(neighbor.node_reference())
             .fake_public_key(&PublicKey::new(&[2, 3, 4, 5]))
-            .chain(chain_name_from_id(cluster.chain_id))
+            .chain(chain)
             .build(),
     );
     let _staying_up_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .neighbor(neighbor.node_reference())
             .fake_public_key(&PublicKey::new(&[3, 4, 5, 6]))
-            .chain(chain_name_from_id(cluster.chain_id))
+            .chain(chain)
             .build(),
     );
     let disappearing_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .neighbor(neighbor.node_reference())
             .fake_public_key(&PublicKey::new(&[4, 5, 6, 7]))
-            .chain(chain_name_from_id(cluster.chain_id))
+            .chain(chain)
             .build(),
     );
     let witness_node = cluster

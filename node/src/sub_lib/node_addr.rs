@@ -17,6 +17,8 @@ pub struct NodeAddr {
 }
 
 impl NodeAddr {
+    pub const PORTS_SEPARATOR: &'static str = "/";
+
     pub fn new(ip_addr: &IpAddr, ports: &[u16]) -> NodeAddr {
         let mut ports = ports.to_owned();
         ports.sort_unstable();
@@ -79,7 +81,12 @@ impl Display for NodeAddr {
             .iter()
             .map(|x| format!("{}", x))
             .collect::<Vec<String>>();
-        write!(f, "{}:{}", self.ip_addr(), port_list.join(";"))
+        write!(
+            f,
+            "{}:{}",
+            self.ip_addr(),
+            port_list.join(Self::PORTS_SEPARATOR)
+        )
     }
 }
 
@@ -90,7 +97,7 @@ impl FromStr for NodeAddr {
         let pieces: Vec<&str> = input.split(':').collect();
         if pieces.len() != 2 {
             return Err(format!(
-                "NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not '{}'",
+                "NodeAddr should be expressed as '<IP address>:<port>/<port>/...', not '{}'",
                 input
             ));
         }
@@ -104,7 +111,7 @@ impl FromStr for NodeAddr {
             Ok(ip_addr) => ip_addr,
         };
         let ports: Vec<u16> = match pieces[1]
-            .split(';')
+            .split(Self::PORTS_SEPARATOR)
             .map(|s| match s.parse::<u16>() {
                 Err(_) => Err(format!(
                     "NodeAddr must have port numbers between {} and {}, not '{}'",
@@ -208,7 +215,7 @@ mod tests {
 
         let result = format!("{}", subject);
 
-        assert_eq!(result, "2.5.8.1:6;9");
+        assert_eq!(result, "2.5.8.1:6/9");
     }
 
     #[test]
@@ -218,14 +225,14 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not 'Booga'"
+                "NodeAddr should be expressed as '<IP address>:<port>/<port>/...', not 'Booga'"
             ))
         );
     }
 
     #[test]
     fn node_addrs_from_str_needs_good_ip_address() {
-        let result = NodeAddr::from_str("253.254.255.256:1234;2345;3456");
+        let result = NodeAddr::from_str("253.254.255.256:1234/2345/3456");
 
         assert_eq!(
             result,
@@ -261,7 +268,7 @@ mod tests {
 
     #[test]
     fn node_addrs_from_str_follows_the_happy_path() {
-        let result = NodeAddr::from_str("1.2.3.4:1234;2345;3456");
+        let result = NodeAddr::from_str("1.2.3.4:1234/2345/3456");
 
         assert_eq!(
             result,

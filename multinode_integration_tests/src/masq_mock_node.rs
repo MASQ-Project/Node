@@ -6,6 +6,8 @@ use crate::masq_node::MASQNodeUtils;
 use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
@@ -67,6 +69,7 @@ impl MASQNode for MASQMockNode {
             self.signing_cryptde().unwrap().public_key().clone(),
             Some(self.node_addr().ip_addr()),
             self.node_addr().ports(),
+            self.chain(),
         )
     }
 
@@ -123,8 +126,8 @@ impl MASQNode for MASQMockNode {
         self.guts.rate_pack.clone()
     }
 
-    fn chain(&self) -> Option<String> {
-        self.guts.chain.clone()
+    fn chain(&self) -> Chain {
+        self.guts.chain
     }
 
     fn accepts_connections(&self) -> bool {
@@ -142,12 +145,12 @@ impl MASQMockNode {
         index: usize,
         host_node_parent_dir: Option<String>,
         public_key: &PublicKey,
-        chain_id: u8,
+        chain: Chain,
     ) -> MASQMockNode {
-        let main_cryptde = CryptDENull::from(public_key, chain_id);
+        let main_cryptde = CryptDENull::from(public_key, chain);
         let mut key = public_key.as_slice().to_vec();
         key.reverse();
-        let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain_id);
+        let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain);
         let cryptde_enum = CryptDEEnum::Fake((main_cryptde, alias_cryptde));
         Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
     }
@@ -156,9 +159,9 @@ impl MASQMockNode {
         ports: Vec<u16>,
         index: usize,
         host_node_parent_dir: Option<String>,
-        chain_id: u8,
+        chain: Chain,
     ) -> MASQMockNode {
-        let cryptde_enum = CryptDEEnum::Real(CryptDEReal::new(chain_id));
+        let cryptde_enum = CryptDEEnum::Real(CryptDEReal::new(chain));
         Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
     }
 
@@ -185,7 +188,7 @@ impl MASQMockNode {
             rate_pack: DEFAULT_RATE_PACK.clone(),
             cryptde_enum,
             framer,
-            chain: None,
+            chain: TEST_DEFAULT_MULTINODE_CHAIN,
         });
         MASQMockNode {
             control_stream,
@@ -492,7 +495,7 @@ struct MASQMockNodeGuts {
     rate_pack: RatePack,
     cryptde_enum: CryptDEEnum,
     framer: RefCell<DataHunkFramer>,
-    chain: Option<String>,
+    chain: Chain,
 }
 
 impl Drop for MASQMockNodeGuts {

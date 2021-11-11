@@ -406,7 +406,7 @@ pub mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::cell::RefCell;
-    use std::ops::{Deref, Not};
+    use std::ops::Not;
     use std::sync::{Arc, Mutex};
 
     impl<C: Send + 'static> ConfiguredByPrivilege for CrashTestDummy<C> {
@@ -544,7 +544,7 @@ pub mod tests {
         ) -> Self {
             self.arg_matches_requested_entries = required
                 .iter()
-                .map(|key| multi_config.deref().value_of(key).unwrap().to_string())
+                .map(|key| multi_config.value_of(key).unwrap().to_string())
                 .collect();
             self
         }
@@ -827,7 +827,7 @@ pub mod tests {
         assert_eq!(
             *chown_params,
             vec![(
-                PathBuf::from("/home/alice/mock_directory/MASQ/mainnet"),
+                PathBuf::from("/home/alice/mock_directory/MASQ/eth-mainnet"),
                 real_user.clone()
             )]
         );

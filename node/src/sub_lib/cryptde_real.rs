@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchain_interface::contract_address;
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::{
     CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey, SymmetricKey,
 };
 use lazy_static::lazy_static;
+use masq_lib::blockchains::chains::Chain;
 use sodiumoxide::crypto::box_::curve25519xsalsa20poly1305 as cxsp;
 use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305::SEALBYTES;
 use sodiumoxide::crypto::sealedbox::{open, seal};
@@ -148,7 +148,7 @@ impl CryptDE for CryptDEReal {
 
     fn public_key_to_descriptor_fragment(&self, public_key: &PublicKey) -> String {
         let encryption_public_key = &public_key.as_slice()[..cxsp::PUBLICKEYBYTES];
-        base64::encode_config(encryption_public_key, base64::STANDARD_NO_PAD)
+        base64::encode_config(encryption_public_key, base64::URL_SAFE_NO_PAD)
     }
 
     fn descriptor_fragment_to_first_contact_public_key(
@@ -156,12 +156,12 @@ impl CryptDE for CryptDEReal {
         descriptor_fragment: &str,
     ) -> Result<PublicKey, String> {
         let mut encryption_public_key =
-            match base64::decode_config(descriptor_fragment, base64::STANDARD_NO_PAD) {
+            match base64::decode_config(descriptor_fragment, base64::URL_SAFE_NO_PAD) {
                 Ok(v) => v,
                 Err(_) => {
                     return Err(format!(
                         "Invalid Base64 value for public key: {}",
-                        descriptor_fragment
+                        descriptor_fragment,
                     ))
                 }
             };
@@ -183,12 +183,12 @@ impl CryptDE for CryptDEReal {
 }
 
 impl CryptDEReal {
-    pub fn new(chain_id: u8) -> Self {
+    pub fn new(chain: Chain) -> Self {
         let (e_public, e_secret) = encryption::gen_keypair();
         let (s_public, s_secret) = signing::gen_keypair();
         let public_key = Self::local_public_key_from(&e_public, &s_public);
-        let digest = cryptde::create_digest(&public_key, &contract_address(chain_id));
-        let pre_shared_data = contract_address(chain_id).0;
+        let digest = cryptde::create_digest(&public_key, &chain.rec().contract);
+        let pre_shared_data = chain.rec().contract.0;
 
         Self {
             public_key,
@@ -229,11 +229,11 @@ impl CryptDEReal {
 mod tests {
     use super::*;
     use ethsign_crypto::Keccak256;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 
     impl Default for CryptDEReal {
         fn default() -> Self {
-            Self::new(DEFAULT_CHAIN_ID)
+            Self::new(TEST_DEFAULT_CHAIN)
         }
     }
 
@@ -457,7 +457,7 @@ mod tests {
 
         assert_eq!(
             result,
-            base64::encode_config(public_encryption_key, base64::STANDARD_NO_PAD)
+            base64::encode_config(public_encryption_key, base64::URL_SAFE_NO_PAD)
         );
     }
 
@@ -465,7 +465,7 @@ mod tests {
     fn destringifies_public_key_properly() {
         let subject = CryptDEReal::default();
         let public_encryption_key = &subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES];
-        let half_key_string = base64::encode_config(public_encryption_key, base64::STANDARD_NO_PAD);
+        let half_key_string = base64::encode_config(public_encryption_key, base64::URL_SAFE_NO_PAD);
 
         let result = subject
             .descriptor_fragment_to_first_contact_public_key(&half_key_string)
@@ -496,7 +496,7 @@ mod tests {
         let short_public_encryption_key =
             &subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES - 1];
         let short_half_key_string =
-            base64::encode_config(short_public_encryption_key, base64::STANDARD_NO_PAD);
+            base64::encode_config(short_public_encryption_key, base64::URL_SAFE_NO_PAD);
 
         let result =
             subject.descriptor_fragment_to_first_contact_public_key(&short_half_key_string);
@@ -517,7 +517,7 @@ mod tests {
             subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES].to_vec();
         long_public_encryption_key.push(0);
         let long_half_key_string =
-            base64::encode_config(&long_public_encryption_key, base64::STANDARD_NO_PAD);
+            base64::encode_config(&long_public_encryption_key, base64::URL_SAFE_NO_PAD);
 
         let result = subject.descriptor_fragment_to_first_contact_public_key(&long_half_key_string);
 
@@ -590,7 +590,7 @@ mod tests {
         let subject = &CryptDEReal::default();
         let merged = [
             subject.public_key().as_ref(),
-            contract_address(DEFAULT_CHAIN_ID).as_ref(),
+            &TEST_DEFAULT_CHAIN.rec().contract.as_ref(),
         ]
         .concat();
         let expected_digest = merged.keccak256();

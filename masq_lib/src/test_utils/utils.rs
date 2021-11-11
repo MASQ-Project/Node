@@ -1,13 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchains::chains::Chain;
 use chrono::{DateTime, Local};
 use log::Record;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{fs, io, thread};
 
-pub const DEFAULT_CHAIN_ID: u8 = 3u8; //For testing only
-pub const TEST_DEFAULT_CHAIN_NAME: &str = "ropsten"; //For testing only
+pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
+pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
 pub const BASE_TEST_DIR: &str = "generated/test";
 
 pub fn node_home_directory(module: &str, name: &str) -> PathBuf {

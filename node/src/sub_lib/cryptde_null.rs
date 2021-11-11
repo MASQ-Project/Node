@@ -1,5 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchain_interface::contract_address;
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::CryptdecError;
@@ -7,6 +6,7 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PrivateKey;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, SymmetricKey};
+use masq_lib::blockchains::chains::Chain;
 use rand::prelude::*;
 use rustc_hex::ToHex;
 use std::ops::{Deref, DerefMut};
@@ -135,7 +135,7 @@ impl CryptDE for CryptDENull {
 }
 
 impl CryptDENull {
-    pub fn new(chain_id: u8) -> Self {
+    pub fn new(chain: Chain) -> Self {
         let mut private_key = [0; 32];
         let mut rng = thread_rng();
         for byte in &mut private_key {
@@ -143,7 +143,7 @@ impl CryptDENull {
         }
         let private_key = PrivateKey::from(&private_key[..]);
         let public_key = Self::public_from_private(&private_key);
-        let digest = cryptde::create_digest(&public_key, &contract_address(chain_id));
+        let digest = cryptde::create_digest(&public_key, &chain.rec().contract);
         Self {
             private_key,
             public_key,
@@ -152,16 +152,16 @@ impl CryptDENull {
         }
     }
 
-    pub fn from(public_key: &PublicKey, chain_id: u8) -> CryptDENull {
-        let mut result = CryptDENull::new(chain_id);
-        result.set_key_pair(public_key, chain_id);
+    pub fn from(public_key: &PublicKey, chain: Chain) -> CryptDENull {
+        let mut result = CryptDENull::new(chain);
+        result.set_key_pair(public_key, chain);
         result
     }
 
-    pub fn set_key_pair(&mut self, public_key: &PublicKey, chain_id: u8) {
+    pub fn set_key_pair(&mut self, public_key: &PublicKey, chain: Chain) {
         self.public_key = public_key.clone();
         self.private_key = CryptDENull::private_from_public(public_key);
-        self.digest = cryptde::create_digest(public_key, &contract_address(chain_id));
+        self.digest = cryptde::create_digest(public_key, &chain.rec().contract);
     }
 
     pub fn private_from_public(in_key: &PublicKey) -> PrivateKey {
@@ -228,7 +228,7 @@ mod tests {
     use super::*;
     use crate::test_utils::main_cryptde;
     use ethsign_crypto::Keccak256;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 
     #[test]
     fn encode_with_empty_key() {
@@ -444,8 +444,8 @@ mod tests {
 
     #[test]
     fn construction_produces_different_keys_each_time() {
-        let subject1 = CryptDENull::new(DEFAULT_CHAIN_ID);
-        let subject2 = CryptDENull::new(DEFAULT_CHAIN_ID);
+        let subject1 = CryptDENull::new(TEST_DEFAULT_CHAIN);
+        let subject2 = CryptDENull::new(TEST_DEFAULT_CHAIN);
 
         let first_public = subject1.public_key().clone();
         let first_private = subject1.private_key().clone();
@@ -509,7 +509,7 @@ mod tests {
     fn from_and_setting_key_pair_works() {
         let public_key = PublicKey::new(b"The quick brown fox jumps over the lazy dog");
 
-        let subject = CryptDENull::from(&public_key, DEFAULT_CHAIN_ID);
+        let subject = CryptDENull::from(&public_key, TEST_DEFAULT_CHAIN);
 
         let expected_data = PlainData::new(&b"These are the times that try men's souls"[..]);
         let encrypted_data = subject.encode(&public_key, &expected_data).unwrap();
@@ -675,7 +675,7 @@ mod tests {
         let subject = &main_cryptde();
         let merged = [
             subject.public_key().as_ref(),
-            contract_address(DEFAULT_CHAIN_ID).as_ref(),
+            TEST_DEFAULT_CHAIN.rec().contract.as_ref(),
         ]
         .concat();
         let expected_digest = merged.keccak256();
@@ -687,10 +687,10 @@ mod tests {
 
     #[test]
     fn creating_cryptde_produces_the_same_digest() {
-        let subject_one = &CryptDENull::new(DEFAULT_CHAIN_ID);
-        let subject_two = &CryptDENull::from(subject_one.public_key(), DEFAULT_CHAIN_ID);
-        let subject_three = &mut CryptDENull::new(DEFAULT_CHAIN_ID);
-        subject_three.set_key_pair(subject_two.public_key(), DEFAULT_CHAIN_ID);
+        let subject_one = &CryptDENull::new(TEST_DEFAULT_CHAIN);
+        let subject_two = &CryptDENull::from(subject_one.public_key(), TEST_DEFAULT_CHAIN);
+        let subject_three = &mut CryptDENull::new(TEST_DEFAULT_CHAIN);
+        subject_three.set_key_pair(subject_two.public_key(), TEST_DEFAULT_CHAIN);
 
         assert_eq!(subject_one.digest(), subject_two.digest());
         assert_eq!(subject_one.digest(), subject_three.digest());

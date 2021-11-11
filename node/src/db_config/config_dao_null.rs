@@ -1,11 +1,11 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_interface::MAINNET_CONTRACT_CREATION_BLOCK;
 use crate::database::db_initializer::{DbInitializerReal, ENCRYPTED_ROWS};
 use crate::db_config::config_dao::{
     ConfigDao, ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord, ConfigDaoWrite,
 };
 use itertools::Itertools;
+use masq_lib::constants::ETH_MAINNET_CONTRACT_CREATION_BLOCK;
 use rusqlite::Transaction;
 use std::collections::HashMap;
 
@@ -72,7 +72,7 @@ impl Default for ConfigDaoNull {
         data.insert("gas_price".to_string(), "1".to_string());
         data.insert(
             "start_block".to_string(),
-            MAINNET_CONTRACT_CREATION_BLOCK.to_string(),
+            ETH_MAINNET_CONTRACT_CREATION_BLOCK.to_string(),
         );
         Self { data }
     }
@@ -81,9 +81,9 @@ impl Default for ConfigDaoNull {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::database::db_initializer::DbInitializer;
     use crate::db_config::config_dao::ConfigDaoReal;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
 
@@ -102,7 +102,7 @@ mod tests {
                 ConfigDaoRecord::new("gas_price", Some("1"), false),
                 ConfigDaoRecord::new(
                     "start_block",
-                    Some(&MAINNET_CONTRACT_CREATION_BLOCK.to_string()),
+                    Some(&ETH_MAINNET_CONTRACT_CREATION_BLOCK.to_string()),
                     false
                 ),
             ]
@@ -133,7 +133,7 @@ mod tests {
             subject.get("start_block").unwrap(),
             ConfigDaoRecord::new(
                 "start_block",
-                Some(&MAINNET_CONTRACT_CREATION_BLOCK.to_string()),
+                Some(&ETH_MAINNET_CONTRACT_CREATION_BLOCK.to_string()),
                 false
             )
         );
@@ -171,7 +171,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&data_dir, chain_id_from_name("mainnet"), true)
+            .initialize(&data_dir, Chain::EthMainnet, true)
             .unwrap();
         let real_config_dao = ConfigDaoReal::new(conn);
         let records = real_config_dao.get_all().unwrap();

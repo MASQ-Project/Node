@@ -363,7 +363,8 @@ mod tests {
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
     use std::str::FromStr;
 
@@ -403,7 +404,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             this_node.earning_wallet(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
 
         assert_eq!(subject.this_node, this_node.public_key().clone());
@@ -471,7 +472,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
 
         subject.add_node(one_node.clone()).unwrap();
@@ -525,7 +526,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         subject.add_node(one_node.clone()).unwrap();
         subject.add_node(another_node.clone()).unwrap();
@@ -653,7 +654,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         subject.add_node(other_node.clone()).unwrap();
 
@@ -774,7 +775,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             this_node.earning_wallet(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN),
         );
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 
@@ -798,7 +799,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         let nonexistent_key = &PublicKey::new(b"nonexistent");
 
@@ -844,7 +845,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         let neighborless_node = make_node_record(2345, true);
         subject.add_node(neighborless_node.clone()).unwrap();
