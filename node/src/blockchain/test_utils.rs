@@ -1,5 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+#![cfg(test)]
+
 use bip39::{Language, Mnemonic, Seed};
 use jsonrpc_core as rpc;
 use std::cell::RefCell;

@@ -354,7 +354,7 @@ fn deploy_smart_contract(wallet: &Wallet, web3: &Web3<Http>, chain: Chain) -> Ad
             tx,
             &wallet
                 .prepare_secp256k1_secret()
-                .expect("wallet without secret").0,
+                .expect("wallet without secret"),
         )
         .wait()
         .expect("transaction preparation failed");

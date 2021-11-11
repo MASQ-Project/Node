@@ -148,9 +148,14 @@ impl Wallet {
         }
     }
 
-    pub fn prepare_secp256k1_secret(&self) -> Result<secp256k1secrets::key::SecretKey, WalletError> {
+    pub fn prepare_secp256k1_secret(
+        &self,
+    ) -> Result<secp256k1secrets::key::SecretKey, WalletError> {
         match self.kind {
-            WalletKind::KeyPair(ref key_pair) => Ok(key_pair.clone_secrets().1), //TODO make it better
+            WalletKind::KeyPair(ref key_pair) => {
+                let (_, secp256k1) = key_pair.clone_secrets();
+                Ok(secp256k1)
+            }
             _ => Err(WalletError::Signature(format!(
                 "Cannot sign with non-keypair wallet: {:?}.",
                 self.kind

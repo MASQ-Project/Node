@@ -81,7 +81,8 @@ mod tests {
             chain_id: None,
         };
         let secret_key =
-            secp256k1secrets::key::SecretKey::from_slice(b"000000000000000000000000000000aa").unwrap();
+            secp256k1secrets::key::SecretKey::from_slice(b"000000000000000000000000000000aa")
+                .unwrap();
 
         let _ =
             SendTransactionToolsWrapperNull.sign_transaction(transaction_parameters, &secret_key);

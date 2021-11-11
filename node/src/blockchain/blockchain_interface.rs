@@ -1101,7 +1101,9 @@ mod tests {
     fn send_transaction_fails_on_signing_transaction() {
         let transport = TestTransport::default();
         let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
-            .sign_transaction_result(Err(Web3Error::Signing(secp256k1secrets::Error::InvalidSecretKey)));
+            .sign_transaction_result(Err(Web3Error::Signing(
+                secp256k1secrets::Error::InvalidSecretKey,
+            )));
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,

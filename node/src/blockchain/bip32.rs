@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::blockchain::dual_secret::{DualSecret};
+use crate::blockchain::dual_secret::DualSecret;
 use ethereum_types::Address;
 use ethsign::keyfile::Crypto;
 use ethsign::{Protected, PublicKey, SecretKey, Signature};
@@ -9,8 +9,8 @@ use serde::ser;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
-use tiny_hderive::bip32::ExtendedPrivKey;
 use std::num::NonZeroU32;
+use tiny_hderive::bip32::ExtendedPrivKey;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
@@ -199,7 +199,10 @@ mod tests {
         DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
     use bip39::{Language, Mnemonic, Seed};
+    use masq_lib::utils::derivation_path;
+    use std::cell::RefCell;
     use std::collections::hash_map::DefaultHasher;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn bip32_derivation_path_0_produces_a_keypair_with_correct_address() {
@@ -335,5 +338,107 @@ mod tests {
         assert_eq!(&a1, &a1);
         assert_eq!(&a1, &a2);
         assert_ne!(&a1, &b1);
+    }
+
+    #[derive(Default)]
+    struct Bip32ECKeyPairToolsWrapperMock {
+        generate_extended_private_key_params: Arc<Mutex<Vec<(Vec<u8>, String)>>>,
+        generate_extended_private_key_results: RefCell<Vec<Result<ExtendedPrivKey, String>>>,
+        create_dual_secret_params: Arc<Mutex<Vec<Vec<u8>>>>,
+        create_dual_secret_results: RefCell<Vec<Result<DualSecret, String>>>,
+    }
+
+    impl Bip32ECKeyPairToolsWrapper for Bip32ECKeyPairToolsWrapperMock {
+        fn generate_extended_private_key(
+            &self,
+            seed: &[u8],
+            derivation_path: &str,
+        ) -> Result<ExtendedPrivKey, String> {
+            self.generate_extended_private_key_params
+                .lock()
+                .unwrap()
+                .push((seed.to_vec(), derivation_path.to_string()));
+            self.generate_extended_private_key_results
+                .borrow_mut()
+                .remove(0)
+        }
+
+        fn create_dual_secret(&self, raw_secret: &[u8]) -> Result<DualSecret, String> {
+            self.create_dual_secret_params
+                .lock()
+                .unwrap()
+                .push(raw_secret.to_vec());
+            self.create_dual_secret_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl Bip32ECKeyPairToolsWrapperMock {
+        fn generate_extended_private_key_params(
+            mut self,
+            params: &Arc<Mutex<Vec<(Vec<u8>, String)>>>,
+        ) -> Self {
+            self.generate_extended_private_key_params = params.clone();
+            self
+        }
+        fn generate_extended_private_key_result(
+            self,
+            result: Result<ExtendedPrivKey, String>,
+        ) -> Self {
+            self.generate_extended_private_key_results
+                .borrow_mut()
+                .push(result);
+            self
+        }
+
+        fn create_dual_secret_params(mut self, params: &Arc<Mutex<Vec<Vec<u8>>>>) -> Self {
+            self.create_dual_secret_params = params.clone();
+            self
+        }
+
+        fn create_dual_secret_result(self, result: Result<DualSecret, String>) -> Self {
+            self.create_dual_secret_results.borrow_mut().push(result);
+            self
+        }
+    }
+
+    #[test]
+    fn bip32eckeypair_from_raw_catches_error_on_extended_private_key() {
+        let tools = Bip32ECKeyPairToolsWrapperMock::default().generate_extended_private_key_result(
+            Err("generating extended key failed".to_string()),
+        );
+        let seed = b"new seed";
+        let derivation_path = derivation_path(0, 1);
+
+        let result = Bip32ECKeyPair::from_raw(&seed[..], &derivation_path, tools);
+
+        assert_eq!(result, Err("generating extended key failed".to_string()))
+    }
+
+    #[test]
+    fn bip32eckeypair_from_raw_catches_error_on_creating_dual_secret() {
+        let generate_extended_key_params_arc = Arc::new(Mutex::new(vec![]));
+        let create_dual_secret_params_arc = Arc::new(Mutex::new(vec![]));
+        let seed = b"new seed";
+        let derivation_path = derivation_path(0, 1);
+        let extended_private_key = ExtendedPrivKey::derive(seed, &*derivation_path).unwrap();
+        let tools = Bip32ECKeyPairToolsWrapperMock::default()
+            .generate_extended_private_key_params(&generate_extended_key_params_arc)
+            .generate_extended_private_key_result(Ok(extended_private_key.clone()))
+            .create_dual_secret_params(&create_dual_secret_params_arc)
+            .create_dual_secret_result(Err("preparing secretes failed".to_string()));
+
+        let result = Bip32ECKeyPair::from_raw(&seed[..], &derivation_path, tools);
+
+        assert_eq!(result, Err("preparing secretes failed".to_string()));
+        let generate_extended_key_params = generate_extended_key_params_arc.lock().unwrap();
+        assert_eq!(
+            *generate_extended_key_params,
+            vec![(seed.to_vec(), derivation_path.to_string())]
+        );
+        let create_dual_secret_params = create_dual_secret_params_arc.lock().unwrap();
+        assert_eq!(
+            *create_dual_secret_params,
+            vec![extended_private_key.secret().to_vec()]
+        )
     }
 }

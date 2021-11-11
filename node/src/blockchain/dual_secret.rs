@@ -5,10 +5,8 @@ use itertools::Itertools;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 
-
-#[derive(Clone,Copy,PartialEq,Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct SecretWrapper(pub secp256k1secrets::key::SecretKey);
-
 
 #[derive(Debug)]
 pub struct DualSecret {
@@ -32,7 +30,7 @@ impl TryFrom<&[u8]> for DualSecret {
         ) {
             (Ok(ethsign_secret), Ok(secp256k1_secret)) => Ok(Self {
                 ethsign_secret,
-                secp256k1_secret
+                secp256k1_secret,
             }),
             tuple => Err(resolve_hetero_err(tuple)),
         }
@@ -44,7 +42,7 @@ impl From<(SecretKey, secp256k1secrets::key::SecretKey)> for DualSecret {
         let (ethsign_secret, secp256k1_secret) = secrets;
         Self {
             ethsign_secret,
-            secp256k1_secret
+            secp256k1_secret,
         }
     }
 }
@@ -57,7 +55,6 @@ fn resolve_hetero_err<T: Debug>(
 ) -> String
 where
 {
-    const SECRET_KEY: &str = "SecretKey";
     fn convert_into_string<C: ?Sized>(is_err: bool, closure: Box<C>) -> String
     where
         C: FnOnce() -> String,
@@ -74,14 +71,14 @@ where
             a.is_err(),
             Box::new(|| {
                 let e = a.expect_err("wasn't err?");
-                format!("ethsign {}: {:?}", SECRET_KEY, e)
+                format!("ethsign: {:?}", e)
             }) as Box<dyn FnOnce() -> String>,
         ),
         (
             b.is_err(),
             Box::new(|| {
                 let e = b.expect_err("wasn't err?");
-                format!("secp256k1 {}: {}", SECRET_KEY, e)
+                format!("secp256k1: {}", e)
             }) as Box<dyn FnOnce() -> String>,
         ),
     ];
@@ -90,7 +87,8 @@ where
         .map(|(is_err, closure)| convert_into_string(is_err, closure))
         .filter(|item| !item.is_empty())
         .collect_vec();
-    vec.join("; ")
+    let msg = vec.join("; ");
+    format!("Error when composing secrets: {}", msg)
 }
 
 #[cfg(test)]
@@ -106,12 +104,18 @@ mod tests {
         let debugable = Debugable;
         let results_for_left = (
             Err(debugable),
-            Ok(secp256k1secrets::SecretKey::from_slice(b"000000000000000000000000000000aa").unwrap()),
+            Ok(
+                secp256k1secrets::SecretKey::from_slice(b"000000000000000000000000000000aa")
+                    .unwrap(),
+            ),
         );
 
         let output = resolve_hetero_err(results_for_left);
 
-        assert_eq!(output, "ethsign SecretKey: Debugable".to_string())
+        assert_eq!(
+            output,
+            "Error when composing secrets: ethsign: Debugable".to_string()
+        )
     }
 
     #[test]
@@ -125,7 +129,8 @@ mod tests {
 
         assert_eq!(
             output,
-            "secp256k1 SecretKey: secp: malformed or out-of-range secret key".to_string()
+            "Error when composing secrets: secp256k1: secp: malformed or out-of-range secret key"
+                .to_string()
         );
     }
 
@@ -139,7 +144,7 @@ mod tests {
         };
         assert_eq!(
             err,
-            "ethsign SecretKey: InvalidInputLength; secp256k1 SecretKey: secp: malformed or out-of-range secret key"
+            "Error when composing secrets: ethsign: InvalidInputLength; secp256k1: secp: malformed or out-of-range secret key"
                 .to_string()
         )
     }
