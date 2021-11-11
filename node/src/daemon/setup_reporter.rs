@@ -120,13 +120,8 @@ impl SetupReporter for SetupReporterReal {
                 chain,
             ),
         };
-        let list_of_blanked_parameters = blanked_out_former_values
-            .keys()
-            .map(|item| item.to_owned())
-            .collect_vec();
         let (configured_setup, error_opt) = self.calculate_configured_setup(
             &all_but_configured,
-            list_of_blanked_parameters,
             &data_directory,
             chain,
         );
@@ -281,13 +276,12 @@ impl SetupReporterReal {
     fn calculate_configured_setup(
         &self,
         combined_setup: &SetupCluster,
-        blanked_out_parameters: Vec<String>,
         data_directory: &Path,
         chain: BlockChain,
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
-        let command_line = Self::make_command_line(combined_setup, blanked_out_parameters);
+        let command_line = Self::make_command_line(combined_setup);
         let multi_config = match Self::make_multi_config(
             self.dirs_wrapper.as_ref(),
             Some(command_line),
@@ -362,7 +356,7 @@ impl SetupReporterReal {
         }
     }
 
-    fn make_command_line(setup: &SetupCluster, blanked_out_params: Vec<String>) -> Vec<String> {
+    fn make_command_line(setup: &SetupCluster) -> Vec<String> {
         let accepted_statuses = vec![Set, Configured];
         let mut command_line = setup
             .iter()
@@ -370,9 +364,6 @@ impl SetupReporterReal {
             .flat_map(|(_, v)| vec![format!("--{}", v.name), v.value.clone()])
             .collect::<Vec<String>>();
         command_line.insert(0, "program_name".to_string());
-        blanked_out_params
-            .iter()
-            .for_each(|blanked_param| command_line.push(format!("--{}", blanked_param)));
         command_line
     }
 
@@ -2055,7 +2046,7 @@ mod tests {
         let result = subject
             .calculate_configured_setup(
                 &setup,
-                vec![],
+
                 &data_directory,
                 Blockchain::EthMainnet, //irrelevant
             )
@@ -2099,51 +2090,10 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(&setup, vec![], &data_directory, Blockchain::EthMainnet)
+            .calculate_configured_setup(&setup, &data_directory, Blockchain::EthMainnet)
             .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
-    }
-
-    #[test]
-    fn mapping_protocol_is_blanked_out() {
-        let _guard = EnvironmentGuard::new();
-        let data_directory =
-            ensure_node_home_directory_exists("setup_reporter", "mapping_protocol_is_blanked_out");
-        let conn = DbInitializerReal::default()
-            .initialize(&data_directory, DEFAULT_CHAIN, true)
-            .unwrap();
-        let mut persist_config = PersistentConfigurationReal::from(conn);
-        persist_config
-            .set_mapping_protocol(Some(AutomapProtocol::Pcp))
-            .unwrap();
-
-        let setup = vec![
-            // no config-file setting
-            UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
-            UiSetupResponseValue::new(
-                "data-directory",
-                &data_directory.to_string_lossy().to_string(),
-                Set,
-            ),
-        ]
-        .into_iter()
-        .map(|uisrv| (uisrv.name.clone(), uisrv))
-        .collect();
-
-        let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(
-                &setup,
-                vec!["mapping-protocol".to_string()],
-                &data_directory,
-                Blockchain::EthMainnet, //irrelevant
-            )
-            .0;
-
-        assert_eq!(
-            result.get("mapping-protocol").unwrap(),
-            &UiSetupResponseValue::new("mapping-protocol", "", Blank)
-        );
     }
 
     #[test]
@@ -2177,7 +2127,7 @@ mod tests {
         let result = subject
             .calculate_configured_setup(
                 &setup,
-                vec![],
+
                 &data_directory,
                 Blockchain::EthMainnet, //irrelevant
             )
@@ -2210,7 +2160,7 @@ mod tests {
         let result = subject
             .calculate_configured_setup(
                 &setup,
-                vec![],
+
                 &data_directory,
                 Blockchain::EthMainnet, //irrelevant
             )
@@ -2253,7 +2203,7 @@ mod tests {
         let result = subject
             .calculate_configured_setup(
                 &setup,
-                vec![],
+
                 &data_dir,
                 Blockchain::EthMainnet, //irrelevant
             )
@@ -2293,7 +2243,7 @@ mod tests {
         let result = subject
             .calculate_configured_setup(
                 &setup,
-                vec![],
+
                 &data_directory,
                 Blockchain::EthMainnet, //irrelevant
             )
