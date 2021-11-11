@@ -457,7 +457,6 @@ impl Accountant {
         }
 
         let threshold = Accountant::calculate_payout_threshold(time_since_last_paid);
-        eprintln!("treshhold = {}", threshold);
         if payable.balance as f64 > threshold {
             Some(threshold as u64)
         } else {
@@ -470,10 +469,8 @@ impl Accountant {
             - PAYMENT_CURVES.permanent_debt_allowed_gwub as f64)
             / (PAYMENT_CURVES.balance_decreases_for_sec as f64
                 - PAYMENT_CURVES.payment_suggested_after_sec as f64));
-        eprintln!("{}",m);
         let b = PAYMENT_CURVES.balance_to_decrease_from_gwub as f64
             - m * PAYMENT_CURVES.payment_suggested_after_sec as f64;
-        eprintln!("{}",b);
         m * x as f64 + b
     }
 
