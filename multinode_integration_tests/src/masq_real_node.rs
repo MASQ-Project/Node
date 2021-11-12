@@ -348,7 +348,7 @@ impl NodeStartupConfig {
             }
             ConsumingWalletInfo::DerivationPath(phrase, derivation_path) => {
                 let mnemonic =
-                    Mnemonic::from_phrase(phrase.to_string(), Language::English).unwrap();
+                    Mnemonic::from_phrase(&phrase.to_string(), Language::English).unwrap();
                 let keypair = Bip32ECKeyPair::from_raw(
                     Seed::new(&mnemonic, "passphrase").as_ref(),
                     derivation_path,
