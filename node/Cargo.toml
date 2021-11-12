@@ -62,7 +62,7 @@ websocket = {version = "0.26.2", default-features = false, features = ["async", 
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.4.0"
-core-foundation = "0.9.2"
+core-foundation = "0.7.0"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 daemonize = "0.4.1"

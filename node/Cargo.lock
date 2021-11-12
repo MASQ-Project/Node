@@ -2090,7 +2090,7 @@ dependencies = [
  "bytes 0.4.12",
  "chrono",
  "clap",
- "core-foundation 0.9.2",
+ "core-foundation 0.7.0",
  "crossbeam-channel 0.5.1",
  "daemonize",
  "dirs 4.0.0",
