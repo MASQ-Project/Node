@@ -70,7 +70,7 @@ impl Bip32ECKeyPair {
     pub fn clone_secret(&self) -> SecretKey {
         match self.secret.to_crypto(
             &Protected::from("secret"),
-            NonZeroU32::new(1).expect("Could not create"),
+            u32::from(NonZeroU32::new(1).expect("Could not create")),
         ) {
             Ok(crypto) => match SecretKey::from_crypto(&crypto, &Protected::from("secret")) {
                 Ok(secret) => secret,
@@ -131,7 +131,7 @@ impl Serialize for Bip32ECKeyPair {
             .secret
             .to_crypto(
                 &Protected::from("secret"),
-                NonZeroU32::new(1).expect("Could not create"),
+                u32::from(NonZeroU32::new(1).expect("Could not create")),
             )
             .map_err(ser::Error::custom)?;
         result.serialize(serializer)
