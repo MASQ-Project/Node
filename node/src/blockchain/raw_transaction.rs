@@ -40,7 +40,7 @@ impl RawTransaction {
         tx.append(&sig.r.to_vec());
         tx.append(&sig.s.to_vec());
         tx.finalize_unbounded_list();
-        tx.out()
+        tx.out().to_vec()
     }
 
     fn tx_hash(&self, chain_id: u64) -> Vec<u8> {

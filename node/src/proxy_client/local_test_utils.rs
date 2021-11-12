@@ -11,7 +11,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use trust_dns::rr::{Name, Record};
-use trust_dns_proto::op::Query;
+use trust_dns_proto::op::query::Query;
 use trust_dns_resolver::config::ResolverConfig;
 use trust_dns_resolver::config::ResolverOpts;
 use trust_dns_resolver::error::ResolveError;

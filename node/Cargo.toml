@@ -23,7 +23,7 @@ ethsign = {version = "0.7.3", default-features = false, features = ["pure-rust"]
 ethsign-crypto = "0.2.1"
 ethereum-types = "0.6.0"
 fdlimit = "0.2.1"
-flexi_logger = { version = "0.14.1", features = [ "ziplogs" ] }
+flexi_logger = { version = "0.15.12", features = [ "ziplogs" ] }
 futures = "0.1.31"
 heck = "0.3.3"
 http = "0.2.5"
@@ -31,32 +31,32 @@ indoc = "1.0.3"
 itertools = "0.10.1"
 lazy_static = "1.4.0"
 libc = "0.2.107"
-libsecp256k1 = "0.2.2"
+libsecp256k1 = "0.7.0"
 log = "0.4.14"
 masq_lib = { path = "../masq_lib"}
-pretty-hex = "0.1.0"
+pretty-hex = "0.2.1"
 primitive-types = {version = "0.5.0", default-features = false, features = ["default", "rlp", "serde"]}
-rand = {version = "0.7.0", features = ["getrandom", "small_rng"]}
+rand = {version = "0.8.4", features = ["getrandom", "small_rng"]}
 regex = "1.5.4"
-rlp = "0.4.2"
-rpassword = "4.0.1"
-rusqlite = {version = "0.20.0", features = ["bundled"]}
-rustc-hex = "2.0.1"
+rlp = "0.4.6"
+rpassword = "5.0.1"
+rusqlite = {version = "0.26.1", features = ["bundled"]}
+rustc-hex = "2.1.0"
 serde = "1.0.130"
 serde_derive = "1.0.130"
 serde_json = "1.0.69"
-serde_cbor = "0.10.1"
+serde_cbor = "0.11.2"
 sha1 = "0.6.0"
 sodiumoxide = "0.2.2"
-sysinfo = "0.15.0"
-tiny-bip39 = "0.6.2"
+sysinfo = "0.21.1"
+tiny-bip39 = "0.8.2"
 tiny-hderive = "0.3.0"
 tokio = "0.1.22"
-tokio-core = "0.1.17"
+tokio-core = "0.1.18"
 toml = "0.5.8"
 trust-dns = "0.17.0"
 trust-dns-resolver = "0.12.0"
-unindent = "0.1.4"
+unindent = "0.1.7"
 web3 = {version = "0.8.0", default-features = false, features = ["http", "tls"]}
 websocket = {version = "0.26.2", default-features = false, features = ["async", "sync"]}
 
@@ -67,19 +67,19 @@ core-foundation = "0.9.2"
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 daemonize = "0.4.1"
 nix = "0.23.0"
-openssl = {version = "0.10.24", features = ["vendored"]}
+openssl = {version = "0.10.38", features = ["vendored"]}
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.10.1"
 ipconfig = "0.2.2"
 
 [dev-dependencies]
-base58 = "0.1.0"
+base58 = "0.2.0"
 jsonrpc-core = "11.0.0"
-native-tls = {version = "0.2.3", features = ["vendored"]}
+native-tls = {version = "0.2.8", features = ["vendored"]}
 simple-server = "0.4.0"
-serial_test_derive = "0.2.0"
-serial_test = "0.2.0"
+serial_test_derive = "0.5.1"
+serial_test = "0.5.1"
 trust-dns-proto = "0.8.0"
 
 [[bin]]

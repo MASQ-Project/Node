@@ -3,7 +3,7 @@
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_migrations::DbMigrator;
 use crate::sub_lib::logger::Logger;
-use rusqlite::{Connection, NO_PARAMS};
+use rusqlite::Connection;
 use std::cell::RefCell;
 use std::fs::remove_file;
 use std::path::PathBuf;
@@ -50,7 +50,7 @@ pub fn revive_tables_of_the_version_0_and_return_the_connection_to_the_db(
         "create unique index idx_receivable_wallet_address on receivable (wallet_address)",
         "create table banned ( wallet_address text primary key )",
         "create unique index idx_banned_wallet_address on banned (wallet_address)"
-    ].iter().for_each(|statement|{connection.execute(statement,NO_PARAMS).unwrap();});
+    ].iter().for_each(|statement|{connection.execute(statement,[]).unwrap();});
     connection
 }
 
@@ -101,7 +101,7 @@ pub fn assurance_query_for_config_table(
 ) -> (String, Option<String>, u16) {
     let mut statement = conn.prepare(stm).unwrap();
     statement
-        .query_row(NO_PARAMS, |r| {
+        .query_row([], |r| {
             Ok((r.get(0).unwrap(), r.get(1).unwrap(), r.get(2).unwrap()))
         })
         .unwrap()
