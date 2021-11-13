@@ -371,7 +371,6 @@ pub mod standard {
                 },
             }
         };
-        //TODO maybe this is a better place----and what about testing first the supplied now and the from the DB (corrupted DB if wrong)
         match make_neighborhood_mode(multi_config, neighbor_configs) {
             Ok(mode) => Ok(NeighborhoodConfig { mode }),
             Err(e) => Err(e),

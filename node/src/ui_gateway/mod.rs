@@ -1,10 +1,9 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 mod websocket_supervisor;
-mod websocket_supervisor_factory;
 
 #[cfg(test)]
-pub mod websocket_supervisor_mock;
+pub mod websocket_supervisor_mocks;
 
 use crate::daemon::DaemonBindMessage;
 use crate::sub_lib::logger::Logger;
@@ -12,25 +11,25 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
-use crate::ui_gateway::websocket_supervisor::WebSocketSupervisor;
-use crate::ui_gateway::websocket_supervisor_factory::{
-    WebsocketSupervisorFactory, WebsocketSupervisorFactoryReal,
+use crate::ui_gateway::websocket_supervisor::{
+    WebSocketSupervisor, WebSocketSupervisorFactory, WebsocketSupervisorFactoryReal,
 };
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use itertools::Either;
 use masq_lib::messages::{UiCrashRequest, UiMessageError};
 use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
+use std::mem::replace;
 
 pub const CRASH_KEY: &str = "UIGATEWAY";
 
 pub struct UiGateway {
     port: u16,
-    websocket_supervisor_factory: Option<Box<dyn WebsocketSupervisorFactory>>,
-    websocket_supervisor: Option<Box<dyn WebSocketSupervisor>>,
+    websocket_supervisor: Either<Box<dyn WebSocketSupervisorFactory>, Box<dyn WebSocketSupervisor>>,
     incoming_message_recipients: Vec<Recipient<NodeFromUiMessage>>,
     crashable: bool,
     logger: Logger,
@@ -40,8 +39,8 @@ impl UiGateway {
     pub fn new(config: &UiGatewayConfig, crashable: bool) -> UiGateway {
         UiGateway {
             port: config.ui_port,
-            websocket_supervisor_factory: Some(Box::new(WebsocketSupervisorFactoryReal)),
-            websocket_supervisor: None,
+            //websocket_supervisor_factory: Some(Box::new(WebsocketSupervisorFactoryReal)),
+            websocket_supervisor: Either::Left(Box::new(WebsocketSupervisorFactoryReal)),
             incoming_message_recipients: vec![],
             crashable,
 
@@ -62,19 +61,52 @@ impl UiGateway {
         &self,
         message_body: MessageBody,
     ) -> Option<UiMessageError> {
-        match message_body.payload {
-            Ok(payload) => match serde_json::from_str::<UiCrashRequest>(&payload) {
+        match &message_body.payload {
+            Ok(payload) => match serde_json::from_str::<UiCrashRequest>(payload) {
                 Ok(crash_request) => match (self.crashable, crash_request.actor == CRASH_KEY) {
                     (true, true) => panic!("{}", crash_request.panic_message),
-                    _ => None,
+                    _ => {
+                        trace!(self.logger,"Crash request not to be addressed by this actor; correct addressee: {}; is this actor being crashable: {}",crash_request.actor,self.crashable);
+                        None
+                    }
                 },
                 Err(e) if e.is_syntax() => {
                     Some(UiMessageError::DeserializationError(e.to_string()))
                 }
-                Err(_) => None,
+                //we don't care when messages just look different from the crash request
+                //in 99% we're here and getting an err for legit messages; thus not a true error
+                Err(e) if e.is_data() => None,
+                //untested, don't know how to trigger this
+                Err(e) => {
+                    error!(self.logger, "An IO or EoF error: {}", e);
+                    None
+                }
             },
-            Err(_) => None,
+            Err((_, e)) => {
+                error!(
+                    self.logger,
+                    "Received a message of '{}' opcode with an error in its payload: '{}'",
+                    message_body.opcode,
+                    e
+                );
+                None
+            }
         }
+    }
+
+    fn initiate_websocket_supervisor(&mut self, recipient: Recipient<NodeFromUiMessage>) {
+        let ws = match self
+            .websocket_supervisor
+            .as_ref()
+            .left()
+            .as_ref()
+            .expectv("WebSocket factory")
+            .make(self.port, recipient)
+        {
+            Ok(wss) => Either::Right(wss),
+            Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
+        };
+        let _ = replace(&mut self.websocket_supervisor, ws);
     }
 }
 
@@ -93,17 +125,7 @@ impl Handler<BindMessage> for UiGateway {
             msg.peer_actors.dispatcher.ui_sub.clone(),
             msg.peer_actors.configurator.node_from_ui_sub.clone(),
         ];
-        let factory = self
-            .websocket_supervisor_factory
-            .take()
-            .expectv("websocket supervisor factory");
-        self.websocket_supervisor = match factory.make(
-            self.port,
-            msg.peer_actors.ui_gateway.node_from_ui_message_sub,
-        ) {
-            Ok(wss) => Some(wss),
-            Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
-        };
+        self.initiate_websocket_supervisor(msg.peer_actors.ui_gateway.node_from_ui_message_sub);
         debug!(self.logger, "UIGateway bound");
     }
 }
@@ -114,14 +136,7 @@ impl Handler<DaemonBindMessage> for UiGateway {
     fn handle(&mut self, msg: DaemonBindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.incoming_message_recipients = msg.from_ui_message_recipients;
-        let factory = self
-            .websocket_supervisor_factory
-            .take()
-            .expectv("websocket supervisor factory");
-        self.websocket_supervisor = match factory.make(self.port, msg.from_ui_message_recipient) {
-            Ok(wss) => Some(wss),
-            Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
-        };
+        self.initiate_websocket_supervisor(msg.from_ui_message_recipient);
         debug!(self.logger, "UIGateway bound");
     }
 }
@@ -132,7 +147,9 @@ impl Handler<NodeToUiMessage> for UiGateway {
     fn handle(&mut self, msg: NodeToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.websocket_supervisor
             .as_ref()
-            .expect("WebsocketSupervisor is unbound")
+            .right()
+            .as_ref()
+            .expect("WebSocketSupervisor is uninitialized")
             .send_msg(msg)
     }
 }
@@ -168,8 +185,10 @@ mod tests {
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::{make_recorder, Recording};
-    use crate::ui_gateway::websocket_supervisor_factory::mock::WebsocketSupervisorFactoryMock;
-    use crate::ui_gateway::websocket_supervisor_mock::WebSocketSupervisorMock;
+    use crate::ui_gateway::websocket_supervisor::WebSocketSupervisorFactory;
+    use crate::ui_gateway::websocket_supervisor_mocks::{
+        WebSocketSupervisorMock, WebsocketSupervisorFactoryMock,
+    };
     use actix::System;
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest};
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
@@ -254,8 +273,9 @@ mod tests {
             .make_result(Ok(Box::new(websocket_supervisor)));
         let port = find_free_port();
         let mut subject = UiGateway::new(&UiGatewayConfig { ui_port: port }, false);
-        subject.websocket_supervisor_factory =
-            Some(Box::new(websocket_supervisor_factory) as Box<dyn WebsocketSupervisorFactory>);
+        subject.websocket_supervisor = Either::Left(
+            Box::new(websocket_supervisor_factory) as Box<dyn WebSocketSupervisorFactory>
+        );
         let system = System::new("test");
         let subject_addr: Addr<UiGateway> = subject.start();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -314,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn other_than_syntactical_errors_are_ignored() {
+    fn semantics_errors_are_ignored() {
         //we deserialize against the crash request so deviating from its syntax causes also a deserialization error
         let msg_body = UiChangePasswordRequest {
             old_password_opt: None,
@@ -329,9 +349,10 @@ mod tests {
     }
 
     #[test]
-    fn deserialization_validator_does_not_care_about_errors_like_payload_errors() {
+    fn deserialization_validator_logs_payload_errors() {
+        init_test_logging();
         let msg_body = MessageBody {
-            opcode: "blah".to_string(),
+            opcode: "whatever".to_string(),
             path: MessagePath::Conversation(45),
             payload: Err((1234, "We did it wrong".to_string())),
         };
@@ -339,7 +360,8 @@ mod tests {
 
         let result = subject.deserialization_validator_with_crash_request_handler(msg_body);
 
-        assert_eq!(result, None)
+        assert_eq!(result, None);
+        TestLogHandler::new().exists_log_containing("ERROR: UiGateway: Received a message of 'whatever' opcode with an error in its payload: 'We did it wrong'");
     }
 
     #[test]

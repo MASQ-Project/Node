@@ -119,7 +119,6 @@ pub fn handle_ui_crash_request(
     }
 }
 
-#[track_caller]
 fn crash_request_analyzer(
     msg: NodeFromUiMessage,
     logger: &Logger,
@@ -155,7 +154,6 @@ pub mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use chrono::{NaiveDate, Utc};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::multi_config::CommandLineVcl;
 
@@ -215,7 +213,7 @@ pub mod tests {
     }
 
     #[test]
-    fn handle_ui_crash_message_doesnt_crash_if_not_crashable() {
+    fn handle_ui_crash_message_does_not_crash_if_not_crashable() {
         let logger = Logger::new("Example");
         let msg_body = UiCrashRequest {
             actor: "CRASHKEY".to_string(),
@@ -228,10 +226,11 @@ pub mod tests {
         };
 
         handle_ui_crash_request(from_ui_message, &logger, false, "CRASHKEY");
+        // no panic; test passes
     }
 
     #[test]
-    fn handle_ui_crash_message_doesnt_crash_if_no_actor_match() {
+    fn handle_ui_crash_message_does_not_crash_if_no_actor_match() {
         init_test_logging();
         let logger = Logger::new("Example");
         let msg_body = UiCrashRequest {
@@ -244,7 +243,8 @@ pub mod tests {
             body: msg_body,
         };
 
-        handle_ui_crash_request(from_ui_message, &logger, true, "mismatch"); // no panic; test passes
+        handle_ui_crash_request(from_ui_message, &logger, true, "mismatch");
+        // no panic; test passes
 
         TestLogHandler::new().exists_log_containing("DEBUG: Example: Rejected crash instruction for 'CRASHKEY' with message 'Foiled again!'");
     }
@@ -281,18 +281,16 @@ pub mod tests {
     }
 
     #[test]
+    //this test won't work properly until we integrate Clap 3.x.x
+    //now it calls process::exit internally though Clap's documentation tries to convince us that it doesn't
     #[should_panic(expected = "The program's entry check failed to catch this.")]
     fn make_new_multi_config_should_panic_trying_to_process_version_request() {
-        if Utc::today().and_hms(0, 0, 0).naive_utc().date() >= NaiveDate::from_ymd(2021, 9, 30) {
-            let app = app_node();
-            let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
-                String::from("program"),
-                "--version".to_string(),
-            ]))];
+        let app = app_node();
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
+            String::from("program"),
+            "--version".to_string(),
+        ]))];
 
-            let _ = make_new_multi_config(&app, vcls);
-        } else {
-            panic!("The program's entry check failed to catch this.")
-        }
+        let _ = make_new_multi_config(&app, vcls);
     }
 }

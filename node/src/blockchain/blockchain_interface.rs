@@ -755,6 +755,7 @@ mod tests {
 
         assert_eq!(
             result,
+            //...a comment to provoke a merge conflict...should be deleted at the occasion
             Err(BlockchainError::QueryFailed(
                 r#"Decoder error: Error("invalid hex character: Q, at 5", line: 0, column: 0)"#
                     .to_string()
@@ -841,6 +842,7 @@ mod tests {
         );
 
         assert_eq!(
+            //...a comment to provoke a merge conflict...should be deleted at the occasion
             Err(BlockchainError::QueryFailed(
                 r#"Api error: Decoder error: Error("invalid hex", line: 0, column: 0)"#.to_string()
             )),

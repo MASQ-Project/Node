@@ -569,7 +569,6 @@ pub mod pure_test_utils {
             body: UiCrashRequest::new(crash_key, "panic message").tmb(0),
         })
         .unwrap();
-        System::current().stop();
         system.run();
     }
 

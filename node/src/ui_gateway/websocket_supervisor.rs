@@ -443,6 +443,27 @@ impl WebSocketSupervisorReal {
     }
 }
 
+pub trait WebSocketSupervisorFactory: Send {
+    fn make(
+        &self,
+        port: u16,
+        recipient: Recipient<NodeFromUiMessage>,
+    ) -> std::io::Result<Box<dyn WebSocketSupervisor>>;
+}
+
+pub struct WebsocketSupervisorFactoryReal;
+
+impl WebSocketSupervisorFactory for WebsocketSupervisorFactoryReal {
+    fn make(
+        &self,
+        port: u16,
+        recipient: Recipient<NodeFromUiMessage>,
+    ) -> std::io::Result<Box<dyn WebSocketSupervisor>> {
+        WebSocketSupervisorReal::new(port, recipient)
+            .map(|positive| positive as Box<dyn WebSocketSupervisor>)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

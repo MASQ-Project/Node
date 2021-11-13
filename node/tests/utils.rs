@@ -123,9 +123,9 @@ impl MASQNode {
     pub fn start_standard_in_unsterilized_environment(data_dir: &PathBuf) -> MASQNode {
         let args_extension =
             CommandConfig::new().pair("--data-directory", data_dir.to_str().unwrap());
-        let command = Self::make_node_command(data_dir, Some(args_extension), false);
+        let mut command = Self::make_node_command(data_dir, Some(args_extension), false);
         eprintln!("{:?}", command);
-        Self::spawn_process(command, data_dir.into())
+        Self::spawn_process(&mut command, data_dir.into())
     }
 
     #[allow(dead_code)]
@@ -243,7 +243,7 @@ impl MASQNode {
         let data_dir = ensure_node_home_directory_exists("integration", test_name);
         Self::remove_logfile(&data_dir);
         let ui_port = Self::ui_port_from_config_opt(&config_opt);
-        let command = command_getter(&data_dir, config_opt, true);
+        let mut command = command_getter(&data_dir, config_opt, true);
         eprintln!("{:?}", command);
         let command = if piped_streams {
             command.stdout(Stdio::piped()).stderr(Stdio::piped())
@@ -257,7 +257,7 @@ impl MASQNode {
         result
     }
 
-    fn spawn_process(mut cmd: Command, data_dir: PathBuf) -> MASQNode {
+    fn spawn_process(cmd: &mut Command, data_dir: PathBuf) -> MASQNode {
         let child = cmd.spawn().unwrap();
         MASQNode {
             logfile_contents: String::new(),
