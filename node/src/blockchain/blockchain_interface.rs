@@ -361,18 +361,18 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use serde_json::json;
     use serde_json::Value;
-    use simple_server::{Server, Request};
+    use simple_server::{Request, Server};
     use std::cell::RefCell;
     use std::collections::VecDeque;
-    use std::net::{Ipv4Addr, TcpStream, IpAddr, SocketAddr};
+    use std::io::Write;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+    use std::ops::Add;
     use std::rc::Rc;
     use std::str::FromStr;
+    use std::sync::{Arc, Mutex};
     use std::thread;
-    use web3::{transports::Http, Error, RequestId, Transport};
-    use std::sync::{Mutex, Arc};
     use std::time::{Duration, Instant};
-    use std::ops::Add;
-    use std::io::Write;
+    use web3::{transports::Http, Error, RequestId, Transport};
 
     #[derive(Debug, Default, Clone)]
     pub struct TestTransport {
@@ -453,48 +453,54 @@ mod tests {
     }
 
     impl TestServer {
-        fn start (port: u16, bodies: Vec<Vec<u8>>) -> Self {
+        fn start(port: u16, bodies: Vec<Vec<u8>>) -> Self {
             std::env::set_var("SIMPLESERVER_THREADS", "1");
             let (tx, rx) = unbounded();
             let _ = thread::spawn(move || {
-                let bodies_arc = Arc::new (Mutex::new (bodies));
+                let bodies_arc = Arc::new(Mutex::new(bodies));
                 Server::new(move |req, mut rsp| {
-                    if req.headers().get ("X-Quit").is_some() {
-                        panic! ("Server stop requested");
+                    if req.headers().get("X-Quit").is_some() {
+                        panic!("Server stop requested");
                     }
                     tx.send(req).unwrap();
-                    let body = bodies_arc.lock().unwrap().remove (0);
+                    let body = bodies_arc.lock().unwrap().remove(0);
                     Ok(rsp.body(body)?)
-                }).listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
+                })
+                .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
             });
             let deadline = Instant::now().add(Duration::from_secs(5));
             loop {
-                thread::sleep (Duration::from_millis (10));
-                match TcpStream::connect (SocketAddr::new (IpAddr::V4(Ipv4Addr::LOCALHOST), port)) {
-                    Ok (_) => break,
-                    Err (e) => eprintln! ("No: {:?}", e),
+                thread::sleep(Duration::from_millis(10));
+                match TcpStream::connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)) {
+                    Ok(_) => break,
+                    Err(e) => eprintln!("No: {:?}", e),
                 }
                 if Instant::now().gt(&deadline) {
-                    panic! ("TestServer still not started after 5sec");
+                    panic!("TestServer still not started after 5sec");
                 }
             }
             TestServer { port, rx }
         }
 
-        fn requests_so_far (&self) -> Vec<Request<Vec<u8>>> {
+        fn requests_so_far(&self) -> Vec<Request<Vec<u8>>> {
             let mut requests = vec![];
             while let Ok(request) = self.rx.try_recv() {
-                requests.push (request);
+                requests.push(request);
             }
             return requests;
         }
 
-        fn stop (&mut self) {
-            let mut stream = match TcpStream::connect (SocketAddr::new (IpAddr::V4(Ipv4Addr::LOCALHOST), self.port)) {
-                Ok (s) => s,
-                Err (_) => return,
+        fn stop(&mut self) {
+            let mut stream = match TcpStream::connect(SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::LOCALHOST),
+                self.port,
+            )) {
+                Ok(s) => s,
+                Err(_) => return,
             };
-            stream.write (b"DELETE /irrelevant.htm HTTP/1.1\r\nX-Quit: Yes").unwrap();
+            stream
+                .write(b"DELETE /irrelevant.htm HTTP/1.1\r\nX-Quit: Yes")
+                .unwrap();
         }
     }
 
@@ -653,9 +659,10 @@ mod tests {
     #[test]
     fn blockchain_interface_non_clandestine_can_retrieve_eth_balance_of_a_wallet() {
         let port = find_free_port();
-        let _test_server = TestServer::start(port, vec![
-            br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFF"}"#.to_vec()
-        ]);
+        let _test_server = TestServer::start(
+            port,
+            vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFF"}"#.to_vec()],
+        );
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -705,13 +712,16 @@ mod tests {
     fn blockchain_interface_non_clandestine_returns_an_error_for_unintelligible_response_to_requesting_eth_balance(
     ) {
         let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFQ"}"#.to_vec()
-        ]);
+        let _test_server = TestServer::start(
+            port,
+            vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFQ"}"#.to_vec()],
+        );
 
-        let (event_loop_handle, transport) = Http::new(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-        )
+        let (event_loop_handle, transport) = Http::new(&format!(
+            "http://{}:{}",
+            &Ipv4Addr::LOCALHOST.to_string(),
+            port
+        ))
         .unwrap();
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,

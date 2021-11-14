@@ -1417,7 +1417,7 @@ mod tests {
         let result = IgdpTransactor::thread_guts_iteration(
             &change_handler,
             &inner_arc,
-            &mut Instant::now().sub(Duration::from_secs(86400)),
+            &mut Instant::now().sub(Duration::from_secs(2000)),
             &Some(MappingConfig {
                 hole_port: 7777,
                 next_lifetime: Duration::from_secs(1000),
