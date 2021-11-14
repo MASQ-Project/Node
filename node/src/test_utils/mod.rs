@@ -60,13 +60,14 @@ use std::time::Duration;
 use std::time::Instant;
 
 lazy_static! {
-    static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> = Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
-    static ref ALIAS_CRYPTDE_NULL: Box<dyn CryptDE + 'static> = Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
+    static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
+        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
+    static ref ALIAS_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
+        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
 }
 
 pub fn main_cryptde() -> &'static dyn CryptDE {
     MAIN_CRYPTDE_NULL.as_ref()
-
 }
 
 pub fn alias_cryptde() -> &'static dyn CryptDE {

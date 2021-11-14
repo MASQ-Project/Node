@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod gossip;
 pub mod dot_graph;
+pub mod gossip;
 pub mod gossip_acceptor;
 pub mod gossip_producer;
 pub mod neighborhood_database;
@@ -61,13 +61,13 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
-use masq_lib::blockchains::chains::Chain;
 use gossip_acceptor::GossipAcceptor;
 use gossip_acceptor::GossipAcceptorReal;
 use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
-use masq_lib::utils::{ExpectValue};
+use masq_lib::utils::ExpectValue;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
@@ -1277,7 +1277,6 @@ mod tests {
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
-    use masq_lib::blockchains::blockchain_records::CHAINS;
 
     #[test]
     #[should_panic(

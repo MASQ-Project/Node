@@ -96,7 +96,8 @@ pub mod standard {
     };
     use crate::server_initializer::GatheredParams;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
-    use crate::sub_lib::cryptde::{CryptDE};
+    use crate::sub_lib::cryptde::CryptDE;
+    use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::neighborhood::{
@@ -107,8 +108,9 @@ pub mod standard {
     use crate::sub_lib::wallet::Wallet;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use itertools::Itertools;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{
-        DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT,
+        DEFAULT_CHAIN, DEFAULT_UI_PORT, HTTP_PORT, MASQ_URL_PREFIX, TLS_PORT,
     };
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
@@ -116,7 +118,6 @@ pub mod standard {
     use masq_lib::utils::WrapResult;
     use rustc_hex::FromHex;
     use std::str::FromStr;
-    use crate::sub_lib::cryptde::PublicKey;
 
     pub fn server_initializer_collected_params<'a>(
         dirs_wrapper: &dyn DirsWrapper,
@@ -358,27 +359,10 @@ pub mod standard {
         }
     }
 
-    // fn validate_mandatory_node_addr(
-    //     supplied_version: &str,
-    //     descriptor: NodeDescriptor,
-    // ) -> Result<NodeDescriptor, ParamError> {
-    //     match descriptor.node_addr_opt.is_some(){
-    //         true => Ok(descriptor),
-    //         false => Err(ParamError::new(
-    //             "neighbors",&format!("Neighbors supplied without ip addresses and ports aren't valid: '{}--NA--:--NA--",
-    //                                  if supplied_version.ends_with("@:") || supplied_version.ends_with("::")
-    //                                  {supplied_version.strip_suffix(':').expect("logic failed")}
-    //                                  else {supplied_version}))
-    //         )
-    //     }
-    // }
-
     pub fn convert_ci_configs(
         multi_config: &MultiConfig,
     ) -> Result<Option<Vec<NodeDescriptor>>, ConfiguratorError> {
-
-        type NodeDescriptorParsingResult = Result<NodeDescriptor, ParamError>;
-
+        type DescriptorParsingResult = Result<NodeDescriptor, ParamError>;
         match value_m!(multi_config, "neighbors", String) {
             None => Ok(None),
             Some(joined_configs) => {
@@ -386,38 +370,84 @@ pub mod standard {
                     .split(',')
                     .map(|s| s.to_string())
                     .collect_vec();
-                let dummy_cryptde: Box<dyn CryptDE> = {
-                    if value_m!(multi_config, "fake-public-key", String) == None {
-                        Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN))
-                    } else {
-                        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))
-                    }
-                };
-                let results =
-                    separate_configs
-                        .into_iter()
-                        .map(
-                            |string_record| NodeDescriptor::try_from((dummy_cryptde.as_ref(), string_record.as_str())).map_err(|e|ParamError::new("neighbors", &e))
-                        )
-                        .collect_vec();
-                let (ok, err): (
-                    Vec<NodeDescriptorParsingResult>,
-                    Vec<NodeDescriptorParsingResult>,
-                ) = results.into_iter().partition(|result| result.is_ok());
-                let ok = ok
-                    .into_iter()
-                    .map(|ok| ok.expect("NodeDescriptor"))
-                    .collect_vec();
-                let err = err
-                    .into_iter()
-                    .map(|err| err.expect_err("ParamError"))
-                    .collect_vec();
-                if err.is_empty() {
-                    Ok(Some(ok))
+                if separate_configs.is_empty() {
+                    Ok(None)
                 } else {
-                    Err(ConfiguratorError::new(err))
+                    let dummy_cryptde: Box<dyn CryptDE> = {
+                        if value_m!(multi_config, "fake-public-key", String).is_none() {
+                            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN))
+                        } else {
+                            Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))
+                        }
+                    };
+                    let desired_chain = Chain::from(
+                        value_m!(multi_config, "chain", String)
+                            .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string())
+                            .as_str(),
+                    );
+                    let results = validate_descriptors_from_user(
+                        separate_configs,
+                        dummy_cryptde,
+                        desired_chain,
+                    );
+                    let (ok, err): (Vec<DescriptorParsingResult>, Vec<DescriptorParsingResult>) =
+                        results.into_iter().partition(|result| result.is_ok());
+                    let ok = ok
+                        .into_iter()
+                        .map(|ok| ok.expect("NodeDescriptor"))
+                        .collect_vec();
+                    let err = err
+                        .into_iter()
+                        .map(|err| err.expect_err("ParamError"))
+                        .collect_vec();
+                    if err.is_empty() {
+                        Ok(Some(ok))
+                    } else {
+                        Err(ConfiguratorError::new(err))
+                    }
                 }
-           }
+            }
+        }
+    }
+
+    fn validate_descriptors_from_user(
+        descriptors: Vec<String>,
+        dummy_cryptde: Box<dyn CryptDE>,
+        desired_chain: Chain,
+    ) -> Vec<Result<NodeDescriptor, ParamError>> {
+        descriptors.into_iter()
+            .map(
+                |node_desc_from_ci| match NodeDescriptor::try_from((dummy_cryptde.as_ref(), node_desc_from_ci.as_str())) {
+                    Ok(descriptor) =>
+                        {
+                            let competence_from_descriptor = descriptor.blockchain;
+                            if desired_chain == competence_from_descriptor {
+                                validate_mandatory_node_addr(&node_desc_from_ci, descriptor)
+                            } else{
+                                let name_of_desired_chain = desired_chain.rec().literal_identifier;
+                                Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
+                                                                          name_of_desired_chain, MASQ_URL_PREFIX,
+                                                                          name_of_desired_chain,
+                                                                          competence_from_descriptor.rec().literal_identifier)))
+                            }
+                        }
+                    Err(e) => ParamError::new("neighbors", &e).wrap_to_err()
+                }
+            )
+            .collect_vec()
+    }
+
+    fn validate_mandatory_node_addr(
+        supplied_version: &str,
+        descriptor: NodeDescriptor,
+    ) -> Result<NodeDescriptor, ParamError> {
+        match descriptor.node_addr_opt.is_some(){
+            true => Ok(descriptor),
+            false => Err(ParamError::new(
+                "neighbors",&format!("Neighbors supplied without ip addresses and ports aren't valid: '{}--NA--:--NA--",
+                                     if supplied_version.ends_with("@:") {supplied_version.strip_suffix(':').expect("logic failed")}
+                                     else {supplied_version}))
+            )
         }
     }
 
@@ -652,10 +682,10 @@ pub mod standard {
             make_default_persistent_configuration, make_simplified_multi_config,
         };
         use crate::test_utils::ArgsBuilder;
+        use masq_lib::constants::DEFAULT_CHAIN;
         use masq_lib::multi_config::VirtualCommandLine;
         use masq_lib::utils::running_test;
         use std::sync::{Arc, Mutex};
-        use masq_lib::constants::DEFAULT_CHAIN;
 
         #[test]
         fn get_wallets_handles_consuming_private_key_and_earning_wallet_address_when_database_contains_mnemonic_seed(
@@ -1395,12 +1425,15 @@ mod tests {
 
     #[test]
     fn convert_ci_configs_complains_about_descriptor_without_node_address_when_mainnet_required() {
-        let key = "abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@:";
-        let multi_config = make_simplified_multi_config(["program", "--neighbors", key]);
+        let descriptor = format!(
+            "masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
+            DEFAULT_CHAIN.rec().literal_identifier
+        );
+        let multi_config = make_simplified_multi_config(["program", "--neighbors", &descriptor]);
 
         let result = standard::convert_ci_configs(&multi_config);
 
-        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports aren't valid: 'abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@--NA--:--NA--")])));
+        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", &format!("Neighbors supplied without ip addresses and ports aren't valid: '{}--NA--:--NA--",&descriptor[..descriptor.len()-1]))])));
     }
 
     #[test]
@@ -1409,14 +1442,14 @@ mod tests {
         let multi_config = make_simplified_multi_config([
             "program",
             "--chain",
-            "ropsten",
+            "eth-ropsten",
             "--neighbors",
-            "abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw::",
+            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
         ]);
 
         let result = standard::convert_ci_configs(&multi_config);
 
-        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports aren't valid: 'abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw:--NA--:--NA--")])))
+        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports aren't valid: 'masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@--NA--:--NA--")])))
     }
 
     #[test]
@@ -1747,10 +1780,16 @@ mod tests {
         assert_eq!(
             config.neighborhood_config.mode.neighbor_configs(),
             &[
-                NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AQIDBA@1.2.3.4:1234"))
-                    .unwrap(),
-                NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
-                    .unwrap(),
+                NodeDescriptor::try_from((
+                    main_cryptde(),
+                    "masq://eth-ropsten:AQIDBA@1.2.3.4:1234"
+                ))
+                .unwrap(),
+                NodeDescriptor::try_from((
+                    main_cryptde(),
+                    "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"
+                ))
+                .unwrap(),
             ]
         );
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();

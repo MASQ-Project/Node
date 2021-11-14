@@ -8,6 +8,7 @@ use crate::sub_lib::cryptde::PrivateKey;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, SymmetricKey};
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::utils::ExpectValue;
 use rand::prelude::*;
 use rustc_hex::ToHex;
 use std::ops::{Deref, DerefMut};
@@ -20,12 +21,6 @@ pub struct CryptDENull {
     public_key: PublicKey,
     digest: [u8; 32],
     next_symmetric_key_seed: Arc<Mutex<u64>>,
-}
-
-impl <'a> From<&'a dyn CryptDE> for &'a CryptDENull{
-    fn from(cryptde_generic: &'a dyn CryptDE) -> Self {
-        cryptde_generic.as_any().downcast_ref().expect("Was CryptDEReal, not CryptDENull")
-    }
 }
 
 impl CryptDE for CryptDENull {
@@ -139,8 +134,18 @@ impl CryptDE for CryptDENull {
     fn digest(&self) -> [u8; 32] {
         self.digest
     }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
-    as_any_impl!();
+impl<'a> From<&'a dyn CryptDE> for &'a CryptDENull {
+    fn from(cryptde_generic: &'a dyn CryptDE) -> Self {
+        cryptde_generic
+            .as_any()
+            .downcast_ref()
+            .expectv("CryptDENull")
+    }
 }
 
 impl CryptDENull {

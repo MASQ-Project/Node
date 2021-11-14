@@ -569,7 +569,6 @@ mod tests {
     use crate::json_masquerader::JsonMasquerader;
     use crate::masquerader::Masquerader;
     use crate::node_test_utils::FailingMasquerader;
-    use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::dispatcher::InboundClientData;
     use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
     use crate::sub_lib::stream_connector::ConnectionInfo;

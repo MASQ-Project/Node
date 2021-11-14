@@ -93,7 +93,7 @@ impl Handler<NodeFromUiMessage> for Configurator {
 type MessageError = (u64, String);
 
 impl Configurator {
-    pub fn new(data_directory: PathBuf, chain: Chain,crashable: bool) -> Self {
+    pub fn new(data_directory: PathBuf, chain: Chain, crashable: bool) -> Self {
         let initializer = DbInitializerReal::default();
         let conn = initializer
             .initialize(&data_directory, chain, false)

@@ -22,11 +22,11 @@ use actix::Handler;
 use actix::Message;
 use actix::{Actor, MessageResult};
 use actix::{Addr, Recipient};
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use web3::transports::Http;
-use masq_lib::blockchains::chains::Chain;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -141,13 +141,9 @@ impl BlockchainBridge {
         let blockchain_interface: Box<dyn BlockchainInterface> = {
             match blockchain_service_url {
                 Some(url) => match Http::new(&url) {
-                    Ok((event_loop_handle, transport)) => {
-                        Box::new(BlockchainInterfaceNonClandestine::new(
-                            transport,
-                            event_loop_handle,
-                            chain,
-                        ))
-                    }
+                    Ok((event_loop_handle, transport)) => Box::new(
+                        BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, chain),
+                    ),
                     Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
                 },
                 None => Box::new(BlockchainInterfaceClandestine::new(chain)),
@@ -258,13 +254,13 @@ mod tests {
     use ethsign::SecretKey;
     use ethsign_crypto::Keccak256;
     use futures::future::Future;
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::FromHex;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
-    use masq_lib::constants::DEFAULT_CHAIN;
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())

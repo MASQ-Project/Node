@@ -851,7 +851,7 @@ mod tests {
             },
         };
         let persistent_config =
-            PersistentConfigurationMock::default().chain_name_result("ropsten".to_string());
+            PersistentConfigurationMock::default().chain_name_result("eth-ropsten".to_string());
         Bootstrapper::pub_initialize_cryptdes_for_testing(
             &Some(main_cryptde()),
             &Some(alias_cryptde()),

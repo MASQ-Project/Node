@@ -26,7 +26,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
-use crate::sub_lib::cryptde_real::CryptDEReal;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -157,28 +156,24 @@ impl From<(&NodeRecord, Chain, &dyn CryptDE)> for NodeDescriptor {
     }
 }
 
-impl TryFrom<(&dyn CryptDE,&str)> for NodeDescriptor{
+impl TryFrom<(&dyn CryptDE, &str)> for NodeDescriptor {
     type Error = String;
 
-    fn try_from(tuple:(&dyn CryptDE, &str)) -> Result<Self, Self::Error> {
+    fn try_from(tuple: (&dyn CryptDE, &str)) -> Result<Self, Self::Error> {
         let (cryptde, str_descriptor) = tuple;
-        try_from_body(cryptde,str_descriptor)
+        let (blockchain, key, str_node_addr) = NodeDescriptor::parse_url(str_descriptor)?;
+        let encryption_public_key = cryptde.descriptor_fragment_to_first_contact_public_key(key)?;
+        let node_addr_opt = if str_node_addr == ":" {
+            None
+        } else {
+            Some(NodeAddr::from_str(str_node_addr)?)
+        };
+        Ok(NodeDescriptor {
+            blockchain,
+            encryption_public_key,
+            node_addr_opt,
+        })
     }
-}
-
-fn try_from_body(cryptde: &dyn CryptDE, str_descriptor: &str)->Result<NodeDescriptor,String>{
-    let (blockchain, key, str_node_addr) = NodeDescriptor::parse_url(str_descriptor)?;
-    let encryption_public_key = cryptde.descriptor_fragment_to_first_contact_public_key(key)?;
-    let node_addr_opt = if str_node_addr == ":" {
-        None
-    } else {
-        Some(NodeAddr::from_str(str_node_addr)?)
-    };
-    Ok(NodeDescriptor {
-        blockchain,
-        encryption_public_key,
-        node_addr_opt,
-    })
 }
 
 impl NodeDescriptor {

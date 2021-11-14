@@ -1,10 +1,10 @@
+use std::any::Any;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::{
     CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey, SymmetricKey,
 };
 use lazy_static::lazy_static;
-use rusqlite::DropBehavior::Panic;
 use masq_lib::blockchains::chains::Chain;
 use sodiumoxide::crypto::box_::curve25519xsalsa20poly1305 as cxsp;
 use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305::SEALBYTES;
@@ -180,6 +180,10 @@ impl CryptDE for CryptDEReal {
 
     fn digest(&self) -> [u8; 32] {
         self.digest
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        intentionally_blank!()
     }
 }
 

@@ -7,11 +7,10 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
+use std::any::Any;
 use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
-use masq_lib::as_any_dcl;
-use std::any::Any;
 
 #[derive(Clone, PartialEq)]
 pub struct PrivateKey {
@@ -556,7 +555,7 @@ pub trait CryptDE: Send + Sync {
         descriptor_fragment: &str,
     ) -> Result<PublicKey, String>;
     fn digest(&self) -> [u8; 32];
-    as_any_dcl!();
+    fn as_any(&self) -> &dyn Any;
 }
 
 pub struct SerdeCborError {
@@ -629,6 +628,7 @@ pub fn create_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 3
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::main_cryptde;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::{FromHex, FromHexError};
@@ -636,7 +636,6 @@ mod tests {
     use serde::ser;
     use serde_cbor;
     use serde_derive::{Deserialize, Serialize};
-    use crate::sub_lib::cryptde_null::CryptDENull;
 
     #[test]
     fn private_key_constructor_works_as_expected() {

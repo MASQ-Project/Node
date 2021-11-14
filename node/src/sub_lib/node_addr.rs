@@ -238,7 +238,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not ':192.45.35.8'"
+                "NodeAddr should be expressed as '<IP address>:<port>/<port>/...', not ':192.45.35.8'"
             ))
         );
     }

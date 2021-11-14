@@ -428,9 +428,10 @@ impl ConfiguredByPrivilege for Bootstrapper {
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         self.config.merge_unprivileged(unprivileged_config);
         self.set_up_clandestine_port();
+        let (alias_cryptde_opt, main_cryptde_opt) = self.cryptdes_as_trait_objects();
         let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
-            &boxed_cryptde_opt_as_ref_opt(&self.config.main_cryptde_null_opt),
-            &boxed_cryptde_opt_as_ref_opt(&self.config.alias_cryptde_null_opt),
+            &main_cryptde_opt,
+            &alias_cryptde_opt,
             self.config.blockchain_bridge_config.chain,
         );
         self.config.node_descriptor_opt = Some(Bootstrapper::report_local_descriptor(
@@ -456,10 +457,6 @@ impl ConfiguredByPrivilege for Bootstrapper {
     }
 }
 
-fn boxed_cryptde_opt_as_ref_opt<'a>(boxed: &'a Option<Box<CryptDENull>>) -> Option<&'a dyn CryptDE> {
-    boxed.as_ref().map(|cryptde_null|cryptde_null.as_ref() as &'a dyn CryptDE)
-}
-
 impl Bootstrapper {
     pub fn new(logger_initializer: Box<dyn LoggerInitializerWrapper>) -> Bootstrapper {
         Bootstrapper {
@@ -474,8 +471,8 @@ impl Bootstrapper {
 
     #[cfg(test)] // The real ones are private, but ActorSystemFactory needs to use them for testing
     pub fn pub_initialize_cryptdes_for_testing<'a, 'b>(
-        main_cryptde_null_opt:&Option<&dyn CryptDE>,
-        alias_cryptde_null_opt:&Option<&dyn CryptDE>,
+        main_cryptde_null_opt: &Option<&dyn CryptDE>,
+        alias_cryptde_null_opt: &Option<&dyn CryptDE>,
     ) -> (&'a dyn CryptDE, &'b dyn CryptDE) {
         Self::initialize_cryptdes(
             main_cryptde_null_opt,
@@ -589,6 +586,19 @@ impl Bootstrapper {
                 pce
             ),
         }
+    }
+
+    fn cryptdes_as_trait_objects(&self) -> (Option<&dyn CryptDE>, Option<&dyn CryptDE>) {
+        (
+            self.config
+                .alias_cryptde_null_opt
+                .as_ref()
+                .map(|cryptde_null| cryptde_null.as_ref() as &dyn CryptDE),
+            self.config
+                .main_cryptde_null_opt
+                .as_ref()
+                .map(|cryptde_null| cryptde_null.as_ref() as &dyn CryptDE),
+        )
     }
 }
 

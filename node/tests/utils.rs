@@ -110,6 +110,22 @@ impl MASQNode {
     }
 
     #[allow(dead_code)]
+    pub fn start_with_blank_config(
+        test_name: &str,
+        config_opt: Option<CommandConfig>,
+        ensure_start: bool,
+        piped_output: bool,
+    ) -> MASQNode {
+        Self::start_something(
+            test_name,
+            config_opt,
+            ensure_start,
+            piped_output,
+            Self::make_masqnode_without_initial_config,
+        )
+    }
+
+    #[allow(dead_code)]
     pub fn run_dump_config(test_name: &str) -> String {
         let data_dir = ensure_node_home_directory_exists("integration", test_name);
         let mut command = MASQNode::make_dump_config_command(&data_dir);
@@ -279,17 +295,12 @@ impl MASQNode {
         config: Option<CommandConfig>,
         remove_database: bool,
     ) -> process::Command {
-        if remove_database {
-            Self::remove_database(data_dir)
-        }
-        let mut command = command_to_start();
         let mut args = Self::daemon_args();
         args.extend(match config {
             Some(c) => c.args,
             None => vec![],
         });
-        command.args(&args);
-        command
+        Self::start_with_args_extension(data_dir, args, remove_database)
     }
 
     fn make_node_command(
@@ -297,13 +308,30 @@ impl MASQNode {
         config: Option<CommandConfig>,
         remove_database: bool,
     ) -> process::Command {
+        let mut args = Self::standard_args();
+        args.extend(Self::get_extra_args(data_dir, config));
+        Self::start_with_args_extension(data_dir, args, remove_database)
+    }
+
+    fn make_masqnode_without_initial_config(
+        data_dir: &PathBuf,
+        config: Option<CommandConfig>,
+        remove_database: bool,
+    ) -> process::Command {
+        let args = Self::get_extra_args(data_dir, config);
+        Self::start_with_args_extension(data_dir, args, remove_database)
+    }
+
+    fn start_with_args_extension(
+        data_dir: &PathBuf,
+        additional_args: Vec<String>,
+        remove_database: bool,
+    ) -> process::Command {
         if remove_database {
             Self::remove_database(data_dir)
         }
         let mut command = command_to_start();
-        let mut args = Self::standard_args();
-        args.extend(Self::get_extra_args(data_dir, config));
-        command.args(&args);
+        command.args(additional_args);
         command
     }
 

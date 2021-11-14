@@ -2,13 +2,13 @@
 
 pub mod utils;
 
-use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
+use masq_lib::constants::{DEFAULT_CHAIN, NODE_NOT_RUNNING_ERROR};
 use masq_lib::messages::{
     ToMessageBody, UiFinancialsResponse, UiSetupRequest, UiShutdownRequest, NODE_UI_PROTOCOL,
 };
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
-use masq_lib::test_utils::utils::node_home_directory;
+use masq_lib::test_utils::utils::{node_home_directory, TEST_DEFAULT_CHAIN};
 use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
@@ -142,16 +142,15 @@ fn wait_for_process_end(process_id: u32) {
 
 #[test]
 fn incomplete_node_descriptor_is_refused_integration() {
-    let port = find_free_port();
+    let test_default_chain_identifier = TEST_DEFAULT_CHAIN.rec().literal_identifier;
     let mut node = utils::MASQNode::start_standard(
         "incomplete_node_descriptor_is_refused_integration",
         Some(
             CommandConfig::new()
-                .pair("--ui-port", &port.to_string())
                 .pair(
                     "--neighbors",
-                    "12345vhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw:12.23.34.45:5678,\
-            abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw::",
+                    &format!("masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678, masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
+                             test_default_chain_identifier,test_default_chain_identifier)
                 ),
         ),
         false,
@@ -167,10 +166,34 @@ fn incomplete_node_descriptor_is_refused_integration() {
                 stdout
             );
             let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(stderr.contains("neighbors - Neighbors supplied without ip addresses and ports aren't valid: 'abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw:--NA--:--NA--"
+            assert!(stderr.contains(&format!("neighbors - Neighbors supplied without ip addresses and ports aren't valid: 'masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw:--NA--:--NA--",
+                                            test_default_chain_identifier)
             ), "instead we got: {}",stderr)
         }
     };
+}
+
+#[test]
+fn started_without_explicit_chain_parameter_runs_finely() {
+    let config = CommandConfig::new()
+        .pair("--neighborhood-mode", "standard")
+        .pair(
+            "--neighbors",
+            &format!(
+                "masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+                DEFAULT_CHAIN.rec().literal_identifier
+            ),
+        );
+
+    let mut node = MASQNode::start_with_blank_config(
+        "started_without_explicit_chain_parameter_runs_smoothly",
+        Some(config),
+        true,
+        false,
+    );
+
+    node.wait_for_log("UIGateway bound", Some(5000));
+    assert_eq!(node.kill().unwrap().code().unwrap(), 0);
 }
 
 #[test]
