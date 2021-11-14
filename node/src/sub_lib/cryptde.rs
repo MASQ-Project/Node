@@ -10,6 +10,8 @@ use serde::Serializer;
 use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
+use masq_lib::as_any_dcl;
+use std::any::Any;
 
 #[derive(Clone, PartialEq)]
 pub struct PrivateKey {
@@ -554,6 +556,7 @@ pub trait CryptDE: Send + Sync {
         descriptor_fragment: &str,
     ) -> Result<PublicKey, String>;
     fn digest(&self) -> [u8; 32];
+    as_any_dcl!();
 }
 
 pub struct SerdeCborError {
@@ -633,6 +636,7 @@ mod tests {
     use serde::ser;
     use serde_cbor;
     use serde_derive::{Deserialize, Serialize};
+    use crate::sub_lib::cryptde_null::CryptDENull;
 
     #[test]
     fn private_key_constructor_works_as_expected() {
@@ -1055,7 +1059,7 @@ mod tests {
 
     #[test]
     fn decodex_handles_decryption_error() {
-        let mut cryptde = main_cryptde().clone();
+        let mut cryptde = CryptDENull::new(TEST_DEFAULT_CHAIN);
         cryptde.set_key_pair(&PublicKey::new(&[]), TEST_DEFAULT_CHAIN);
         let data = CryptData::new(&b"booga"[..]);
 

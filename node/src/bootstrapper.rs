@@ -300,8 +300,8 @@ pub struct BootstrapperConfig {
     pub port_configurations: HashMap<u16, PortConfiguration>,
     pub data_directory: PathBuf,
     pub node_descriptor_opt: Option<String>,
-    pub main_cryptde_null_opt: Option<CryptDENull>,
-    pub alias_cryptde_null_opt: Option<CryptDENull>,
+    pub main_cryptde_null_opt: Option<Box<CryptDENull>>,
+    pub alias_cryptde_null_opt: Option<Box<CryptDENull>>,
     pub real_user: RealUser,
 
     // These fields must be set without privilege: otherwise the database will be created as root
@@ -429,8 +429,8 @@ impl ConfiguredByPrivilege for Bootstrapper {
         self.config.merge_unprivileged(unprivileged_config);
         self.set_up_clandestine_port();
         let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
-            &self.config.main_cryptde_null_opt,
-            &self.config.alias_cryptde_null_opt,
+            &boxed_cryptde_opt_as_ref_opt(&self.config.main_cryptde_null_opt),
+            &boxed_cryptde_opt_as_ref_opt(&self.config.alias_cryptde_null_opt),
             self.config.blockchain_bridge_config.chain,
         );
         self.config.node_descriptor_opt = Some(Bootstrapper::report_local_descriptor(
@@ -456,6 +456,10 @@ impl ConfiguredByPrivilege for Bootstrapper {
     }
 }
 
+fn boxed_cryptde_opt_as_ref_opt<'a>(boxed: &'a Option<Box<CryptDENull>>) -> Option<&'a dyn CryptDE> {
+    boxed.as_ref().map(|cryptde_null|cryptde_null.as_ref() as &'a dyn CryptDE)
+}
+
 impl Bootstrapper {
     pub fn new(logger_initializer: Box<dyn LoggerInitializerWrapper>) -> Bootstrapper {
         Bootstrapper {
@@ -470,8 +474,8 @@ impl Bootstrapper {
 
     #[cfg(test)] // The real ones are private, but ActorSystemFactory needs to use them for testing
     pub fn pub_initialize_cryptdes_for_testing<'a, 'b>(
-        main_cryptde_null_opt: &'a Option<CryptDENull>,
-        alias_cryptde_null_opt: &'b Option<CryptDENull>,
+        main_cryptde_null_opt:&Option<&dyn CryptDE>,
+        alias_cryptde_null_opt:&Option<&dyn CryptDE>,
     ) -> (&'a dyn CryptDE, &'b dyn CryptDE) {
         Self::initialize_cryptdes(
             main_cryptde_null_opt,
@@ -481,19 +485,19 @@ impl Bootstrapper {
     }
 
     fn initialize_cryptdes<'a, 'b>(
-        main_cryptde_null_opt: &Option<CryptDENull>,
-        alias_cryptde_null_opt: &Option<CryptDENull>,
+        main_cryptde_null_opt: &Option<&dyn CryptDE>,
+        alias_cryptde_null_opt: &Option<&dyn CryptDE>,
         chain: Chain,
     ) -> (&'a dyn CryptDE, &'b dyn CryptDE) {
         match main_cryptde_null_opt {
-            Some(cryptde_null) => unsafe {
-                MAIN_CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone()))
+            Some(cryptde) => unsafe {
+                MAIN_CRYPTDE_BOX_OPT = Some(Box::new(<&CryptDENull>::from(*cryptde).clone()))
             },
             None => unsafe { MAIN_CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain))) },
         }
         match alias_cryptde_null_opt {
-            Some(cryptde_null) => unsafe {
-                ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone()))
+            Some(cryptde) => unsafe {
+                ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(<&CryptDENull>::from(*cryptde).clone()))
             },
             None => unsafe { ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain))) },
         }

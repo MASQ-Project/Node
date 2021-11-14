@@ -96,7 +96,7 @@ pub mod standard {
     };
     use crate::server_initializer::GatheredParams;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
-    use crate::sub_lib::cryptde::{CryptDE, PublicKey};
+    use crate::sub_lib::cryptde::{CryptDE};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::neighborhood::{
@@ -107,9 +107,8 @@ pub mod standard {
     use crate::sub_lib::wallet::Wallet;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use itertools::Itertools;
-    use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{
-        DEFAULT_CHAIN, DEFAULT_UI_PORT, HTTP_PORT, MASQ_URL_PREFIX, TLS_PORT,
+        DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT,
     };
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
@@ -117,6 +116,7 @@ pub mod standard {
     use masq_lib::utils::WrapResult;
     use rustc_hex::FromHex;
     use std::str::FromStr;
+    use crate::sub_lib::cryptde::PublicKey;
 
     pub fn server_initializer_collected_params<'a>(
         dirs_wrapper: &dyn DirsWrapper,
@@ -223,8 +223,8 @@ pub mod standard {
                 &alias_public_key,
                 privileged_config.blockchain_bridge_config.chain,
             );
-            privileged_config.main_cryptde_null_opt = Some(main_cryptde_null);
-            privileged_config.alias_cryptde_null_opt = Some(alias_cryptde_null);
+            privileged_config.main_cryptde_null_opt = Some(Box::new(main_cryptde_null));
+            privileged_config.alias_cryptde_null_opt = Some(Box::new(alias_cryptde_null));
         }
         Ok(())
     }
@@ -358,30 +358,31 @@ pub mod standard {
         }
     }
 
-    fn validate_mandatory_node_addr(
-        supplied_version: &str,
-        descriptor: NodeDescriptor,
-    ) -> Result<NodeDescriptor, ParamError> {
-        match descriptor.node_addr_opt.is_some(){
-            true => Ok(descriptor),
-            false => Err(ParamError::new(
-                "neighbors",&format!("Neighbors supplied without ip addresses and ports aren't valid: '{}--NA--:--NA--",
-                                     if supplied_version.ends_with("@:") || supplied_version.ends_with("::")
-                                     {supplied_version.strip_suffix(':').expect("logic failed")}
-                                     else {supplied_version}))
-            )
-        }
-    }
+    // fn validate_mandatory_node_addr(
+    //     supplied_version: &str,
+    //     descriptor: NodeDescriptor,
+    // ) -> Result<NodeDescriptor, ParamError> {
+    //     match descriptor.node_addr_opt.is_some(){
+    //         true => Ok(descriptor),
+    //         false => Err(ParamError::new(
+    //             "neighbors",&format!("Neighbors supplied without ip addresses and ports aren't valid: '{}--NA--:--NA--",
+    //                                  if supplied_version.ends_with("@:") || supplied_version.ends_with("::")
+    //                                  {supplied_version.strip_suffix(':').expect("logic failed")}
+    //                                  else {supplied_version}))
+    //         )
+    //     }
+    // }
 
     pub fn convert_ci_configs(
         multi_config: &MultiConfig,
     ) -> Result<Option<Vec<NodeDescriptor>>, ConfiguratorError> {
+
         type NodeDescriptorParsingResult = Result<NodeDescriptor, ParamError>;
 
         match value_m!(multi_config, "neighbors", String) {
             None => Ok(None),
             Some(joined_configs) => {
-                let cli_configs: Vec<String> = joined_configs
+                let separate_configs: Vec<String> = joined_configs
                     .split(',')
                     .map(|s| s.to_string())
                     .collect_vec();
@@ -392,22 +393,11 @@ pub mod standard {
                         Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))
                     }
                 };
-                todo!("write the version for Chain::TryFrom<str>");
-                let chain: Chain = value_m!(multi_config, "chain", String)
-                    .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string());
                 let results =
-                    cli_configs
+                    separate_configs
                         .into_iter()
                         .map(
-                            |string_record| match NodeDescriptor::from_str(dummy_cryptde.as_ref(), &string_record) {
-                                Ok(nd) => if chain.is_mainnet(){validate_mandatory_node_addr(&string_record, nd)} else {} {
-                                    (DEFAULT_CHAIN_NAME, true) => validate_mandatory_node_addr(&string_record, nd), //DEFAULT_CHAIN | TEST_DEFAULT_CHAIN
-                                    (DEFAULT_CHAIN_NAME, false) => Err(ParamError::new("neighbors", "Mainnet node descriptors use '@', not ':', as the first delimiter")),
-                                    (_, true) => Err(ParamError::new("neighbors", &format!("Mainnet node descriptor uses '@', but chain configured for '{}'", chain_name))),
-                                    (_, false) => validate_mandatory_node_addr(&string_record, nd),
-                                },
-                                Err(e) => Err(ParamError::new("neighbors", &e)),
-                            },
+                            |string_record| NodeDescriptor::try_from((dummy_cryptde.as_ref(), string_record.as_str())).map_err(|e|ParamError::new("neighbors", &e))
                         )
                         .collect_vec();
                 let (ok, err): (
@@ -427,7 +417,7 @@ pub mod standard {
                 } else {
                     Err(ConfiguratorError::new(err))
                 }
-            }
+           }
         }
     }
 
@@ -665,6 +655,7 @@ pub mod standard {
         use masq_lib::multi_config::VirtualCommandLine;
         use masq_lib::utils::running_test;
         use std::sync::{Arc, Mutex};
+        use masq_lib::constants::DEFAULT_CHAIN;
 
         #[test]
         fn get_wallets_handles_consuming_private_key_and_earning_wallet_address_when_database_contains_mnemonic_seed(
@@ -1033,15 +1024,15 @@ mod tests {
                 mode: NeighborhoodMode::Standard(
                     NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]),
                     vec![
-                        NodeDescriptor::from_str(
-                            &dummy_cryptde,
+                        NodeDescriptor::try_from((
+                            &dummy_cryptde as &dyn CryptDE,
                             "masq://eth-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345"
-                        )
+                        ))
                         .unwrap(),
-                        NodeDescriptor::from_str(
-                            &dummy_cryptde,
+                        NodeDescriptor::try_from((
+                            &dummy_cryptde as &dyn CryptDE,
                             "masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567"
-                        )
+                        ))
                         .unwrap()
                     ],
                     DEFAULT_RATE_PACK
@@ -1112,15 +1103,15 @@ mod tests {
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::OriginateOnly(
                     vec![
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
                             "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345"
-                        )
+                        ))
                         .unwrap(),
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
                             "masq://eth-mainnet:VGVk@2.3.4.5:3456/4567"
-                        )
+                        ))
                         .unwrap()
                     ],
                     DEFAULT_RATE_PACK
@@ -1179,15 +1170,15 @@ mod tests {
             result,
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![
-                    NodeDescriptor::from_str(
+                    NodeDescriptor::try_from((
                         main_cryptde(),
                         "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345"
-                    )
+                    ))
                     .unwrap(),
-                    NodeDescriptor::from_str(
+                    NodeDescriptor::try_from((
                         main_cryptde(),
                         "masq://eth-mainnet:VGVk@2.3.4.5:3456/4567"
-                    )
+                    ))
                     .unwrap()
                 ],)
             })
@@ -1667,15 +1658,15 @@ mod tests {
                 mode: NeighborhoodMode::Standard(
                     NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &[]),
                     vec![
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
                             "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345"
-                        )
+                        ))
                         .unwrap(),
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
                             "masq://eth-mainnet:VGVk@2.3.4.5:3456/4567"
-                        )
+                        ))
                         .unwrap(),
                     ],
                     DEFAULT_RATE_PACK.clone()
@@ -1756,9 +1747,9 @@ mod tests {
         assert_eq!(
             config.neighborhood_config.mode.neighbor_configs(),
             &[
-                NodeDescriptor::from_str(main_cryptde(), "masq://eth-ropsten:AQIDBA@1.2.3.4:1234")
+                NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AQIDBA@1.2.3.4:1234"))
                     .unwrap(),
-                NodeDescriptor::from_str(main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345")
+                NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
                     .unwrap(),
             ]
         );
@@ -1853,7 +1844,7 @@ mod tests {
             (Some(past_neighbors), Some(_)) => Ok(Some(
                 past_neighbors
                     .split(",")
-                    .map(|s| NodeDescriptor::from_str(main_cryptde(), s).unwrap())
+                    .map(|s| NodeDescriptor::try_from((main_cryptde(), s)).unwrap())
                     .collect::<Vec<NodeDescriptor>>(),
             )),
             _ => Ok(None),

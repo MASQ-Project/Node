@@ -60,16 +60,17 @@ use std::time::Duration;
 use std::time::Instant;
 
 lazy_static! {
-    static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
-    static ref ALIAS_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
+    static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> = Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
+    static ref ALIAS_CRYPTDE_NULL: Box<dyn CryptDE + 'static> = Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
 }
 
-pub fn main_cryptde() -> &'static CryptDENull {
-    &MAIN_CRYPTDE_NULL
+pub fn main_cryptde() -> &'static dyn CryptDE {
+    MAIN_CRYPTDE_NULL.as_ref()
+
 }
 
-pub fn alias_cryptde() -> &'static CryptDENull {
-    &ALIAS_CRYPTDE_NULL
+pub fn alias_cryptde() -> &'static dyn CryptDE {
+    ALIAS_CRYPTDE_NULL.as_ref()
 }
 
 pub struct ArgsBuilder {

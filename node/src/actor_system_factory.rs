@@ -13,10 +13,6 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
-use crate::blockchain::blockchain_interface::{
-    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
-    REQUESTS_IN_PARALLEL,
-};
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::PersistentConfiguration;
@@ -857,8 +853,8 @@ mod tests {
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("ropsten".to_string());
         Bootstrapper::pub_initialize_cryptdes_for_testing(
-            &Some(main_cryptde().clone()),
-            &Some(alias_cryptde().clone()),
+            &Some(main_cryptde()),
+            &Some(alias_cryptde()),
         );
         let subject = ActorSystemFactoryReal {};
 
