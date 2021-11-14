@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::utils::{DaemonProcess, MasqProcess};
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;

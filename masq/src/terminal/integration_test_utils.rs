@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::terminal::line_reader::{split_quoted_line_for_fake_terminals_in_tests, TerminalEvent};
 use crate::terminal::secondary_infrastructure::{MasqTerminal, WriterLock};

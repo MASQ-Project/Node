@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::route::RouteError;
 use ethsign_crypto::Keccak256;
 use rustc_hex::{FromHex, ToHex};
@@ -627,7 +627,7 @@ pub fn create_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 3
 mod tests {
     use super::*;
     use crate::test_utils::main_cryptde;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::{FromHex, FromHexError};
     use serde::de;
     use serde::ser;
@@ -1056,7 +1056,7 @@ mod tests {
     #[test]
     fn decodex_handles_decryption_error() {
         let mut cryptde = main_cryptde().clone();
-        cryptde.set_key_pair(&PublicKey::new(&[]), DEFAULT_CHAIN_ID);
+        cryptde.set_key_pair(&PublicKey::new(&[]), TEST_DEFAULT_CHAIN);
         let data = CryptData::new(&b"booga"[..]);
 
         let result = decodex::<TestStruct>(&cryptde, &data);

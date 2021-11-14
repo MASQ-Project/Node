@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::logger::Logger;
 use clap::App;
@@ -90,12 +90,6 @@ pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
     result.append(&mut source);
     result.push(item);
     result
-}
-
-pub static NODE_DESCRIPTOR_DELIMITERS: [char; 4] = ['_', '@', ':', ':'];
-
-pub fn node_descriptor_delimiter(chain_id: u8) -> char {
-    NODE_DESCRIPTOR_DELIMITERS[chain_id as usize]
 }
 
 pub fn make_new_multi_config<'a>(

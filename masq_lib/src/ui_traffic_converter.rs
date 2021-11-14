@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use crate::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};

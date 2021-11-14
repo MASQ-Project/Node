@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 #[macro_use]
 pub mod multi_config;
@@ -10,7 +10,9 @@ pub mod messages;
 pub mod utils;
 
 pub mod automap_tools;
+pub mod blockchains;
 pub mod command;
+#[macro_use]
 pub mod constants;
 pub mod crash_point;
 pub mod shared_schema;

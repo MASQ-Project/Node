@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::apps::{app_config_dumper, app_daemon, app_node};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
@@ -248,7 +248,7 @@ impl Runner for RunnerReal {
     }
 
     fn run_daemon(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
-        let mut initializer = self.daemon_initializer_factory.make(args, streams)?;
+        let mut initializer = self.daemon_initializer_factory.make(args)?;
         initializer.go(streams, args)?;
         Ok(()) //there might presently be no way to make this fn terminate politely
     }

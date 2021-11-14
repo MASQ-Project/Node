@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod utils;
 
@@ -15,7 +15,6 @@ use node_lib::database::db_initializer::DATABASE_FILE;
 #[cfg(not(target_os = "windows"))]
 use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-use std::fs;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 use utils::CommandConfig;
@@ -62,20 +61,13 @@ fn initialization_sequence_integration() {
         false,
     );
     let mut initialization_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL);
-    let data_directory = std::env::current_dir()
-        .unwrap()
-        .join("generated")
-        .join("test")
-        .join("initialization_sequence_integration")
-        .to_string_lossy()
-        .to_string();
-    let _ = fs::create_dir_all(&data_directory);
+    let data_directory = node_home_directory("integration", "initialization_sequence_integration");
     let _: UiSetupRequest = initialization_client
         .transact(UiSetupRequest::new(vec![
             ("dns-servers", Some("1.1.1.1")),
             ("neighborhood-mode", Some("zero-hop")),
             ("log-level", Some("trace")),
-            ("data-directory", Some(&data_directory)),
+            ("data-directory", Some(&data_directory.to_str().unwrap())),
         ]))
         .unwrap();
     let financials_request = UiFinancialsRequest {
@@ -206,13 +198,13 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
     )
     .unwrap();
     conn.execute(
-        "UPDATE config SET value='mainnet' WHERE name='chain_name'",
+        "UPDATE config SET value='eth-mainnet' WHERE name='chain_name'",
         NO_PARAMS,
     )
     .unwrap();
 
     let mut node = MASQNode::start_standard_in_unsterilized_environment(&db_dir);
 
-    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with the wrong chain name detected; expected: ropsten, was: mainnet";
+    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with the wrong chain name detected; expected: eth-ropsten, was: eth-mainnet";
     node.wait_for_log(regex_pattern, Some(1000));
 }

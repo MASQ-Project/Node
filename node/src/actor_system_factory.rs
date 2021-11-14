@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::accountant::Accountant;
 use super::bootstrapper;
 use super::bootstrapper::BootstrapperConfig;
@@ -13,7 +13,10 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
-use crate::blockchain::blockchain_interface::chain_name_from_id;
+use crate::blockchain::blockchain_interface::{
+    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
+    REQUESTS_IN_PARALLEL,
+};
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::PersistentConfiguration;
@@ -36,6 +39,7 @@ use actix::Addr;
 use actix::Arbiter;
 use actix::Recipient;
 use crossbeam_channel::{unbounded, Sender};
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
@@ -62,7 +66,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         let main_cryptde = bootstrapper::main_cryptde_ref();
         let alias_cryptde = bootstrapper::alias_cryptde_ref();
         let (tx, rx) = unbounded();
-        Self::database_chain_assertion(config.blockchain_bridge_config.chain_id, persist_config);
+        Self::database_chain_assertion(config.blockchain_bridge_config.chain, persist_config);
 
         ActorSystemFactoryReal::prepare_initial_messages(
             main_cryptde,
@@ -186,8 +190,8 @@ impl ActorSystemFactoryReal {
         tx.send(stream_handler_pool_subs).ok();
     }
 
-    fn database_chain_assertion(chain_id: u8, persistent_config: &dyn PersistentConfiguration) {
-        let requested_chain = chain_name_from_id(chain_id).to_string();
+    fn database_chain_assertion(chain: Chain, persistent_config: &dyn PersistentConfiguration) {
+        let requested_chain = chain.rec().literal_identifier.to_string();
         let chain_in_db = persistent_config.chain_name();
         if requested_chain != chain_in_db {
             panic!(
@@ -303,33 +307,21 @@ impl ActorFactory for ActorFactoryReal {
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
         let cloned_config = config.clone();
-        let chain_id = config.blockchain_bridge_config.chain_id;
-        let payable_dao_factory = DaoFactoryReal::new(
-            data_directory,
-            config.blockchain_bridge_config.chain_id,
-            false,
-        );
-        let receivable_dao_factory = DaoFactoryReal::new(
-            data_directory,
-            config.blockchain_bridge_config.chain_id,
-            false,
-        );
-        let banned_dao_factory = DaoFactoryReal::new(
-            data_directory,
-            config.blockchain_bridge_config.chain_id,
-            false,
-        );
+        let chain = config.blockchain_bridge_config.chain;
+        let payable_dao_factory =
+            DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
+        let receivable_dao_factory =
+            DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
+        let banned_dao_factory =
+            DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
         banned_cache_loader.load(connection_or_panic(
             db_initializer,
             data_directory,
-            chain_id,
+            chain,
             false,
         ));
-        let config_dao_factory = DaoFactoryReal::new(
-            data_directory,
-            config.blockchain_bridge_config.chain_id,
-            false,
-        );
+        let config_dao_factory =
+            DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
@@ -374,18 +366,18 @@ impl ActorFactory for ActorFactoryReal {
         &self,
         config: &BootstrapperConfig,
     ) -> BlockchainBridgeSubs {
-        let blockchain_service_url = config
+        let blockchain_service_url_opt = config
             .blockchain_bridge_config
-            .blockchain_service_url
+            .blockchain_service_url_opt
             .clone();
         let crashable = Self::is_crashable(config);
         let wallet_opt = config.consuming_wallet.clone();
         let data_directory = config.data_directory.clone();
-        let chain_id = config.blockchain_bridge_config.chain_id;
+        let chain_id = config.blockchain_bridge_config.chain;
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
             let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
-                blockchain_service_url,
+                blockchain_service_url_opt,
                 &DbInitializerReal::default(),
                 data_directory,
                 chain_id,
@@ -402,7 +394,7 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
         let data_directory = config.data_directory.clone();
-        let chain_id = config.blockchain_bridge_config.chain_id;
+        let chain_id = config.blockchain_bridge_config.chain;
         let crashable = Self::is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Configurator> =
@@ -425,7 +417,6 @@ mod tests {
     use super::*;
     use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::neighborhood::gossip::Gossip_0v1;
@@ -473,10 +464,10 @@ mod tests {
     use actix::{Context, Handler, System};
     use crossbeam_channel::{bounded, Sender};
     use log::LevelFilter;
-    use masq_lib::constants::DEFAULT_CHAIN_NAME;
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::cell::RefCell;
@@ -841,8 +832,8 @@ mod tests {
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                chain_id: DEFAULT_CHAIN_ID,
+                blockchain_service_url_opt: None,
+                chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
             },
             port_configurations: HashMap::new(),
@@ -906,8 +897,8 @@ mod tests {
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                chain_id: DEFAULT_CHAIN_ID,
+                blockchain_service_url_opt: None,
+                chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
             },
             port_configurations: HashMap::new(),
@@ -994,8 +985,8 @@ mod tests {
         assert_eq!(
             blockchain_bridge_param.blockchain_bridge_config,
             BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                chain_id: DEFAULT_CHAIN_ID,
+                blockchain_service_url_opt: None,
+                chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
             }
         );
@@ -1022,8 +1013,8 @@ mod tests {
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                chain_id: DEFAULT_CHAIN_ID,
+                blockchain_service_url_opt: None,
+                chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
             },
             port_configurations: HashMap::new(),
@@ -1080,8 +1071,8 @@ mod tests {
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                chain_id: DEFAULT_CHAIN_ID,
+                blockchain_service_url_opt: None,
+                chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
             },
             port_configurations: HashMap::new(),
@@ -1310,24 +1301,23 @@ mod tests {
     }
 
     #[test]
-    fn database_chain_assertion_happy_path() {
-        let chain_id = chain_id_from_name(DEFAULT_CHAIN_NAME); //due to confusing nomenclature in the constants being available, GH-473 may fix this
+    fn database_chain_validity_happy_path() {
+        let chain = DEFAULT_CHAIN;
         let persistent_config =
-            PersistentConfigurationMock::default().chain_name_result("mainnet".to_string());
+            PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
 
-        let _ = ActorSystemFactoryReal::database_chain_assertion(chain_id, &persistent_config);
+        let _ = ActorSystemFactoryReal::database_chain_assertion(chain, &persistent_config);
     }
 
     #[test]
     #[should_panic(
-        expected = "Database with the wrong chain name detected; expected: mainnet, was: ropsten"
+        expected = "Database with the wrong chain name detected; expected: eth-ropsten, was: eth-mainnet"
     )]
     fn make_and_start_actors_will_not_tolerate_differences_in_setup_chain_and_database_chain() {
         let mut bootstrapper_config = BootstrapperConfig::new();
-        bootstrapper_config.blockchain_bridge_config.chain_id =
-            chain_id_from_name(DEFAULT_CHAIN_NAME); //GH-473 should fix this embarrassing situation
+        bootstrapper_config.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
         let persistent_config =
-            PersistentConfigurationMock::default().chain_name_result("ropsten".to_string());
+            PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
         Bootstrapper::pub_initialize_cryptdes_for_testing(
             &Some(main_cryptde().clone()),
             &Some(alias_cryptde().clone()),

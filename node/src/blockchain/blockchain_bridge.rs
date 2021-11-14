@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::Payment;
 use crate::blockchain::blockchain_interface::{
@@ -26,6 +26,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use web3::transports::Http;
+use masq_lib::blockchains::chains::Chain;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -99,7 +100,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
         msg: ReportAccountsPayable,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<ReportAccountsPayable>>::Result {
-        self.handle_report_account_payable(msg)
+        self.handle_report_accounts_payable(msg)
     }
 }
 
@@ -132,7 +133,7 @@ impl BlockchainBridge {
         blockchain_service_url: Option<String>,
         db_initializer: &dyn DbInitializer,
         data_directory: PathBuf,
-        chain_id: u8,
+        chain: Chain,
     ) -> (
         Box<dyn BlockchainInterface>,
         Box<dyn PersistentConfiguration>,
@@ -144,17 +145,17 @@ impl BlockchainBridge {
                         Box::new(BlockchainInterfaceNonClandestine::new(
                             transport,
                             event_loop_handle,
-                            chain_id,
+                            chain,
                         ))
                     }
                     Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
                 },
-                None => Box::new(BlockchainInterfaceClandestine::new(chain_id)),
+                None => Box::new(BlockchainInterfaceClandestine::new(chain)),
             }
         };
         let config_dao = Box::new(ConfigDaoReal::new(
             db_initializer
-                .initialize(&data_directory, chain_id, true)
+                .initialize(&data_directory, chain, true)
                 .unwrap_or_else(|_| {
                     panic!(
                         "Failed to connect to database at {:?}",
@@ -177,7 +178,7 @@ impl BlockchainBridge {
         }
     }
 
-    fn handle_report_account_payable(
+    fn handle_report_accounts_payable(
         &self,
         creditors_msg: ReportAccountsPayable,
     ) -> MessageResult<ReportAccountsPayable> {
@@ -240,8 +241,7 @@ mod tests {
     use crate::accountant::payable_dao::PayableAccount;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::blockchain_interface::{
-        contract_address, Balance, BlockchainError, BlockchainResult, Nonce, Transaction,
-        Transactions,
+        Balance, BlockchainError, BlockchainResult, Nonce, Transaction, Transactions,
     };
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -258,12 +258,13 @@ mod tests {
     use ethsign::SecretKey;
     use ethsign_crypto::Keccak256;
     use futures::future::Future;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::FromHex;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
+    use masq_lib::constants::DEFAULT_CHAIN;
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -416,7 +417,7 @@ mod tests {
             blockchain_service_url,
             &DbInitializerMock::default(),
             data_directory,
-            DEFAULT_CHAIN_ID,
+            DEFAULT_CHAIN,
         );
     }
 
@@ -433,7 +434,7 @@ mod tests {
         let wallet = make_wallet("smelly");
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(result)
-            .contract_address_result(contract_address(DEFAULT_CHAIN_ID));
+            .contract_address_result(TEST_DEFAULT_CHAIN.rec().contract);
         let retrieve_transactions_parameters = blockchain_interface_mock
             .retrieve_transactions_parameters
             .clone();
@@ -468,7 +469,7 @@ mod tests {
             .get_transaction_count_result(Ok(U256::from(2)))
             .send_transaction_result(Ok(H256::from("sometransactionhash".keccak256())))
             .send_transaction_result(Ok(H256::from("someothertransactionhash".keccak256())))
-            .contract_address_result(contract_address(DEFAULT_CHAIN_ID));
+            .contract_address_result(TEST_DEFAULT_CHAIN.rec().contract);
         let send_parameters = blockchain_interface_mock
             .send_transaction_parameters
             .clone();
@@ -617,7 +618,7 @@ mod tests {
             }],
         };
 
-        let result = subject.handle_report_account_payable(request);
+        let result = subject.handle_report_accounts_payable(request);
 
         assert_eq!(
             result.0,
@@ -648,7 +649,7 @@ mod tests {
             }],
         };
 
-        let result = subject.handle_report_account_payable(request);
+        let result = subject.handle_report_accounts_payable(request);
 
         assert_eq!(result.0, Err("No consuming wallet specified".to_string()));
     }
@@ -675,7 +676,7 @@ mod tests {
             }],
         };
 
-        let result = subject.handle_report_account_payable(request);
+        let result = subject.handle_report_accounts_payable(request);
 
         assert_eq!(
             result.0,
