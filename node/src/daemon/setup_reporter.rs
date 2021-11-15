@@ -120,11 +120,8 @@ impl SetupReporter for SetupReporterReal {
                 chain,
             ),
         };
-        let (configured_setup, error_opt) = self.calculate_configured_setup(
-            &all_but_configured,
-            &data_directory,
-            chain,
-        );
+        let (configured_setup, error_opt) =
+            self.calculate_configured_setup(&all_but_configured, &data_directory, chain);
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
@@ -2046,7 +2043,6 @@ mod tests {
         let result = subject
             .calculate_configured_setup(
                 &setup,
-
                 &data_directory,
                 Blockchain::EthMainnet, //irrelevant
             )
@@ -2127,7 +2123,6 @@ mod tests {
         let result = subject
             .calculate_configured_setup(
                 &setup,
-
                 &data_directory,
                 Blockchain::EthMainnet, //irrelevant
             )
@@ -2160,7 +2155,6 @@ mod tests {
         let result = subject
             .calculate_configured_setup(
                 &setup,
-
                 &data_directory,
                 Blockchain::EthMainnet, //irrelevant
             )
@@ -2203,7 +2197,6 @@ mod tests {
         let result = subject
             .calculate_configured_setup(
                 &setup,
-
                 &data_dir,
                 Blockchain::EthMainnet, //irrelevant
             )
@@ -2243,7 +2236,6 @@ mod tests {
         let result = subject
             .calculate_configured_setup(
                 &setup,
-
                 &data_directory,
                 Blockchain::EthMainnet, //irrelevant
             )
