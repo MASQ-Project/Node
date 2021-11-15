@@ -417,21 +417,24 @@ pub mod standard {
     ) -> Vec<Result<NodeDescriptor, ParamError>> {
         descriptors.into_iter()
             .map(
-                |node_desc_from_ci| match NodeDescriptor::try_from((dummy_cryptde.as_ref(), node_desc_from_ci.as_str())) {
-                    Ok(descriptor) =>
-                        {
-                            let competence_from_descriptor = descriptor.blockchain;
-                            if desired_chain == competence_from_descriptor {
-                                validate_mandatory_node_addr(&node_desc_from_ci, descriptor)
-                            } else{
-                                let name_of_desired_chain = desired_chain.rec().literal_identifier;
-                                Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
-                                                                          name_of_desired_chain, MASQ_URL_PREFIX,
-                                                                          name_of_desired_chain,
-                                                                          competence_from_descriptor.rec().literal_identifier)))
+                |node_desc_from_ci| {
+                    let node_desc_trimmed = node_desc_from_ci.trim();
+                    match NodeDescriptor::try_from((dummy_cryptde.as_ref(), node_desc_trimmed)) {
+                        Ok(descriptor) =>
+                            {
+                                let competence_from_descriptor = descriptor.blockchain;
+                                if desired_chain == competence_from_descriptor {
+                                    validate_mandatory_node_addr(node_desc_trimmed, descriptor)
+                                } else {
+                                    let name_of_desired_chain = desired_chain.rec().literal_identifier;
+                                    Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
+                                                                              name_of_desired_chain, MASQ_URL_PREFIX,
+                                                                              name_of_desired_chain,
+                                                                              competence_from_descriptor.rec().literal_identifier)))
+                                }
                             }
-                        }
-                    Err(e) => ParamError::new("neighbors", &e).wrap_to_err()
+                        Err(e) => ParamError::new("neighbors", &e).wrap_to_err()
+                    }
                 }
             )
             .collect_vec()
@@ -444,7 +447,7 @@ pub mod standard {
         match descriptor.node_addr_opt.is_some(){
             true => Ok(descriptor),
             false => Err(ParamError::new(
-                "neighbors",&format!("Neighbors supplied without ip addresses and ports aren't valid: '{}--NA--:--NA--",
+                "neighbors",&format!("Neighbors supplied without ip addresses and ports are not valid: '{}--NA--:--NA--",
                                      if supplied_version.ends_with("@:") {supplied_version.strip_suffix(':').expect("logic failed")}
                                      else {supplied_version}))
             )
@@ -1402,6 +1405,32 @@ mod tests {
     }
 
     #[test]
+    fn convert_ci_configs_handles_leftover_whitespaces_between_descriptors_and_commas() {
+        let multi_config = make_simplified_multi_config([
+            "program",
+            "--chain",
+            "eth-ropsten",
+            "--fake-public-key",
+            "ABCDE",
+            "--neighbors",
+            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@1.2.3.4:5555, masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542 , masq://eth-ropsten:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504",
+        ]);
+        let public_key = PublicKey::new(b"ABCDE");
+        let cryptde = CryptDENull::from(&public_key, Chain::EthRopsten);
+        let cryptde_traitified = &cryptde as &dyn CryptDE;
+
+        let result = standard::convert_ci_configs(&multi_config);
+
+        assert_eq!(result, Ok(Some(
+            vec![
+                NodeDescriptor::try_from((cryptde_traitified, "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@1.2.3.4:5555")).unwrap(),
+                NodeDescriptor::try_from((cryptde_traitified, "masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542")).unwrap(),
+                NodeDescriptor::try_from((cryptde_traitified, "masq://eth-ropsten:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504")).unwrap()])
+            )
+        )
+    }
+
+    #[test]
     fn convert_ci_configs_does_not_like_neighbors_with_bad_syntax() {
         running_test();
         let multi_config = make_simplified_multi_config(["program", "--neighbors", "ooga,booga"]);
@@ -1433,7 +1462,7 @@ mod tests {
 
         let result = standard::convert_ci_configs(&multi_config);
 
-        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", &format!("Neighbors supplied without ip addresses and ports aren't valid: '{}--NA--:--NA--",&descriptor[..descriptor.len()-1]))])));
+        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", &format!("Neighbors supplied without ip addresses and ports are not valid: '{}--NA--:--NA--",&descriptor[..descriptor.len()-1]))])));
     }
 
     #[test]
@@ -1449,7 +1478,7 @@ mod tests {
 
         let result = standard::convert_ci_configs(&multi_config);
 
-        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports aren't valid: 'masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@--NA--:--NA--")])))
+        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports are not valid: 'masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@--NA--:--NA--")])))
     }
 
     #[test]

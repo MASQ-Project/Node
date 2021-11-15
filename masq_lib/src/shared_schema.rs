@@ -65,7 +65,7 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
           masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642\n\n\
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
      and also the network the descriptor belongs to (mainnet or a testnet).\n\n\
-     If you have more than one descriptor, separate them with commas (but no spaces). There is no default value; \
+     If you have more than one descriptor, separate them with commas. There is no default value; \
      if you don't specify a neighbor, your Node will start without being connected to any MASQ \
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
      --neighbors is meaningless in --neighborhood-mode zero-hop.";

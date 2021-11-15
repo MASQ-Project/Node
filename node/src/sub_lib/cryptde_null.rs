@@ -109,7 +109,7 @@ impl CryptDE for CryptDENull {
     }
 
     fn public_key_to_descriptor_fragment(&self, public_key: &PublicKey) -> String {
-        base64::encode_config(public_key.as_slice(), base64::STANDARD_NO_PAD)
+        base64::encode_config(public_key.as_slice(), base64::URL_SAFE_NO_PAD)
     }
 
     fn descriptor_fragment_to_first_contact_public_key(
@@ -119,7 +119,7 @@ impl CryptDE for CryptDENull {
         if descriptor_fragment.is_empty() {
             return Err("Public key cannot be empty".to_string());
         }
-        let half_key = match base64::decode_config(descriptor_fragment, base64::STANDARD_NO_PAD) {
+        let half_key = match base64::decode_config(descriptor_fragment, base64::URL_SAFE_NO_PAD) {
             Ok(half_key) => half_key,
             Err(_) => {
                 return Err(format!(

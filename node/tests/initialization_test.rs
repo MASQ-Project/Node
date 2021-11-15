@@ -149,7 +149,7 @@ fn incomplete_node_descriptor_is_refused_integration() {
             CommandConfig::new()
                 .pair(
                     "--neighbors",
-                    &format!("masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678, masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
+                    &format!("masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678,masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
                              test_default_chain_identifier,test_default_chain_identifier)
                 ),
         ),
@@ -162,11 +162,11 @@ fn incomplete_node_descriptor_is_refused_integration() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             assert!(
                 stdout.contains("Log is written to"),
-                "instead we got: {}",
+                "we thought to see a note of the logs' location, instead we got: {}",
                 stdout
             );
             let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(stderr.contains(&format!("neighbors - Neighbors supplied without ip addresses and ports aren't valid: 'masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw:--NA--:--NA--",
+            assert!(stderr.contains(&format!("neighbors - Neighbors supplied without ip addresses and ports are not valid: 'masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@--NA--:--NA--",
                                             test_default_chain_identifier)
             ), "instead we got: {}",stderr)
         }
