@@ -1415,45 +1415,46 @@ mod tests {
             .exists_log_containing("INFO: Neighborhood: Empty. No Nodes to report to; continuing");
     }
 
-    // #[test]
-    // #[should_panic(
-    //     expected = "--neighbors node descriptors must have IP address and port list, not 'masq://eth-ropsten:AwQFBg@:'"
-    // )]
-    // fn node_with_neighbor_config_having_no_node_addr_panics() {
-    //     let cryptde: &dyn CryptDE = main_cryptde();
-    //     let earning_wallet = make_wallet("earning");
-    //     let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-    //     let neighbor_node = make_node_record(3456, true);
-    //     let system = System::new("node_with_bad_neighbor_config_panics");
-    //     let subject = Neighborhood::new(
-    //         cryptde,
-    //         &bc_from_nc_plus(
-    //             NeighborhoodConfig {
-    //                 mode: NeighborhoodMode::Standard(
-    //                     NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-    //                     vec![NodeDescriptor::from((
-    //                         neighbor_node.public_key(),
-    //                         Chain::EthRopsten,
-    //                         cryptde,
-    //                     ))],
-    //                     rate_pack(100),
-    //                 ),
-    //             },
-    //             earning_wallet.clone(),
-    //             consuming_wallet.clone(),
-    //             "node_with_neighbor_config_having_no_node_addr_panics",
-    //         ),
-    //     );
-    //     let addr: Addr<Neighborhood> = subject.start();
-    //     let sub = addr.clone().recipient::<StartMessage>();
-    //     let peer_actors = peer_actors_builder().build();
-    //     addr.try_send(BindMessage { peer_actors }).unwrap();
-    //
-    //     sub.try_send(StartMessage {}).unwrap();
-    //
-    //     System::current().stop_with_code(0);
-    //     system.run();
-    // }
+    #[test]
+    #[should_panic(
+        expected = "--neighbors node descriptors must have IP address and port list, not 'masq://eth-ropsten:AwQFBg@:'"
+    )]
+    fn node_with_neighbor_config_having_no_node_addr_panics() {
+        let cryptde: &dyn CryptDE = main_cryptde();
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
+        let neighbor_node = make_node_record(3456, true);
+        let system = System::new("node_with_bad_neighbor_config_panics");
+        let subject = Neighborhood::new(
+            cryptde,
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
+                        vec![NodeDescriptor::from((
+                            neighbor_node.public_key(),
+                            None,
+                            Chain::EthRopsten,
+                            cryptde,
+                        ))],
+                        rate_pack(100),
+                    ),
+                },
+                earning_wallet.clone(),
+                consuming_wallet.clone(),
+                "node_with_neighbor_config_having_no_node_addr_panics",
+            ),
+        );
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub = addr.clone().recipient::<StartMessage>();
+        let peer_actors = peer_actors_builder().build();
+        addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        sub.try_send(StartMessage {}).unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+    }
 
     #[test]
     fn neighborhood_adds_nodes_and_links() {
@@ -1473,12 +1474,12 @@ mod tests {
                         vec![
                             NodeDescriptor::from((
                                 &one_neighbor_node,
-                                Chain::EthRopsten, //TODO seems wrong again; should be the opposite?
+                                Chain::EthRopsten,
                                 cryptde,
                             )),
                             NodeDescriptor::from((
                                 &another_neighbor_node,
-                                Chain::EthRopsten, //TODO..again
+                                Chain::EthRopsten,
                                 cryptde,
                             )),
                         ],
@@ -1605,7 +1606,7 @@ mod tests {
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
-                            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
+                            Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345])),
                             Chain::EthRopsten,
                             cryptde,
                         ))],
@@ -1692,7 +1693,7 @@ mod tests {
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
-                            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
+                            Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345])),
                             Chain::EthRopsten,
                             cryptde,
                         ))],
@@ -3542,7 +3543,7 @@ mod tests {
         let cryptde: &dyn CryptDE = main_cryptde();
         NodeDescriptor::from((
             &node_record_ref.public_key().clone(),
-            &node_record_ref.node_addr_opt().unwrap().clone(),
+            node_record_ref.node_addr_opt().as_ref(),
             Chain::EthRopsten,
             cryptde,
         ))
@@ -3607,10 +3608,10 @@ mod tests {
                             NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                             vec![NodeDescriptor::from((
                                 &PublicKey::new(&b"booga"[..]),
-                                &NodeAddr::new(
+                                Some(&NodeAddr::new(
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &[1234, 2345],
-                                ),
+                                )),
                                 Chain::EthRopsten,
                                 cryptde,
                             ))],
@@ -3734,10 +3735,10 @@ mod tests {
                             NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                             vec![NodeDescriptor::from((
                                 &PublicKey::new(&b"booga"[..]),
-                                &NodeAddr::new(
+                                Some(&NodeAddr::new(
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &[1234, 2345],
-                                ),
+                                )),
                                 Chain::EthRopsten,
                                 cryptde,
                             ))],
