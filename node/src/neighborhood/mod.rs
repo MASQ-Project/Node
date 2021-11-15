@@ -1472,11 +1472,7 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from((
-                                &one_neighbor_node,
-                                Chain::EthRopsten,
-                                cryptde,
-                            )),
+                            NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde)),
                             NodeDescriptor::from((
                                 &another_neighbor_node,
                                 Chain::EthRopsten,
@@ -1606,7 +1602,10 @@ mod tests {
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
-                            Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345])),
+                            Some(&NodeAddr::new(
+                                &IpAddr::from_str("1.2.3.4").unwrap(),
+                                &[1234, 2345],
+                            )),
                             Chain::EthRopsten,
                             cryptde,
                         ))],
@@ -1693,7 +1692,10 @@ mod tests {
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
-                            Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345])),
+                            Some(&NodeAddr::new(
+                                &IpAddr::from_str("1.2.3.4").unwrap(),
+                                &[1234, 2345],
+                            )),
                             Chain::EthRopsten,
                             cryptde,
                         ))],

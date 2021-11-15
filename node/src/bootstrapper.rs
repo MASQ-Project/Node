@@ -1562,7 +1562,10 @@ mod tests {
                 NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[4321]),
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
-                    Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234])),
+                    Some(&NodeAddr::new(
+                        &IpAddr::from_str("1.2.3.4").unwrap(),
+                        &[1234],
+                    )),
                     Chain::EthMainnet,
                     cryptde,
                 ))],
@@ -1631,7 +1634,10 @@ mod tests {
                 NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]),
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
-                    Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234])),
+                    Some(&NodeAddr::new(
+                        &IpAddr::from_str("1.2.3.4").unwrap(),
+                        &[1234],
+                    )),
                     Chain::EthRopsten,
                     cryptde,
                 ))],
@@ -1682,7 +1688,10 @@ mod tests {
             mode: NeighborhoodMode::OriginateOnly(
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
-                    Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234])),
+                    Some(&NodeAddr::new(
+                        &IpAddr::from_str("1.2.3.4").unwrap(),
+                        &[1234],
+                    )),
                     Chain::EthRopsten,
                     cryptde,
                 ))],
@@ -1719,7 +1728,10 @@ mod tests {
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from((
                 cryptde.public_key(),
-                Some(&NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234])),
+                Some(&NodeAddr::new(
+                    &IpAddr::from_str("1.2.3.4").unwrap(),
+                    &[1234],
+                )),
                 Chain::EthRopsten,
                 cryptde,
             ))]),
