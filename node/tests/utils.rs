@@ -10,8 +10,8 @@ use std::net::SocketAddr;
 use std::ops::Drop;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::process::Stdio;
 use std::process::{Command, Output};
-use std::process::{ExitStatus, Stdio};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -217,8 +217,8 @@ impl MASQNode {
         })
     }
 
-    #[cfg(target_os = "windows")]
-    pub fn kill(&mut self) -> Result<ExitStatus, io::Error> {
+    // #[cfg(target_os = "windows")]
+    pub fn killl(&mut self) -> Result<process::ExitStatus, io::Error> {
         let mut command = process::Command::new("taskkill");
         command.args(&["/IM", "MASQNode.exe", "/F"]);
         let process_output = command

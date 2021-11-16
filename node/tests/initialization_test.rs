@@ -193,7 +193,7 @@ fn started_without_explicit_chain_parameter_runs_finely() {
     );
 
     node.wait_for_log("UIGateway bound", Some(5000));
-    assert_eq!(node.kill().unwrap().code().unwrap(), 0);
+    //Node is dropped and killed
 }
 
 #[test]
