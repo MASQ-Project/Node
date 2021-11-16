@@ -224,8 +224,8 @@ pub mod standard {
                 &alias_public_key,
                 privileged_config.blockchain_bridge_config.chain,
             );
-            privileged_config.main_cryptde_null_opt = Some(Box::new(main_cryptde_null));
-            privileged_config.alias_cryptde_null_opt = Some(Box::new(alias_cryptde_null));
+            privileged_config.main_cryptde_null_opt = Some(main_cryptde_null);
+            privileged_config.alias_cryptde_null_opt = Some(alias_cryptde_null);
         }
         Ok(())
     }

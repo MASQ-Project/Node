@@ -300,8 +300,8 @@ pub struct BootstrapperConfig {
     pub port_configurations: HashMap<u16, PortConfiguration>,
     pub data_directory: PathBuf,
     pub node_descriptor_opt: Option<String>,
-    pub main_cryptde_null_opt: Option<Box<CryptDENull>>,
-    pub alias_cryptde_null_opt: Option<Box<CryptDENull>>,
+    pub main_cryptde_null_opt: Option<CryptDENull>,
+    pub alias_cryptde_null_opt: Option<CryptDENull>,
     pub real_user: RealUser,
 
     // These fields must be set without privilege: otherwise the database will be created as root
@@ -428,10 +428,10 @@ impl ConfiguredByPrivilege for Bootstrapper {
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         self.config.merge_unprivileged(unprivileged_config);
         self.set_up_clandestine_port();
-        let (alias_cryptde_opt, main_cryptde_opt) = self.cryptdes_as_trait_objects();
+        let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
         let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
-            &main_cryptde_opt,
-            &alias_cryptde_opt,
+            &main_cryptde_null_opt,
+            &alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
         self.config.node_descriptor_opt = Some(Bootstrapper::report_local_descriptor(
@@ -588,16 +588,16 @@ impl Bootstrapper {
         }
     }
 
-    fn cryptdes_as_trait_objects(&self) -> (Option<&dyn CryptDE>, Option<&dyn CryptDE>) {
+    fn null_cryptdes_as_trait_objects(&self) -> (Option<&dyn CryptDE>, Option<&dyn CryptDE>) {
         (
             self.config
                 .alias_cryptde_null_opt
                 .as_ref()
-                .map(|cryptde_null| cryptde_null.as_ref() as &dyn CryptDE),
+                .map(|cryptde_null| cryptde_null as &dyn CryptDE),
             self.config
                 .main_cryptde_null_opt
                 .as_ref()
-                .map(|cryptde_null| cryptde_null.as_ref() as &dyn CryptDE),
+                .map(|cryptde_null| cryptde_null as &dyn CryptDE),
         )
     }
 }

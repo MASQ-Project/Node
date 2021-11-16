@@ -217,8 +217,8 @@ impl MASQNode {
         })
     }
 
-    // #[cfg(target_os = "windows")]
-    pub fn killl(&mut self) -> Result<process::ExitStatus, io::Error> {
+    #[cfg(target_os = "windows")]
+    pub fn kill(&mut self) -> Result<process::ExitStatus, io::Error> {
         let mut command = process::Command::new("taskkill");
         command.args(&["/IM", "MASQNode.exe", "/F"]);
         let process_output = command
