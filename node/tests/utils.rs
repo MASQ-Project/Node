@@ -10,8 +10,8 @@ use std::net::SocketAddr;
 use std::ops::Drop;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::process::Stdio;
 use std::process::{Command, Output};
+use std::process::{ExitStatus, Stdio};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -218,13 +218,14 @@ impl MASQNode {
     }
 
     #[cfg(target_os = "windows")]
-    pub fn kill(&mut self) -> Result<(), io::Error> {
+    pub fn kill(&mut self) -> Result<ExitStatus, io::Error> {
         let mut command = process::Command::new("taskkill");
         command.args(&["/IM", "MASQNode.exe", "/F"]);
-        let _ = command.output().expect("Couldn't kill MASQNode.exe");
+        let process_output = command
+            .output()
+            .unwrap_or_else(|e| panic!("Couldn't kill MASQNode.exe: {}", e));
         self.child.take();
-        // Be nice if we could figure out how to populate self.output here
-        Ok(())
+        Ok(process_output.status)
     }
 
     pub fn remove_logfile(data_dir: &PathBuf) -> Box<Path> {
