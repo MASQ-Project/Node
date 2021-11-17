@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL};
-use crate::actor_system_factory::ActorFactoryReal;
+use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::crash_test_dummy::CrashTestDummy;
@@ -366,6 +366,34 @@ impl BootstrapperConfig {
         self.consuming_wallet = unprivileged.consuming_wallet;
         self.db_password_opt = unprivileged.db_password_opt;
     }
+
+    pub fn exit_service_rate(&self)->u64{
+        self.neighborhood_config
+            .mode
+            .rate_pack()
+            .exit_service_rate
+    }
+
+    pub fn exit_byte_rate(&self)->u64{
+        self.neighborhood_config
+            .mode
+            .rate_pack()
+            .exit_byte_rate
+    }
+
+    pub fn routing_service_rate(&self) ->u64{
+        self.neighborhood_config
+            .mode
+            .rate_pack()
+            .routing_service_rate
+    }
+
+    pub fn routing_byte_rate(&self) ->u64{
+        self.neighborhood_config
+            .mode
+            .rate_pack()
+            .routing_byte_rate
+    }
 }
 
 pub struct Bootstrapper {
@@ -448,6 +476,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
                 self.config.blockchain_bridge_config.chain,
             )
             .as_ref(),
+            &ActorSystemFactoryToolsReal
         );
 
         self.listener_handlers
@@ -626,7 +655,7 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 
-    use crate::actor_system_factory::ActorFactory;
+    use crate::actor_system_factory::{ActorFactory, ActorSystemFactoryTools};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::{
@@ -1156,7 +1185,7 @@ mod tests {
             data_dir.to_str().unwrap(),
         ];
         let mut holder = FakeStreamHolder::new();
-        let actor_system_factory = ActorSystemFactoryMock::new();
+        let actor_system_factory = ActorSystemFactoryActiveMock::new();
         let dns_servers_arc = actor_system_factory.dnss.clone();
         let mut subject = BootstrapperBuilder::new()
             .actor_system_factory(Box::new(actor_system_factory))
@@ -1426,7 +1455,7 @@ mod tests {
         let another_listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let yet_another_listener_handler =
             ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
-        let actor_system_factory = ActorSystemFactoryMock::new();
+        let actor_system_factory = ActorSystemFactoryActiveMock::new();
         let mut config = BootstrapperConfig::new();
         config.data_directory = data_dir.clone();
         let mut subject = BootstrapperBuilder::new()
@@ -1497,7 +1526,7 @@ mod tests {
             ListenerHandlerNull::new(vec![first_message, second_message]).bind_port_result(Ok(()));
         let another_listener_handler =
             ListenerHandlerNull::new(vec![third_message]).bind_port_result(Ok(()));
-        let mut actor_system_factory = ActorSystemFactoryMock::new();
+        let mut actor_system_factory = ActorSystemFactoryActiveMock::new();
         let awaiter = actor_system_factory
             .stream_handler_pool_cluster
             .awaiter
@@ -1559,12 +1588,12 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
-                NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[4321]),
+                NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]),
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     Some(&NodeAddr::new(
                         &IpAddr::from_str("1.2.3.4").unwrap(),
-                        &[1234],
+                        &[1234], //this port number comes from the neighbor
                     )),
                     Chain::EthMainnet,
                     cryptde,
@@ -1588,7 +1617,7 @@ mod tests {
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        assert_eq!(port, persistent_config.clandestine_port().unwrap());
+        assert_eq!(persistent_config.clandestine_port().unwrap(),port);
         assert_eq!(
             subject
                 .config
@@ -1889,17 +1918,18 @@ mod tests {
         subs: StreamHandlerPoolSubs,
     }
 
-    struct ActorSystemFactoryMock {
+    struct ActorSystemFactoryActiveMock {
         stream_handler_pool_cluster: StreamHandlerPoolCluster,
         dnss: Arc<Mutex<Option<Vec<SocketAddr>>>>,
     }
 
-    impl ActorSystemFactory for ActorSystemFactoryMock {
+    impl ActorSystemFactory for ActorSystemFactoryActiveMock {
         fn make_and_start_actors(
             &self,
             config: BootstrapperConfig,
             _actor_factory: Box<dyn ActorFactory>,
             _persist_config: &dyn PersistentConfiguration,
+            _tools: &dyn ActorSystemFactoryTools
         ) -> StreamHandlerPoolSubs {
             let mut parameter_guard = self.dnss.lock().unwrap();
             let parameter_ref = parameter_guard.deref_mut();
@@ -1909,8 +1939,8 @@ mod tests {
         }
     }
 
-    impl ActorSystemFactoryMock {
-        fn new() -> ActorSystemFactoryMock {
+    impl ActorSystemFactoryActiveMock {
+        fn new() -> ActorSystemFactoryActiveMock {
             let (tx, rx) = unbounded();
             thread::spawn(move || {
                 let system = System::new("test");
@@ -1928,7 +1958,7 @@ mod tests {
                 system.run();
             });
             let stream_handler_pool_cluster = rx.recv().unwrap();
-            ActorSystemFactoryMock {
+            ActorSystemFactoryActiveMock {
                 stream_handler_pool_cluster,
                 dnss: Arc::new(Mutex::new(None)),
             }
@@ -1945,7 +1975,7 @@ mod tests {
     impl BootstrapperBuilder {
         fn new() -> BootstrapperBuilder {
             BootstrapperBuilder {
-                actor_system_factory: Box::new(ActorSystemFactoryMock::new()),
+                actor_system_factory: Box::new(ActorSystemFactoryActiveMock::new()),
                 log_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
                 // Don't modify this line unless you've already looked at DispatcherBuilder::add_listener_handler().
                 listener_handler_factory: ListenerHandlerFactoryMock::new(),
