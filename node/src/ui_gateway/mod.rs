@@ -39,7 +39,6 @@ impl UiGateway {
     pub fn new(config: &UiGatewayConfig, crashable: bool) -> UiGateway {
         UiGateway {
             port: config.ui_port,
-            //websocket_supervisor_factory: Some(Box::new(WebsocketSupervisorFactoryReal)),
             websocket_supervisor: Either::Left(Box::new(WebsocketSupervisorFactoryReal)),
             incoming_message_recipients: vec![],
             crashable,

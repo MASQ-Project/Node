@@ -80,12 +80,13 @@ mod tests {
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::test_utils::recorder::peer_actors_builder;
     use actix::System;
+    use std::cell::RefCell;
 
     #[test]
     fn pool_bind_message_is_debug() {
         let _system = System::new("test");
         let dispatcher_subs = peer_actors_builder().build().dispatcher;
-        let stream_handler_pool_subs = make_stream_handler_pool_subs_from(None);
+        let stream_handler_pool_subs = make_stream_handler_pool_subs_from(&RefCell::new(None));
         let neighborhood_subs = peer_actors_builder().build().neighborhood;
         let subject = PoolBindMessage {
             dispatcher_subs,

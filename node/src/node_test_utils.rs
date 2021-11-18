@@ -269,15 +269,23 @@ impl NullDiscriminatorFactory {
     }
 }
 
+pub fn start_recorder_ref_opt(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
+    recorder.borrow_mut().take().unwrap().start()
+}
+
 pub fn make_stream_handler_pool_subs_from(
-    stream_handler_pool_opt: Option<Recorder>,
+    stream_handler_pool_opt: &RefCell<Option<Recorder>>, //the input type is complex in order to cover a wider range of implementations
 ) -> StreamHandlerPoolSubs {
-    let stream_handler_pool = match stream_handler_pool_opt {
-        Some(stream_handler_pool) => stream_handler_pool,
-        None => Recorder::new(),
+    #[allow(unused_assignments)]
+    let mut sentinel_owner = RefCell::new(None);
+    let stream_handler_pool = if stream_handler_pool_opt.borrow().is_some() {
+        stream_handler_pool_opt
+    } else {
+        sentinel_owner = RefCell::new(Some(Recorder::new()));
+        &sentinel_owner
     };
 
-    let addr: Addr<Recorder> = stream_handler_pool.start();
+    let addr: Addr<Recorder> = start_recorder_ref_opt(stream_handler_pool);
 
     StreamHandlerPoolSubs {
         add_sub: recipient!(addr, AddStreamMsg),

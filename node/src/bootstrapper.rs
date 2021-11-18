@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL};
-use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
+use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -367,32 +367,23 @@ impl BootstrapperConfig {
         self.db_password_opt = unprivileged.db_password_opt;
     }
 
-    pub fn exit_service_rate(&self)->u64{
-        self.neighborhood_config
-            .mode
-            .rate_pack()
-            .exit_service_rate
+    pub fn exit_service_rate(&self) -> u64 {
+        self.neighborhood_config.mode.rate_pack().exit_service_rate
     }
 
-    pub fn exit_byte_rate(&self)->u64{
-        self.neighborhood_config
-            .mode
-            .rate_pack()
-            .exit_byte_rate
+    pub fn exit_byte_rate(&self) -> u64 {
+        self.neighborhood_config.mode.rate_pack().exit_byte_rate
     }
 
-    pub fn routing_service_rate(&self) ->u64{
+    pub fn routing_service_rate(&self) -> u64 {
         self.neighborhood_config
             .mode
             .rate_pack()
             .routing_service_rate
     }
 
-    pub fn routing_byte_rate(&self) ->u64{
-        self.neighborhood_config
-            .mode
-            .rate_pack()
-            .routing_byte_rate
+    pub fn routing_byte_rate(&self) -> u64 {
+        self.neighborhood_config.mode.rate_pack().routing_byte_rate
     }
 }
 
@@ -476,7 +467,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
                 self.config.blockchain_bridge_config.chain,
             )
             .as_ref(),
-            &ActorSystemFactoryToolsReal
+            &ActorSystemFactoryToolsReal,
         );
 
         self.listener_handlers
@@ -1617,7 +1608,7 @@ mod tests {
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        assert_eq!(persistent_config.clandestine_port().unwrap(),port);
+        assert_eq!(persistent_config.clandestine_port().unwrap(), port);
         assert_eq!(
             subject
                 .config
@@ -1929,7 +1920,7 @@ mod tests {
             config: BootstrapperConfig,
             _actor_factory: Box<dyn ActorFactory>,
             _persist_config: &dyn PersistentConfiguration,
-            _tools: &dyn ActorSystemFactoryTools
+            _tools: &dyn ActorSystemFactoryTools,
         ) -> StreamHandlerPoolSubs {
             let mut parameter_guard = self.dnss.lock().unwrap();
             let parameter_ref = parameter_guard.deref_mut();
@@ -1950,7 +1941,9 @@ mod tests {
                     StreamHandlerPoolCluster {
                         recording: Some(recording),
                         awaiter: Some(awaiter),
-                        subs: make_stream_handler_pool_subs_from(Some(stream_handler_pool)),
+                        subs: make_stream_handler_pool_subs_from(&RefCell::new(Some(
+                            stream_handler_pool,
+                        ))),
                     }
                 };
 

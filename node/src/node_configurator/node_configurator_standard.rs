@@ -441,15 +441,16 @@ pub mod standard {
     }
 
     fn validate_mandatory_node_addr(
-        supplied_version: &str,
+        supplied_descriptor: &str,
         descriptor: NodeDescriptor,
     ) -> Result<NodeDescriptor, ParamError> {
-        match descriptor.node_addr_opt.is_some(){
-            true => Ok(descriptor),
-            false => Err(ParamError::new(
-                "neighbors",&format!("Neighbors supplied without ip addresses and ports are not valid: '{}--NA--:--NA--",
-                                     if supplied_version.ends_with("@:") {supplied_version.strip_suffix(':').expect("logic failed")}
-                                     else {supplied_version}))
+        if descriptor.node_addr_opt.is_some() {
+            Ok(descriptor)
+        } else {
+            Err(ParamError::new(
+                "neighbors",&format!("Neighbors supplied without ip addresses and ports are not valid: '{}<N/A>:<N/A>",
+                                     if supplied_descriptor.ends_with("@:") { supplied_descriptor.strip_suffix(':').expect("logic failed")}
+                                     else { supplied_descriptor }))
             )
         }
     }
@@ -1462,7 +1463,7 @@ mod tests {
 
         let result = standard::convert_ci_configs(&multi_config);
 
-        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", &format!("Neighbors supplied without ip addresses and ports are not valid: '{}--NA--:--NA--",&descriptor[..descriptor.len()-1]))])));
+        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", &format!("Neighbors supplied without ip addresses and ports are not valid: '{}<N/A>:<N/A>",&descriptor[..descriptor.len()-1]))])));
     }
 
     #[test]
@@ -1478,7 +1479,7 @@ mod tests {
 
         let result = standard::convert_ci_configs(&multi_config);
 
-        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports are not valid: 'masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@--NA--:--NA--")])))
+        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports are not valid: 'masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>")])))
     }
 
     #[test]

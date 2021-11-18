@@ -166,7 +166,7 @@ fn incomplete_node_descriptor_is_refused_integration() {
                 stdout
             );
             let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(stderr.contains(&format!("neighbors - Neighbors supplied without ip addresses and ports are not valid: 'masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@--NA--:--NA--",
+            assert!(stderr.contains(&format!("neighbors - Neighbors supplied without ip addresses and ports are not valid: 'masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>",
                                             test_default_chain_identifier)
             ), "instead we got: {}",stderr)
         }

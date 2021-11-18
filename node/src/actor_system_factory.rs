@@ -46,21 +46,25 @@ pub trait ActorSystemFactory: Send {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
         persist_config: &dyn PersistentConfiguration,
-        actor_system_factory_tools: &'static dyn ActorSystemFactoryTools
+        actor_system_factory_tools: &dyn ActorSystemFactoryTools,
     ) -> StreamHandlerPoolSubs;
 }
 
-pub trait ActorSystemFactoryTools{
+pub trait ActorSystemFactoryTools {
     fn prepare_initial_messages(
         &self,
         main_cryptde: &'static dyn CryptDE,
         alias_cryptde: &'static dyn CryptDE,
         config: BootstrapperConfig,
-        actor_factory: Box<dyn ActorFactory>
+        actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs;
-    fn main_cryptde_ref(&self)->&dyn CryptDE;
-    fn alias_cryptde_ref(&self)->&dyn CryptDE;
-    fn database_chain_assertion(&self,chain: Chain, persistent_config: &dyn PersistentConfiguration);
+    fn main_cryptde_ref(&self) -> &'static dyn CryptDE;
+    fn alias_cryptde_ref(&self) -> &'static dyn CryptDE;
+    fn database_chain_assertion(
+        &self,
+        chain: Chain,
+        persistent_config: &dyn PersistentConfiguration,
+    );
 }
 
 pub struct ActorSystemFactoryReal {}
@@ -71,30 +75,25 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
         persist_config: &dyn PersistentConfiguration,
-        tools: &'static dyn ActorSystemFactoryTools
+        tools: &dyn ActorSystemFactoryTools,
     ) -> StreamHandlerPoolSubs {
         let main_cryptde = tools.main_cryptde_ref();
         let alias_cryptde = tools.alias_cryptde_ref();
         tools.database_chain_assertion(config.blockchain_bridge_config.chain, persist_config);
 
-        tools.prepare_initial_messages(
-            main_cryptde,
-            alias_cryptde,
-            config,
-            actor_factory
-        )
+        tools.prepare_initial_messages(main_cryptde, alias_cryptde, config, actor_factory)
     }
 }
 
 pub struct ActorSystemFactoryToolsReal;
 
-impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal{
+impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
     fn prepare_initial_messages(
         &self,
         main_cryptde: &'static dyn CryptDE,
         alias_cryptde: &'static dyn CryptDE,
         config: BootstrapperConfig,
-        actor_factory: Box<dyn ActorFactory>
+        actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs {
         let db_initializer = DbInitializerReal::default();
         // make all the actors
@@ -190,7 +189,11 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal{
         bootstrapper::alias_cryptde_ref()
     }
 
-    fn database_chain_assertion(&self,chain: Chain, persistent_config: &dyn PersistentConfiguration) {
+    fn database_chain_assertion(
+        &self,
+        chain: Chain,
+        persistent_config: &dyn PersistentConfiguration,
+    ) {
         let requested_chain = chain.rec().literal_identifier.to_string();
         let chain_in_db = persistent_config.chain_name();
         if requested_chain != chain_in_db {
@@ -420,8 +423,7 @@ mod tests {
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::neighborhood::gossip::Gossip_0v1;
-    use crate::stream_messages::AddStreamMsg;
-    use crate::stream_messages::RemoveStreamMsg;
+    use crate::node_test_utils::{make_stream_handler_pool_subs_from, start_recorder_ref_opt};
     use crate::sub_lib::accountant::AccountantConfig;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
@@ -430,7 +432,8 @@ mod tests {
     };
     use crate::sub_lib::blockchain_bridge::{BlockchainBridgeConfig, ReportAccountsPayable};
     use crate::sub_lib::configurator::NewPasswordMessage;
-    use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::cryptde::{PlainData, PublicKey};
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
@@ -449,7 +452,6 @@ mod tests {
         AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
     };
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
-    use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::main_cryptde;
@@ -466,7 +468,7 @@ mod tests {
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
-    use masq_lib::messages::{ToMessageBody, UiCrashRequest};
+    use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_gateway::NodeToUiMessage;
@@ -480,49 +482,114 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::pure_test_utils::make_default_persistent_configuration;
 
     #[derive(Default)]
-    struct ActorSystemFactoryToolsMock{
-        prepare_initial_messages_params: Arc<Mutex<Vec<(Box<dyn CryptDE>,Box<dyn CryptDE>,BootstrapperConfig,Box<dyn ActorFactory>)>>>,
-        prepare_initial_messages_results: RefCell<Vec<StreamHandlerPoolSubs>>
+    struct ActorSystemFactoryToolsMock {
+        prepare_initial_messages_params: Arc<
+            Mutex<
+                Vec<(
+                    Box<dyn CryptDE>,
+                    Box<dyn CryptDE>,
+                    BootstrapperConfig,
+                    Box<dyn ActorFactory>,
+                )>,
+            >,
+        >,
+        prepare_initial_messages_results: RefCell<Vec<StreamHandlerPoolSubs>>,
+        main_cryptde_ref_results: RefCell<Vec<&'static dyn CryptDE>>,
+        alias_cryptde_ref_results: RefCell<Vec<&'static dyn CryptDE>>,
+        database_chain_assertion_params: Arc<Mutex<Vec<Chain>>>,
+        database_chain_assertion_comapre_to_pointer:
+            RefCell<Vec<*const dyn PersistentConfiguration>>,
     }
 
-    impl ActorSystemFactoryTools for ActorSystemFactoryToolsMock{
+    impl ActorSystemFactoryTools for ActorSystemFactoryToolsMock {
         fn prepare_initial_messages(
             &self,
             main_cryptde: &'static dyn CryptDE,
             alias_cryptde: &'static dyn CryptDE,
             config: BootstrapperConfig,
-            actor_factory: Box<dyn ActorFactory>
+            actor_factory: Box<dyn ActorFactory>,
         ) -> StreamHandlerPoolSubs {
-            self.prepare_initial_messages_params.lock().unwrap()
-                .push((Box::new(<&CryptDENull>::from(main_cryptde).clone()),Box::new(<&CryptDENull>::from(alias_cryptde).clone()),config,actor_factory));
+            self.prepare_initial_messages_params.lock().unwrap().push((
+                Box::new(<&CryptDENull>::from(main_cryptde).clone()),
+                Box::new(<&CryptDENull>::from(alias_cryptde).clone()),
+                config,
+                actor_factory,
+            ));
             self.prepare_initial_messages_results.borrow_mut().remove(0)
         }
 
-        fn main_cryptde_ref(&self) -> &dyn CryptDE {
-            todo!()
+        fn main_cryptde_ref(&self) -> &'static dyn CryptDE {
+            self.main_cryptde_ref_results.borrow_mut().remove(0)
         }
 
-        fn alias_cryptde_ref(&self) -> &dyn CryptDE {
-            todo!()
+        fn alias_cryptde_ref(&self) -> &'static dyn CryptDE {
+            self.alias_cryptde_ref_results.borrow_mut().remove(0)
         }
 
-        fn database_chain_assertion(&self, chain: Chain, persistent_config: &dyn PersistentConfiguration) {
-            todo!()
+        fn database_chain_assertion(
+            &self,
+            chain: Chain,
+            persistent_config: &dyn PersistentConfiguration,
+        ) {
+            self.database_chain_assertion_params
+                .lock()
+                .unwrap()
+                .push(chain);
+            assert_eq!(
+                self.database_chain_assertion_comapre_to_pointer
+                    .borrow_mut()
+                    .remove(0),
+                addr_of!(*persistent_config)
+            )
         }
     }
 
-    impl ActorSystemFactoryToolsMock{
-        pub fn prepare_initial_messages_params(mut self,params: &Arc<Mutex<Vec<(Box<dyn CryptDE>,Box<dyn CryptDE>,BootstrapperConfig,Box<dyn ActorFactory>)>>>)-> Self{
-           self.prepare_initial_messages_params = params.clone();
-           self
+    impl ActorSystemFactoryToolsMock {
+        pub fn main_cryptde_ref_result(self, result: &'static dyn CryptDE) -> Self {
+            self.main_cryptde_ref_results.borrow_mut().push(result);
+            self
         }
 
-        pub fn prepare_initial_messages_result(self, result: StreamHandlerPoolSubs)-> Self{
-            self.prepare_initial_messages_results.borrow_mut().push(result);
+        pub fn alias_cryptde_ref_result(self, result: &'static dyn CryptDE) -> Self {
+            self.alias_cryptde_ref_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn database_chain_assertion_params(
+            mut self,
+            real_param: &Arc<Mutex<Vec<Chain>>>,
+            to_compare_for_in_place_param: *const dyn PersistentConfiguration,
+        ) -> Self {
+            self.database_chain_assertion_params = real_param.clone();
+            self.database_chain_assertion_comapre_to_pointer
+                .borrow_mut()
+                .push(to_compare_for_in_place_param);
+            self
+        }
+
+        pub fn prepare_initial_messages_params(
+            mut self,
+            params: &Arc<
+                Mutex<
+                    Vec<(
+                        Box<dyn CryptDE>,
+                        Box<dyn CryptDE>,
+                        BootstrapperConfig,
+                        Box<dyn ActorFactory>,
+                    )>,
+                >,
+            >,
+        ) -> Self {
+            self.prepare_initial_messages_params = params.clone();
+            self
+        }
+
+        pub fn prepare_initial_messages_result(self, result: StreamHandlerPoolSubs) -> Self {
+            self.prepare_initial_messages_results
+                .borrow_mut()
+                .push(result);
             self
         }
     }
@@ -563,7 +630,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config.clone());
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.dispatcher);
+            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.dispatcher);
             let dispatcher_subs = DispatcherSubs {
                 ibcd_sub: recipient!(addr, InboundClientData),
                 bind: recipient!(addr, BindMessage),
@@ -585,7 +652,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert((main_cryptde, alias_cryptde, config.clone()));
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
+            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.proxy_server);
             ProxyServerSubs {
                 bind: recipient!(addr, BindMessage),
                 from_dispatcher: recipient!(addr, InboundClientData),
@@ -609,7 +676,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config);
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.hopper);
+            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.hopper);
             HopperSubs {
                 bind: recipient!(addr, BindMessage),
                 from_hopper_client: recipient!(addr, IncipientCoresPackage),
@@ -631,7 +698,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert((cryptde, config.clone()));
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.neighborhood);
+            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.neighborhood);
             NeighborhoodSubs {
                 bind: recipient!(addr, BindMessage),
                 start: recipient!(addr, StartMessage),
@@ -663,7 +730,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert((config.clone(), data_directory.to_path_buf()));
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.accountant);
+            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.accountant);
             AccountantSubs {
                 bind: recipient!(addr, BindMessage),
                 start: recipient!(addr, StartMessage),
@@ -691,7 +758,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config.ui_gateway_config.clone());
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.ui_gateway);
+            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.ui_gateway);
             UiGatewaySubs {
                 bind: recipient!(addr, BindMessage),
                 node_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
@@ -703,7 +770,7 @@ mod tests {
             &self,
             _: &BootstrapperConfig,
         ) -> StreamHandlerPoolSubs {
-            start_recorder_and_fill_up_stream_handler_pool_subs(&self.stream_handler_pool)
+            make_stream_handler_pool_subs_from(&self.stream_handler_pool)
         }
 
         fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
@@ -712,7 +779,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config);
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_client);
+            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.proxy_client);
             ProxyClientSubs {
                 bind: recipient!(addr, BindMessage),
                 from_hopper: addr
@@ -733,7 +800,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config.clone());
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.blockchain_bridge);
+            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.blockchain_bridge);
             BlockchainBridgeSubs {
                 bind: recipient!(addr, BindMessage),
                 report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
@@ -748,24 +815,11 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config.clone());
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.configurator);
+            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.configurator);
             ConfiguratorSubs {
                 bind: recipient!(addr, BindMessage),
                 node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
             }
-        }
-    }
-
-    fn start_recorder_and_fill_up_stream_handler_pool_subs(recorder: &RefCell<Option<Recorder>>)
-        ->StreamHandlerPoolSubs{
-        let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(recorder);
-        StreamHandlerPoolSubs {
-            add_sub: recipient!(addr, AddStreamMsg),
-            transmit_sub: recipient!(addr, TransmitDataMsg),
-            remove_sub: recipient!(addr, RemoveStreamMsg),
-            bind: recipient!(addr, PoolBindMessage),
-            node_query_response: recipient!(addr, DispatcherNodeQueryResponse),
-            node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
         }
     }
 
@@ -863,10 +917,6 @@ mod tests {
         pub fn make_parameters(&self) -> Parameters<'a> {
             self.parameters.clone()
         }
-
-        fn start_recorder(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
-            recorder.borrow_mut().take().unwrap().start()
-        }
     }
 
     #[test]
@@ -915,7 +965,12 @@ mod tests {
         let subject = ActorSystemFactoryReal {};
 
         let system = System::new("test");
-        subject.make_and_start_actors(config, Box::new(actor_factory), &persistent_config,&ActorSystemFactoryToolsReal);
+        subject.make_and_start_actors(
+            config,
+            Box::new(actor_factory),
+            &persistent_config,
+            &ActorSystemFactoryToolsReal,
+        );
         System::current().stop();
         system.run();
 
@@ -973,7 +1028,7 @@ mod tests {
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
-            Box::new(actor_factory)
+            Box::new(actor_factory),
         );
 
         System::current().stop();
@@ -1086,7 +1141,7 @@ mod tests {
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
-            Box::new(actor_factory)
+            Box::new(actor_factory),
         );
 
         System::current().stop();
@@ -1147,7 +1202,7 @@ mod tests {
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
-            Box::new(actor_factory)
+            Box::new(actor_factory),
         );
 
         System::current().stop();
@@ -1373,31 +1428,99 @@ mod tests {
             bootstrapper_config,
             Box::new(ActorFactoryReal {}),
             &persistent_config,
-            &ActorSystemFactoryToolsReal
+            &ActorSystemFactoryToolsReal,
         );
     }
 
     #[test]
-    fn make_and_start_actors_and_prepare_initial_messages_are_connected(){
+    fn make_and_start_actors_happy_path() {
+        let database_chain_assertion_params_arc = Arc::new(Mutex::new(vec![]));
         let prepare_initial_messages_params_arc = Arc::new(Mutex::new(vec![]));
-        let irrelevant_recorder = RefCell::new(Some(Recorder::new()));
-        let stream_holder_pool_subs = start_recorder_and_fill_up_stream_handler_pool_subs(&irrelevant_recorder);
-        let stream_holder_pools_memory_addr = addr_of!(stream_holder_pool_subs);
-        let mut bootstrapper_config= BootstrapperConfig::new();
+        let recorder = Recorder::new();
+        let recording_arc = recorder.get_recording();
+        let stream_holder_pool_subs =
+            make_stream_handler_pool_subs_from(&RefCell::new(Some(recorder)));
+        let mut bootstrapper_config = BootstrapperConfig::new();
         let persistent_config = PersistentConfigurationMock::default();
+        let persistent_config_to_compare = addr_of!(persistent_config);
+        bootstrapper_config.blockchain_bridge_config.chain = Chain::PolyMainnet;
+        let irrelevant_data_dir = PathBuf::new().join("big_directory/small_directory");
+        bootstrapper_config.data_directory = irrelevant_data_dir.clone();
         bootstrapper_config.db_password_opt = Some("chameleon".to_string());
+        let main_cryptde = main_cryptde();
+        let main_cryptde_public_key_before = public_key_for_dyn_cryptde_being_null(main_cryptde);
+        let alias_cryptde = alias_cryptde();
+        let alias_cryptde_public_key_before = public_key_for_dyn_cryptde_being_null(alias_cryptde);
+        let actor_factory = Box::new(ActorFactoryReal {}) as Box<dyn ActorFactory>;
+        let actor_factory_raw_address = addr_of!(*actor_factory);
         let tools = ActorSystemFactoryToolsMock::default()
+            .main_cryptde_ref_result(main_cryptde)
+            .alias_cryptde_ref_result(alias_cryptde)
+            .database_chain_assertion_params(
+                &database_chain_assertion_params_arc,
+                persistent_config_to_compare,
+            )
             .prepare_initial_messages_params(&prepare_initial_messages_params_arc)
             .prepare_initial_messages_result(stream_holder_pool_subs);
 
-        let result = ActorSystemFactoryReal{}.make_and_start_actors(
+        let result = ActorSystemFactoryReal {}.make_and_start_actors(
             bootstrapper_config,
             Box::new(ActorFactoryReal {}),
             &persistent_config,
-            &tools
+            &tools,
         );
 
-        assert_eq!(addr_of!(result),stream_holder_pools_memory_addr)
+        let database_chain_assertion_params = database_chain_assertion_params_arc.lock().unwrap();
+        assert_eq!(*database_chain_assertion_params, vec![Chain::PolyMainnet]);
+        let mut prepare_initial_messages_params =
+            prepare_initial_messages_params_arc.lock().unwrap();
+        let (
+            main_cryptde_after,
+            alias_cryptde_after,
+            bootstrapper_config_after,
+            actor_factory_after,
+        ) = prepare_initial_messages_params.remove(0);
+        assert!(prepare_initial_messages_params.is_empty());
+        let main_cryptde_public_key_after =
+            public_key_for_dyn_cryptde_being_null(main_cryptde_after.as_ref());
+        assert_eq!(
+            main_cryptde_public_key_after,
+            main_cryptde_public_key_before
+        );
+        let alias_cryptde_public_key_after =
+            public_key_for_dyn_cryptde_being_null(alias_cryptde_after.as_ref());
+        assert_eq!(
+            alias_cryptde_public_key_after,
+            alias_cryptde_public_key_before
+        );
+        assert_eq!(
+            bootstrapper_config_after.data_directory,
+            irrelevant_data_dir
+        );
+        assert_eq!(
+            bootstrapper_config_after.db_password_opt,
+            Some("chameleon".to_string())
+        );
+        assert_eq!(addr_of!(*actor_factory_after), actor_factory_raw_address);
+        let system =
+            System::new("make_and_start_actors_and_prepare_initial_messages_are_connected");
+        let msg_of_irrelevant_choice = NodeFromUiMessage {
+            client_id: 5,
+            body: UiDescriptorRequest {}.tmb(1),
+        };
+        result
+            .node_from_ui_sub
+            .try_send(msg_of_irrelevant_choice.clone())
+            .unwrap();
+        System::current().stop_with_code(0);
+        system.run();
+        let recording = recording_arc.lock().unwrap();
+        let msg = recording.get_record::<NodeFromUiMessage>(0);
+        assert_eq!(msg, &msg_of_irrelevant_choice)
+    }
 
+    fn public_key_for_dyn_cryptde_being_null(cryptde: &dyn CryptDE) -> &PublicKey {
+        let null_cryptde = <&CryptDENull>::from(cryptde);
+        null_cryptde.public_key()
     }
 }
