@@ -1,4 +1,3 @@
-use std::any::Any;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::{
@@ -13,6 +12,7 @@ use sodiumoxide::crypto::secretbox;
 use sodiumoxide::crypto::sign as signing;
 use sodiumoxide::crypto::{box_ as encryption, hash};
 use sodiumoxide::randombytes::randombytes_into;
+use std::any::Any;
 
 lazy_static! {
     static ref INITIALIZED: bool = {
@@ -183,7 +183,9 @@ impl CryptDE for CryptDEReal {
     }
 
     fn as_any(&self) -> &dyn Any {
-        intentionally_blank!()
+        //I don't know about a use of this for cryptDEReal anywhere;
+        //created for a special case of manipulation with cryptDENull where I know I'm not going to meet cryptDEReal there
+        unimplemented!()
     }
 }
 

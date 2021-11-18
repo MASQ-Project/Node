@@ -70,7 +70,9 @@ impl UiGateway {
                     }
                 },
                 Err(e) if e.is_syntax() => {
-                    Some(UiMessageError::DeserializationError(e.to_string()))
+                    let mut example = payload.clone();
+                    example.truncate(100);
+                    Some(UiMessageError::DeserializationError(e.to_string(), example))
                 }
                 //we don't care when messages just look different from the crash request
                 //in 99% we're here and getting an err for legit messages; thus not a true error
@@ -161,10 +163,15 @@ impl Handler<NodeFromUiMessage> for UiGateway {
             self.logger,
             "Received NodeFromUiMessage with opcode: '{}'", msg.body.opcode
         );
-        if let Some(UiMessageError::DeserializationError(error)) =
+        if let Some(UiMessageError::DeserializationError(error, original)) =
             self.deserialization_validator_with_crash_request_handler(msg.body.clone())
         {
-            warning!(self.logger, "Deserialization error: {}", error);
+            warning!(
+                self.logger,
+                "Deserialization error: {}; original message (maximally 100 characters): {}",
+                error,
+                original
+            );
             return;
         };
         let len = self.incoming_message_recipients.len();
@@ -312,12 +319,14 @@ mod tests {
         let subject_addr: Addr<UiGateway> = subject.start();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let payload = "some bad bite for a jason processor; and filling up to 120 characters:abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqqrstuvw".to_string();
+        let payload_length = payload.len();
         let msg = NodeFromUiMessage {
             client_id: 0,
             body: MessageBody {
                 opcode: "booga".to_string(),
                 path: FireAndForget,
-                payload: Ok("some bad bite for a jason processor".to_string()),
+                payload: Ok(payload),
             },
         };
 
@@ -327,8 +336,12 @@ mod tests {
         system.run();
         let random_actor_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(random_actor_recording.len(), 0);
+        let expected_msg_example = "some bad bite for a jason processor; and filling up to 120 characters:abcdefghijklmnopqrstuvwxyzabcd";
+        let len_expected = expected_msg_example.len();
+        assert_eq!(len_expected, 100);
+        assert!(payload_length > len_expected + 10);
         TestLogHandler::new().exists_log_containing(
-            "WARN: UiGateway: Deserialization error: expected value at line 1 column 1",
+            &format!("WARN: UiGateway: Deserialization error: expected value at line 1 column 1; original message (maximally 100 characters): {}",expected_msg_example)
         );
     }
 

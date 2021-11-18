@@ -1425,18 +1425,22 @@ mod tests {
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let neighbor_node = make_node_record(3456, true);
         let system = System::new("node_with_bad_neighbor_config_panics");
+        let node_descriptor = NodeDescriptor {
+            blockchain: Chain::EthRopsten,
+            encryption_public_key: cryptde
+                .descriptor_fragment_to_first_contact_public_key(
+                    &cryptde.public_key_to_descriptor_fragment(neighbor_node.public_key()),
+                )
+                .expect("Internal error"),
+            node_addr_opt: None,
+        };
         let subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                        vec![NodeDescriptor::from((
-                            neighbor_node.public_key(),
-                            None,
-                            Chain::EthRopsten,
-                            cryptde,
-                        ))],
+                        vec![node_descriptor],
                         rate_pack(100),
                     ),
                 },
@@ -1602,10 +1606,7 @@ mod tests {
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
-                            Some(&NodeAddr::new(
-                                &IpAddr::from_str("1.2.3.4").unwrap(),
-                                &[1234, 2345],
-                            )),
+                            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
                             Chain::EthRopsten,
                             cryptde,
                         ))],
@@ -1692,10 +1693,7 @@ mod tests {
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
-                            Some(&NodeAddr::new(
-                                &IpAddr::from_str("1.2.3.4").unwrap(),
-                                &[1234, 2345],
-                            )),
+                            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
                             Chain::EthRopsten,
                             cryptde,
                         ))],
@@ -3543,12 +3541,7 @@ mod tests {
 
     fn node_record_to_neighbor_config(node_record_ref: &NodeRecord) -> NodeDescriptor {
         let cryptde: &dyn CryptDE = main_cryptde();
-        NodeDescriptor::from((
-            &node_record_ref.public_key().clone(),
-            node_record_ref.node_addr_opt().as_ref(),
-            Chain::EthRopsten,
-            cryptde,
-        ))
+        NodeDescriptor::from((node_record_ref, Chain::EthRopsten, cryptde))
     }
 
     #[test]
@@ -3610,10 +3603,10 @@ mod tests {
                             NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                             vec![NodeDescriptor::from((
                                 &PublicKey::new(&b"booga"[..]),
-                                Some(&NodeAddr::new(
+                                &NodeAddr::new(
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &[1234, 2345],
-                                )),
+                                ),
                                 Chain::EthRopsten,
                                 cryptde,
                             ))],
@@ -3737,10 +3730,10 @@ mod tests {
                             NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                             vec![NodeDescriptor::from((
                                 &PublicKey::new(&b"booga"[..]),
-                                Some(&NodeAddr::new(
+                                &NodeAddr::new(
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &[1234, 2345],
-                                )),
+                                ),
                                 Chain::EthRopsten,
                                 cryptde,
                             ))],

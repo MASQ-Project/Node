@@ -126,9 +126,9 @@ pub struct NodeDescriptor {
     pub node_addr_opt: Option<NodeAddr>,
 }
 
-impl From<(&PublicKey, Option<&NodeAddr>, Chain, &dyn CryptDE)> for NodeDescriptor {
-    fn from(tuple: (&PublicKey, Option<&NodeAddr>, Chain, &dyn CryptDE)) -> Self {
-        let (public_key, node_addr_opt, blockchain, cryptde) = tuple;
+impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE)> for NodeDescriptor {
+    fn from(tuple: (&PublicKey, &NodeAddr, Chain, &dyn CryptDE)) -> Self {
+        let (public_key, node_addr, blockchain, cryptde) = tuple;
         NodeDescriptor {
             blockchain,
             encryption_public_key: cryptde
@@ -136,7 +136,7 @@ impl From<(&PublicKey, Option<&NodeAddr>, Chain, &dyn CryptDE)> for NodeDescript
                     &cryptde.public_key_to_descriptor_fragment(public_key),
                 )
                 .expect("Internal error"),
-            node_addr_opt: node_addr_opt.cloned(),
+            node_addr_opt: Some(node_addr.clone()),
         }
     }
 }
@@ -796,8 +796,7 @@ mod tests {
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
 
-        let result =
-            NodeDescriptor::from((&public_key, Some(&node_addr), Chain::EthMainnet, cryptde));
+        let result = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
 
         assert_eq!(
             result,
@@ -814,8 +813,7 @@ mod tests {
         let cryptde: &dyn CryptDE = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
-        let subject =
-            NodeDescriptor::from((&public_key, Some(&node_addr), Chain::EthMainnet, cryptde));
+        let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
 
         let result = subject.to_string(cryptde);
 
@@ -830,8 +828,7 @@ mod tests {
         let cryptde: &dyn CryptDE = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
-        let subject =
-            NodeDescriptor::from((&public_key, Some(&node_addr), Chain::EthRopsten, cryptde));
+        let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
 
         let result = subject.to_string(cryptde);
 
@@ -851,7 +848,7 @@ mod tests {
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let required_number_of_characters = 43;
         let descriptor =
-            NodeDescriptor::from((&public_key, Some(&node_addr), Chain::EthMainnet, cryptde));
+            NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
         let string_descriptor = descriptor.to_string(cryptde);
 
         let result = string_descriptor

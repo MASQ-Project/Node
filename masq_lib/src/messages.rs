@@ -20,7 +20,7 @@ pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 pub enum UiMessageError {
     UnexpectedMessage(String, MessagePath),
     PayloadError(u64, String),
-    DeserializationError(String),
+    DeserializationError(String, String),
 }
 
 impl fmt::Display for UiMessageError {
@@ -39,10 +39,10 @@ impl fmt::Display for UiMessageError {
                 "Daemon or Node complained about your command. Error code {}: {}",
                 code, message
             ),
-            DeserializationError(message) => write!(
+            DeserializationError(error_message, original) => write!(
                 f,
-                "Could not deserialize message from Daemon or Node: {}",
-                message
+                "Could not deserialize message from Daemon or Node: {}; original text: '{}'",
+                error_message, original
             ),
         }
     }
@@ -87,7 +87,7 @@ macro_rules! fire_and_forget_message {
                 let payload = match body.payload {
                     Ok(json) => match serde_json::from_str::<Self>(&json) {
                         Ok(item) => item,
-                        Err(e) => return Err(DeserializationError(format!("{:?}", e))),
+                        Err(e) => return Err(DeserializationError(format!("{:?}", e), json)),
                     },
                     Err((code, message)) => return Err(PayloadError(code, message)),
                 };
@@ -139,7 +139,7 @@ macro_rules! conversation_message {
                 let payload = match body.payload {
                     Ok(json) => match serde_json::from_str::<Self>(&json) {
                         Ok(item) => item,
-                        Err(e) => return Err(DeserializationError(format!("{:?}", e))),
+                        Err(e) => return Err(DeserializationError(format!("{:?}", e), json)),
                     },
                     Err((code, message)) => return Err(PayloadError(code, message)),
                 };

@@ -119,19 +119,21 @@ fn crash_request_analyzer(
     crashable: bool,
     crash_key: &str,
 ) -> Option<UiCrashRequest> {
-    match (crashable, UiCrashRequest::fmb(msg.body)) {
-        (false, _) => None,
-        (true, Err(_)) => None,
-        (true, Ok((msg, _))) if msg.actor == crash_key => Some(msg),
-        (true, Ok((msg, _))) => {
-            debug!(
-                logger,
-                "Rejected crash instruction for '{}' with message '{}'",
-                msg.actor,
-                msg.panic_message
-            );
-            None
+    if !crashable {
+        if logger.debug_enabled() {
+            match UiCrashRequest::fmb(msg.body) {
+                Ok((msg, _)) if msg.actor == crash_key => {
+                    debug!(logger,"Received a crash request intended for this actor '{}' but not set up to be crashable",crash_key)
+                }
+                _ => (),
+            }
         }
+        return None;
+    }
+    match UiCrashRequest::fmb(msg.body) {
+        Err(_) => None,
+        Ok((msg, _)) if msg.actor == crash_key => Some(msg),
+        Ok((_, _)) => None,
     }
 }
 
@@ -148,6 +150,7 @@ pub mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use log::Level;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::multi_config::CommandLineVcl;
 
@@ -206,9 +209,13 @@ pub mod tests {
         assert_eq!(NODE_MAILBOX_CAPACITY, 0)
     }
 
+    const BEGINNING_OF_CRASH_RQ_MESSAGE: &str = "Received a crash request";
+
     #[test]
     fn handle_ui_crash_message_does_not_crash_if_not_crashable() {
-        let logger = Logger::new("Example");
+        init_test_logging();
+        let mut logger = Logger::new("handle_ui_crash_message_does_not_crash_if_not_crashable");
+        logger.set_level_for_a_test(Level::Info);
         let msg_body = UiCrashRequest {
             actor: "CRASHKEY".to_string(),
             panic_message: "Foiled again!".to_string(),
@@ -221,6 +228,32 @@ pub mod tests {
 
         handle_ui_crash_request(from_ui_message, &logger, false, "CRASHKEY");
         // no panic; test passes
+
+        TestLogHandler::new().exists_no_log_containing(&format!(
+            "handle_ui_crash_message_does_not_crash_if_not_crashable: {}",
+            BEGINNING_OF_CRASH_RQ_MESSAGE
+        ));
+    }
+
+    #[test]
+    fn handle_ui_crash_message_does_not_crash_if_not_crashable_but_logs_if_receives_a_crash_request_for_it_despite(
+    ) {
+        init_test_logging();
+        let logger = Logger::new("handle_ui_crash_message_does_not_crash_if_not_crashable_but_logs_if_receives_a_crash_request_for_it_despite");
+        let msg_body = UiCrashRequest {
+            actor: "CRASHKEY".to_string(),
+            panic_message: "Foiled again!".to_string(),
+        }
+        .tmb(0);
+        let from_ui_message = NodeFromUiMessage {
+            client_id: 0,
+            body: msg_body,
+        };
+
+        handle_ui_crash_request(from_ui_message, &logger, false, "CRASHKEY");
+        // no panic; test passes
+
+        TestLogHandler::new().exists_log_containing(&format!("handle_ui_crash_message_does_not_crash_if_not_crashable_but_logs_if_receives_a_crash_request_for_it_despite: {} intended for this actor 'CRASHKEY' but not set up to be crashable", BEGINNING_OF_CRASH_RQ_MESSAGE));
     }
 
     #[test]
@@ -239,8 +272,6 @@ pub mod tests {
 
         handle_ui_crash_request(from_ui_message, &logger, true, "mismatch");
         // no panic; test passes
-
-        TestLogHandler::new().exists_log_containing("DEBUG: Example: Rejected crash instruction for 'CRASHKEY' with message 'Foiled again!'");
     }
 
     #[test]

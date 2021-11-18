@@ -457,14 +457,13 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::pure_test_utils::{CleanUpMessage, DummyActor};
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
-    use actix::Actor;
-    use actix::Message;
-    use actix::{Context, Handler, System};
-    use crossbeam_channel::{bounded, Sender};
+    use actix::System;
+    use crossbeam_channel::bounded;
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
@@ -1295,7 +1294,7 @@ mod tests {
     {
         let (mercy_signal_tx, mercy_signal_rx) = bounded(1);
         let system = System::new("test");
-        let dummy_actor = DummyActor::new(mercy_signal_tx);
+        let dummy_actor = DummyActor::new(Some(mercy_signal_tx));
         let dummy_addr = Arbiter::start(|_| dummy_actor);
         let ui_node_addr = actor_initialization();
         let crash_request = UiCrashRequest {
@@ -1309,7 +1308,9 @@ mod tests {
             client_id: 1,
             body: crash_request.tmb(123),
         };
-        dummy_addr.try_send(CleanUpMessage {}).unwrap();
+        dummy_addr
+            .try_send(CleanUpMessage { sleep_ms: 1500 })
+            .unwrap();
         ui_node_addr.try_send(actor_message).unwrap();
         system.run();
         assert!(
@@ -1317,33 +1318,6 @@ mod tests {
             "{} while panicking is unable to shut the system down",
             actor_crash_key
         )
-    }
-
-    #[derive(Debug, Message, Clone)]
-    struct CleanUpMessage {}
-
-    struct DummyActor {
-        system_stop_signal: Sender<()>,
-    }
-
-    impl DummyActor {
-        fn new(system_stop_signal: Sender<()>) -> Self {
-            Self { system_stop_signal }
-        }
-    }
-
-    impl Actor for DummyActor {
-        type Context = Context<Self>;
-    }
-
-    impl Handler<CleanUpMessage> for DummyActor {
-        type Result = ();
-
-        fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
-            thread::sleep(Duration::from_millis(1500));
-            let _ = self.system_stop_signal.send(());
-            System::current().stop();
-        }
     }
 
     fn check_bind_message(recording: &Arc<Mutex<Recording>>, consume_only_flag: bool) {

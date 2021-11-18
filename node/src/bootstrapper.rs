@@ -530,7 +530,7 @@ impl Bootstrapper {
         let descriptor = match node_addr_opt {
             Some(node_addr) => {
                 let node_descriptor =
-                    NodeDescriptor::from((cryptde.public_key(), Some(&node_addr), chain, cryptde));
+                    NodeDescriptor::from((cryptde.public_key(), &node_addr, chain, cryptde));
                 node_descriptor.to_string(cryptde)
             }
             None => format!(
@@ -1582,10 +1582,10 @@ mod tests {
                 NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]),
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
-                    Some(&NodeAddr::new(
+                    &NodeAddr::new(
                         &IpAddr::from_str("1.2.3.4").unwrap(),
                         &[1234], //this port number comes from the neighbor
-                    )),
+                    ),
                     Chain::EthMainnet,
                     cryptde,
                 ))],
@@ -1654,10 +1654,7 @@ mod tests {
                 NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]),
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
-                    Some(&NodeAddr::new(
-                        &IpAddr::from_str("1.2.3.4").unwrap(),
-                        &[1234],
-                    )),
+                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                     Chain::EthRopsten,
                     cryptde,
                 ))],
@@ -1708,10 +1705,7 @@ mod tests {
             mode: NeighborhoodMode::OriginateOnly(
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
-                    Some(&NodeAddr::new(
-                        &IpAddr::from_str("1.2.3.4").unwrap(),
-                        &[1234],
-                    )),
+                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                     Chain::EthRopsten,
                     cryptde,
                 ))],
@@ -1748,10 +1742,7 @@ mod tests {
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from((
                 cryptde.public_key(),
-                Some(&NodeAddr::new(
-                    &IpAddr::from_str("1.2.3.4").unwrap(),
-                    &[1234],
-                )),
+                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                 Chain::EthRopsten,
                 cryptde,
             ))]),
