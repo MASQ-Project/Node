@@ -20,7 +20,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use itertools::Either;
-use masq_lib::messages::{UiCrashRequest, UiMessageError};
+use masq_lib::messages::UiCrashRequest;
 use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::mem::replace;
@@ -59,7 +59,7 @@ impl UiGateway {
     fn deserialization_validator_with_crash_request_handler(
         &self,
         message_body: MessageBody,
-    ) -> Option<UiMessageError> {
+    ) -> Option<(String, String)> {
         match &message_body.payload {
             Ok(payload) => match serde_json::from_str::<UiCrashRequest>(payload) {
                 Ok(crash_request) => match (self.crashable, crash_request.actor == CRASH_KEY) {
@@ -72,7 +72,7 @@ impl UiGateway {
                 Err(e) if e.is_syntax() => {
                     let mut example = payload.clone();
                     example.truncate(100);
-                    Some(UiMessageError::DeserializationError(e.to_string(), example))
+                    Some((e.to_string(), example))
                 }
                 //we don't care when messages just look different from the crash request
                 //in 99% we're here and getting an err for legit messages; thus not a true error
@@ -163,7 +163,7 @@ impl Handler<NodeFromUiMessage> for UiGateway {
             self.logger,
             "Received NodeFromUiMessage with opcode: '{}'", msg.body.opcode
         );
-        if let Some(UiMessageError::DeserializationError(error, original)) =
+        if let Some((error, original)) =
             self.deserialization_validator_with_crash_request_handler(msg.body.clone())
         {
             warning!(
@@ -306,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn a_syntactically_bad_json_is_caught() {
+    fn a_syntactically_bad_json_is_caught_and_a_truncated_example_is_provided() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let subject = UiGateway::new(
@@ -319,7 +319,7 @@ mod tests {
         let subject_addr: Addr<UiGateway> = subject.start();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let payload = "some bad bite for a jason processor; and filling up to 120 characters:abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqqrstuvw".to_string();
+        let payload = "some bad bite for a jason processor; filling up to 120 characters: abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqqrstuvwxyz".to_string();
         let payload_length = payload.len();
         let msg = NodeFromUiMessage {
             client_id: 0,
@@ -336,13 +336,15 @@ mod tests {
         system.run();
         let random_actor_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(random_actor_recording.len(), 0);
-        let expected_msg_example = "some bad bite for a jason processor; and filling up to 120 characters:abcdefghijklmnopqrstuvwxyzabcd";
+        let expected_msg_example = "some bad bite for a jason processor; filling up to 120 characters: abcdefghijklmnopqrstuvwxyzabcdefg";
         let len_expected = expected_msg_example.len();
         assert_eq!(len_expected, 100);
         assert!(payload_length > len_expected + 10);
-        TestLogHandler::new().exists_log_containing(
-            &format!("WARN: UiGateway: Deserialization error: expected value at line 1 column 1; original message (maximally 100 characters): {}",expected_msg_example)
-        );
+        let expected_log = format!("WARN: UiGateway: Deserialization error: expected value at line 1 column 1; original message (maximally 100 characters): {}",expected_msg_example);
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing(&expected_log);
+        let log_unexpected_because_longer = &format!("{}h", expected_log);
+        log_handler.exists_no_log_containing(log_unexpected_because_longer)
     }
 
     #[test]

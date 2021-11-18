@@ -1,4 +1,3 @@
-use std::any::Any;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::CryptData;
@@ -11,6 +10,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::ExpectValue;
 use rand::prelude::*;
 use rustc_hex::ToHex;
+use std::any::Any;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 
