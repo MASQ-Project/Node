@@ -16,6 +16,8 @@ use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiCrashRequest, UiDescriptorRequest, UiDescriptorResponse,
 };
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::test_utils::main_cryptde;
 
 pub const CRASH_KEY: &str = "DISPATCHER";
 
@@ -30,7 +32,7 @@ struct DispatcherOutSubs {
 pub struct Dispatcher {
     subs: Option<DispatcherOutSubs>,
     crashable: bool,
-    node_descriptor: String,
+    node_descriptor: NodeDescriptor,
     to_stream: Option<Recipient<TransmitDataMsg>>,
     logger: Logger,
 }
@@ -124,11 +126,11 @@ impl Handler<NodeFromUiMessage> for Dispatcher {
 }
 
 impl Dispatcher {
-    pub fn new(crash_point: CrashPoint, node_descriptor: String) -> Dispatcher {
+    pub fn new(crash_point: CrashPoint, node_descriptor: &NodeDescriptor) -> Dispatcher {
         Dispatcher {
             subs: None,
             crashable: crash_point == CrashPoint::Message,
-            node_descriptor,
+            node_descriptor: node_descriptor.clone(),
             to_stream: None,
             logger: Logger::new("Dispatcher"),
         }
@@ -160,7 +162,7 @@ impl Dispatcher {
 
     fn handle_descriptor_request(&mut self, client_id: u64, context_id: u64) {
         let response_inner = UiDescriptorResponse {
-            node_descriptor: self.node_descriptor.clone(),
+            node_descriptor: self.node_descriptor.to_string(main_cryptde()),
         };
         let response_msg = NodeToUiMessage {
             target: MessageTarget::ClientId(client_id),
@@ -191,11 +193,18 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;
+    use crate::sub_lib::neighborhood::NodeDescriptor;
+    use crate::test_utils::main_cryptde;
+    use lazy_static::lazy_static;
+
+    lazy_static! {
+        static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::from_str(main_cryptde(), "blah").unwrap();
+    }
 
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
+        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
         let proxy_server = Recorder::new();
@@ -236,7 +245,7 @@ mod tests {
     #[test]
     fn sends_inbound_data_for_hopper_to_hopper() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
+        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
         let subject_addr: Addr<Dispatcher> = subject.start();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -275,7 +284,7 @@ mod tests {
     #[should_panic(expected = "ProxyServer unbound in Dispatcher")]
     fn inbound_client_data_handler_panics_when_proxy_server_is_unbound() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
+        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
@@ -300,7 +309,7 @@ mod tests {
     #[should_panic(expected = "Hopper unbound in Dispatcher")]
     fn inbound_client_data_handler_panics_when_hopper_is_unbound() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
+        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
@@ -325,7 +334,7 @@ mod tests {
     #[should_panic(expected = "StreamHandlerPool unbound in Dispatcher")]
     fn panics_when_stream_handler_pool_is_unbound() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
+        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_obcd = subject_addr.recipient::<TransmitDataMsg>();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -346,7 +355,7 @@ mod tests {
     #[test]
     fn forwards_outbound_data_to_stream_handler_pool() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
+        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_obcd = subject_addr.clone().recipient::<TransmitDataMsg>();
         let stream_handler_pool = Recorder::new();
@@ -393,7 +402,7 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_routes_non_clandestine_to_proxy_server() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
+        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -427,7 +436,7 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_routes_clandestine_to_neighborhood() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
+        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -461,7 +470,9 @@ mod tests {
         let system = System::new("test");
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
-        bootstrapper_config.node_descriptor_opt = Some("abcdef1234".to_string());
+        let node_descriptor = NodeDescriptor::from_str(main_cryptde(),
+            "masq://eth-mainnet:95VjByq5tEUUpDcczA__zXWGE6-7YFEvzN4CDVoPbWw@13.23.13.23:4545").unwrap();
+        bootstrapper_config.node_descriptor_opt = Some(node_descriptor.clone());
         let msg = NodeFromUiMessage {
             client_id: 1234,
             body: UiDescriptorRequest {}.tmb(4321),
@@ -487,7 +498,7 @@ mod tests {
             &NodeToUiMessage {
                 target: MessageTarget::ClientId(1234),
                 body: UiDescriptorResponse {
-                    node_descriptor: "abcdef1234".to_string()
+                    node_descriptor: node_descriptor.to_string(main_cryptde()),
                 }
                 .tmb(4321)
             }

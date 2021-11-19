@@ -36,9 +36,7 @@ use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::{
-    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, DEFAULT_UI_PORT, MASQ_URL_PREFIX,
-};
+use masq_lib::constants::{DEFAULT_UI_PORT};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
@@ -49,7 +47,7 @@ use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -310,7 +308,7 @@ pub struct BootstrapperConfig {
     pub blockchain_bridge_config: BlockchainBridgeConfig,
     pub port_configurations: HashMap<u16, PortConfiguration>,
     pub data_directory: PathBuf,
-    pub node_descriptor_opt: Option<String>,
+    pub node_descriptor_opt: Option<NodeDescriptor>,
     pub main_cryptde_null_opt: Option<CryptDENull>,
     pub alias_cryptde_null_opt: Option<CryptDENull>,
     pub mapping_protocol_opt: Option<AutomapProtocol>,
@@ -446,12 +444,22 @@ impl ConfiguredByPrivilege for Bootstrapper {
             &self.config.alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
-        self.config.node_descriptor_opt = Some(Bootstrapper::report_local_descriptor(
-            cryptde_ref,
-            self.config.neighborhood_config.mode.node_addr_opt(),
-            streams,
-            self.config.blockchain_bridge_config.chain,
-        ));
+        match &self.config.neighborhood_config.mode {
+            NeighborhoodMode::Standard(node_addr, _, _) if node_addr.ip_addr() != Ipv4Addr::new (0, 0, 0, 0) => {
+                let node_descriptor = Bootstrapper::make_local_descriptor(
+                    cryptde_ref,
+                    self.config.neighborhood_config.mode.node_addr_opt(),
+                    self.config.blockchain_bridge_config.chain,
+                );
+                Bootstrapper::report_local_descriptor(
+                    cryptde_ref,
+                    &node_descriptor,
+                    streams,
+                );
+                self.config.node_descriptor_opt = Some (node_descriptor);
+            },
+            _ => ()
+        }
         let stream_handler_pool_subs = self
             .actor_system_factory
             .make_and_start_actors(self.config.clone(), Box::new(ActorFactoryReal {}));
@@ -507,31 +515,25 @@ impl Bootstrapper {
         (main_cryptde_ref(), alias_cryptde_ref())
     }
 
-    fn report_local_descriptor(
+    fn make_local_descriptor (
         cryptde: &dyn CryptDE,
         node_addr_opt: Option<NodeAddr>,
-        streams: &mut StdStreams<'_>,
         chain: Chain,
-    ) -> String {
-        let descriptor = match node_addr_opt {
-            Some(node_addr) => {
-                let node_descriptor =
-                    NodeDescriptor::from((cryptde.public_key(), &node_addr, chain, cryptde));
-                node_descriptor.to_string(cryptde)
-            }
-            None => format!(
-                "{}{}{}{}{}:",
-                MASQ_URL_PREFIX,
-                chain.rec().literal_identifier,
-                CHAIN_IDENTIFIER_DELIMITER,
-                cryptde.public_key_to_descriptor_fragment(cryptde.public_key()),
-                CENTRAL_DELIMITER
-            ),
-        };
-        let descriptor_msg = format!("MASQ Node local descriptor: {}", descriptor);
+    ) -> NodeDescriptor {
+        match node_addr_opt {
+            Some(node_addr) => NodeDescriptor::from((cryptde.public_key(), &node_addr, chain, cryptde)),
+            None => NodeDescriptor::from((cryptde.public_key(), chain, cryptde))
+        }
+    }
+
+    fn report_local_descriptor (
+        cryptde: &dyn CryptDE,
+        descriptor: &NodeDescriptor,
+        streams: &mut StdStreams<'_>,
+    ) {
+        let descriptor_msg = format!("MASQ Node local descriptor: {}", descriptor.to_string(cryptde));
         short_writeln!(streams.stdout, "{}", descriptor_msg);
         info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
-        descriptor
     }
 
     fn set_up_clandestine_port(&mut self) -> Option<u16> {
@@ -609,7 +611,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::marker::Sync;
     use std::net::{IpAddr, SocketAddr};
-    use std::ops::{DerefMut, Not};
+    use std::ops::{DerefMut};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -1047,6 +1049,8 @@ mod tests {
                     "MASQNode",
                     "--ip",
                     "1.2.3.4",
+                    "--clandestine-port",
+                    "5000",
                     "--data-directory",
                     data_dir.to_str().unwrap(),
                 ]),
@@ -1055,7 +1059,47 @@ mod tests {
             .unwrap();
 
         let config = subject.config;
-        assert!(config.node_descriptor_opt.unwrap().is_empty().not());
+        assert_eq!(config.node_descriptor_opt.unwrap(), NodeDescriptor::from ((
+            main_cryptde_ref().public_key(),
+            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5000]),
+            Chain::EthRopsten,
+            main_cryptde_ref()
+        )));
+    }
+
+    #[test]
+    fn initialize_as_unprivileged_does_not_create_or_report_descriptor_when_ip_is_not_supplied_in_standard_mode() {
+        init_test_logging();
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "initialize_as_unprivileged_does_not_create_or_report_descriptor_when_ip_is_not_supplied_in_standard_mode",
+        );
+        let mut holder = FakeStreamHolder::new();
+        let mut config = BootstrapperConfig::new();
+        config.clandestine_port_opt = Some(1234);
+        config.data_directory = data_dir.clone();
+        let mut subject = BootstrapperBuilder::new()
+            .add_listener_handler(Box::new(
+                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
+            ))
+            .config(config)
+            .build();
+
+        subject
+            .initialize_as_unprivileged(
+                &make_simplified_multi_config([
+                    "MASQNode",
+                    "--data-directory",
+                    data_dir.to_str().unwrap(),
+                ]),
+                &mut holder.streams(),
+            )
+            .unwrap();
+
+        let config = subject.config;
+        assert!(config.node_descriptor_opt.is_none(), "Node descriptor should have been None, not {:?}", config.node_descriptor_opt);
+        assert!(!holder.stdout.get_string().contains ("MASQ Node local descriptor"));
+        TestLogHandler::new().exists_no_log_containing ("MASQ Node local descriptor");
     }
 
     #[test]
@@ -1246,12 +1290,12 @@ mod tests {
 
             let (cryptde_ref, _) =
                 Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
-            Bootstrapper::report_local_descriptor(
+            let descriptor = Bootstrapper::make_local_descriptor(
                 cryptde_ref,
                 Some(node_addr),
-                &mut streams,
                 TEST_DEFAULT_CHAIN,
             );
+            Bootstrapper::report_local_descriptor (cryptde_ref, &descriptor, &mut streams);
 
             cryptde_ref
         };
@@ -1303,12 +1347,12 @@ mod tests {
 
             let (main_cryptde_ref, alias_cryptde_ref) =
                 Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
-            Bootstrapper::report_local_descriptor(
+            let descriptor = Bootstrapper::make_local_descriptor(
                 main_cryptde_ref,
                 None,
-                &mut streams,
                 TEST_DEFAULT_CHAIN,
             );
+            Bootstrapper::report_local_descriptor (main_cryptde_ref, &descriptor, &mut streams);
 
             (main_cryptde_ref, alias_cryptde_ref)
         };

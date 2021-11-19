@@ -196,7 +196,9 @@ impl ActorSystemFactoryReal {
 
         self.start_automap(
             &config,
-            vec![peer_actors.neighborhood.new_public_ip.clone()],
+            vec![
+                peer_actors.neighborhood.new_public_ip.clone()
+            ],
         );
 
         //after we've bound all the actors, send start messages to any actors that need it
@@ -315,7 +317,7 @@ impl ActorFactory for ActorFactoryReal {
         let crash_point = config.crash_point;
         let descriptor = config.node_descriptor_opt.clone();
         let addr: Addr<Dispatcher> = Arbiter::start(move |_| {
-            Dispatcher::new(crash_point, descriptor.expect_v("node descriptor"))
+            Dispatcher::new(crash_point, &descriptor.expect_v("node descriptor"))
         });
         (
             Dispatcher::make_subs_from(&addr),
@@ -559,9 +561,7 @@ mod tests {
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
-    use crate::sub_lib::neighborhood::{
-        DispatcherNodeQueryMessage, GossipFailure_0v1, NodeRecordMetadataMessage,
-    };
+    use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1, NodeRecordMetadataMessage, NodeDescriptor};
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeQueryMessage};
     use crate::sub_lib::neighborhood::{NeighborhoodMode, RemoveNeighborMessage};
     use crate::sub_lib::neighborhood::{RouteQueryMessage, DEFAULT_RATE_PACK};
@@ -985,7 +985,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some("uninitialized".to_string()),
+            node_descriptor_opt: None,
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -1056,7 +1056,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
+            node_descriptor_opt: Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342").unwrap()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -1142,7 +1142,7 @@ mod tests {
         let dispatcher_param = Parameters::get(parameters.dispatcher_params);
         assert_eq!(
             dispatcher_param.node_descriptor_opt,
-            Some("NODE-DESCRIPTOR".to_string())
+            Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342").unwrap())
         );
         let blockchain_bridge_param = Parameters::get(parameters.blockchain_bridge_params);
         assert_eq!(
@@ -1186,7 +1186,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
+            node_descriptor_opt: Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342").unwrap()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -1246,7 +1246,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: None,
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
+            node_descriptor_opt: Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342").unwrap()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: Some(AutomapProtocol::Pmp),

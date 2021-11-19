@@ -58,6 +58,12 @@ impl ByteArrayWriter {
     }
 }
 
+impl Clone for ByteArrayWriter {
+    fn clone(&self) -> Self {
+        todo!()
+    }
+}
+
 impl Write for ByteArrayWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut inner = self.inner_arc.lock().unwrap();
@@ -80,6 +86,12 @@ pub struct ByteArrayReader {
     byte_array: Vec<u8>,
     position: usize,
     next_error: Option<Error>,
+}
+
+impl Clone for ByteArrayReader {
+    fn clone(&self) -> Self {
+        todo!()
+    }
 }
 
 impl ByteArrayReader {
