@@ -226,8 +226,8 @@ mod tests {
     use actix::Actor;
     use actix::Addr;
     use actix::System;
+    use itertools::Either;
     use masq_lib::constants::HTTP_PORT;
-    use std::cell::RefCell;
     use std::io;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
@@ -238,7 +238,7 @@ mod tests {
         let (shp, _, recording) = make_recorder();
         (
             recording,
-            make_stream_handler_pool_subs_from(&RefCell::new(Some(shp))),
+            make_stream_handler_pool_subs_from(Either::Right(Some(shp))),
         )
     }
 

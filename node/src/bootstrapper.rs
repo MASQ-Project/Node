@@ -637,6 +637,7 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use crossbeam_channel::unbounded;
+    use itertools::Either;
     use lazy_static::lazy_static;
     use regex::Regex;
     use tokio;
@@ -1572,14 +1573,14 @@ mod tests {
         let port = find_free_port();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
-            "establish_clandestine_port_handles_specified_port",
+            "set_up_clandestine_port_handles_specified_port_in_standard_mode",
         );
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
-                NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]),
+                NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[4321]),
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(
@@ -1646,7 +1647,7 @@ mod tests {
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
-            "establish_clandestine_port_handles_unspecified_port",
+            "set_up_clandestine_port_handles_unspecified_port_in_standard_mode",
         );
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {
@@ -1696,7 +1697,7 @@ mod tests {
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
-            "establish_clandestine_port_handles_originate_only",
+            "set_up_clandestine_port_handles_originate_only",
         );
         let mut config = BootstrapperConfig::new();
         config.data_directory = data_dir.clone();
@@ -1734,7 +1735,7 @@ mod tests {
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
-            "establish_clandestine_port_handles_originate_only",
+            "set_up_clandestine_port_handles_consume_only",
         );
         let mut config = BootstrapperConfig::new();
         config.data_directory = data_dir.clone();
@@ -1767,7 +1768,7 @@ mod tests {
     fn set_up_clandestine_port_handles_zero_hop() {
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
-            "establish_clandestine_port_handles_zero_hop",
+            "set_up_clandestine_port_handles_zero_hop",
         );
         let mut config = BootstrapperConfig::new();
         config.data_directory = data_dir.clone();
@@ -1932,7 +1933,7 @@ mod tests {
                     StreamHandlerPoolCluster {
                         recording: Some(recording),
                         awaiter: Some(awaiter),
-                        subs: make_stream_handler_pool_subs_from(&RefCell::new(Some(
+                        subs: make_stream_handler_pool_subs_from(Either::Right(Some(
                             stream_handler_pool,
                         ))),
                     }

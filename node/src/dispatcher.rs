@@ -185,10 +185,10 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use actix::Addr;
     use actix::System;
+    use itertools::Either;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::messages::{ToMessageBody, UiDescriptorResponse};
     use masq_lib::ui_gateway::MessageTarget;
-    use std::cell::RefCell;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;
@@ -364,7 +364,7 @@ mod tests {
         let mut peer_actors = peer_actors_builder().build();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs =
-            make_stream_handler_pool_subs_from(&RefCell::new(Some(stream_handler_pool)));
+            make_stream_handler_pool_subs_from(Either::Right(Some(stream_handler_pool)));
         subject_addr
             .try_send(PoolBindMessage {
                 dispatcher_subs: peer_actors.dispatcher.clone(),

@@ -66,7 +66,7 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
      and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
      a configuration with multiple clandestine ports.\n\n\
-     If you have more than one descriptor, separate them with commas. Either single or multiple descriptors, they \
+     If you have more than one descriptor, separate them with commas. Whether single or multiple descriptors, they \
      should be enclosed by quotes. No default value is available; \
      if you don't specify a neighbor, your Node will start without being connected to any MASQ \
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \

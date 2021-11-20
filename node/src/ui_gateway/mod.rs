@@ -306,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn a_syntactically_bad_json_is_caught_and_a_truncated_example_is_provided() {
+    fn syntactically_bad_json_is_caught_and_a_truncated_example_is_provided() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let subject = UiGateway::new(
@@ -319,14 +319,14 @@ mod tests {
         let subject_addr: Addr<UiGateway> = subject.start();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let payload = "some bad bite for a jason processor; filling up to 120 characters: abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqqrstuvwxyz".to_string();
-        let payload_length = payload.len();
+        let mut payload = "some bad bite for a jason processor; abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcde".to_string();
+        let payload_length_before_truncation = payload.len();
         let msg = NodeFromUiMessage {
             client_id: 0,
             body: MessageBody {
                 opcode: "booga".to_string(),
                 path: FireAndForget,
-                payload: Ok(payload),
+                payload: Ok(payload.clone()),
             },
         };
 
@@ -336,14 +336,14 @@ mod tests {
         system.run();
         let random_actor_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(random_actor_recording.len(), 0);
-        let expected_msg_example = "some bad bite for a jason processor; filling up to 120 characters: abcdefghijklmnopqrstuvwxyzabcdefg";
+        payload.truncate(100);
+        let expected_msg_example = payload;
         let len_expected = expected_msg_example.len();
-        assert_eq!(len_expected, 100);
-        assert!(payload_length > len_expected + 10);
-        let expected_log = format!("WARN: UiGateway: Deserialization error: expected value at line 1 column 1; original message (maximally 100 characters): {}",expected_msg_example);
+        assert_eq!(payload_length_before_truncation, len_expected + 20);
         let log_handler = TestLogHandler::new();
+        let expected_log = format!("WARN: UiGateway: Deserialization error: expected value at line 1 column 1; original message (maximally 100 characters): {}",expected_msg_example);
         log_handler.exists_log_containing(&expected_log);
-        let log_unexpected_because_longer = &format!("{}h", expected_log);
+        let log_unexpected_because_longer = &format!("{}f", expected_log);
         log_handler.exists_no_log_containing(log_unexpected_because_longer)
     }
 

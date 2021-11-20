@@ -458,12 +458,13 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::{CleanUpMessage, DummyActor};
-    use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
+    use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::System;
     use crossbeam_channel::bounded;
+    use itertools::Either;
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
@@ -498,8 +499,7 @@ mod tests {
         main_cryptde_ref_results: RefCell<Vec<&'static dyn CryptDE>>,
         alias_cryptde_ref_results: RefCell<Vec<&'static dyn CryptDE>>,
         database_chain_assertion_params: Arc<Mutex<Vec<Chain>>>,
-        database_chain_assertion_comapre_to_pointer:
-            RefCell<Vec<*const dyn PersistentConfiguration>>,
+        compare_persistent_config_to_pointer: RefCell<Vec<*const dyn PersistentConfiguration>>,
     }
 
     impl ActorSystemFactoryTools for ActorSystemFactoryToolsMock {
@@ -537,7 +537,7 @@ mod tests {
                 .unwrap()
                 .push(chain);
             assert_eq!(
-                self.database_chain_assertion_comapre_to_pointer
+                self.compare_persistent_config_to_pointer
                     .borrow_mut()
                     .remove(0),
                 addr_of!(*persistent_config)
@@ -562,7 +562,7 @@ mod tests {
             to_compare_for_in_place_param: *const dyn PersistentConfiguration,
         ) -> Self {
             self.database_chain_assertion_params = real_param.clone();
-            self.database_chain_assertion_comapre_to_pointer
+            self.compare_persistent_config_to_pointer
                 .borrow_mut()
                 .push(to_compare_for_in_place_param);
             self
@@ -769,7 +769,7 @@ mod tests {
             &self,
             _: &BootstrapperConfig,
         ) -> StreamHandlerPoolSubs {
-            make_stream_handler_pool_subs_from(&self.stream_handler_pool)
+            make_stream_handler_pool_subs_from(Either::Left(&self.stream_handler_pool))
         }
 
         fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
@@ -1098,7 +1098,6 @@ mod tests {
             blockchain_bridge_param.consuming_wallet,
             Some(make_wallet("consuming"))
         );
-        // more...more...what? How to check contents of _stream_handler_pool_subs?
     }
 
     #[test]
@@ -1410,15 +1409,12 @@ mod tests {
     fn make_and_start_actors_happy_path() {
         let database_chain_assertion_params_arc = Arc::new(Mutex::new(vec![]));
         let prepare_initial_messages_params_arc = Arc::new(Mutex::new(vec![]));
-        let recorder = Recorder::new();
-        let recording_arc = recorder.get_recording();
+        let (recorder, _, recording_arc) = make_recorder();
         let stream_holder_pool_subs =
-            make_stream_handler_pool_subs_from(&RefCell::new(Some(recorder)));
+            make_stream_handler_pool_subs_from(Either::Right(Some(recorder)));
         let mut bootstrapper_config = BootstrapperConfig::new();
-        let persistent_config = PersistentConfigurationMock::default();
-        let persistent_config_to_compare = addr_of!(persistent_config);
-        bootstrapper_config.blockchain_bridge_config.chain = Chain::PolyMainnet;
         let irrelevant_data_dir = PathBuf::new().join("big_directory/small_directory");
+        bootstrapper_config.blockchain_bridge_config.chain = Chain::PolyMainnet;
         bootstrapper_config.data_directory = irrelevant_data_dir.clone();
         bootstrapper_config.db_password_opt = Some("chameleon".to_string());
         let main_cryptde = main_cryptde();
@@ -1427,12 +1423,14 @@ mod tests {
         let alias_cryptde_public_key_before = public_key_for_dyn_cryptde_being_null(alias_cryptde);
         let actor_factory = Box::new(ActorFactoryReal {}) as Box<dyn ActorFactory>;
         let actor_factory_raw_address = addr_of!(*actor_factory);
+        let persistent_config = PersistentConfigurationMock::default();
+        let persistent_config_raw_address = addr_of!(persistent_config);
         let tools = ActorSystemFactoryToolsMock::default()
             .main_cryptde_ref_result(main_cryptde)
             .alias_cryptde_ref_result(alias_cryptde)
             .database_chain_assertion_params(
                 &database_chain_assertion_params_arc,
-                persistent_config_to_compare,
+                persistent_config_raw_address,
             )
             .prepare_initial_messages_params(&prepare_initial_messages_params_arc)
             .prepare_initial_messages_result(stream_holder_pool_subs);
@@ -1476,8 +1474,7 @@ mod tests {
             Some("chameleon".to_string())
         );
         assert_eq!(addr_of!(*actor_factory_after), actor_factory_raw_address);
-        let system =
-            System::new("make_and_start_actors_and_prepare_initial_messages_are_connected");
+        let system = System::new("make_and_start_actors_happy_path");
         let msg_of_irrelevant_choice = NodeFromUiMessage {
             client_id: 5,
             body: UiDescriptorRequest {}.tmb(1),
