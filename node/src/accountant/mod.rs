@@ -53,13 +53,13 @@ pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 300; // every 5 min
 pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 300; //  every 5 min
 
 //const SECONDS_PER_DAY: i64 = 86_400;
-const DEBT_MATURE_AFTER: i64 = 720; // 12 min
-const DEBT_CONSIDERED_BIG_FROM: i64 = 5_000_000;
+const DEBT_MATURE_AFTER: i64 = 300; // 5 min
+const DEBT_CONSIDERED_BIG_FROM: i64 = 9_999_913; // was 5_000_000 in GH-503-rb
 
 lazy_static! {
     pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
         payment_suggested_after_sec: DEBT_MATURE_AFTER,
-        payment_grace_before_ban_sec: DEBT_MATURE_AFTER,
+        payment_grace_before_ban_sec: 1_200,
         permanent_debt_allowed_gwub: DEBT_CONSIDERED_BIG_FROM, //10_000_000
         balance_to_decrease_from_gwub: 10_000_000,     //1_000_000_000
         balance_decreases_for_sec: 30 * DEBT_MATURE_AFTER,  //30*86400
