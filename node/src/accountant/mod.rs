@@ -63,7 +63,7 @@ lazy_static! {
         permanent_debt_allowed_gwub: DEBT_CONSIDERED_BIG_FROM, //10_000_000
         balance_to_decrease_from_gwub: 10_000_000,     //1_000_000_000
         balance_decreases_for_sec: 30 * DEBT_MATURE_AFTER,  //30*86400
-        unban_when_balance_below_gwub: DEBT_CONSIDERED_BIG_FROM, //10_000_000
+        unban_when_balance_below_gwub: DEBT_CONSIDERED_BIG_FROM, //5_000_000 in GH-503-rb
     };
 }
 
