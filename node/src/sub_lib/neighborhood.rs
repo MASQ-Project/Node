@@ -28,10 +28,10 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
-    routing_byte_rate: 4,
-    routing_service_rate: 400,
-    exit_byte_rate: 20,
-    exit_service_rate: 2000,
+    routing_byte_rate: 4, // 100
+    routing_service_rate: 400, // 1000
+    exit_byte_rate: 20, // 101
+    exit_service_rate: 2000, // 1001
 };
 
 pub const ZERO_RATE_PACK: RatePack = RatePack {
