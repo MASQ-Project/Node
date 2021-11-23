@@ -637,7 +637,6 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use crossbeam_channel::unbounded;
-    use itertools::Either;
     use lazy_static::lazy_static;
     use regex::Regex;
     use tokio;
@@ -1933,9 +1932,7 @@ mod tests {
                     StreamHandlerPoolCluster {
                         recording: Some(recording),
                         awaiter: Some(awaiter),
-                        subs: make_stream_handler_pool_subs_from(Either::Right(Some(
-                            stream_handler_pool,
-                        ))),
+                        subs: make_stream_handler_pool_subs_from(Some(stream_handler_pool)),
                     }
                 };
 

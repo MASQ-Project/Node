@@ -423,7 +423,10 @@ mod tests {
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::neighborhood::gossip::Gossip_0v1;
-    use crate::node_test_utils::{make_stream_handler_pool_subs_from, start_recorder_ref_opt};
+    use crate::node_test_utils::{
+        make_stream_handler_pool_subs_from, make_stream_handler_pool_subs_from_an_addr,
+        start_recorder_refcell_opt,
+    };
     use crate::sub_lib::accountant::AccountantConfig;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
@@ -464,7 +467,6 @@ mod tests {
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::System;
     use crossbeam_channel::bounded;
-    use itertools::Either;
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
@@ -629,7 +631,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config.clone());
-            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.dispatcher);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.dispatcher);
             let dispatcher_subs = DispatcherSubs {
                 ibcd_sub: recipient!(addr, InboundClientData),
                 bind: recipient!(addr, BindMessage),
@@ -651,7 +653,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert((main_cryptde, alias_cryptde, config.clone()));
-            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.proxy_server);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.proxy_server);
             ProxyServerSubs {
                 bind: recipient!(addr, BindMessage),
                 from_dispatcher: recipient!(addr, InboundClientData),
@@ -675,7 +677,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config);
-            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.hopper);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.hopper);
             HopperSubs {
                 bind: recipient!(addr, BindMessage),
                 from_hopper_client: recipient!(addr, IncipientCoresPackage),
@@ -697,7 +699,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert((cryptde, config.clone()));
-            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.neighborhood);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.neighborhood);
             NeighborhoodSubs {
                 bind: recipient!(addr, BindMessage),
                 start: recipient!(addr, StartMessage),
@@ -729,7 +731,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert((config.clone(), data_directory.to_path_buf()));
-            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.accountant);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.accountant);
             AccountantSubs {
                 bind: recipient!(addr, BindMessage),
                 start: recipient!(addr, StartMessage),
@@ -757,7 +759,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config.ui_gateway_config.clone());
-            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.ui_gateway);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.ui_gateway);
             UiGatewaySubs {
                 bind: recipient!(addr, BindMessage),
                 node_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
@@ -769,7 +771,8 @@ mod tests {
             &self,
             _: &BootstrapperConfig,
         ) -> StreamHandlerPoolSubs {
-            make_stream_handler_pool_subs_from(Either::Left(&self.stream_handler_pool))
+            let addr = start_recorder_refcell_opt(&self.stream_handler_pool);
+            make_stream_handler_pool_subs_from_an_addr(addr)
         }
 
         fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
@@ -778,7 +781,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config);
-            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.proxy_client);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.proxy_client);
             ProxyClientSubs {
                 bind: recipient!(addr, BindMessage),
                 from_hopper: addr
@@ -799,7 +802,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config.clone());
-            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.blockchain_bridge);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.blockchain_bridge);
             BlockchainBridgeSubs {
                 bind: recipient!(addr, BindMessage),
                 report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
@@ -814,7 +817,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config.clone());
-            let addr: Addr<Recorder> = start_recorder_ref_opt(&self.configurator);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.configurator);
             ConfiguratorSubs {
                 bind: recipient!(addr, BindMessage),
                 node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
@@ -1410,8 +1413,7 @@ mod tests {
         let database_chain_assertion_params_arc = Arc::new(Mutex::new(vec![]));
         let prepare_initial_messages_params_arc = Arc::new(Mutex::new(vec![]));
         let (recorder, _, recording_arc) = make_recorder();
-        let stream_holder_pool_subs =
-            make_stream_handler_pool_subs_from(Either::Right(Some(recorder)));
+        let stream_holder_pool_subs = make_stream_handler_pool_subs_from(Some(recorder));
         let mut bootstrapper_config = BootstrapperConfig::new();
         let irrelevant_data_dir = PathBuf::new().join("big_directory/small_directory");
         bootstrapper_config.blockchain_bridge_config.chain = Chain::PolyMainnet;

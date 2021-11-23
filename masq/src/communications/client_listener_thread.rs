@@ -123,7 +123,9 @@ impl ClientListenerThread {
                         Err(_) => break,
                     },
                     Err(error) => {
-                        let _ = self.message_body_tx.send(Err(ClientListenerError::Broken(format!("{:?}", error))));
+                        let _ = self
+                            .message_body_tx
+                            .send(Err(ClientListenerError::Broken(format!("{:?}", error))));
                         break;
                     }
                 }
@@ -220,7 +222,10 @@ mod tests {
             .unwrap();
 
         let error = message_body_rx.recv().unwrap().err().unwrap();
-        assert_eq!(error, ClientListenerError::Broken("NoDataAvailable".to_string()));
+        assert_eq!(
+            error,
+            ClientListenerError::Broken("NoDataAvailable".to_string())
+        );
         wait_for_stop(&subject);
         assert_eq!(subject.is_running(), false);
         let _ = stop_handle.stop();

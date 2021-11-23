@@ -19,7 +19,6 @@ use crate::test_utils::logging::TestLog;
 use crate::test_utils::recorder::Recorder;
 use actix::Actor;
 use actix::Addr;
-use itertools::Either;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -270,33 +269,22 @@ impl NullDiscriminatorFactory {
     }
 }
 
-pub fn start_recorder_ref_opt(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
+pub fn start_recorder_refcell_opt(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
     recorder.borrow_mut().take().unwrap().start()
 }
 
 pub fn make_stream_handler_pool_subs_from(
-    stream_handler_pool_either_opt: Either<&RefCell<Option<Recorder>>, Option<Recorder>>,
+    stream_handler_pool_opt: Option<Recorder>,
 ) -> StreamHandlerPoolSubs {
-    let addr = if stream_handler_pool_either_opt.is_left() {
-        #[allow(unused_assignments)]
-        let mut sentinel_owner = RefCell::new(None);
-        let inner = stream_handler_pool_either_opt.left().unwrap();
-        let stream_handler_pool = if inner.borrow().is_some() {
-            inner
-        } else {
-            sentinel_owner = RefCell::new(Some(Recorder::new()));
-            &sentinel_owner
-        };
-        let addr: Addr<Recorder> = start_recorder_ref_opt(stream_handler_pool);
-        addr
-    } else {
-        let recorder = match stream_handler_pool_either_opt.right().unwrap() {
-            Some(recorder) => recorder,
-            None => Recorder::new(),
-        };
-        recorder.start()
+    let recorder = match stream_handler_pool_opt {
+        Some(recorder) => recorder,
+        None => Recorder::new(),
     };
+    let addr = recorder.start();
+    make_stream_handler_pool_subs_from_an_addr(addr)
+}
 
+pub fn make_stream_handler_pool_subs_from_an_addr(addr: Addr<Recorder>) -> StreamHandlerPoolSubs {
     StreamHandlerPoolSubs {
         add_sub: recipient!(addr, AddStreamMsg),
         transmit_sub: recipient!(addr, TransmitDataMsg),

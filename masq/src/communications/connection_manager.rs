@@ -976,7 +976,13 @@ mod tests {
         );
 
         let response = redirect_response_rx.try_recv().unwrap();
-        assert_eq!(response, Err(ClientListenerError::Broken("Booga".to_string()))); // careful: OS-dependent
+        match response {
+            Err(ClientListenerError::Broken(_)) => (), //the string pasted in is OS-dependent
+            x => panic!(
+                "we expected ClientListenerError::Broken but got this: {:?}",
+                x
+            ),
+        }
     }
 
     #[test]
