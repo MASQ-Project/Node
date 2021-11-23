@@ -170,7 +170,7 @@ fn make_client_listener(
     };
     let client = match result {
         Ok(c) => c,
-        Err(_) => return Err(ClientListenerError::Broken),
+        Err(e) => return Err(ClientListenerError::Broken(format!("{:?}", e))),
     };
     let (listener_half, talker_half) = client.split().unwrap();
     let client_listener = ClientListener::new();
@@ -384,10 +384,10 @@ impl ConnectionManagerThread {
             redirect_order.timeout_millis,
         ) {
             Ok(th) => th,
-            Err(_) => {
+            Err(e) => {
                 let _ = inner
                     .redirect_response_tx
-                    .send(Err(ClientListenerError::Broken));
+                    .send(Err(ClientListenerError::Broken(format!("{:?}", e))));
                 return inner;
             }
         };
@@ -976,7 +976,7 @@ mod tests {
         );
 
         let response = redirect_response_rx.try_recv().unwrap();
-        assert_eq!(response, Err(ClientListenerError::Broken));
+        assert_eq!(response, Err(ClientListenerError::Broken("Booga".to_string()))); // careful: OS-dependent
     }
 
     #[test]
@@ -1068,7 +1068,7 @@ mod tests {
 
         let inner = ConnectionManagerThread::handle_incoming_message_body(
             inner,
-            Ok(Err(ClientListenerError::Broken)),
+            Ok(Err(ClientListenerError::Broken("Booga".to_string()))),
         );
 
         let disconnect_notification = conversation_rx.try_recv().unwrap();
