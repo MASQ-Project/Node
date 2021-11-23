@@ -431,7 +431,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
     fn initialize_as_unprivileged(
         &mut self,
         multi_config: &MultiConfig,
-        streams: &mut StdStreams,
+        _: &mut StdStreams,
     ) -> Result<(), ConfiguratorError> {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
@@ -454,7 +454,6 @@ impl ConfiguredByPrivilege for Bootstrapper {
                 Bootstrapper::report_local_descriptor(
                     cryptde_ref,
                     &node_descriptor,
-                    streams,
                 );
                 self.config.node_descriptor_opt = Some (node_descriptor);
             },
@@ -526,13 +525,11 @@ impl Bootstrapper {
         }
     }
 
-    fn report_local_descriptor (
+    pub fn report_local_descriptor (
         cryptde: &dyn CryptDE,
-        descriptor: &NodeDescriptor,
-        streams: &mut StdStreams<'_>,
+        descriptor: &NodeDescriptor
     ) {
         let descriptor_msg = format!("MASQ Node local descriptor: {}", descriptor.to_string(cryptde));
-        short_writeln!(streams.stdout, "{}", descriptor_msg);
         info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
     }
 
@@ -620,7 +617,6 @@ mod tests {
     use actix::System;
     use crossbeam_channel::unbounded;
     use lazy_static::lazy_static;
-    use regex::Regex;
     use tokio;
     use tokio::prelude::Async;
 
@@ -662,7 +658,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
 
     lazy_static! {
-        static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
+        pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
     }
 
     struct ListenerHandlerFactoryMock {
@@ -1284,10 +1280,7 @@ mod tests {
             &IpAddr::from_str("2.3.4.5").expect("Couldn't create IP address"),
             &[3456u16, 4567u16],
         );
-        let mut holder = FakeStreamHolder::new();
         let cryptde_ref = {
-            let mut streams = holder.streams();
-
             let (cryptde_ref, _) =
                 Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
             let descriptor = Bootstrapper::make_local_descriptor(
@@ -1295,24 +1288,14 @@ mod tests {
                 Some(node_addr),
                 TEST_DEFAULT_CHAIN,
             );
-            Bootstrapper::report_local_descriptor (cryptde_ref, &descriptor, &mut streams);
+            Bootstrapper::report_local_descriptor (cryptde_ref, &descriptor);
 
             cryptde_ref
         };
-        let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
             "masq://eth-ropsten:{}@2.3.4.5:3456/4567",
             cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
         );
-        let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")
-            .expect("Couldn't compile regular expression");
-        let captured_descriptor = regex
-            .captures(stdout_dump.as_str())
-            .expect("Couldn't find local descriptor in stdout")
-            .get(1)
-            .expect("Local descriptor line has no descriptor")
-            .as_str();
-        assert_eq!(captured_descriptor, expected_descriptor);
         TestLogHandler::new().exists_log_containing(
             format!(
                 "INFO: Bootstrapper: MASQ Node local descriptor: {}",
@@ -1341,10 +1324,7 @@ mod tests {
     fn initialize_cryptdes_and_report_local_descriptor_without_ip_address() {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
-        let mut holder = FakeStreamHolder::new();
         let (main_cryptde_ref, alias_cryptde_ref) = {
-            let mut streams = holder.streams();
-
             let (main_cryptde_ref, alias_cryptde_ref) =
                 Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
             let descriptor = Bootstrapper::make_local_descriptor(
@@ -1352,24 +1332,14 @@ mod tests {
                 None,
                 TEST_DEFAULT_CHAIN,
             );
-            Bootstrapper::report_local_descriptor (main_cryptde_ref, &descriptor, &mut streams);
+            Bootstrapper::report_local_descriptor (main_cryptde_ref, &descriptor);
 
             (main_cryptde_ref, alias_cryptde_ref)
         };
-        let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
             "masq://eth-ropsten:{}@:",
             main_cryptde_ref.public_key_to_descriptor_fragment(main_cryptde_ref.public_key())
         );
-        let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")
-            .expect("Couldn't compile regular expression");
-        let captured_descriptor = regex
-            .captures(stdout_dump.as_str())
-            .expect("Couldn't find local descriptor in stdout")
-            .get(1)
-            .expect("Local descriptor line has no descriptor")
-            .as_str();
-        assert_eq!(captured_descriptor, expected_descriptor);
         TestLogHandler::new().exists_log_containing(
             format!(
                 "INFO: Bootstrapper: MASQ Node local descriptor: {}",

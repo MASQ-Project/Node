@@ -454,11 +454,13 @@ Requests the Node descriptor from a Node.
 ##### Layout:
 ```
 "payload": {
-    "nodeDescriptor": <string>
+    "nodeDescriptor": <optional string>
 }
 ```
 ##### Description:
-Contains a Node's Node descriptor.
+If the Node has a Node descriptor, it's returned in this message. If the Node has not yet established its Node
+descriptor (for example, if it's still waiting on the router to get a public IP address), the `nodeDescriptor`
+field will be null or absent.
 
 #### `financials`
 ##### Direction: Request

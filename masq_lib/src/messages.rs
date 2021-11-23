@@ -481,8 +481,8 @@ conversation_message!(UiDescriptorRequest, "descriptor");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiDescriptorResponse {
-    #[serde(rename = "nodeDescriptor")]
-    pub node_descriptor: String,
+    #[serde(rename = "nodeDescriptorOpt")]
+    pub node_descriptor_opt: Option<String>,
 }
 conversation_message!(UiDescriptorResponse, "descriptor");
 

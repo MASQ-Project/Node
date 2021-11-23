@@ -197,7 +197,8 @@ impl ActorSystemFactoryReal {
         self.start_automap(
             &config,
             vec![
-                peer_actors.neighborhood.new_public_ip.clone()
+                peer_actors.neighborhood.new_public_ip.clone(),
+                // TODO peer_actors.dispatcher.new_ip_sub.clone(),
             ],
         );
 
@@ -647,6 +648,7 @@ mod tests {
                 from_dispatcher_client: recipient!(addr, TransmitDataMsg),
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
                 ui_sub: recipient!(addr, NodeFromUiMessage),
+                new_ip_sub: recipient!(addr, NewPublicIp),
             };
             (dispatcher_subs, addr.recipient::<PoolBindMessage>())
         }
@@ -1056,7 +1058,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342").unwrap()),
+            node_descriptor_opt: Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -1070,10 +1072,13 @@ mod tests {
             },
         };
         let system = System::new("MASQNode");
+        let make_params_arc = Arc::new (Mutex::new (vec![]));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ActorSystemFactoryReal::new();
         subject.automap_control_factory = Box::new(
-            AutomapControlFactoryMock::new().make_result(
+            AutomapControlFactoryMock::new()
+                .make_params (&make_params_arc)
+                .make_result(
                 AutomapControlMock::new()
                     .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
                     .add_mapping_params(&add_mapping_params_arc)
@@ -1081,6 +1086,9 @@ mod tests {
                     .add_mapping_result(Ok(())),
             ),
         );
+        let join_handle = thread::spawn (move || {
+            system.run();
+        });
 
         let _ = subject.prepare_initial_messages(
             main_cryptde(),
@@ -1089,8 +1097,12 @@ mod tests {
             Box::new(actor_factory),
         );
 
+        let mut make_params = make_params_arc.lock().unwrap();
+        let change_handler: ChangeHandler = make_params.remove(0).1;
+        change_handler (AutomapChange::NewIp(IpAddr::from_str ("1.2.3.4").unwrap()));
+
         System::current().stop();
-        system.run();
+        join_handle.join();
         check_bind_message(&recordings.dispatcher, false);
         check_bind_message(&recordings.hopper, false);
         check_bind_message(&recordings.proxy_client, false);
@@ -1142,7 +1154,7 @@ mod tests {
         let dispatcher_param = Parameters::get(parameters.dispatcher_params);
         assert_eq!(
             dispatcher_param.node_descriptor_opt,
-            Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342").unwrap())
+            Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap())
         );
         let blockchain_bridge_param = Parameters::get(parameters.blockchain_bridge_params);
         assert_eq!(
@@ -1159,6 +1171,7 @@ mod tests {
         );
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![1234, 2345]);
+
     }
 
     #[test]
@@ -1186,7 +1199,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342").unwrap()),
+            node_descriptor_opt: Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -1246,7 +1259,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: None,
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342").unwrap()),
+            node_descriptor_opt: Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: Some(AutomapProtocol::Pmp),
@@ -1327,10 +1340,12 @@ mod tests {
             vec![],
             DEFAULT_RATE_PACK,
         );
-        let (recorder, _, recording_arc) = make_recorder();
-        let new_ip_recipient = recorder.start().recipient();
+        let (recorder1, _, recording_arc1) = make_recorder();
+        let new_ip_recipient1 = recorder1.start().recipient();
+        let (recorder2, _, recording_arc2) = make_recorder();
+        let new_ip_recipient2 = recorder2.start().recipient();
 
-        subject.start_automap(&config, vec![new_ip_recipient]);
+        subject.start_automap(&config, vec![new_ip_recipient1, new_ip_recipient2]);
 
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(make_params[0].0, None);
@@ -1339,19 +1354,23 @@ mod tests {
         change_handler(AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
         System::current().stop();
         system.run();
-        let recording = recording_arc.lock().unwrap();
-        assert_eq!(
-            recording.get_record::<NewPublicIp>(0),
-            &NewPublicIp {
-                new_ip: IpAddr::from_str("1.2.3.4").unwrap()
-            }
-        );
-        assert_eq!(
-            recording.get_record::<NewPublicIp>(1),
-            &NewPublicIp {
-                new_ip: IpAddr::from_str("4.3.2.1").unwrap()
-            }
-        );
+        let check_recording = |recording_arc: Arc<Mutex<Recording>>| {
+            let recording = recording_arc.lock().unwrap();
+            assert_eq!(
+                recording.get_record::<NewPublicIp>(0),
+                &NewPublicIp {
+                    new_ip: IpAddr::from_str("1.2.3.4").unwrap()
+                }
+            );
+            assert_eq!(
+                recording.get_record::<NewPublicIp>(1),
+                &NewPublicIp {
+                    new_ip: IpAddr::from_str("4.3.2.1").unwrap()
+                }
+            );
+        };
+        check_recording (recording_arc1);
+        check_recording (recording_arc2);
     }
 
     #[test]

@@ -353,6 +353,7 @@ pub fn make_dispatcher_subs_from(addr: &Addr<Recorder>) -> DispatcherSubs {
         from_dispatcher_client: recipient!(addr, TransmitDataMsg),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         ui_sub: recipient!(addr, NodeFromUiMessage),
+        new_ip_sub: recipient!(addr, NewPublicIp),
     }
 }
 
