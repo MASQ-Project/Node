@@ -6,7 +6,7 @@ use masq_cli_lib::terminal::integration_test_utils::{
 use masq_lib::short_writeln;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 #[allow(dead_code)]
 pub struct DaemonProcess {}
@@ -114,6 +114,10 @@ impl StopHandle {
 
     pub fn create_stdin_handle(&mut self) -> StdinHandle {
         StdinHandle::new(self.child.stdin.take().unwrap())
+    }
+
+    pub fn create_stdout_handle(&mut self) -> Option<ChildStdout>{
+        self.child.stdout.take()
     }
 
     pub fn child_id(&self) -> u32 {

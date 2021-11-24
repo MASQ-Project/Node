@@ -1,5 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::fs::File;
+use std::io::{Read};
+use std::path::PathBuf;
 use crate::utils::{DaemonProcess, MasqProcess};
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::find_free_port;
@@ -98,7 +101,7 @@ fn handles_startup_and_shutdown_integration() {
         "handles_startup_and_shutdown_integration",
     );
     let port = find_free_port();
-    let daemon_handle = DaemonProcess::new().start(port);
+    let mut daemon_handle = DaemonProcess::new().start(port);
     thread::sleep(Duration::from_millis(200));
 
     let masq_handle = MasqProcess::new().start_noninteractive(vec![
@@ -138,6 +141,18 @@ fn handles_startup_and_shutdown_integration() {
     );
     assert_eq!(exit_code.unwrap(), 0);
 
+    let mut stdout_handle = daemon_handle.create_stdout_handle().unwrap();
+    let mut buffer = [0_u8;1024];
+    stdout_handle.read(&mut buffer).unwrap();
+    let printable = String::from_utf8_lossy(&buffer).to_string();
+    eprintln!("daemon's stdout output: {}",printable);
+    let regex = Regex::new("Log is written to (.*MASQNode_daemon_rCURRENT.log)").unwrap();
+    let capture = regex.captures(printable.as_str()).unwrap();
+    let captured_path = capture.get(1).unwrap();
+    eprintln!("captured path to the log file: {}",captured_path.as_str());
+    let path_object = PathBuf::from(captured_path.as_str().to_string());
+    let _deamon_drop_log_reader = DaemonDropLogReader::new(path_object);
+
     let masq_handle =
         MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "shutdown"]);
 
@@ -153,4 +168,26 @@ fn handles_startup_and_shutdown_integration() {
     assert_eq!(exit_code.unwrap(), 0);
 
     daemon_handle.kill();
+}
+
+struct DaemonDropLogReader{
+    path: PathBuf
+}
+
+impl DaemonDropLogReader{
+    fn new(log_file_path:PathBuf)->Self{
+        Self{
+            path: log_file_path
+        }
+    }
+}
+
+impl Drop for DaemonDropLogReader{
+    fn drop(&mut self) {
+        let mut file = File::open(&self.path).unwrap();
+        let mut buffer = vec![];
+        file.read_to_end(&mut buffer).unwrap();
+        let readable = String::from_utf8_lossy(&buffer).to_string();
+        eprintln!("{}",readable)
+    }
 }
