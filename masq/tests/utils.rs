@@ -116,7 +116,7 @@ impl StopHandle {
         StdinHandle::new(self.child.stdin.take().unwrap())
     }
 
-    pub fn create_stdout_handle(&mut self) -> Option<ChildStdout>{
+    pub fn create_stdout_handle(&mut self) -> Option<ChildStdout> {
         self.child.stdout.take()
     }
 
