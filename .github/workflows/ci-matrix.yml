@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize]
     branches:
-      - isolated_RC
+      - master
 
 jobs:
   build:
