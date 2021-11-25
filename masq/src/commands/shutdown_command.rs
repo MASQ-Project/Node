@@ -252,7 +252,7 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![(UiShutdownRequest {}.tmb(0), STANDARD_COMMAND_TIMEOUT_MILLIS)]
+            vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
@@ -283,7 +283,7 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![(UiShutdownRequest {}.tmb(0), STANDARD_COMMAND_TIMEOUT_MILLIS)]
+            vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
@@ -319,7 +319,7 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![(UiShutdownRequest {}.tmb(0), STANDARD_COMMAND_TIMEOUT_MILLIS)]
+            vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
@@ -355,7 +355,7 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![(UiShutdownRequest {}.tmb(0), STANDARD_COMMAND_TIMEOUT_MILLIS)]
+            vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
@@ -392,7 +392,7 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![(UiShutdownRequest {}.tmb(0), STANDARD_COMMAND_TIMEOUT_MILLIS)]
+            vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
         assert_eq!(
