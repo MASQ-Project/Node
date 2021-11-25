@@ -4,9 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Transmission,
 };
-use crate::commands::commands_common::{
-    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
-};
+use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, SubCommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
@@ -20,6 +18,7 @@ use std::time::{Duration, Instant};
 
 const DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL: u64 = 250; // milliseconds
 const DEFAULT_SHUTDOWN_ATTEMPT_LIMIT: u64 = 4;
+const SHUTDOWN_COMMAND_TIMEOUT_MILLIS: u64 = 60000;
 
 #[derive(Debug)]
 pub struct ShutdownCommand {
@@ -37,7 +36,7 @@ impl Command for ShutdownCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiShutdownRequest {};
         let output: Result<UiShutdownResponse, CommandError> =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
+            transaction(input, context, SHUTDOWN_COMMAND_TIMEOUT_MILLIS);
         match output {
             Ok(_) => (),
             Err(ConnectionProblem(_)) => {
