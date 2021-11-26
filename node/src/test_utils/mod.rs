@@ -611,7 +611,8 @@ pub mod pure_test_utils {
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
             .collect()
-      
+    }
+
     #[derive(Debug, Message, Clone)]
     pub struct CleanUpMessage {
         pub sleep_ms: u64,
@@ -648,10 +649,14 @@ pub mod pure_test_utils {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::sub_lib::cryptde::CryptData;
+    use crate::sub_lib::cryptde::{CryptData, PublicKey};
+    use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hop::LiveHop;
-    use crate::sub_lib::neighborhood::ExpectedService;
+    use crate::sub_lib::neighborhood::{ExpectedService, ExpectedServices};
+    use crate::test_utils::{
+        encrypt_return_route_id, main_cryptde, route_from_proxy_client, route_to_proxy_client,
+        route_to_proxy_server, signal, zero_hop_route_response,
+    };
     use std::borrow::BorrowMut;
     use std::iter;
     use std::sync::{Arc, Mutex};

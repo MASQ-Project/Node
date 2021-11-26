@@ -52,7 +52,6 @@ pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 300; // 5 minutes
 pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 300; // 5 minutes
 
-
 //const SECONDS_PER_DAY: i64 = 86_400;
 const DEBT_MATURE_AFTER: i64 = 360; // 6 min
 const DEBT_CONSIDERED_BIG_FROM: i64 = 9_999_913;
@@ -125,12 +124,10 @@ pub struct SentPayments {
 }
 
 #[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
-pub struct ScanForPayables {
-}
+pub struct ScanForPayables {}
 
 #[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
-pub struct ScanForReceivables {
-}
+pub struct ScanForReceivables {}
 
 impl Handler<BindMessage> for Accountant {
     type Result = ();
@@ -182,7 +179,6 @@ impl Handler<ScanForReceivables> for Accountant {
         ctx.notify_later(msg, self.config.receivables_scan_interval);
     }
 }
-
 
 impl Handler<ReportRoutingServiceProvidedMessage> for Accountant {
     type Result = ();
@@ -662,13 +658,11 @@ impl Accountant {
 
     fn handle_scan_for_payables(&mut self) {
         self.scan_for_payables();
-
     }
 
     fn handle_scan_for_receivables(&mut self) {
         self.scan_for_received_payments();
         self.scan_for_delinquencies();
-
     }
 
     fn handle_received_payments(&mut self, received_payments: ReceivedPayments) {
