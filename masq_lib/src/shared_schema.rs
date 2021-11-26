@@ -62,10 +62,12 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
           masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
           masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
           masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-          masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642\n\n\
+          masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
-     and also the network the descriptor belongs to (mainnet or a testnet).\n\n\
-     If you have more than one descriptor, separate them with commas (but no spaces). There is no default value; \
+     and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
+     a configuration with multiple clandestine ports.\n\n\
+     If you have more than one descriptor, separate them with commas. Whether single or multiple descriptors, they \
+     should be enclosed by quotes. No default value is available; \
      if you don't specify a neighbor, your Node will start without being connected to any MASQ \
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
      --neighbors is meaningless in --neighborhood-mode zero-hop.";
@@ -224,7 +226,6 @@ pub fn ui_port_arg(help: &str) -> Arg {
         .help(help)
 }
 
-//TODO resolve this discrepancy: shared_app is in fact not used anywhere but in the crate of the node so the name may lack sense
 pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
     head.arg(
         Arg::with_name("blockchain-service-url")

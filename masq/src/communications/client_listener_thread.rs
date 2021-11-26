@@ -10,19 +10,19 @@ use websocket::receiver::Reader;
 use websocket::ws::receiver::Receiver as WsReceiver;
 use websocket::OwnedMessage;
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum ClientListenerError {
     Closed,
-    Broken,
+    Broken(String),
     Timeout,
     UnexpectedPacket,
 }
 
 impl ClientListenerError {
-    pub fn is_fatal(self) -> bool {
+    pub fn is_fatal(&self) -> bool {
         match self {
             ClientListenerError::Closed => true,
-            ClientListenerError::Broken => true,
+            ClientListenerError::Broken(_) => true,
             ClientListenerError::Timeout => true,
             ClientListenerError::UnexpectedPacket => false,
         }
@@ -122,8 +122,10 @@ impl ClientListenerThread {
                         Ok(_) => (),
                         Err(_) => break,
                     },
-                    Err(_error) => {
-                        let _ = self.message_body_tx.send(Err(ClientListenerError::Broken));
+                    Err(error) => {
+                        let _ = self
+                            .message_body_tx
+                            .send(Err(ClientListenerError::Broken(format!("{:?}", error))));
                         break;
                     }
                 }
@@ -220,7 +222,10 @@ mod tests {
             .unwrap();
 
         let error = message_body_rx.recv().unwrap().err().unwrap();
-        assert_eq!(error, ClientListenerError::Broken);
+        assert_eq!(
+            error,
+            ClientListenerError::Broken("NoDataAvailable".to_string())
+        );
         wait_for_stop(&subject);
         assert_eq!(subject.is_running(), false);
         let _ = stop_handle.stop();
@@ -282,7 +287,7 @@ mod tests {
     #[test]
     fn client_listener_errors_know_their_own_fatality() {
         assert_eq!(ClientListenerError::Closed.is_fatal(), true);
-        assert_eq!(ClientListenerError::Broken.is_fatal(), true);
+        assert_eq!(ClientListenerError::Broken("".to_string()).is_fatal(), true);
         assert_eq!(ClientListenerError::Timeout.is_fatal(), true);
         assert_eq!(ClientListenerError::UnexpectedPacket.is_fatal(), false);
     }

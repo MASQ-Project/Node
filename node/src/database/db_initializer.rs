@@ -46,15 +46,11 @@ pub trait DbInitializer {
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 }
 
-pub struct DbInitializerReal {
-    logger: Logger,
-}
+pub struct DbInitializerReal {}
 
 impl Default for DbInitializerReal {
     fn default() -> Self {
-        Self {
-            logger: Logger::new("DbInitializer"),
-        }
+        Self {}
     }
 }
 
@@ -320,7 +316,7 @@ impl DbInitializerReal {
                     Ok(Box::new(ConnectionWrapperReal::new(conn)))
                 } else {
                     warning!(
-                        self.logger,
+                        Logger::new("DbInitializer"),
                         "Database is incompatible and its updating is necessary"
                     );
                     let wrapped_connection = ConnectionWrapperReal::new(conn);

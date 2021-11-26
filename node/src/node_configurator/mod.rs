@@ -52,7 +52,7 @@ pub fn determine_config_file_path(
     .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
     let multi_config = make_new_multi_config(&orientation_schema, vec![Box::new(orientation_vcl)])?;
-    let config_file_path = value_m!(multi_config, "config-file", PathBuf).expect_v("config-file");
+    let config_file_path = value_m!(multi_config, "config-file", PathBuf).expectv("config-file");
     let user_specified = multi_config.occurrences_of("config-file") > 0;
     let (real_user, data_directory_opt, chain) =
         real_user_with_data_directory_opt_and_chain(dirs_wrapper, &multi_config);

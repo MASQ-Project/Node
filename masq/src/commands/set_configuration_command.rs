@@ -21,12 +21,12 @@ impl SetConfigurationCommand {
         let parameter_opt = pieces.get(1).map(|s| s.replace("--", ""));
         match set_configuration_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => {
-                let parameter = parameter_opt.expect_v("required param");
+                let parameter = parameter_opt.expectv("required param");
                 SetConfigurationCommand {
                     name: parameter.clone(),
                     value: matches
                         .value_of(parameter)
-                        .expect_v("required param")
+                        .expectv("required param")
                         .to_string(),
                 }
                 .wrap_to_ok()

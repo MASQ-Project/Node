@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::payable_dao::Payment;
-use crate::accountant::{ReceivedPayments, SentPayments};
+use crate::accountant::{ReceivedPayments, ScanForPayables, ScanForReceivables, SentPayments};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainResult, Transaction};
 use crate::daemon::crash_notification::CrashNotification;
@@ -128,6 +128,8 @@ recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
+recorder_message_handler!(ScanForReceivables);
+recorder_message_handler!(ScanForPayables);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -342,6 +344,7 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
         add_route: recipient!(addr, AddRouteMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
+        node_from_ui: recipient!(addr, NodeFromUiMessage),
     }
 }
 
@@ -361,6 +364,7 @@ pub fn make_hopper_subs_from(addr: &Addr<Recorder>) -> HopperSubs {
         from_hopper_client: recipient!(addr, IncipientCoresPackage),
         from_hopper_client_no_lookup: recipient!(addr, NoLookupIncipientCoresPackage),
         from_dispatcher: recipient!(addr, InboundClientData),
+        node_from_ui: recipient!(addr, NodeFromUiMessage),
     }
 }
 
@@ -372,6 +376,7 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
             .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
         inbound_server_data: recipient!(addr, InboundServerData),
         dns_resolve_failed: recipient!(addr, DnsResolveFailure_0v1),
+        node_from_ui: recipient!(addr, NodeFromUiMessage),
     }
 }
 
@@ -410,6 +415,8 @@ pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
         report_new_payments: recipient!(addr, ReceivedPayments),
         report_sent_payments: recipient!(addr, SentPayments),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),
+        scan_for_payables: recipient!(addr, ScanForPayables),
+        scan_for_receivables: recipient!(addr, ScanForReceivables),
     }
 }
 
