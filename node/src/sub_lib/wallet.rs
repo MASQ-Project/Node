@@ -47,7 +47,7 @@ impl Clone for WalletKind {
         match self {
             WalletKind::Address(address) => WalletKind::Address(Address { 0: address.0 }),
             WalletKind::KeyPair(keypair) => {
-                WalletKind::KeyPair(Bip32ECKeyPair::from(keypair.clone_secret()))
+                WalletKind::KeyPair(Bip32ECKeyPair::from(keypair.clone_secrets()))
             }
             WalletKind::PublicKey(public) => WalletKind::PublicKey(
                 PublicKey::from_slice(public.bytes()).expect("Failed to clone from PublicKey"),
@@ -141,6 +141,21 @@ impl Wallet {
             WalletKind::KeyPair(ref key_pair) => key_pair
                 .sign(msg.as_ref())
                 .map_err(|e| WalletError::Signature(format!("{:?}", e))),
+            _ => Err(WalletError::Signature(format!(
+                "Cannot sign with non-keypair wallet: {:?}.",
+                self.kind
+            ))),
+        }
+    }
+
+    pub fn prepare_secp256k1_secret(
+        &self,
+    ) -> Result<secp256k1secrets::key::SecretKey, WalletError> {
+        match self.kind {
+            WalletKind::KeyPair(ref key_pair) => {
+                let (_, secp256k1) = key_pair.clone_secrets();
+                Ok(secp256k1)
+            }
             _ => Err(WalletError::Signature(format!(
                 "Cannot sign with non-keypair wallet: {:?}.",
                 self.kind
@@ -433,6 +448,7 @@ impl Serialize for Wallet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::bip32::Bip32ECKeyPairToolsWrapperReal;
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::test_utils::make_paying_wallet;
@@ -491,7 +507,12 @@ mod tests {
         let derivation_path = derivation_path(0, 5);
         let expected_seed = make_meaningless_seed();
         let wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(expected_seed.as_bytes(), &derivation_path).unwrap(),
+            Bip32ECKeyPair::from_raw(
+                expected_seed.as_bytes(),
+                &derivation_path,
+                Bip32ECKeyPairToolsWrapperReal,
+            )
+            .unwrap(),
         );
 
         let result = wallet.string_address_from_keypair();
