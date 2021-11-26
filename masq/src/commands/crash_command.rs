@@ -21,10 +21,10 @@ pub fn crash_subcommand() -> App<'static, 'static> {
             .possible_values(&[
                 "BlockchainBridge",
                 "Dispatcher",
-                // "Accountant",
-                // "Configurator",
+                "Accountant",
+                "Configurator",
                 // "Hopper",
-                // "Neighborhood",
+                "Neighborhood",
                 // "ProxyClient",
                 // "ProxyServer",
                 // "UiGateway", // This should be the default, when it comes in

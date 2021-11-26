@@ -48,6 +48,16 @@ impl Chain {
             .unwrap_or_else(|| panic!("BlockchainRecord for '{:?}' doesn't exist", self))
         //untested panic - but works as an expect()
     }
+
+    pub fn is_mainnet(&self) -> bool {
+        Self::mainnets()
+            .iter()
+            .any(|mainnet_chain| mainnet_chain == self)
+    }
+
+    fn mainnets() -> &'static [Chain] {
+        &[Chain::PolyMainnet, Chain::EthMainnet]
+    }
 }
 
 pub fn chain_from_chain_identifier_opt(identifier: &str) -> Option<Chain> {
@@ -127,5 +137,24 @@ mod tests {
             contract: Default::default(),
             contract_creation_block: 0,
         }
+    }
+
+    #[test]
+    fn is_mainnet_knows_about_all_mainnets() {
+        let searched_str = "mainnet";
+        assert_mainnet_exist();
+        CHAINS.iter().for_each(|blockchain_record| {
+            if blockchain_record.literal_identifier.contains(searched_str) {
+                let chain = blockchain_record.self_id;
+                assert_eq!(chain.is_mainnet(), true)
+            }
+        })
+    }
+
+    fn assert_mainnet_exist() {
+        assert!(CHAINS
+            .iter()
+            .find(|blockchain_record| blockchain_record.literal_identifier.contains("mainnet"))
+            .is_some());
     }
 }

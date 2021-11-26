@@ -2344,15 +2344,15 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .past_neighbors_params(&past_neighbors_params_arc)
             .past_neighbors_result(Ok(Some(vec![
-                NodeDescriptor::from_str(
+                NodeDescriptor::try_from((
                     main_cryptde(),
                     "masq://eth-mainnet:MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234",
-                )
+                ))
                 .unwrap(),
-                NodeDescriptor::from_str(
+                NodeDescriptor::try_from((
                     main_cryptde(),
                     "masq://eth-mainnet:ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE@4.3.2.1:4321",
-                )
+                ))
                 .unwrap(),
             ])));
         let subject = Neighbors {};

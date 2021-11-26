@@ -15,6 +15,7 @@ use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::net::SocketAddr;
@@ -126,6 +127,7 @@ pub struct HopperConfig {
     pub per_routing_service: u64,
     pub per_routing_byte: u64,
     pub is_decentralized: bool,
+    pub crashable: bool,
 }
 
 #[derive(Clone)]
@@ -134,6 +136,7 @@ pub struct HopperSubs {
     pub from_hopper_client: Recipient<IncipientCoresPackage>,
     pub from_hopper_client_no_lookup: Recipient<NoLookupIncipientCoresPackage>,
     pub from_dispatcher: Recipient<InboundClientData>,
+    pub node_from_ui: Recipient<NodeFromUiMessage>,
 }
 
 impl Debug for HopperSubs {
@@ -164,6 +167,7 @@ mod tests {
             from_hopper_client: recipient!(recorder, IncipientCoresPackage),
             from_hopper_client_no_lookup: recipient!(recorder, NoLookupIncipientCoresPackage),
             from_dispatcher: recipient!(recorder, InboundClientData),
+            node_from_ui: recipient!(recorder, NodeFromUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "HopperSubs");

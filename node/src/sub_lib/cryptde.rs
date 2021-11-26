@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
+use std::any::Any;
 use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
@@ -554,6 +555,7 @@ pub trait CryptDE: Send + Sync {
         descriptor_fragment: &str,
     ) -> Result<PublicKey, String>;
     fn digest(&self) -> [u8; 32];
+    fn as_any(&self) -> &dyn Any;
 }
 
 pub struct SerdeCborError {
@@ -626,6 +628,7 @@ pub fn create_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 3
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::main_cryptde;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::{FromHex, FromHexError};
@@ -1055,7 +1058,7 @@ mod tests {
 
     #[test]
     fn decodex_handles_decryption_error() {
-        let mut cryptde = main_cryptde().clone();
+        let mut cryptde = CryptDENull::new(TEST_DEFAULT_CHAIN);
         cryptde.set_key_pair(&PublicKey::new(&[]), TEST_DEFAULT_CHAIN);
         let data = CryptData::new(&b"booga"[..]);
 
