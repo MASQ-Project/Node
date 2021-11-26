@@ -2,9 +2,11 @@
 
 use crate::sub_lib::logger::Logger;
 use clap::App;
-use masq_lib::messages::UiCrashRequest;
+use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::type_name_of;
 use std::io::ErrorKind;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -31,7 +33,7 @@ macro_rules! send_bind_message {
             .try_send(BindMessage {
                 peer_actors: $peer_actors.clone(),
             })
-            .expect(&format!("Actor for {:?} is dead", $subs));
+            .unwrap_or_else(|_| panic!("Actor for {:?} is dead", $subs));
     };
 }
 
@@ -40,7 +42,7 @@ macro_rules! send_start_message {
         $subs
             .start
             .try_send(StartMessage {})
-            .expect(&format!("Actor for {:?} is dead", $subs));
+            .unwrap_or_else(|_| panic!("Actor for {:?} is dead", $subs));
     };
 }
 
@@ -97,19 +99,41 @@ pub fn make_new_multi_config<'a>(
     MultiConfig::try_new(schema, vcls)
 }
 
+#[track_caller]
 pub fn handle_ui_crash_request(
-    msg: UiCrashRequest,
+    msg: NodeFromUiMessage,
     logger: &Logger,
     crashable: bool,
     crash_key: &str,
 ) {
-    if msg.actor != crash_key {
-        return;
+    let crasher = crash_request_analyzer;
+    if let Some(cr) = crasher(msg, logger, crashable, crash_key) {
+        let requester = type_name_of(crasher);
+        panic!("{} (processed with: {})", cr.panic_message, requester)
     }
-    if crashable {
-        panic!("{}", msg.panic_message);
-    } else {
-        info!(logger, "Rejected crash attempt: '{}'", msg.panic_message);
+}
+
+fn crash_request_analyzer(
+    msg: NodeFromUiMessage,
+    logger: &Logger,
+    crashable: bool,
+    crash_key: &str,
+) -> Option<UiCrashRequest> {
+    if !crashable {
+        if logger.debug_enabled() {
+            match UiCrashRequest::fmb(msg.body) {
+                Ok((msg, _)) if msg.actor == crash_key => {
+                    debug!(logger,"Received a crash request intended for this actor '{}' but not set up to be crashable",crash_key)
+                }
+                _ => (),
+            }
+        }
+        return None;
+    }
+    match UiCrashRequest::fmb(msg.body) {
+        Err(_) => None,
+        Ok((msg, _)) if msg.actor == crash_key => Some(msg),
+        Ok((_, _)) => None,
     }
 }
 
@@ -126,6 +150,8 @@ pub mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use log::Level;
+    use masq_lib::messages::ToMessageBody;
     use masq_lib::multi_config::CommandLineVcl;
 
     #[test]
@@ -183,49 +209,93 @@ pub mod tests {
         assert_eq!(NODE_MAILBOX_CAPACITY, 0)
     }
 
+    const BEGINNING_OF_CRASH_RQ_MESSAGE: &str = "Received a crash request";
+
     #[test]
-    fn handle_ui_crash_message_doesnt_crash_if_not_crashable() {
+    fn handle_ui_crash_message_does_not_crash_if_not_crashable() {
         init_test_logging();
-        let logger = Logger::new("Example");
-        let msg = UiCrashRequest {
+        let mut logger = Logger::new("handle_ui_crash_message_does_not_crash_if_not_crashable");
+        logger.set_level_for_a_test(Level::Info);
+        let msg_body = UiCrashRequest {
             actor: "CRASHKEY".to_string(),
             panic_message: "Foiled again!".to_string(),
+        }
+        .tmb(0);
+        let from_ui_message = NodeFromUiMessage {
+            client_id: 0,
+            body: msg_body,
         };
 
-        handle_ui_crash_request(msg, &logger, false, "CRASHKEY");
+        handle_ui_crash_request(from_ui_message, &logger, false, "CRASHKEY");
+        // no panic; test passes
 
-        TestLogHandler::new()
-            .exists_log_containing("INFO: Example: Rejected crash attempt: 'Foiled again!'");
+        TestLogHandler::new().exists_no_log_containing(&format!(
+            "handle_ui_crash_message_does_not_crash_if_not_crashable: {}",
+            BEGINNING_OF_CRASH_RQ_MESSAGE
+        ));
     }
 
     #[test]
-    fn handle_ui_crash_message_doesnt_crash_if_no_actor_match() {
-        let logger = Logger::new("Example");
-        let msg = UiCrashRequest {
+    fn handle_ui_crash_message_does_not_crash_if_not_crashable_but_logs_if_receives_a_crash_request_for_it_despite(
+    ) {
+        init_test_logging();
+        let logger = Logger::new("handle_ui_crash_message_does_not_crash_if_not_crashable_but_logs_if_receives_a_crash_request_for_it_despite");
+        let msg_body = UiCrashRequest {
             actor: "CRASHKEY".to_string(),
             panic_message: "Foiled again!".to_string(),
+        }
+        .tmb(0);
+        let from_ui_message = NodeFromUiMessage {
+            client_id: 0,
+            body: msg_body,
         };
 
-        handle_ui_crash_request(msg, &logger, true, "mismatch");
+        handle_ui_crash_request(from_ui_message, &logger, false, "CRASHKEY");
+        // no panic; test passes
 
+        TestLogHandler::new().exists_log_containing(&format!("handle_ui_crash_message_does_not_crash_if_not_crashable_but_logs_if_receives_a_crash_request_for_it_despite: {} intended for this actor 'CRASHKEY' but not set up to be crashable", BEGINNING_OF_CRASH_RQ_MESSAGE));
+    }
+
+    #[test]
+    fn handle_ui_crash_message_does_not_crash_if_no_actor_match() {
+        init_test_logging();
+        let logger = Logger::new("Example");
+        let msg_body = UiCrashRequest {
+            actor: "CRASHKEY".to_string(),
+            panic_message: "Foiled again!".to_string(),
+        }
+        .tmb(0);
+        let from_ui_message = NodeFromUiMessage {
+            client_id: 0,
+            body: msg_body,
+        };
+
+        handle_ui_crash_request(from_ui_message, &logger, true, "mismatch");
         // no panic; test passes
     }
 
     #[test]
-    #[should_panic(expected = "Foiled again!")]
-    fn handle_ui_crash_message_crashes_if_everythings_just_right() {
+    #[should_panic(
+        expected = "Foiled again! (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    )]
+    fn handle_ui_crash_message_crashes_if_everything_is_just_right() {
         let logger = Logger::new("Example");
-        let msg = UiCrashRequest {
+        let msg_body = UiCrashRequest {
             actor: "CRASHKEY".to_string(),
             panic_message: "Foiled again!".to_string(),
+        }
+        .tmb(0);
+        let from_ui_message = NodeFromUiMessage {
+            client_id: 0,
+            body: msg_body,
         };
 
-        handle_ui_crash_request(msg, &logger, true, "CRASHKEY");
+        handle_ui_crash_request(from_ui_message, &logger, true, "CRASHKEY");
     }
 
     #[test]
     #[should_panic(expected = "The program's entry check failed to catch this.")]
-    fn make_new_multi_config_should_panic_after_trying_to_process_help_request() {
+    fn make_new_multi_config_should_panic_trying_to_process_help_request() {
         let app = app_node();
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
             String::from("program"),
@@ -236,8 +306,10 @@ pub mod tests {
     }
 
     #[test]
+    //this test won't work properly until we integrate Clap 3.x.x
+    //now it calls process::exit internally though Clap's documentation tries to convince us that it doesn't
     #[should_panic(expected = "The program's entry check failed to catch this.")]
-    fn make_new_multi_config_should_panic_after_trying_to_process_version_request() {
+    fn make_new_multi_config_should_panic_trying_to_process_version_request() {
         let app = app_node();
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
             String::from("program"),

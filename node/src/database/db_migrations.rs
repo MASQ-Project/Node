@@ -88,7 +88,7 @@ impl<'a> DBMigrationUtilitiesReal<'a> {
     }
 
     fn root_transaction_ref(&self) -> &Transaction<'a> {
-        self.root_transaction.as_ref().expect_v("root transaction")
+        self.root_transaction.as_ref().expectv("root transaction")
     }
 }
 
@@ -106,7 +106,7 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
     fn commit(&mut self) -> Result<(), String> {
         self.root_transaction
             .take()
-            .expect_v("owned root transaction")
+            .expectv("owned root transaction")
             .commit()
             .map_err(|e| e.to_string())
     }

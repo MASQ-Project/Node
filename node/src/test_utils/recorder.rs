@@ -342,6 +342,7 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
         add_route: recipient!(addr, AddRouteMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
+        node_from_ui: recipient!(addr, NodeFromUiMessage),
     }
 }
 
@@ -361,6 +362,7 @@ pub fn make_hopper_subs_from(addr: &Addr<Recorder>) -> HopperSubs {
         from_hopper_client: recipient!(addr, IncipientCoresPackage),
         from_hopper_client_no_lookup: recipient!(addr, NoLookupIncipientCoresPackage),
         from_dispatcher: recipient!(addr, InboundClientData),
+        node_from_ui: recipient!(addr, NodeFromUiMessage),
     }
 }
 
@@ -372,6 +374,7 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
             .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
         inbound_server_data: recipient!(addr, InboundServerData),
         dns_resolve_failed: recipient!(addr, DnsResolveFailure_0v1),
+        node_from_ui: recipient!(addr, NodeFromUiMessage),
     }
 }
 

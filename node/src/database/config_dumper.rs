@@ -234,15 +234,15 @@ mod tests {
             persistent_config
                 .set_past_neighbors(
                     Some(vec![
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
                             "masq://eth-mainnet:QUJDREVGRw@1.2.3.4:1234",
-                        )
+                        ))
                         .unwrap(),
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
                             "masq://eth-mainnet:QkNERUZHSA@2.3.4.5:2345",
-                        )
+                        ))
                         .unwrap(),
                     ]),
                     "password",
@@ -331,15 +331,15 @@ mod tests {
             persistent_config
                 .set_past_neighbors(
                     Some(vec![
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
                             "masq://eth-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
-                        )
+                        ))
                         .unwrap(),
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
                             "masq://eth-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
-                        )
+                        ))
                         .unwrap(),
                     ]),
                     "password",
@@ -431,15 +431,15 @@ mod tests {
             persistent_config
                 .set_past_neighbors(
                     Some(vec![
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
                             "masq://eth-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
-                        )
+                        ))
                         .unwrap(),
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
                             "masq://eth-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
-                        )
+                        ))
                         .unwrap(),
                     ]),
                     "password",

@@ -25,7 +25,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Addr;
@@ -37,8 +37,8 @@ use actix::Recipient;
 use futures::future::Future;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use masq_lib::messages::UiMessageError::UnexpectedMessage;
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest, UiMessageError};
+use masq_lib::crash_point::CrashPoint;
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
@@ -97,6 +97,7 @@ pub struct Accountant {
     payable_dao: Box<dyn PayableDao>,
     receivable_dao: Box<dyn ReceivableDao>,
     banned_dao: Box<dyn BannedDao>,
+    crashable: bool,
     persistent_configuration: Box<dyn PersistentConfiguration>,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
@@ -217,7 +218,12 @@ impl Handler<NodeFromUiMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_node_from_ui_message(msg);
+        let client_id = msg.client_id;
+        if let Ok((body, context_id)) = UiFinancialsRequest::fmb(msg.clone().body) {
+            self.handle_financials(client_id, context_id, body);
+        } else {
+            handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
+        }
     }
 }
 
@@ -236,6 +242,7 @@ impl Accountant {
             payable_dao: payable_dao_factory.make(),
             receivable_dao: receivable_dao_factory.make(),
             banned_dao: banned_dao_factory.make(),
+            crashable: config.crash_point == CrashPoint::Message,
             persistent_configuration: Box::new(PersistentConfigurationReal::new(
                 config_dao_factory.make(),
             )),
@@ -734,20 +741,6 @@ impl Accountant {
         );
     }
 
-    fn handle_node_from_ui_message(&mut self, msg: NodeFromUiMessage) {
-        let client_id = msg.client_id;
-        let result: Result<(UiFinancialsRequest, u64), UiMessageError> =
-            UiFinancialsRequest::fmb(msg.body);
-        match result {
-            Ok((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
-            Err(UnexpectedMessage(opcode, path)) => debug!(
-                &self.logger,
-                "Ignoring {:?} request from client {} with opcode '{}'", path, client_id, opcode
-            ),
-            Err(e) => panic!("Received obsolete error: {:?}", e),
-        }
-    }
-
     fn handle_financials(&mut self, client_id: u64, context_id: u64, request: UiFinancialsRequest) {
         let payables = self
             .payable_dao
@@ -831,13 +824,14 @@ pub mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
-    use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
+    use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
     use std::cell::RefCell;
     use std::convert::TryFrom;
@@ -1433,48 +1427,6 @@ pub mod tests {
                 ],
                 total_receivable: 98765432
             }
-        );
-    }
-
-    #[test]
-    fn unexpected_ui_message_is_ignored() {
-        init_test_logging();
-        let system = System::new("test");
-        let subject = make_subject(
-            Some(bc_from_ac_plus_earning_wallet(
-                AccountantConfig {
-                    payable_scan_interval: Duration::from_millis(10_000),
-                    payment_received_scan_interval: Duration::from_millis(10_000),
-                },
-                make_wallet("some_wallet_address"),
-            )),
-            None,
-            None,
-            None,
-            None,
-        );
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: MessageBody {
-                    opcode: "farple-prang".to_string(),
-                    path: FireAndForget,
-                    payload: Ok("{}".to_string()),
-                },
-            })
-            .unwrap();
-
-        System::current().stop();
-        system.run();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(ui_gateway_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing(
-            "DEBUG: Accountant: Ignoring FireAndForget request from client 1234 with opcode 'farple-prang'",
         );
     }
 
@@ -2967,6 +2919,18 @@ pub mod tests {
             wallet,
             H256::from_uint(&U256::from(1))
         ));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    )]
+    fn accountant_can_be_crashed_properly_but_not_improperly() {
+        let mut config = BootstrapperConfig::default();
+        config.crash_point = CrashPoint::Message;
+        let accountant = make_subject(Some(config), None, None, None, None);
+
+        prove_that_crash_request_handler_is_hooked_up(accountant, CRASH_KEY);
     }
 
     #[test]

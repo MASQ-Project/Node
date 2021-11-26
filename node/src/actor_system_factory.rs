@@ -2,7 +2,6 @@
 use super::accountant::Accountant;
 use super::bootstrapper;
 use super::bootstrapper::BootstrapperConfig;
-use super::discriminator::DiscriminatorFactory;
 use super::dispatcher::Dispatcher;
 use super::hopper::Hopper;
 use super::neighborhood::Neighborhood;
@@ -14,18 +13,9 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
-use crate::blockchain::blockchain_interface::{
-    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
-    REQUESTS_IN_PARALLEL,
-};
 use crate::database::dao_utils::DaoFactoryReal;
-use crate::database::db_initializer::{
-    connection_or_panic, DbInitializer, DbInitializerReal, DATABASE_FILE,
-};
-use crate::db_config::config_dao::ConfigDaoReal;
-use crate::db_config::persistent_configuration::{
-    PersistentConfiguration, PersistentConfigurationReal,
-};
+use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
+use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::node_configurator::configurator::Configurator;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
@@ -40,24 +30,41 @@ use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Addr;
+use actix::Arbiter;
 use actix::Recipient;
-use actix::{Actor, Arbiter};
-use crossbeam_channel::{unbounded, Sender};
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::crash_point::CrashPoint;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
 use std::path::Path;
-use web3::transports::Http;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
         &self,
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
+        persist_config: &dyn PersistentConfiguration,
+        actor_system_factory_tools: &dyn ActorSystemFactoryTools,
     ) -> StreamHandlerPoolSubs;
+}
+
+pub trait ActorSystemFactoryTools {
+    fn prepare_initial_messages(
+        &self,
+        main_cryptde: &'static dyn CryptDE,
+        alias_cryptde: &'static dyn CryptDE,
+        config: BootstrapperConfig,
+        actor_factory: Box<dyn ActorFactory>,
+    ) -> StreamHandlerPoolSubs;
+    fn main_cryptde_ref(&self) -> &'static dyn CryptDE;
+    fn alias_cryptde_ref(&self) -> &'static dyn CryptDE;
+    fn database_chain_assertion(
+        &self,
+        chain: Chain,
+        persistent_config: &dyn PersistentConfiguration,
+    );
 }
 
 pub struct ActorSystemFactoryReal {}
@@ -67,81 +74,54 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         &self,
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
+        persist_config: &dyn PersistentConfiguration,
+        tools: &dyn ActorSystemFactoryTools,
     ) -> StreamHandlerPoolSubs {
-        let main_cryptde = bootstrapper::main_cryptde_ref();
-        let alias_cryptde = bootstrapper::alias_cryptde_ref();
-        let (tx, rx) = unbounded();
+        let main_cryptde = tools.main_cryptde_ref();
+        let alias_cryptde = tools.alias_cryptde_ref();
+        tools.database_chain_assertion(config.blockchain_bridge_config.chain, persist_config);
 
-        ActorSystemFactoryReal::prepare_initial_messages(
-            main_cryptde,
-            alias_cryptde,
-            config,
-            actor_factory,
-            tx,
-        );
-
-        rx.recv().expect("Internal error: actor-system init thread died before initializing StreamHandlerPool subscribers")
+        tools.prepare_initial_messages(main_cryptde, alias_cryptde, config, actor_factory)
     }
 }
 
-impl ActorSystemFactoryReal {
+pub struct ActorSystemFactoryToolsReal;
+
+impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
     fn prepare_initial_messages(
+        &self,
         main_cryptde: &'static dyn CryptDE,
         alias_cryptde: &'static dyn CryptDE,
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
-        tx: Sender<StreamHandlerPoolSubs>,
-    ) {
+    ) -> StreamHandlerPoolSubs {
         let db_initializer = DbInitializerReal::default();
         // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
-        let proxy_server_subs = actor_factory.make_and_start_proxy_server(
-            main_cryptde,
-            alias_cryptde,
-            config.neighborhood_config.mode.is_decentralized(),
-            if config.consuming_wallet.is_none() {
-                None
-            } else {
-                Some(0)
-            },
-        );
-        let proxy_client_subs = if !config.neighborhood_config.mode.is_consume_only() {
+        let proxy_server_subs =
+            actor_factory.make_and_start_proxy_server(main_cryptde, alias_cryptde, &config);
+        let proxy_client_subs_opt = if !config.neighborhood_config.mode.is_consume_only() {
             Some(
                 actor_factory.make_and_start_proxy_client(ProxyClientConfig {
                     cryptde: main_cryptde,
                     dns_servers: config.dns_servers.clone(),
-                    exit_service_rate: config
-                        .neighborhood_config
-                        .mode
-                        .rate_pack()
-                        .clone()
-                        .exit_service_rate,
-                    exit_byte_rate: config.neighborhood_config.mode.rate_pack().exit_byte_rate,
+                    exit_service_rate: config.exit_service_rate(),
+                    exit_byte_rate: config.exit_byte_rate(),
+                    crashable: ActorFactoryReal::is_crashable(&config),
                 }),
             )
         } else {
             None
         };
-
         let hopper_subs = actor_factory.make_and_start_hopper(HopperConfig {
             main_cryptde,
             alias_cryptde,
-            per_routing_service: config
-                .neighborhood_config
-                .mode
-                .rate_pack()
-                .clone()
-                .routing_service_rate,
-            per_routing_byte: config
-                .neighborhood_config
-                .mode
-                .rate_pack()
-                .clone()
-                .routing_byte_rate,
+            per_routing_service: config.routing_service_rate(),
+            per_routing_byte: config.routing_byte_rate(),
             is_decentralized: config.neighborhood_config.mode.is_decentralized(),
+            crashable: ActorFactoryReal::is_crashable(&config),
         });
-        let blockchain_bridge_subs =
-            actor_factory.make_and_start_blockchain_bridge(&config, &db_initializer);
+        let blockchain_bridge_subs = actor_factory.make_and_start_blockchain_bridge(&config);
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(main_cryptde, &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
             &config,
@@ -149,17 +129,15 @@ impl ActorSystemFactoryReal {
             &db_initializer,
             &BannedCacheLoaderReal {},
         );
-        let ui_gateway_subs =
-            actor_factory.make_and_start_ui_gateway(config.ui_gateway_config.clone());
-        let stream_handler_pool_subs = actor_factory
-            .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories.clone());
+        let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(&config);
+        let stream_handler_pool_subs = actor_factory.make_and_start_stream_handler_pool(&config);
         let configurator_subs = actor_factory.make_and_start_configurator(&config);
 
         // collect all the subs
         let peer_actors = PeerActors {
             dispatcher: dispatcher_subs.clone(),
             proxy_server: proxy_server_subs,
-            proxy_client_opt: proxy_client_subs.clone(),
+            proxy_client_opt: proxy_client_subs_opt.clone(),
             hopper: hopper_subs,
             neighborhood: neighborhood_subs.clone(),
             accountant: accountant_subs,
@@ -177,7 +155,7 @@ impl ActorSystemFactoryReal {
         send_bind_message!(peer_actors.ui_gateway, peer_actors);
         send_bind_message!(peer_actors.blockchain_bridge, peer_actors);
         send_bind_message!(peer_actors.configurator, peer_actors);
-        if let Some(subs) = proxy_client_subs {
+        if let Some(subs) = proxy_client_subs_opt {
             send_bind_message!(subs, peer_actors);
         }
         stream_handler_pool_subs
@@ -200,7 +178,30 @@ impl ActorSystemFactoryReal {
         send_start_message!(peer_actors.neighborhood);
 
         //send out the stream handler pool subs (to be bound to listeners)
-        tx.send(stream_handler_pool_subs).ok();
+        stream_handler_pool_subs
+    }
+
+    fn main_cryptde_ref(&self) -> &'static dyn CryptDE {
+        bootstrapper::main_cryptde_ref()
+    }
+
+    fn alias_cryptde_ref(&self) -> &'static dyn CryptDE {
+        bootstrapper::alias_cryptde_ref()
+    }
+
+    fn database_chain_assertion(
+        &self,
+        chain: Chain,
+        persistent_config: &dyn PersistentConfiguration,
+    ) {
+        let requested_chain = chain.rec().literal_identifier.to_string();
+        let chain_in_db = persistent_config.chain_name();
+        if requested_chain != chain_in_db {
+            panic!(
+                "Database with the wrong chain name detected; expected: {}, was: {}",
+                requested_chain, chain_in_db
+            )
+        }
     }
 }
 
@@ -213,8 +214,7 @@ pub trait ActorFactory: Send {
         &self,
         main_cryptde: &'static dyn CryptDE,
         alias_cryptde: &'static dyn CryptDE,
-        is_decentralized: bool,
-        consuming_wallet_balance: Option<i64>,
+        config: &BootstrapperConfig,
     ) -> ProxyServerSubs;
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs;
     fn make_and_start_neighborhood(
@@ -229,17 +229,14 @@ pub trait ActorFactory: Send {
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs;
-    fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs;
+    fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs;
     fn make_and_start_stream_handler_pool(
         &self,
-        clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
+        config: &BootstrapperConfig,
     ) -> StreamHandlerPoolSubs;
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs;
-    fn make_and_start_blockchain_bridge(
-        &self,
-        config: &BootstrapperConfig,
-        db_initializer: &dyn DbInitializer,
-    ) -> BlockchainBridgeSubs;
+    fn make_and_start_blockchain_bridge(&self, config: &BootstrapperConfig)
+        -> BlockchainBridgeSubs;
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs;
 }
 
@@ -250,11 +247,11 @@ impl ActorFactory for ActorFactoryReal {
         &self,
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
-        let crash_point = config.crash_point;
         let descriptor = config.node_descriptor_opt.clone();
-        let addr: Addr<Dispatcher> = Arbiter::start(move |_| {
-            Dispatcher::new(crash_point, descriptor.expect_v("node descriptor"))
-        });
+        let crashable = Self::is_crashable(config);
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<Dispatcher> = arbiter
+            .start(move |_| Dispatcher::new(descriptor.expectv("node descriptor"), crashable));
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -265,22 +262,31 @@ impl ActorFactory for ActorFactoryReal {
         &self,
         main_cryptde: &'static dyn CryptDE,
         alias_cryptde: &'static dyn CryptDE,
-        is_decentralized: bool,
-        consuming_wallet_balance: Option<i64>,
+        config: &BootstrapperConfig,
     ) -> ProxyServerSubs {
-        let addr: Addr<ProxyServer> = Arbiter::start(move |_| {
+        let is_decentralized = config.neighborhood_config.mode.is_decentralized();
+        let consuming_wallet_balance = if config.consuming_wallet.is_some() {
+            Some(0)
+        } else {
+            None
+        };
+        let crashable = Self::is_crashable(config);
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<ProxyServer> = arbiter.start(move |_| {
             ProxyServer::new(
                 main_cryptde,
                 alias_cryptde,
                 is_decentralized,
                 consuming_wallet_balance,
+                crashable,
             )
         });
         ProxyServer::make_subs_from(&addr)
     }
 
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs {
-        let addr: Addr<Hopper> = Arbiter::start(|_| Hopper::new(config));
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<Hopper> = arbiter.start(move |_| Hopper::new(config));
         Hopper::make_subs_from(&addr)
     }
 
@@ -290,8 +296,9 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> NeighborhoodSubs {
         let config_clone = config.clone();
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Neighborhood> =
-            Arbiter::start(move |_| Neighborhood::new(cryptde, &config_clone));
+            arbiter.start(move |_| Neighborhood::new(cryptde, &config_clone));
         Neighborhood::make_subs_from(&addr)
     }
 
@@ -318,7 +325,8 @@ impl ActorFactory for ActorFactoryReal {
         ));
         let config_dao_factory =
             DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
-        let addr: Addr<Accountant> = Arbiter::start(move |_| {
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
                 &cloned_config,
                 Box::new(payable_dao_factory),
@@ -330,83 +338,70 @@ impl ActorFactory for ActorFactoryReal {
         Accountant::make_subs_from(&addr)
     }
 
-    fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs {
-        let ui_gateway = UiGateway::new(&config);
-        let addr: Addr<UiGateway> = Arbiter::start(|_| ui_gateway);
+    fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs {
+        let crashable = Self::is_crashable(config);
+        let ui_gateway = UiGateway::new(&config.ui_gateway_config, crashable);
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<UiGateway> = arbiter.start(move |_| ui_gateway);
         UiGateway::make_subs_from(&addr)
     }
 
     fn make_and_start_stream_handler_pool(
         &self,
-        clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
+        config: &BootstrapperConfig,
     ) -> StreamHandlerPoolSubs {
-        let addr: Addr<StreamHandlerPool> =
-            Arbiter::start(|_| StreamHandlerPool::new(clandestine_discriminator_factories));
+        let clandestine_discriminator_factories =
+            config.clandestine_discriminator_factories.clone();
+        let crashable = Self::is_crashable(config);
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<StreamHandlerPool> = arbiter
+            .start(move |_| StreamHandlerPool::new(clandestine_discriminator_factories, crashable));
         StreamHandlerPool::make_subs_from(&addr)
     }
 
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
-        let addr: Addr<ProxyClient> = Arbiter::start(|_| ProxyClient::new(config));
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<ProxyClient> = arbiter.start(move |_| ProxyClient::new(config));
         ProxyClient::make_subs_from(&addr)
     }
 
     fn make_and_start_blockchain_bridge(
         &self,
         config: &BootstrapperConfig,
-        db_initializer: &dyn DbInitializer,
     ) -> BlockchainBridgeSubs {
         let blockchain_service_url_opt = config
             .blockchain_bridge_config
             .blockchain_service_url_opt
             .clone();
-        let blockchain_interface: Box<dyn BlockchainInterface> = {
-            match blockchain_service_url_opt {
-                Some(url) => match Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL) {
-                    Ok((event_loop_handle, transport)) => {
-                        Box::new(BlockchainInterfaceNonClandestine::new(
-                            transport,
-                            event_loop_handle,
-                            config.blockchain_bridge_config.chain,
-                        ))
-                    }
-                    Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
-                },
-                None => Box::new(BlockchainInterfaceClandestine::new(
-                    config.blockchain_bridge_config.chain,
-                )),
-            }
-        };
-        let config_dao = Box::new(ConfigDaoReal::new(
-            db_initializer
-                .initialize(
-                    &config.data_directory,
-                    config.blockchain_bridge_config.chain,
-                    true,
-                )
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        &config.data_directory.join(DATABASE_FILE)
-                    )
-                }),
-        ));
-        let persistent_config = Box::new(PersistentConfigurationReal::new(config_dao));
-        validate_database_chain_correctness(
-            config.blockchain_bridge_config.chain,
-            persistent_config.as_ref(),
-        );
-        let blockchain_bridge =
-            BlockchainBridge::new(config, blockchain_interface, persistent_config);
-        let addr: Addr<BlockchainBridge> = blockchain_bridge.start();
+        let crashable = Self::is_crashable(config);
+        let wallet_opt = config.consuming_wallet.clone();
+        let data_directory = config.data_directory.clone();
+        let chain_id = config.blockchain_bridge_config.chain;
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
+            let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
+                blockchain_service_url_opt,
+                &DbInitializerReal::default(),
+                data_directory,
+                chain_id,
+            );
+            BlockchainBridge::new(
+                blockchain_interface,
+                persistent_config,
+                crashable,
+                wallet_opt,
+            )
+        });
         BlockchainBridge::make_subs_from(&addr)
     }
 
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
-        let configurator = Configurator::new(
-            config.data_directory.clone(),
-            config.blockchain_bridge_config.chain,
-        );
-        let addr: Addr<Configurator> = configurator.start();
+        let data_directory = config.data_directory.clone();
+        let chain_id = config.blockchain_bridge_config.chain;
+        let crashable = Self::is_crashable(config);
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<Configurator> =
+            arbiter.start(move |_| Configurator::new(data_directory, chain_id, crashable));
         ConfiguratorSubs {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
@@ -414,17 +409,9 @@ impl ActorFactory for ActorFactoryReal {
     }
 }
 
-fn validate_database_chain_correctness(
-    chain: Chain,
-    persistent_config: &dyn PersistentConfiguration,
-) {
-    let required_chain = chain.rec().literal_identifier.to_string();
-    let chain_in_db = persistent_config.chain_name();
-    if required_chain != chain_in_db {
-        panic!(
-            "Database with the wrong chain name detected; expected: {}, was: {}",
-            required_chain, chain_in_db
-        )
+impl ActorFactoryReal {
+    fn is_crashable(config: &BootstrapperConfig) -> bool {
+        config.crash_point == CrashPoint::Message
     }
 }
 
@@ -435,10 +422,11 @@ mod tests {
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
-    use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::neighborhood::gossip::Gossip_0v1;
-    use crate::stream_messages::AddStreamMsg;
-    use crate::stream_messages::RemoveStreamMsg;
+    use crate::node_test_utils::{
+        make_stream_handler_pool_subs_from, make_stream_handler_pool_subs_from_an_addr,
+        start_recorder_refcell_opt,
+    };
     use crate::sub_lib::accountant::AccountantConfig;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
@@ -447,7 +435,8 @@ mod tests {
     };
     use crate::sub_lib::blockchain_bridge::{BlockchainBridgeConfig, ReportAccountsPayable};
     use crate::sub_lib::configurator::NewPasswordMessage;
-    use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::cryptde::{PlainData, PublicKey};
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
@@ -466,30 +455,145 @@ mod tests {
         AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
     };
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
-    use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::pure_test_utils::{CleanUpMessage, DummyActor};
     use crate::test_utils::recorder::Recording;
+    use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::{alias_cryptde, rate_pack};
+    use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::System;
+    use crossbeam_channel::bounded;
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
+    use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::cell::RefCell;
     use std::collections::HashMap;
-    use std::net::IpAddr;
     use std::net::Ipv4Addr;
+    use std::net::{IpAddr, SocketAddr, SocketAddrV4};
     use std::path::PathBuf;
+    use std::ptr::addr_of;
+    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+
+    #[derive(Default)]
+    struct ActorSystemFactoryToolsMock {
+        prepare_initial_messages_params: Arc<
+            Mutex<
+                Vec<(
+                    Box<dyn CryptDE>,
+                    Box<dyn CryptDE>,
+                    BootstrapperConfig,
+                    Box<dyn ActorFactory>,
+                )>,
+            >,
+        >,
+        prepare_initial_messages_results: RefCell<Vec<StreamHandlerPoolSubs>>,
+        main_cryptde_ref_results: RefCell<Vec<&'static dyn CryptDE>>,
+        alias_cryptde_ref_results: RefCell<Vec<&'static dyn CryptDE>>,
+        database_chain_assertion_params: Arc<Mutex<Vec<Chain>>>,
+        compare_persistent_config_to_pointer: RefCell<Vec<*const dyn PersistentConfiguration>>,
+    }
+
+    impl ActorSystemFactoryTools for ActorSystemFactoryToolsMock {
+        fn prepare_initial_messages(
+            &self,
+            main_cryptde: &'static dyn CryptDE,
+            alias_cryptde: &'static dyn CryptDE,
+            config: BootstrapperConfig,
+            actor_factory: Box<dyn ActorFactory>,
+        ) -> StreamHandlerPoolSubs {
+            self.prepare_initial_messages_params.lock().unwrap().push((
+                Box::new(<&CryptDENull>::from(main_cryptde).clone()),
+                Box::new(<&CryptDENull>::from(alias_cryptde).clone()),
+                config,
+                actor_factory,
+            ));
+            self.prepare_initial_messages_results.borrow_mut().remove(0)
+        }
+
+        fn main_cryptde_ref(&self) -> &'static dyn CryptDE {
+            self.main_cryptde_ref_results.borrow_mut().remove(0)
+        }
+
+        fn alias_cryptde_ref(&self) -> &'static dyn CryptDE {
+            self.alias_cryptde_ref_results.borrow_mut().remove(0)
+        }
+
+        fn database_chain_assertion(
+            &self,
+            chain: Chain,
+            persistent_config: &dyn PersistentConfiguration,
+        ) {
+            self.database_chain_assertion_params
+                .lock()
+                .unwrap()
+                .push(chain);
+            assert_eq!(
+                self.compare_persistent_config_to_pointer
+                    .borrow_mut()
+                    .remove(0),
+                addr_of!(*persistent_config)
+            )
+        }
+    }
+
+    impl ActorSystemFactoryToolsMock {
+        pub fn main_cryptde_ref_result(self, result: &'static dyn CryptDE) -> Self {
+            self.main_cryptde_ref_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn alias_cryptde_ref_result(self, result: &'static dyn CryptDE) -> Self {
+            self.alias_cryptde_ref_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn database_chain_assertion_params(
+            mut self,
+            real_param: &Arc<Mutex<Vec<Chain>>>,
+            to_compare_for_in_place_param: *const dyn PersistentConfiguration,
+        ) -> Self {
+            self.database_chain_assertion_params = real_param.clone();
+            self.compare_persistent_config_to_pointer
+                .borrow_mut()
+                .push(to_compare_for_in_place_param);
+            self
+        }
+
+        pub fn prepare_initial_messages_params(
+            mut self,
+            params: &Arc<
+                Mutex<
+                    Vec<(
+                        Box<dyn CryptDE>,
+                        Box<dyn CryptDE>,
+                        BootstrapperConfig,
+                        Box<dyn ActorFactory>,
+                    )>,
+                >,
+            >,
+        ) -> Self {
+            self.prepare_initial_messages_params = params.clone();
+            self
+        }
+
+        pub fn prepare_initial_messages_result(self, result: StreamHandlerPoolSubs) -> Self {
+            self.prepare_initial_messages_results
+                .borrow_mut()
+                .push(result);
+            self
+        }
+    }
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
@@ -527,7 +631,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config.clone());
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.dispatcher);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.dispatcher);
             let dispatcher_subs = DispatcherSubs {
                 ibcd_sub: recipient!(addr, InboundClientData),
                 bind: recipient!(addr, BindMessage),
@@ -542,20 +646,14 @@ mod tests {
             &self,
             main_cryptde: &'a dyn CryptDE,
             alias_cryptde: &'a dyn CryptDE,
-            is_decentralized: bool,
-            consuming_wallet_balance: Option<i64>,
+            config: &BootstrapperConfig,
         ) -> ProxyServerSubs {
             self.parameters
                 .proxy_server_params
                 .lock()
                 .unwrap()
-                .get_or_insert((
-                    main_cryptde,
-                    alias_cryptde,
-                    is_decentralized,
-                    consuming_wallet_balance,
-                ));
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
+                .get_or_insert((main_cryptde, alias_cryptde, config.clone()));
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.proxy_server);
             ProxyServerSubs {
                 bind: recipient!(addr, BindMessage),
                 from_dispatcher: recipient!(addr, InboundClientData),
@@ -569,6 +667,7 @@ mod tests {
                 add_route: recipient!(addr, AddRouteMessage),
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
                 set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
+                node_from_ui: recipient!(addr, NodeFromUiMessage),
             }
         }
 
@@ -578,7 +677,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config);
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.hopper);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.hopper);
             HopperSubs {
                 bind: recipient!(addr, BindMessage),
                 from_hopper_client: recipient!(addr, IncipientCoresPackage),
@@ -586,6 +685,7 @@ mod tests {
                     .clone()
                     .recipient::<NoLookupIncipientCoresPackage>(),
                 from_dispatcher: recipient!(addr, InboundClientData),
+                node_from_ui: recipient!(addr, NodeFromUiMessage),
             }
         }
 
@@ -599,7 +699,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert((cryptde, config.clone()));
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.neighborhood);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.neighborhood);
             NeighborhoodSubs {
                 bind: recipient!(addr, BindMessage),
                 start: recipient!(addr, StartMessage),
@@ -631,7 +731,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert((config.clone(), data_directory.to_path_buf()));
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.accountant);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.accountant);
             AccountantSubs {
                 bind: recipient!(addr, BindMessage),
                 start: recipient!(addr, StartMessage),
@@ -653,13 +753,13 @@ mod tests {
             }
         }
 
-        fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs {
+        fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs {
             self.parameters
                 .ui_gateway_params
                 .lock()
                 .unwrap()
-                .get_or_insert(config);
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.ui_gateway);
+                .get_or_insert(config.ui_gateway_config.clone());
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.ui_gateway);
             UiGatewaySubs {
                 bind: recipient!(addr, BindMessage),
                 node_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
@@ -669,16 +769,10 @@ mod tests {
 
         fn make_and_start_stream_handler_pool(
             &self,
-            _: Vec<Box<dyn DiscriminatorFactory>>,
+            _: &BootstrapperConfig,
         ) -> StreamHandlerPoolSubs {
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.stream_handler_pool);
-            StreamHandlerPoolSubs {
-                add_sub: recipient!(addr, AddStreamMsg),
-                transmit_sub: recipient!(addr, TransmitDataMsg),
-                remove_sub: recipient!(addr, RemoveStreamMsg),
-                bind: recipient!(addr, PoolBindMessage),
-                node_query_response: recipient!(addr, DispatcherNodeQueryResponse),
-            }
+            let addr = start_recorder_refcell_opt(&self.stream_handler_pool);
+            make_stream_handler_pool_subs_from_an_addr(addr)
         }
 
         fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
@@ -687,7 +781,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config);
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_client);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.proxy_client);
             ProxyClientSubs {
                 bind: recipient!(addr, BindMessage),
                 from_hopper: addr
@@ -695,20 +789,20 @@ mod tests {
                     .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
                 inbound_server_data: recipient!(addr, InboundServerData),
                 dns_resolve_failed: recipient!(addr, DnsResolveFailure_0v1),
+                node_from_ui: recipient!(addr, NodeFromUiMessage),
             }
         }
 
         fn make_and_start_blockchain_bridge(
             &self,
             config: &BootstrapperConfig,
-            _db_initializer: &dyn DbInitializer,
         ) -> BlockchainBridgeSubs {
             self.parameters
                 .blockchain_bridge_params
                 .lock()
                 .unwrap()
                 .get_or_insert(config.clone());
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.blockchain_bridge);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.blockchain_bridge);
             BlockchainBridgeSubs {
                 bind: recipient!(addr, BindMessage),
                 report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
@@ -723,7 +817,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert(config.clone());
-            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.configurator);
+            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.configurator);
             ConfiguratorSubs {
                 bind: recipient!(addr, BindMessage),
                 node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
@@ -749,7 +843,7 @@ mod tests {
         dispatcher_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         proxy_client_params: Arc<Mutex<Option<ProxyClientConfig>>>,
         proxy_server_params:
-            Arc<Mutex<Option<(&'a dyn CryptDE, &'a dyn CryptDE, bool, Option<i64>)>>>,
+            Arc<Mutex<Option<(&'a dyn CryptDE, &'a dyn CryptDE, BootstrapperConfig)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, BootstrapperConfig)>>>,
         accountant_params: Arc<Mutex<Option<(BootstrapperConfig, PathBuf)>>>,
@@ -825,25 +919,6 @@ mod tests {
         pub fn make_parameters(&self) -> Parameters<'a> {
             self.parameters.clone()
         }
-
-        fn start_recorder(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
-            recorder.borrow_mut().take().unwrap().start()
-        }
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid blockchain node URL")]
-    fn invalid_blockchain_url_produces_panic() {
-        let bbconfig = BlockchainBridgeConfig {
-            blockchain_service_url_opt: Some("http://λ:8545".to_string()),
-            chain: TEST_DEFAULT_CHAIN,
-            gas_price: 1,
-        };
-        let mut config = BootstrapperConfig::new();
-        config.blockchain_bridge_config = bbconfig;
-        config.consuming_wallet = None;
-        let subject = ActorFactoryReal {};
-        subject.make_and_start_blockchain_bridge(&config, &DbInitializerMock::new());
     }
 
     #[test]
@@ -883,14 +958,21 @@ mod tests {
                 ),
             },
         };
+        let persistent_config =
+            PersistentConfigurationMock::default().chain_name_result("eth-ropsten".to_string());
         Bootstrapper::pub_initialize_cryptdes_for_testing(
-            &Some(main_cryptde().clone()),
-            &Some(alias_cryptde().clone()),
+            &Some(main_cryptde()),
+            &Some(alias_cryptde()),
         );
         let subject = ActorSystemFactoryReal {};
 
         let system = System::new("test");
-        subject.make_and_start_actors(config, Box::new(actor_factory));
+        subject.make_and_start_actors(
+            config,
+            Box::new(actor_factory),
+            &persistent_config,
+            &ActorSystemFactoryToolsReal,
+        );
         System::current().stop();
         system.run();
 
@@ -942,15 +1024,13 @@ mod tests {
                 mode: NeighborhoodMode::ZeroHop,
             },
         };
-        let (tx, rx) = unbounded();
         let system = System::new("MASQNode");
 
-        ActorSystemFactoryReal::prepare_initial_messages(
+        let _ = ActorSystemFactoryToolsReal.prepare_initial_messages(
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
-            tx,
         );
 
         System::current().stop();
@@ -972,20 +1052,25 @@ mod tests {
         assert_eq!(proxy_client_config.exit_service_rate, 0);
         assert_eq!(proxy_client_config.exit_byte_rate, 0);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
-        let (
-            actual_main_cryptde,
-            actual_alias_cryptde,
-            actual_is_decentralized,
-            consuming_wallet_balance,
-        ) = Parameters::get(parameters.proxy_server_params);
+        let (actual_main_cryptde, actual_alias_cryptde, bootstrapper_config) =
+            Parameters::get(parameters.proxy_server_params);
         check_cryptde(actual_main_cryptde);
         check_cryptde(actual_alias_cryptde);
         assert_ne!(
             actual_main_cryptde.public_key(),
             actual_alias_cryptde.public_key()
         );
-        assert_eq!(actual_is_decentralized, false);
-        assert_eq!(consuming_wallet_balance, Some(0));
+        assert_eq!(
+            bootstrapper_config
+                .neighborhood_config
+                .mode
+                .is_decentralized(),
+            false
+        );
+        assert_eq!(
+            bootstrapper_config.consuming_wallet,
+            Some(make_wallet("consuming"))
+        );
         let (cryptde, neighborhood_config) = Parameters::get(parameters.neighborhood_params);
         check_cryptde(cryptde);
         assert_eq!(
@@ -1016,8 +1101,6 @@ mod tests {
             blockchain_bridge_param.consuming_wallet,
             Some(make_wallet("consuming"))
         );
-        let _stream_handler_pool_subs = rx.recv().unwrap();
-        // more...more...what? How to check contents of _stream_handler_pool_subs?
     }
 
     #[test]
@@ -1055,12 +1138,11 @@ mod tests {
         };
         let system = System::new("MASQNode");
 
-        ActorSystemFactoryReal::prepare_initial_messages(
+        let _ = ActorSystemFactoryToolsReal.prepare_initial_messages(
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
-            unbounded().0,
         );
 
         System::current().stop();
@@ -1115,21 +1197,129 @@ mod tests {
                 ),
             },
         };
-        let (tx, _) = unbounded();
         let system = System::new("MASQNode");
 
-        ActorSystemFactoryReal::prepare_initial_messages(
+        let _ = ActorSystemFactoryToolsReal.prepare_initial_messages(
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
-            tx,
         );
 
         System::current().stop();
         system.run();
-        let (_, _, _, consuming_wallet_balance) = Parameters::get(parameters.proxy_server_params);
-        assert_eq!(consuming_wallet_balance, None);
+        let (_, _, bootstrapper_config) = Parameters::get(parameters.proxy_server_params);
+        assert_eq!(bootstrapper_config.consuming_wallet, None);
+    }
+
+    #[test]
+    fn proxy_server_drags_down_the_whole_system_due_to_local_panic() {
+        let closure = || {
+            let mut bootstrapper_config = BootstrapperConfig::default();
+            bootstrapper_config.crash_point = CrashPoint::Message;
+            let subscribers = ActorFactoryReal {}.make_and_start_proxy_server(
+                main_cryptde(),
+                alias_cryptde(),
+                &bootstrapper_config,
+            );
+            subscribers.node_from_ui
+        };
+
+        panic_in_arbiter_thread_versus_system(Box::new(closure), proxy_server::CRASH_KEY)
+    }
+
+    #[test]
+    fn proxy_client_drags_down_the_whole_system_due_to_local_panic() {
+        let closure = || {
+            let proxy_cl_config = ProxyClientConfig {
+                cryptde: main_cryptde(),
+                dns_servers: vec![SocketAddr::V4(
+                    SocketAddrV4::from_str("1.1.1.1:45").unwrap(),
+                )],
+                exit_service_rate: 50,
+                crashable: true,
+                exit_byte_rate: 50,
+            };
+            let subscribers = ActorFactoryReal {}.make_and_start_proxy_client(proxy_cl_config);
+            subscribers.node_from_ui
+        };
+
+        panic_in_arbiter_thread_versus_system(Box::new(closure), proxy_client::CRASH_KEY)
+    }
+
+    #[test]
+    fn hopper_drags_down_the_whole_system_due_to_local_panic() {
+        let closure = || {
+            let hopper_config = HopperConfig {
+                main_cryptde: main_cryptde(),
+                alias_cryptde: alias_cryptde(),
+                per_routing_service: 100,
+                per_routing_byte: 50,
+                is_decentralized: false,
+                crashable: true,
+            };
+            let subscribers = ActorFactoryReal {}.make_and_start_hopper(hopper_config);
+            subscribers.node_from_ui
+        };
+
+        panic_in_arbiter_thread_versus_system(Box::new(closure), hopper::CRASH_KEY)
+    }
+
+    #[test]
+    fn ui_gateway_drags_down_the_whole_system_due_to_local_panic() {
+        let closure = || {
+            let mut bootstrapper_config = BootstrapperConfig::default();
+            bootstrapper_config.crash_point = CrashPoint::Message;
+            let subscribers = ActorFactoryReal {}.make_and_start_ui_gateway(&bootstrapper_config);
+            subscribers.node_from_ui_message_sub
+        };
+
+        panic_in_arbiter_thread_versus_system(Box::new(closure), ui_gateway::CRASH_KEY)
+    }
+
+    #[test]
+    fn stream_handler_pool_drags_down_the_whole_system_due_to_local_panic() {
+        let closure = || {
+            let mut bootstrapper_config = BootstrapperConfig::default();
+            bootstrapper_config.crash_point = CrashPoint::Message;
+            let subscribers =
+                ActorFactoryReal {}.make_and_start_stream_handler_pool(&bootstrapper_config);
+            subscribers.node_from_ui_sub
+        };
+
+        panic_in_arbiter_thread_versus_system(Box::new(closure), stream_handler_pool::CRASH_KEY)
+    }
+
+    fn panic_in_arbiter_thread_versus_system<F>(actor_initialization: Box<F>, actor_crash_key: &str)
+    where
+        F: FnOnce() -> Recipient<NodeFromUiMessage>,
+    {
+        let (mercy_signal_tx, mercy_signal_rx) = bounded(1);
+        let system = System::new("test");
+        let dummy_actor = DummyActor::new(Some(mercy_signal_tx));
+        let dummy_addr = Arbiter::start(|_| dummy_actor);
+        let ui_node_addr = actor_initialization();
+        let crash_request = UiCrashRequest {
+            actor: actor_crash_key.to_string(),
+            panic_message: format!(
+                "Testing a panic in the arbiter's thread for {}",
+                actor_crash_key
+            ),
+        };
+        let actor_message = NodeFromUiMessage {
+            client_id: 1,
+            body: crash_request.tmb(123),
+        };
+        dummy_addr
+            .try_send(CleanUpMessage { sleep_ms: 1500 })
+            .unwrap();
+        ui_node_addr.try_send(actor_message).unwrap();
+        system.run();
+        assert!(
+            mercy_signal_rx.try_recv().is_err(),
+            "{} while panicking is unable to shut the system down",
+            actor_crash_key
+        )
     }
 
     fn check_bind_message(recording: &Arc<Mutex<Recording>>, consume_only_flag: bool) {
@@ -1193,18 +1383,117 @@ mod tests {
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
 
-        let _ = validate_database_chain_correctness(chain, &persistent_config);
+        let _ = ActorSystemFactoryToolsReal.database_chain_assertion(chain, &persistent_config);
     }
 
     #[test]
     #[should_panic(
         expected = "Database with the wrong chain name detected; expected: eth-ropsten, was: eth-mainnet"
     )]
-    fn database_chain_validity_sad_path() {
-        let chain = TEST_DEFAULT_CHAIN; //Ropsten
+    fn make_and_start_actors_will_not_tolerate_differences_in_setup_chain_and_database_chain() {
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        bootstrapper_config.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
+        Bootstrapper::pub_initialize_cryptdes_for_testing(
+            &Some(main_cryptde().clone()),
+            &Some(alias_cryptde().clone()),
+        );
 
-        let _ = validate_database_chain_correctness(chain, &persistent_config);
+        let _ = ActorSystemFactoryReal {}.make_and_start_actors(
+            bootstrapper_config,
+            Box::new(ActorFactoryReal {}),
+            &persistent_config,
+            &ActorSystemFactoryToolsReal,
+        );
+    }
+
+    #[test]
+    fn make_and_start_actors_happy_path() {
+        let database_chain_assertion_params_arc = Arc::new(Mutex::new(vec![]));
+        let prepare_initial_messages_params_arc = Arc::new(Mutex::new(vec![]));
+        let (recorder, _, recording_arc) = make_recorder();
+        let stream_holder_pool_subs = make_stream_handler_pool_subs_from(Some(recorder));
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        let irrelevant_data_dir = PathBuf::new().join("big_directory/small_directory");
+        bootstrapper_config.blockchain_bridge_config.chain = Chain::PolyMainnet;
+        bootstrapper_config.data_directory = irrelevant_data_dir.clone();
+        bootstrapper_config.db_password_opt = Some("chameleon".to_string());
+        let main_cryptde = main_cryptde();
+        let main_cryptde_public_key_before = public_key_for_dyn_cryptde_being_null(main_cryptde);
+        let alias_cryptde = alias_cryptde();
+        let alias_cryptde_public_key_before = public_key_for_dyn_cryptde_being_null(alias_cryptde);
+        let actor_factory = Box::new(ActorFactoryReal {}) as Box<dyn ActorFactory>;
+        let actor_factory_raw_address = addr_of!(*actor_factory);
+        let persistent_config = PersistentConfigurationMock::default();
+        let persistent_config_raw_address = addr_of!(persistent_config);
+        let tools = ActorSystemFactoryToolsMock::default()
+            .main_cryptde_ref_result(main_cryptde)
+            .alias_cryptde_ref_result(alias_cryptde)
+            .database_chain_assertion_params(
+                &database_chain_assertion_params_arc,
+                persistent_config_raw_address,
+            )
+            .prepare_initial_messages_params(&prepare_initial_messages_params_arc)
+            .prepare_initial_messages_result(stream_holder_pool_subs);
+
+        let result = ActorSystemFactoryReal {}.make_and_start_actors(
+            bootstrapper_config,
+            Box::new(ActorFactoryReal {}),
+            &persistent_config,
+            &tools,
+        );
+
+        let database_chain_assertion_params = database_chain_assertion_params_arc.lock().unwrap();
+        assert_eq!(*database_chain_assertion_params, vec![Chain::PolyMainnet]);
+        let mut prepare_initial_messages_params =
+            prepare_initial_messages_params_arc.lock().unwrap();
+        let (
+            main_cryptde_after,
+            alias_cryptde_after,
+            bootstrapper_config_after,
+            actor_factory_after,
+        ) = prepare_initial_messages_params.remove(0);
+        assert!(prepare_initial_messages_params.is_empty());
+        let main_cryptde_public_key_after =
+            public_key_for_dyn_cryptde_being_null(main_cryptde_after.as_ref());
+        assert_eq!(
+            main_cryptde_public_key_after,
+            main_cryptde_public_key_before
+        );
+        let alias_cryptde_public_key_after =
+            public_key_for_dyn_cryptde_being_null(alias_cryptde_after.as_ref());
+        assert_eq!(
+            alias_cryptde_public_key_after,
+            alias_cryptde_public_key_before
+        );
+        assert_eq!(
+            bootstrapper_config_after.data_directory,
+            irrelevant_data_dir
+        );
+        assert_eq!(
+            bootstrapper_config_after.db_password_opt,
+            Some("chameleon".to_string())
+        );
+        assert_eq!(addr_of!(*actor_factory_after), actor_factory_raw_address);
+        let system = System::new("make_and_start_actors_happy_path");
+        let msg_of_irrelevant_choice = NodeFromUiMessage {
+            client_id: 5,
+            body: UiDescriptorRequest {}.tmb(1),
+        };
+        result
+            .node_from_ui_sub
+            .try_send(msg_of_irrelevant_choice.clone())
+            .unwrap();
+        System::current().stop_with_code(0);
+        system.run();
+        let recording = recording_arc.lock().unwrap();
+        let msg = recording.get_record::<NodeFromUiMessage>(0);
+        assert_eq!(msg, &msg_of_irrelevant_choice)
+    }
+
+    fn public_key_for_dyn_cryptde_being_null(cryptde: &dyn CryptDE) -> &PublicKey {
+        let null_cryptde = <&CryptDENull>::from(cryptde);
+        null_cryptde.public_key()
     }
 }

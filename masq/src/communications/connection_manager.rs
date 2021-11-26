@@ -25,7 +25,9 @@ use websocket::{ClientBuilder, WebSocketResult};
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
-pub const FALLBACK_TIMEOUT_MILLIS: u64 = 1000; //used to be 500; but we have suspicion that Actions doesn't make it and needs more
+//used to be 500 then 1000; but we have suspicion that Actions (Windows) doesn't make it and needs more;
+//the last attempt is exaggerated on purpose to find out if we ever can fix it by changing the time amount
+pub const FALLBACK_TIMEOUT_MILLIS: u64 = 60_000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutgoingMessageType {
@@ -168,7 +170,7 @@ fn make_client_listener(
     };
     let client = match result {
         Ok(c) => c,
-        Err(_) => return Err(ClientListenerError::Broken),
+        Err(e) => return Err(ClientListenerError::Broken(format!("{:?}", e))),
     };
     let (listener_half, talker_half) = client.split().unwrap();
     let client_listener = ClientListener::new();
@@ -176,7 +178,7 @@ fn make_client_listener(
     Ok(talker_half)
 }
 
-//hack a time-out around connection attempt to the Node or Daemon. Leak a thread if the attempt times out
+//hack a time-out around connection attempt to the Node or Daemon. Leaks a thread if the attempt times out
 fn connect_insecure_timeout(
     mut builder: ClientBuilder<'static>,
     timeout_millis: u64,
@@ -382,10 +384,10 @@ impl ConnectionManagerThread {
             redirect_order.timeout_millis,
         ) {
             Ok(th) => th,
-            Err(_) => {
+            Err(e) => {
                 let _ = inner
                     .redirect_response_tx
-                    .send(Err(ClientListenerError::Broken));
+                    .send(Err(ClientListenerError::Broken(format!("{:?}", e))));
                 return inner;
             }
         };
@@ -393,6 +395,7 @@ impl ConnectionManagerThread {
         inner.active_port = Some(redirect_order.port);
         inner.listener_to_manager_rx = listener_to_manager_rx;
         inner.talker_half = talker_half;
+        //TODO this is a working solution for conversations; know that a redirected fire-and-forget is just ignored and it does not resend if it's the absolutely first message: GH-487
         inner.conversations_waiting.iter().for_each(|context_id| {
             let error = if *context_id == redirect_order.context_id {
                 NodeConversationTermination::Resend
@@ -973,7 +976,13 @@ mod tests {
         );
 
         let response = redirect_response_rx.try_recv().unwrap();
-        assert_eq!(response, Err(ClientListenerError::Broken));
+        match response {
+            Err(ClientListenerError::Broken(_)) => (), //the string pasted in is OS-dependent
+            x => panic!(
+                "we expected ClientListenerError::Broken but got this: {:?}",
+                x
+            ),
+        }
     }
 
     #[test]
@@ -1065,7 +1074,7 @@ mod tests {
 
         let inner = ConnectionManagerThread::handle_incoming_message_body(
             inner,
-            Ok(Err(ClientListenerError::Broken)),
+            Ok(Err(ClientListenerError::Broken("Booga".to_string()))),
         );
 
         let disconnect_notification = conversation_rx.try_recv().unwrap();
