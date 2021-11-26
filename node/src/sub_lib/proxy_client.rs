@@ -8,6 +8,7 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::versioned_data::VersionedData;
 use actix::Message;
 use actix::Recipient;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::Ipv4Addr;
@@ -24,6 +25,7 @@ pub struct ProxyClientConfig {
     pub dns_servers: Vec<SocketAddr>,
     pub exit_service_rate: u64,
     pub exit_byte_rate: u64,
+    pub crashable: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -69,6 +71,7 @@ pub struct ProxyClientSubs {
     pub from_hopper: Recipient<ExpiredCoresPackage<ClientRequestPayload_0v1>>,
     pub inbound_server_data: Recipient<InboundServerData>,
     pub dns_resolve_failed: Recipient<DnsResolveFailure_0v1>,
+    pub node_from_ui: Recipient<NodeFromUiMessage>,
 }
 
 impl Debug for ProxyClientSubs {
@@ -135,6 +138,7 @@ mod tests {
             from_hopper: recipient!(recorder, ExpiredCoresPackage<ClientRequestPayload_0v1>),
             inbound_server_data: recipient!(recorder, InboundServerData),
             dns_resolve_failed: recipient!(recorder, DnsResolveFailure_0v1),
+            node_from_ui: recipient!(recorder, NodeFromUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "ProxyClientSubs");

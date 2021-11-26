@@ -84,7 +84,7 @@ impl WebSocketSupervisorReal {
     pub fn new(
         port: u16,
         from_ui_message_sub: Recipient<NodeFromUiMessage>,
-    ) -> std::io::Result<WebSocketSupervisorReal> {
+    ) -> std::io::Result<Box<WebSocketSupervisorReal>> {
         let inner = Arc::new(Mutex::new(WebSocketSupervisorInner {
             port,
             next_client_id: 0,
@@ -116,7 +116,7 @@ impl WebSocketSupervisorReal {
                 Err(())
             }
         }));
-        Ok(WebSocketSupervisorReal { inner })
+        Ok(Box::new(WebSocketSupervisorReal { inner }))
     }
 
     fn send_msg(locked_inner: &mut MutexGuard<WebSocketSupervisorInner>, msg: NodeToUiMessage) {
@@ -443,6 +443,27 @@ impl WebSocketSupervisorReal {
     }
 }
 
+pub trait WebSocketSupervisorFactory: Send {
+    fn make(
+        &self,
+        port: u16,
+        recipient: Recipient<NodeFromUiMessage>,
+    ) -> std::io::Result<Box<dyn WebSocketSupervisor>>;
+}
+
+pub struct WebsocketSupervisorFactoryReal;
+
+impl WebSocketSupervisorFactory for WebsocketSupervisorFactoryReal {
+    fn make(
+        &self,
+        port: u16,
+        recipient: Recipient<NodeFromUiMessage>,
+    ) -> std::io::Result<Box<dyn WebSocketSupervisor>> {
+        WebSocketSupervisorReal::new(port, recipient)
+            .map(|positive| positive as Box<dyn WebSocketSupervisor>)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -741,8 +762,7 @@ mod tests {
 
         ui_gateway_awaiter.await_message_count(3);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        let messages = vec![0, 1, 2]
-            .into_iter()
+        let messages = (0..=2)
             .map(|i| {
                 ui_gateway_recording
                     .get_record::<NodeFromUiMessage>(i)

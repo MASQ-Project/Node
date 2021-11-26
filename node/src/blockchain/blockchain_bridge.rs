@@ -2,10 +2,14 @@
 
 use crate::accountant::payable_dao::Payment;
 use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainResult, Transaction,
+    BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
+    BlockchainInterfaceNonClandestine, BlockchainResult, Transaction,
 };
-use crate::bootstrapper::BootstrapperConfig;
-use crate::db_config::persistent_configuration::PersistentConfiguration;
+use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
+use crate::db_config::config_dao::ConfigDaoReal;
+use crate::db_config::persistent_configuration::{
+    PersistentConfiguration, PersistentConfigurationReal,
+};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
@@ -18,19 +22,20 @@ use actix::Handler;
 use actix::Message;
 use actix::{Actor, MessageResult};
 use actix::{Addr, Recipient};
-use masq_lib::crash_point::CrashPoint;
-use masq_lib::messages::{FromMessageBody, UiCrashRequest};
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::convert::TryFrom;
+use std::path::PathBuf;
+use web3::transports::Http;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
 pub struct BlockchainBridge {
-    consuming_wallet: Option<Wallet>,
+    consuming_wallet_opt: Option<Wallet>,
     blockchain_interface: Box<dyn BlockchainInterface>,
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
-    set_consuming_wallet_subs: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
+    set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     crashable: bool,
 }
 
@@ -42,14 +47,14 @@ impl Handler<BindMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.set_consuming_wallet_subs = Some(vec![
+        self.set_consuming_wallet_subs_opt = Some(vec![
             msg.peer_actors
                 .neighborhood
                 .set_consuming_wallet_sub
                 .clone(),
             msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         ]);
-        match self.consuming_wallet.as_ref() {
+        match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => debug!(
                 self.logger,
                 "Received BindMessage; consuming wallet address {}", wallet
@@ -103,26 +108,61 @@ impl Handler<NodeFromUiMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if let Ok((crash_request, _)) = UiCrashRequest::fmb(msg.body) {
-            handle_ui_crash_request(crash_request, &self.logger, self.crashable, CRASH_KEY)
-        }
+        handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
     }
 }
 
 impl BlockchainBridge {
     pub fn new(
-        config: &BootstrapperConfig,
         blockchain_interface: Box<dyn BlockchainInterface>,
         persistent_config: Box<dyn PersistentConfiguration>,
+        crashable: bool,
+        consuming_wallet_opt: Option<Wallet>,
     ) -> BlockchainBridge {
         BlockchainBridge {
-            consuming_wallet: config.consuming_wallet.clone(),
+            consuming_wallet_opt,
             blockchain_interface,
-            logger: Logger::new("BlockchainBridge"),
             persistent_config,
-            set_consuming_wallet_subs: None,
-            crashable: config.crash_point == CrashPoint::Message,
+            set_consuming_wallet_subs_opt: None,
+            crashable,
+            logger: Logger::new("BlockchainBridge"),
         }
+    }
+
+    pub fn make_connections(
+        blockchain_service_url: Option<String>,
+        db_initializer: &dyn DbInitializer,
+        data_directory: PathBuf,
+        chain: Chain,
+    ) -> (
+        Box<dyn BlockchainInterface>,
+        Box<dyn PersistentConfiguration>,
+    ) {
+        let blockchain_interface: Box<dyn BlockchainInterface> = {
+            match blockchain_service_url {
+                Some(url) => match Http::new(&url) {
+                    Ok((event_loop_handle, transport)) => Box::new(
+                        BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, chain),
+                    ),
+                    Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
+                },
+                None => Box::new(BlockchainInterfaceClandestine::new(chain)),
+            }
+        };
+        let config_dao = Box::new(ConfigDaoReal::new(
+            db_initializer
+                .initialize(&data_directory, chain, true)
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Failed to connect to database at {:?}",
+                        &data_directory.join(DATABASE_FILE)
+                    )
+                }),
+        ));
+        (
+            blockchain_interface,
+            Box::new(PersistentConfigurationReal::new(config_dao)),
+        )
     }
 
     pub fn make_subs_from(addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
@@ -138,7 +178,7 @@ impl BlockchainBridge {
         &self,
         creditors_msg: ReportAccountsPayable,
     ) -> MessageResult<ReportAccountsPayable> {
-        MessageResult(match self.consuming_wallet.as_ref() {
+        MessageResult(match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => {
                 let gas_price = match self.persistent_config.gas_price() {
                     Ok(num) => num,
@@ -199,11 +239,14 @@ mod tests {
     use crate::blockchain::blockchain_interface::{
         Balance, BlockchainError, BlockchainResult, Nonce, Transaction, Transactions,
     };
+    use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_utils::make_default_persistent_configuration;
+    use crate::test_utils::pure_test_utils::{
+        make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up,
+    };
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::Addr;
@@ -211,8 +254,7 @@ mod tests {
     use ethsign::SecretKey;
     use ethsign_crypto::Keccak256;
     use futures::future::Future;
-    use masq_lib::crash_point::CrashPoint;
-    use masq_lib::messages::ToMessageBody;
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::FromHex;
     use std::cell::RefCell;
@@ -233,11 +275,11 @@ mod tests {
         let consuming_private_key = SecretKey::from_raw(&secret).unwrap();
         let consuming_wallet = Wallet::from(Bip32ECKeyPair::from(consuming_private_key));
         let subject = BlockchainBridge::new(
-            &bc_from_wallet(Some(consuming_wallet.clone())),
             stub_bi(),
             Box::new(make_default_persistent_configuration()),
+            false,
+            Some(consuming_wallet.clone()),
         );
-
         let system = System::new("blockchain_bridge_receives_bind_message");
         let addr: Addr<BlockchainBridge> = subject.start();
 
@@ -257,13 +299,12 @@ mod tests {
     #[test]
     fn blockchain_bridge_receives_bind_message_without_consuming_private_key() {
         init_test_logging();
-
         let subject = BlockchainBridge::new(
-            &bc_from_wallet(None),
             stub_bi(),
             Box::new(PersistentConfigurationMock::default()),
+            false,
+            None,
         );
-
         let system = System::new("blockchain_bridge_receives_bind_message");
         let addr: Addr<BlockchainBridge> = subject.start();
 
@@ -364,6 +405,19 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Invalid blockchain node URL")]
+    fn invalid_blockchain_url_produces_panic() {
+        let data_directory = PathBuf::new(); //never reached
+        let blockchain_service_url = Some("http://λ:8545".to_string());
+        let _ = BlockchainBridge::make_connections(
+            blockchain_service_url,
+            &DbInitializerMock::default(),
+            data_directory,
+            DEFAULT_CHAIN,
+        );
+    }
+
+    #[test]
     fn ask_me_about_my_transactions() {
         let system = System::new("ask_me_about_my_transactions");
         let block_no = 37;
@@ -381,9 +435,10 @@ mod tests {
             .retrieve_transactions_parameters
             .clone();
         let subject = BlockchainBridge::new(
-            &bc_from_wallet(None),
             Box::new(blockchain_interface_mock),
             Box::new(PersistentConfigurationMock::default()),
+            false,
+            None,
         );
         let addr: Addr<BlockchainBridge> = subject.start();
 
@@ -405,7 +460,6 @@ mod tests {
     fn report_accounts_payable_sends_transactions_to_blockchain_interface() {
         let system =
             System::new("report_accounts_payable_sends_transactions_to_blockchain_interface");
-
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(U256::from(1)))
             .get_transaction_count_result(Ok(U256::from(2)))
@@ -424,9 +478,10 @@ mod tests {
 
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
-            &bc_from_wallet(Some(consuming_wallet.clone())),
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
+            false,
+            Some(consuming_wallet.clone()),
         );
         let addr: Addr<BlockchainBridge> = subject.start();
 
@@ -545,9 +600,10 @@ mod tests {
         let persistent_configuration_mock =
             PersistentConfigurationMock::new().gas_price_result(Ok(3u64));
         let subject = BlockchainBridge::new(
-            &bc_from_wallet(Some(consuming_wallet.clone())),
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
+            false,
+            Some(consuming_wallet.clone()),
         );
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
@@ -567,7 +623,6 @@ mod tests {
             )))])
         );
         let actual_wallet = transaction_count_parameters.lock().unwrap().remove(0);
-
         assert_eq!(actual_wallet, consuming_wallet);
     }
 
@@ -576,9 +631,10 @@ mod tests {
         let blockchain_interface_mock = BlockchainInterfaceMock::default();
         let persistent_configuration_mock = PersistentConfigurationMock::default();
         let subject = BlockchainBridge::new(
-            &BootstrapperConfig::new(),
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
+            false,
+            None,
         );
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
@@ -602,9 +658,10 @@ mod tests {
             .gas_price_result(Err(PersistentConfigError::TransactionError));
         let consuming_wallet = make_wallet("somewallet");
         let subject = BlockchainBridge::new(
-            &bc_from_wallet(Some(consuming_wallet.clone())),
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
+            false,
+            Some(consuming_wallet),
         );
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
@@ -626,78 +683,18 @@ mod tests {
     }
 
     #[test]
-    fn cant_be_crashed_if_key_doesnt_match() {
-        let system = System::new("test");
-        let mut config = BootstrapperConfig::new();
-        config.crash_point = CrashPoint::Message;
-        let subject = BlockchainBridge::new(
-            &config,
+    #[should_panic(
+        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    )]
+    fn blockchain_bridge_can_be_crashed_properly_but_not_improperly() {
+        let crashable = true;
+        let actor = BlockchainBridge::new(
             Box::new(BlockchainInterfaceMock::default()),
             Box::new(PersistentConfigurationMock::default()),
+            crashable,
+            None,
         );
-        let addr: Addr<BlockchainBridge> = subject.start();
 
-        addr.try_send(NodeFromUiMessage {
-            client_id: 0,
-            body: UiCrashRequest::new("MISMATCH", "panic message").tmb(0),
-        })
-        .unwrap();
-
-        System::current().stop();
-        system.run();
-        // no panic: test passes
-    }
-
-    #[test]
-    fn cant_be_crashed_if_not_crashable() {
-        init_test_logging();
-        let system = System::new("test");
-        let subject = BlockchainBridge::new(
-            &BootstrapperConfig::new(),
-            Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
-        );
-        let addr: Addr<BlockchainBridge> = subject.start();
-
-        addr.try_send(NodeFromUiMessage {
-            client_id: 0,
-            body: UiCrashRequest::new(CRASH_KEY, "panic message").tmb(0),
-        })
-        .unwrap();
-
-        System::current().stop();
-        system.run();
-        TestLogHandler::new().exists_log_containing(
-            "INFO: BlockchainBridge: Rejected crash attempt: 'panic message'",
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "panic message")]
-    fn can_be_crashed() {
-        let system = System::new("test");
-        let mut config = BootstrapperConfig::new();
-        config.crash_point = CrashPoint::Message;
-        let subject = BlockchainBridge::new(
-            &config,
-            Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
-        );
-        let addr: Addr<BlockchainBridge> = subject.start();
-
-        addr.try_send(NodeFromUiMessage {
-            client_id: 0,
-            body: UiCrashRequest::new(CRASH_KEY, "panic message").tmb(0),
-        })
-        .unwrap();
-
-        System::current().stop();
-        system.run();
-    }
-
-    fn bc_from_wallet(consuming_wallet: Option<Wallet>) -> BootstrapperConfig {
-        let mut bc = BootstrapperConfig::new();
-        bc.consuming_wallet = consuming_wallet;
-        bc
+        prove_that_crash_request_handler_is_hooked_up(actor, CRASH_KEY);
     }
 }

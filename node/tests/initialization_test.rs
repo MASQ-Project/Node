@@ -2,13 +2,13 @@
 
 pub mod utils;
 
-use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
+use masq_lib::constants::{DEFAULT_CHAIN, NODE_NOT_RUNNING_ERROR};
 use masq_lib::messages::{
     ToMessageBody, UiFinancialsResponse, UiSetupRequest, UiShutdownRequest, NODE_UI_PROTOCOL,
 };
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
-use masq_lib::test_utils::utils::node_home_directory;
+use masq_lib::test_utils::utils::{node_home_directory, TEST_DEFAULT_CHAIN};
 use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
@@ -43,6 +43,7 @@ fn clap_help_does_not_initialize_database_integration() {
             CommandConfig::new().opt("--help"), // We don't specify --data-directory because the --help logic doesn't evaluate it
         ),
         false,
+        false,
     );
 
     node.wait_for_exit().unwrap();
@@ -57,6 +58,7 @@ fn initialization_sequence_integration() {
         "initialization_sequence_integration",
         Some(CommandConfig::new().pair("--ui-port", format!("{}", daemon_port).as_str())),
         true,
+        false,
     );
     let mut initialization_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL);
     let data_directory = node_home_directory("integration", "initialization_sequence_integration");
@@ -139,9 +141,66 @@ fn wait_for_process_end(process_id: u32) {
 }
 
 #[test]
-fn required_chain_name_from_input_meets_different_db_chain_name_and_panics_integration() {
-    let test_name =
-        "required_chain_name_from_input_meets_different_db_chain_name_and_panics_integration";
+fn incomplete_node_descriptor_is_refused_integration() {
+    let test_default_chain_identifier = TEST_DEFAULT_CHAIN.rec().literal_identifier;
+    let mut node = utils::MASQNode::start_standard(
+        "incomplete_node_descriptor_is_refused_integration",
+        Some(
+            CommandConfig::new()
+                .pair(
+                    "--neighbors",
+                    &format!("masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678,masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
+                             test_default_chain_identifier,test_default_chain_identifier)
+                ),
+        ),
+        false,
+        true,
+    );
+    match node.wait_for_exit() {
+        None => panic!("the process terminated in a strange way"),
+        Some(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                stdout.contains("Log is written to"),
+                "we thought to see a note of the logs' location, instead we got: {}",
+                stdout
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains(&format!("neighbors - Neighbors supplied without ip addresses and ports are not valid: 'masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>",
+                                            test_default_chain_identifier)
+            ), "instead we got: {}",stderr)
+        }
+    };
+}
+
+#[test]
+fn started_without_explicit_chain_parameter_runs_fine() {
+    //defaulted chain - chosen on the lack of user specified chain - corresponds with descriptors
+    //believed to be for the default chain
+    let config = CommandConfig::new()
+        .pair("--neighborhood-mode", "standard")
+        .pair(
+            "--neighbors",
+            &format!(
+                "masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+                DEFAULT_CHAIN.rec().literal_identifier
+            ),
+        );
+
+    let mut node = MASQNode::start_with_blank_config(
+        "started_without_explicit_chain_parameter_runs_fine",
+        Some(config),
+        true,
+        false,
+    );
+
+    node.wait_for_log("UIGateway bound", Some(5000));
+    //Node is dropped and killed
+}
+
+#[test]
+fn requested_chain_meets_different_db_chain_and_panics_integration() {
+    let test_name = "requested_chain_meets_different_db_chain_and_panics_integration";
     {
         fdlimit::raise_fd_limit();
         let port = find_free_port();
@@ -149,6 +208,7 @@ fn required_chain_name_from_input_meets_different_db_chain_name_and_panics_integ
             test_name,
             Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
             true,
+            false,
         );
         node.wait_for_log("UIGateway bound", Some(5000));
         let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);

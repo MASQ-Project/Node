@@ -28,7 +28,7 @@ use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -36,6 +36,7 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use pretty_hex::PrettyHex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -57,6 +58,7 @@ pub struct ProxyClient {
     stream_contexts: HashMap<StreamKey, StreamContext>,
     exit_service_rate: u64,
     exit_byte_rate: u64,
+    crashable: bool,
     logger: Logger,
 }
 
@@ -208,6 +210,14 @@ impl Handler<DnsResolveFailure_0v1> for ProxyClient {
     }
 }
 
+impl Handler<NodeFromUiMessage> for ProxyClient {
+    type Result = ();
+
+    fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
+    }
+}
+
 impl ProxyClient {
     pub fn new(config: ProxyClientConfig) -> ProxyClient {
         if config.dns_servers.is_empty() {
@@ -224,18 +234,18 @@ impl ProxyClient {
             stream_contexts: HashMap::new(),
             exit_service_rate: config.exit_service_rate,
             exit_byte_rate: config.exit_byte_rate,
+            crashable: config.crashable,
             logger: Logger::new("ProxyClient"),
         }
     }
 
     pub fn make_subs_from(addr: &Addr<ProxyClient>) -> ProxyClientSubs {
         ProxyClientSubs {
-            bind: addr.clone().recipient::<BindMessage>(),
-            from_hopper: addr
-                .clone()
-                .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
-            inbound_server_data: addr.clone().recipient::<InboundServerData>(),
-            dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure_0v1>(),
+            bind: recipient!(addr, BindMessage),
+            from_hopper: recipient!(addr, ExpiredCoresPackage<ClientRequestPayload_0v1>),
+            inbound_server_data: recipient!(addr, InboundServerData),
+            dns_resolve_failed: recipient!(addr, DnsResolveFailure_0v1),
+            node_from_ui: recipient!(addr, NodeFromUiMessage),
         }
     }
 
@@ -341,6 +351,7 @@ mod tests {
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_wallet;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
@@ -348,8 +359,8 @@ mod tests {
     use actix::System;
     use masq_lib::blockchains::chains::Chain;
     use std::cell::RefCell;
-    use std::net::IpAddr;
     use std::net::SocketAddr;
+    use std::net::{IpAddr, SocketAddrV4};
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -468,6 +479,24 @@ mod tests {
 
     #[test]
     #[should_panic(
+        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    )]
+    fn proxy_client_can_be_crashed_properly_but_not_improperly() {
+        let proxy_client = ProxyClient::new(ProxyClientConfig {
+            cryptde: main_cryptde(),
+            dns_servers: vec![SocketAddr::V4(
+                SocketAddrV4::from_str("1.2.3.4:4560").unwrap(),
+            )],
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+            crashable: true,
+        });
+
+        prove_that_crash_request_handler_is_hooked_up(proxy_client, CRASH_KEY);
+    }
+
+    #[test]
+    #[should_panic(
         expected = "ProxyClient requires at least one DNS server IP address after the --dns-servers parameter"
     )]
     fn at_least_one_dns_server_must_be_provided() {
@@ -476,6 +505,7 @@ mod tests {
             dns_servers: vec![],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
     }
 
@@ -503,6 +533,7 @@ mod tests {
             ],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         subject.resolver_wrapper_factory = Box::new(resolver_wrapper_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
@@ -566,6 +597,7 @@ mod tests {
             dns_servers: dnss(),
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         let subject_addr: Addr<ProxyClient> = subject.start();
 
@@ -588,6 +620,7 @@ mod tests {
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
                 exit_service_rate: 0,
                 exit_byte_rate: 0,
+                crashable: false,
             });
             let subject_addr = subject.start();
             let subject_subs = ProxyClient::make_subs_from(&subject_addr);
@@ -627,6 +660,7 @@ mod tests {
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
                 exit_service_rate: 0,
                 exit_byte_rate: 0,
+                crashable: false,
             });
             subject.stream_contexts.insert(
                 stream_key_inner,
@@ -714,6 +748,7 @@ mod tests {
             dns_servers: dnss(),
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
@@ -769,6 +804,7 @@ mod tests {
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
+            crashable: false,
         });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
@@ -834,6 +870,7 @@ mod tests {
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
+            crashable: false,
         });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
@@ -861,6 +898,7 @@ mod tests {
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         subject.stream_contexts.insert(
             stream_key.clone(),
@@ -997,6 +1035,7 @@ mod tests {
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         subject.stream_contexts.insert(
             stream_key.clone(),
@@ -1047,6 +1086,7 @@ mod tests {
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         subject.stream_contexts.insert(
             stream_key.clone(),
@@ -1095,6 +1135,7 @@ mod tests {
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         let mut process_package_params_arc = Arc::new(Mutex::new(vec![]));
         let pool = StreamHandlerPoolMock::new()

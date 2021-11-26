@@ -18,6 +18,7 @@ fn dispatcher_message_integration() {
         "dispatcher_message_integration",
         Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
         true,
+        false,
     );
     node.wait_for_log("UIGateway bound", Some(5000));
     let descriptor_req = UiDescriptorRequest {};
@@ -40,6 +41,7 @@ fn request_financial_information_integration() {
         "request_financial_information_integration",
         Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
         true,
+        false,
     );
     node.wait_for_log("UIGateway bound", Some(5000));
     let financials_request = UiFinancialsRequest {

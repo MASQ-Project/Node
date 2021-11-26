@@ -26,6 +26,7 @@ use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::utils::handle_ui_crash_request;
 use crate::sub_lib::wallet::{Wallet, WalletError};
 use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
@@ -39,10 +40,13 @@ use masq_lib::constants::{
 use rustc_hex::ToHex;
 use std::str::FromStr;
 
+pub const CRASH_KEY: &str = "CONFIGURATOR";
+
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub: Option<Recipient<NodeToUiMessage>>,
     new_password_subs: Option<Vec<Recipient<NewPasswordMessage>>>,
+    crashable: bool,
     logger: Logger,
 }
 
@@ -63,34 +67,25 @@ impl Handler<NodeFromUiMessage> for Configurator {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.clone().body) {
+        if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.body.clone()) {
             let client_id = msg.client_id;
             self.call_handler(msg, |c| {
                 c.handle_change_password(body, client_id, context_id)
             });
-        } else if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_check_password(body, context_id));
-        } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_configuration(body, context_id));
-        } else if let Ok((body, context_id)) = UiGenerateWalletsRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiGenerateWalletsRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_generate_wallets(body, context_id));
-        } else if let Ok((body, context_id)) = UiRecoverWalletsRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiRecoverWalletsRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_recover_wallets(body, context_id));
-        } else if let Ok((body, context_id)) = UiSetConfigurationRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiSetConfigurationRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_set_configuration(body, context_id));
-        } else if let Ok((body, context_id)) = UiWalletAddressesRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiWalletAddressesRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_wallet_addresses(body, context_id));
-        }
-    }
-}
-
-impl From<Box<dyn PersistentConfiguration>> for Configurator {
-    fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
-        Configurator {
-            persistent_config,
-            node_to_ui_sub: None,
-            new_password_subs: None,
-            logger: Logger::new("Configurator"),
+        } else {
+            handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
     }
 }
@@ -98,7 +93,7 @@ impl From<Box<dyn PersistentConfiguration>> for Configurator {
 type MessageError = (u64, String);
 
 impl Configurator {
-    pub fn new(data_directory: PathBuf, chain: Chain) -> Self {
+    pub fn new(data_directory: PathBuf, chain: Chain, crashable: bool) -> Self {
         let initializer = DbInitializerReal::default();
         let conn = initializer
             .initialize(&data_directory, chain, false)
@@ -106,7 +101,13 @@ impl Configurator {
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config: Box<dyn PersistentConfiguration> =
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
-        Configurator::from(persistent_config)
+        Configurator {
+            persistent_config,
+            node_to_ui_sub: None,
+            new_password_subs: None,
+            crashable,
+            logger: Logger::new("Configurator"),
+        }
     }
 
     fn handle_check_password(
@@ -744,6 +745,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use bip39::{Language, Mnemonic};
     use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
@@ -760,7 +762,7 @@ mod tests {
         )));
         let (recorder, _, _) = make_recorder();
         let recorder_addr = recorder.start();
-        let mut subject = Configurator::new(data_dir, TEST_DEFAULT_CHAIN);
+        let mut subject = Configurator::new(data_dir, TEST_DEFAULT_CHAIN, false);
         subject.node_to_ui_sub = Some(recorder_addr.recipient());
         subject.new_password_subs = Some(vec![]);
 
@@ -1979,6 +1981,18 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    )]
+    fn configurator_can_be_crashed_properly_but_not_improperly() {
+        let persistent_config = PersistentConfigurationMock::new();
+        let mut configurator = make_subject(Some(persistent_config));
+        configurator.crashable = true;
+
+        prove_that_crash_request_handler_is_hooked_up(configurator, CRASH_KEY);
+    }
+
+    #[test]
     fn configuration_handles_check_password_error() {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Err(PersistentConfigError::NotPresent));
@@ -2058,6 +2072,18 @@ mod tests {
             mnemonic_phrase_language: "English".to_string(),
             consuming_derivation_path: derivation_path(0, 4),
             earning_wallet: "0x005e288d713a5fb3d7c9cf1b43810a98688c7223".to_string(),
+        }
+    }
+
+    impl From<Box<dyn PersistentConfiguration>> for Configurator {
+        fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
+            Configurator {
+                persistent_config,
+                node_to_ui_sub: None,
+                new_password_subs: None,
+                crashable: false,
+                logger: Logger::new("Configurator"),
+            }
         }
     }
 

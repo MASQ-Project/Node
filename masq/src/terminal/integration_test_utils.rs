@@ -94,7 +94,7 @@ impl IntegrationTestTerminalConsole {
         let mut buffer = [0; 1024];
         let number_of_bytes = self.stdin.read(&mut buffer).expect("reading failed");
         std::str::from_utf8(&buffer[..number_of_bytes])
-            .expect_v("converted str")
+            .expectv("converted str")
             .to_string()
     }
 }
@@ -127,7 +127,7 @@ impl MasqTerminal for IntegrationTestTerminal {
 
     fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(IntegrationTestWriter {
-            mutex_guard_that_simulates_the_core_locking: self.lock.lock().expect_v("MutexGuard"),
+            mutex_guard_that_simulates_the_core_locking: self.lock.lock().expectv("MutexGuard"),
             ultimate_drop_behavior: false,
             stderr: false,
         })
@@ -139,7 +139,7 @@ impl MasqTerminal for IntegrationTestTerminal {
         stderr: bool,
     ) -> Box<dyn WriterLock + '_> {
         let lock = Box::new(IntegrationTestWriter {
-            mutex_guard_that_simulates_the_core_locking: self.lock.lock().expect_v("MutexGuard"),
+            mutex_guard_that_simulates_the_core_locking: self.lock.lock().expectv("MutexGuard"),
             ultimate_drop_behavior: true,
             stderr,
         });

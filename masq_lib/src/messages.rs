@@ -42,7 +42,7 @@ impl fmt::Display for UiMessageError {
             DeserializationError(message) => write!(
                 f,
                 "Could not deserialize message from Daemon or Node: {}",
-                message
+                message,
             ),
         }
     }

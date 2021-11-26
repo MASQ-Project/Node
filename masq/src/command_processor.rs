@@ -68,7 +68,7 @@ impl CommandProcessor for CommandProcessorReal {
         self.context
             .terminal_interface
             .as_ref()
-            .expect_v("TerminalWrapper")
+            .expectv("TerminalWrapper")
     }
 }
 

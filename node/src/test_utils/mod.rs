@@ -60,16 +60,18 @@ use std::time::Duration;
 use std::time::Instant;
 
 lazy_static! {
-    static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
-    static ref ALIAS_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
+    static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
+        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
+    static ref ALIAS_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
+        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
 }
 
-pub fn main_cryptde() -> &'static CryptDENull {
-    &MAIN_CRYPTDE_NULL
+pub fn main_cryptde() -> &'static dyn CryptDE {
+    MAIN_CRYPTDE_NULL.as_ref()
 }
 
-pub fn alias_cryptde() -> &'static CryptDENull {
-    &ALIAS_CRYPTDE_NULL
+pub fn alias_cryptde() -> &'static dyn CryptDE {
+    ALIAS_CRYPTDE_NULL.as_ref()
 }
 
 pub struct ArgsBuilder {
@@ -491,12 +493,18 @@ pub mod pure_test_utils {
     use crate::daemon::ChannelFactory;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use actix::Message;
+    use actix::{Actor, Addr, Context, Handler, System};
     use crossbeam_channel::{Receiver, Sender};
+    use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
+    use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::SliceToVec;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::thread;
+    use std::time::Duration;
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
         let owned_args = args.array_of_borrows_to_vec();
@@ -551,12 +559,68 @@ pub mod pure_test_utils {
         }
     }
 
+    pub fn prove_that_crash_request_handler_is_hooked_up<
+        T: Actor<Context = actix::Context<T>> + actix::Handler<NodeFromUiMessage>,
+    >(
+        actor: T,
+        crash_key: &str,
+    ) {
+        let system = System::new("test");
+        let addr: Addr<T> = actor.start();
+        let dummy_actor = DummyActor::new(None);
+        let dummy_address = dummy_actor.start();
+
+        addr.try_send(NodeFromUiMessage {
+            client_id: 0,
+            body: UiCrashRequest::new(crash_key, "panic message").tmb(0),
+        })
+        .unwrap();
+        dummy_address
+            .try_send(CleanUpMessage { sleep_ms: 2000 })
+            .unwrap();
+        system.run();
+        panic!("test failed")
+    }
+
     pub fn make_pre_populated_mocked_directory_wrapper() -> DirsWrapperMock {
         DirsWrapperMock::new()
             .home_dir_result(Some(PathBuf::from("/unexisting_home/unexisting_alice")))
             .data_dir_result(Some(PathBuf::from(
                 "/unexisting_home/unexisting_alice/mock_directory",
             )))
+    }
+
+    #[derive(Debug, Message, Clone)]
+    pub struct CleanUpMessage {
+        pub sleep_ms: u64,
+    }
+
+    pub struct DummyActor {
+        system_stop_signal_opt: Option<Sender<()>>,
+    }
+
+    impl DummyActor {
+        pub fn new(system_stop_signal: Option<Sender<()>>) -> Self {
+            Self {
+                system_stop_signal_opt: system_stop_signal,
+            }
+        }
+    }
+
+    impl Actor for DummyActor {
+        type Context = Context<Self>;
+    }
+
+    impl Handler<CleanUpMessage> for DummyActor {
+        type Result = ();
+
+        fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
+            thread::sleep(Duration::from_millis(1500));
+            if let Some(sender) = &self.system_stop_signal_opt {
+                let _ = sender.send(());
+            };
+            System::current().stop();
+        }
     }
 }
 
