@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use log::logger;
 use log::Level;
 #[cfg(not(test))]
@@ -129,6 +129,11 @@ impl Logger {
     #[cfg(test)]
     pub fn level_enabled(&self, level: Level) -> bool {
         level <= self.level_limit
+    }
+
+    #[cfg(test)]
+    pub fn set_level_for_a_test(&mut self, level: Level) {
+        self.level_limit = level
     }
 
     fn generic_log<F>(&self, level: Level, log_function: F)

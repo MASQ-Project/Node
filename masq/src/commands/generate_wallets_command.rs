@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
@@ -107,7 +107,7 @@ pub fn generate_wallets_subcommand() -> App<'static, 'static> {
             .long("word-count")
             .value_name("WORD-COUNT")
             .required(false)
-            .default_value("24")
+            .default_value("12")
             .takes_value(true)
             .possible_values(&["12", "15", "18", "21", "24"])
         )
@@ -226,7 +226,7 @@ mod tests {
             generate_wallets_command,
             &GenerateWalletsCommand {
                 db_password: "password".to_string(),
-                word_count: 24,
+                word_count: 12,
                 language: "English".to_string(),
                 passphrase_opt: None,
                 consuming_path: DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),

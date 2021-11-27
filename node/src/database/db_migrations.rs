@@ -1,9 +1,10 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_interface::chain_name_from_id;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::utils::{ExpectValue, WrapResult};
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
@@ -90,7 +91,7 @@ impl<'a> DBMigrationUtilitiesReal<'a> {
     }
 
     fn root_transaction_ref(&self) -> &Transaction<'a> {
-        self.root_transaction.as_ref().expect_v("root transaction")
+        self.root_transaction.as_ref().expectv("root transaction")
     }
 }
 
@@ -108,7 +109,7 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
     fn commit(&mut self) -> Result<(), String> {
         self.root_transaction
             .take()
-            .expect_v("owned root transaction")
+            .expectv("owned root transaction")
             .commit()
             .map_err(|e| e.to_string())
     }
@@ -417,9 +418,9 @@ pub struct ExternalData {
 }
 
 impl ExternalData {
-    pub fn new(chain_id: u8, neighborhood_mode: NeighborhoodModeLight) -> Self {
+    pub fn new(chain_id: Chain, neighborhood_mode: NeighborhoodModeLight) -> Self {
         Self {
-            chain_name: chain_name_from_id(chain_id).to_string(),
+            chain_name: chain.rec().literal_identifier.to_string(),
             neighborhood_mode,
         }
     }
@@ -457,10 +458,9 @@ mod tests {
         assurance_query_for_config_table, revive_tables_of_version_0_and_return_connection,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
-    };
-    use masq_lib::utils::NeighborhoodModeLight;
+    use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
     use std::cell::RefCell;
     use std::fmt::Debug;
@@ -588,7 +588,7 @@ mod tests {
 
     fn make_external_migration_parameters() -> ExternalData {
         ExternalData {
-            chain_name: TEST_DEFAULT_CHAIN_NAME.to_string(),
+            chain_name: DEFAULT_CHAIN.rec().literal_identifier.to_string(),
             neighborhood_mode: NeighborhoodModeLight::Standard,
         }
     }
@@ -1182,7 +1182,7 @@ mod tests {
                 "select name, value, encrypted from config where name = 'schema_version'",
             );
         assert_eq!(chn_name, "chain_name".to_string());
-        assert_eq!(chn_value, Some("ropsten".to_string()));
+        assert_eq!(chn_value, Some("eth-ropsten".to_string()));
         assert_eq!(chn_encrypted, 0);
         assert_eq!(cs_name, "schema_version".to_string());
         assert_eq!(cs_value, Some("2".to_string()));

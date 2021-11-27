@@ -1,13 +1,11 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchain_interface::{
-    chain_id_from_name, contract_creation_block_from_chain_id,
-};
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
 use crate::database::db_migrations::{
     DbMigrator, DbMigratorReal, ExternalData, MigratorConfig, Suppression,
 };
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -51,15 +49,11 @@ pub trait DbInitializer {
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 }
 
-pub struct DbInitializerReal {
-    logger: Logger,
-}
+pub struct DbInitializerReal {}
 
 impl Default for DbInitializerReal {
     fn default() -> Self {
-        Self {
-            logger: Logger::new("DbInitializer"),
-        }
+        Self {}
     }
 }
 
@@ -258,14 +252,9 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "start_block",
-            Some(
-                &contract_creation_block_from_chain_id(chain_id_from_name(
-                    external_params.chain_name.as_str(),
-                ))
-                .to_string(),
-            ),
+            Some(&exterbal_params.chain.rec().contract_creation_block.to_string()),
             false,
-            &format!("{} start block", external_params.chain_name),
+            format!("{} start block", external_params.chain.rec().literal_identifier),
         );
         Self::set_config_value(
             conn,
@@ -373,7 +362,7 @@ impl DbInitializerReal {
         migrator: Box<dyn DbMigrator>,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         warning!(
-            self.logger,
+            Logger::new("DbInitializer"),
             "Database is incompatible and its updating is necessary"
         );
         let wrapped_connection = ConnectionWrapperReal::new(conn);
@@ -491,7 +480,7 @@ pub mod test_utils {
 
     #[derive(Debug, Default)]
     pub struct ConnectionWrapperMock<'b, 'a: 'b> {
-        prepare_parameters: Arc<Mutex<Vec<String>>>,
+        prepare_params: Arc<Mutex<Vec<String>>>,
         prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
         transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
     }
@@ -512,7 +501,7 @@ pub mod test_utils {
 
     impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
         fn prepare(&self, query: &str) -> Result<Statement, Error> {
-            self.prepare_parameters
+            self.prepare_params
                 .lock()
                 .unwrap()
                 .push(String::from(query));
@@ -538,7 +527,7 @@ pub mod test_utils {
             create_if_necessary: bool,
             migrator_config: MigratorConfig,
         ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-            self.initialize_parameters.lock().unwrap().push((
+            self.initialize_params.lock().unwrap().push((
                 path.to_path_buf(),
                 create_if_necessary,
                 migrator_config,
@@ -570,7 +559,7 @@ pub mod test_utils {
             mut self,
             parameters: Arc<Mutex<Vec<(PathBuf, bool, MigratorConfig)>>>,
         ) -> DbInitializerMock {
-            self.initialize_parameters = parameters;
+            self.initialize_params = parameters;
             self
         }
 
@@ -597,7 +586,7 @@ mod tests {
     use itertools::Itertools;
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-        TEST_DEFAULT_CHAIN_NAME,
+        TEST_DEFAULT_CHAIN,
     };
     use rusqlite::types::Type::Null;
     use rusqlite::{Error, OpenFlags};
@@ -796,7 +785,11 @@ mod tests {
             value
         };
         verify(&mut config_vec, "blockchain_service_url", None);
-        verify(&mut config_vec, "chain_name", Some(TEST_DEFAULT_CHAIN_NAME));
+        verify(
+            &mut config_vec,
+            "chain_name",
+            Some(TEST_DEFAULT_CHAIN.rec().literal_identifier),
+        );
         let clandestine_port_str_opt = verify_name(&mut config_vec, "clandestine_port");
         let clandestine_port: u16 = clandestine_port_str_opt.unwrap().parse().unwrap();
         assert!(clandestine_port >= 1025);
@@ -825,7 +818,7 @@ mod tests {
             "start_block",
             Some(&format!(
                 "{}",
-                contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
+                &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string()
             )),
         );
         assert_eq!(config_vec, vec![]);

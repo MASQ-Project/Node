@@ -1,16 +1,29 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-mod dot_graph;
+pub mod dot_graph;
 pub mod gossip;
 pub mod gossip_acceptor;
-#[cfg(not(feature = "expose_test_privates"))]
-mod gossip_producer;
-#[cfg(feature = "expose_test_privates")]
 pub mod gossip_producer;
 pub mod neighborhood_database;
 pub mod node_record;
 
-use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
+use std::cmp::Ordering;
+use std::convert::TryFrom;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+
+use actix::Addr;
+use actix::Context;
+use actix::Handler;
+use actix::MessageResult;
+use actix::Recipient;
+use actix::{Actor, System};
+use itertools::Itertools;
+use masq_lib::messages::FromMessageBody;
+use masq_lib::messages::UiShutdownRequest;
+use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::utils::exit_process;
+
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
@@ -46,31 +59,18 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
-use actix::Addr;
-use actix::Context;
-use actix::Handler;
-use actix::MessageResult;
-use actix::Recipient;
-use actix::{Actor, System};
 use gossip_acceptor::GossipAcceptor;
 use gossip_acceptor::GossipAcceptorReal;
 use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
-use itertools::Itertools;
-use masq_lib::constants::DEFAULT_CHAIN_NAME;
-use masq_lib::messages::FromMessageBody;
-use masq_lib::messages::UiShutdownRequest;
-use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::exit_process;
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::crash_point::CrashPoint;
+use masq_lib::utils::ExpectValue;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
-use std::cmp::Ordering;
-use std::convert::TryFrom;
-use std::net::SocketAddr;
-use std::path::PathBuf;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 
@@ -87,7 +87,8 @@ pub struct Neighborhood {
     consuming_wallet_opt: Option<Wallet>,
     next_return_route_id: u32,
     initial_neighbors: Vec<NodeDescriptor>,
-    chain_id: u8,
+    chain: Chain,
+    crashable: bool,
     data_directory: PathBuf,
     persistent_config_opt: Option<Box<dyn PersistentConfiguration>>,
     db_password_opt: Option<String>,
@@ -266,8 +267,10 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body) {
+        if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
             self.handle_shutdown_order(client_id, body);
+        } else {
+            handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
     }
 }
@@ -336,18 +339,18 @@ impl Neighborhood {
             config.earning_wallet.clone(),
             cryptde,
         );
-        let is_mainnet =
-            || config.blockchain_bridge_config.chain_id == chain_id_from_name(DEFAULT_CHAIN_NAME);
+        let is_mainnet = config.blockchain_bridge_config.chain.is_mainnet();
         let initial_neighbors: Vec<NodeDescriptor> = neighborhood_config
             .mode
             .neighbor_configs()
             .iter()
             .map(|nc| {
-                if nc.mainnet != is_mainnet() {
+                let mainnet_nc = nc.blockchain.is_mainnet();
+                if mainnet_nc != is_mainnet {
                     panic!(
                         "Neighbor {} is {}on the mainnet blockchain",
                         nc.to_string(cryptde),
-                        if nc.mainnet { "" } else { "not " }
+                        if mainnet_nc { "" } else { "not " }
                     );
                 }
                 nc.clone()
@@ -367,7 +370,8 @@ impl Neighborhood {
             consuming_wallet_opt: config.consuming_wallet.clone(),
             next_return_route_id: 0,
             initial_neighbors,
-            chain_id: config.blockchain_bridge_config.chain_id,
+            chain: config.blockchain_bridge_config.chain,
+            crashable: config.crash_point == CrashPoint::Message,
             data_directory: config.data_directory.clone(),
             persistent_config_opt: None,
             db_password_opt: config.db_password_opt.clone(),
@@ -459,7 +463,7 @@ impl Neighborhood {
                             node_addr,
                             MessageType::Gossip(gossip.clone().into()),
                         )
-                        .expect("Key magically disappeared"),
+                        .expectv("public key"),
                     )
                     .expect("hopper is dead");
                 trace!(
@@ -553,7 +557,7 @@ impl Neighborhood {
                     node_descriptor
                         .node_addr_opt
                         .as_ref()
-                        .expect("NodeAddr disappeared")
+                        .expectv("NodeAddr")
                         .ip_addr(),
                     failure
                 );
@@ -572,8 +576,8 @@ impl Neighborhood {
                 NodeDescriptor::from((
                     self.neighborhood_database
                         .node_by_key(k)
-                        .expect("Node disappeared"),
-                    self.chain_id == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                        .expectv("NodeRecord"),
+                    self.chain,
                     self.cryptde,
                 ))
             })
@@ -840,7 +844,7 @@ impl Neighborhood {
                 self.cryptde,
                 self.consuming_wallet_opt.clone(),
                 return_route_id,
-                Some(contract_address(self.chain_id)),
+                Some(self.chain.rec().contract),
             )
             .expect("Internal error: bad route"),
             expected_services: ExpectedServices::RoundTrip(
@@ -1222,8 +1226,27 @@ pub fn regenerate_signed_gossip(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
+    use std::cell::RefCell;
+    use std::convert::TryInto;
+    use std::net::{IpAddr, SocketAddr};
+    use std::str::FromStr;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    use actix::dev::{MessageResponse, ResponseChannel};
+    use actix::Message;
+    use actix::Recipient;
+    use actix::System;
+    use itertools::Itertools;
+    use serde_cbor;
+    use tokio::prelude::Future;
+
+    use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::ui_gateway::MessageBody;
+    use masq_lib::ui_gateway::MessagePath::Conversation;
+    use masq_lib::utils::running_test;
+
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::gossip::Gossip_0v1;
@@ -1249,6 +1272,7 @@ mod tests {
         neighborhood_from_nodes,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1256,67 +1280,53 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
-    use actix::dev::{MessageResponse, ResponseChannel};
-    use actix::Message;
-    use actix::Recipient;
-    use actix::System;
-    use itertools::Itertools;
-    use masq_lib::constants::TLS_PORT;
-    use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
-    };
-    use masq_lib::ui_gateway::MessageBody;
-    use masq_lib::ui_gateway::MessagePath::Conversation;
-    use masq_lib::utils::running_test;
-    use serde_cbor;
-    use std::cell::RefCell;
-    use std::convert::TryInto;
-    use std::net::{IpAddr, SocketAddr};
-    use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    use tokio::prelude::Future;
+
+    use super::*;
 
     #[test]
-    #[should_panic(expected = "Neighbor AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain")]
+    #[should_panic(
+        expected = "Neighbor masq://eth-ropsten:AQIDBA@1.2.3.4:1234 is not on the mainnet blockchain"
+    )]
     fn cant_create_mainnet_neighborhood_with_non_mainnet_neighbors() {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let mut bc = bc_from_nc_plus(
             NeighborhoodConfig {
-                mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(
+                mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::try_from((
                     cryptde,
-                    "AQIDBA:1.2.3.4:1234",
-                )
+                    "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
+                ))
                 .unwrap()]),
             },
             earning_wallet.clone(),
             None,
             "cant_create_mainnet_neighborhood_with_non_mainnet_neighbors",
         );
-        bc.blockchain_bridge_config.chain_id = chain_id_from_name(DEFAULT_CHAIN_NAME);
+        bc.blockchain_bridge_config.chain = DEFAULT_CHAIN;
 
         let _ = Neighborhood::new(cryptde, &bc);
     }
 
     #[test]
-    #[should_panic(expected = "Neighbor AQIDBA@1.2.3.4:1234 is on the mainnet blockchain")]
+    #[should_panic(
+        expected = "Neighbor masq://eth-mainnet:AQIDBA@1.2.3.4:1234 is on the mainnet blockchain"
+    )]
     fn cant_create_non_mainnet_neighborhood_with_mainnet_neighbors() {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let mut bc = bc_from_nc_plus(
             NeighborhoodConfig {
-                mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(
+                mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::try_from((
                     cryptde,
-                    "AQIDBA@1.2.3.4:1234",
-                )
+                    "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
+                ))
                 .unwrap()]),
             },
             earning_wallet.clone(),
             None,
             "cant_create_non_mainnet_neighborhood_with_mainnet_neighbors",
         );
-        bc.blockchain_bridge_config.chain_id = chain_id_from_name(TEST_DEFAULT_CHAIN_NAME);
+        bc.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
 
         let _ = Neighborhood::new(cryptde, &bc);
     }
@@ -1356,7 +1366,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::OriginateOnly(
-                        vec![neighbor.node_descriptor(DEFAULT_CHAIN_ID, cryptde)],
+                        vec![neighbor.node_descriptor(TEST_DEFAULT_CHAIN, cryptde)],
                         DEFAULT_RATE_PACK.clone(),
                     ),
                 },
@@ -1422,7 +1432,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "--neighbors node descriptors must have IP address and port list, not 'AwQFBg::'"
+        expected = "--neighbors node descriptors must have IP address and port list, not 'masq://eth-ropsten:AwQFBg@:'"
     )]
     fn node_with_neighbor_config_having_no_node_addr_panics() {
         let data_dir = ensure_node_home_directory_exists(
@@ -1439,17 +1449,22 @@ mod tests {
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let neighbor_node = make_node_record(3456, true);
         let system = System::new("node_with_bad_neighbor_config_panics");
+        let node_descriptor = NodeDescriptor {
+            blockchain: Chain::EthRopsten,
+            encryption_public_key: cryptde
+                .descriptor_fragment_to_first_contact_public_key(
+                    &cryptde.public_key_to_descriptor_fragment(neighbor_node.public_key()),
+                )
+                .expect("Internal error"),
+            node_addr_opt: None,
+        };
         let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                        vec![NodeDescriptor::from((
-                            neighbor_node.public_key(),
-                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
-                            cryptde,
-                        ))],
+                        vec![node_descriptor],
                         rate_pack(100),
                     ),
                 },
@@ -1486,14 +1501,10 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from((
-                                &one_neighbor_node,
-                                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
-                                cryptde,
-                            )),
+                            NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde)),
                             NodeDescriptor::from((
                                 &another_neighbor_node,
-                                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                                Chain::EthRopsten,
                                 cryptde,
                             )),
                         ],
@@ -1524,16 +1535,8 @@ mod tests {
         assert_eq!(
             subject.initial_neighbors,
             vec![
-                NodeDescriptor::from((
-                    &one_neighbor_node,
-                    DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
-                    cryptde,
-                )),
-                NodeDescriptor::from((
-                    &another_neighbor_node,
-                    DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
-                    cryptde,
-                ))
+                NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde,)),
+                NodeDescriptor::from((&another_neighbor_node, Chain::EthRopsten, cryptde,))
             ]
         );
     }
@@ -1554,14 +1557,10 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from((
-                                &one_neighbor_node,
-                                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
-                                cryptde,
-                            )),
+                            NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde)),
                             NodeDescriptor::from((
                                 &another_neighbor_node,
-                                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                                Chain::EthRopsten,
                                 cryptde,
                             )),
                         ],
@@ -1633,7 +1632,7 @@ mod tests {
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
                             &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
-                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                            Chain::EthRopsten,
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -1720,7 +1719,7 @@ mod tests {
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
                             &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
-                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                            Chain::EthRopsten,
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -1760,7 +1759,7 @@ mod tests {
                         node_record.node_addr_opt().unwrap(),
                         vec![NodeDescriptor::from((
                             &node_record,
-                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                            Chain::EthRopsten,
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -2069,7 +2068,7 @@ mod tests {
         system.run();
 
         let result = data_route.wait().unwrap().unwrap();
-        let contract_address = contract_address(DEFAULT_CHAIN_ID);
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
                 segment(&[p, q, r], &Component::ProxyClient),
@@ -2292,7 +2291,7 @@ mod tests {
             cryptde,
             Some(make_paying_wallet(b"consuming")),
             0,
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let expected_after_route = Route::round_trip(
@@ -2301,7 +2300,7 @@ mod tests {
             cryptde,
             Some(expected_new_wallet.clone()),
             1,
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
 
@@ -2532,7 +2531,7 @@ mod tests {
         });
 
         let other_neighbor_cryptde =
-            CryptDENull::from(other_neighbor.public_key(), DEFAULT_CHAIN_ID);
+            CryptDENull::from(other_neighbor.public_key(), TEST_DEFAULT_CHAIN);
         hopper_awaiter.await_message_count(1);
         let locked_recording = hopper_recording.lock().unwrap();
         let package: &IncipientCoresPackage = locked_recording.get_record(0);
@@ -2680,7 +2679,7 @@ mod tests {
         assert_eq!(1, hopper_recording.len());
         assert_eq!(introduction_target_node.public_key(), &package.public_key);
         let gossip = match decodex::<MessageType>(
-            &CryptDENull::from(introduction_target_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(introduction_target_node.public_key(), TEST_DEFAULT_CHAIN),
             &package.payload,
         ) {
             Ok(MessageType::Gossip(vd)) => Gossip_0v1::try_from(vd).unwrap(),
@@ -2717,7 +2716,7 @@ mod tests {
         assert_eq!(1, hopper_recording.len());
         assert_eq!(package.node_addr, node_addr);
         let payload = decodex::<MessageType>(
-            &CryptDENull::from(&public_key, DEFAULT_CHAIN_ID),
+            &CryptDENull::from(&public_key, TEST_DEFAULT_CHAIN),
             &package.payload,
         )
         .unwrap();
@@ -2930,19 +2929,11 @@ mod tests {
         let neighbors = neighbors_opt.unwrap();
         assert_contains(
             &neighbors,
-            &NodeDescriptor::from((
-                &old_neighbor,
-                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
-                cryptde,
-            )),
+            &NodeDescriptor::from((&old_neighbor, TEST_DEFAULT_CHAIN, cryptde)),
         );
         assert_contains(
             &neighbors,
-            &NodeDescriptor::from((
-                &new_neighbor,
-                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
-                cryptde,
-            )),
+            &NodeDescriptor::from((&new_neighbor, TEST_DEFAULT_CHAIN, cryptde)),
         );
         assert_eq!(neighbors.len(), 2);
         assert_eq!(db_password, "password".to_string());
@@ -3246,7 +3237,7 @@ mod tests {
         assert_eq!(
             debut_gossip,
             match decodex::<MessageType>(
-                &CryptDENull::from(debut_node.public_key(), DEFAULT_CHAIN_ID),
+                &CryptDENull::from(debut_node.public_key(), TEST_DEFAULT_CHAIN),
                 &package.payload,
             ) {
                 Ok(MessageType::Gossip(vd)) => Gossip_0v1::try_from(vd).unwrap(),
@@ -3468,7 +3459,7 @@ mod tests {
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[1234]),
                         vec![NodeDescriptor::from((
                             &neighbor_inside,
-                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                            Chain::EthRopsten,
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -3493,7 +3484,7 @@ mod tests {
         system.run();
         let locked_recording = hopper_recording.lock().unwrap();
         let package_ref: &NoLookupIncipientCoresPackage = locked_recording.get_record(0);
-        let neighbor_node_cryptde = CryptDENull::from(neighbor.public_key(), DEFAULT_CHAIN_ID);
+        let neighbor_node_cryptde = CryptDENull::from(neighbor.public_key(), TEST_DEFAULT_CHAIN);
         let decrypted_payload = neighbor_node_cryptde.decode(&package_ref.payload).unwrap();
         let gossip = match serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap() {
             MessageType::Gossip(vd) => Gossip_0v1::try_from(vd).unwrap(),
@@ -3585,12 +3576,7 @@ mod tests {
 
     fn node_record_to_neighbor_config(node_record_ref: &NodeRecord) -> NodeDescriptor {
         let cryptde: &dyn CryptDE = main_cryptde();
-        NodeDescriptor::from((
-            &node_record_ref.public_key().clone(),
-            &node_record_ref.node_addr_opt().unwrap().clone(),
-            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
-            cryptde,
-        ))
+        NodeDescriptor::from((node_record_ref, Chain::EthRopsten, cryptde))
     }
 
     #[test]
@@ -3656,7 +3642,7 @@ mod tests {
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &[1234, 2345],
                                 ),
-                                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                                Chain::EthRopsten,
                                 cryptde,
                             ))],
                             rate_pack(100),
@@ -3783,7 +3769,7 @@ mod tests {
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &[1234, 2345],
                                 ),
-                                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                                Chain::EthRopsten,
                                 cryptde,
                             ))],
                             rate_pack(100),
@@ -3846,7 +3832,7 @@ mod tests {
                         node_record.node_addr_opt().unwrap(),
                         vec![NodeDescriptor::from((
                             &node_record,
-                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
+                            Chain::EthRopsten,
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -3974,8 +3960,8 @@ mod tests {
         });
 
         let next_door_neighbor_cryptde =
-            CryptDENull::from(&next_door_neighbor.public_key(), DEFAULT_CHAIN_ID);
-        let exit_node_cryptde = CryptDENull::from(&exit_node.public_key(), DEFAULT_CHAIN_ID);
+            CryptDENull::from(&next_door_neighbor.public_key(), TEST_DEFAULT_CHAIN);
+        let exit_node_cryptde = CryptDENull::from(&exit_node.public_key(), TEST_DEFAULT_CHAIN);
 
         let hops = result.clone().unwrap().route.hops;
         let actual_keys: Vec<PublicKey> = match hops.as_slice() {
@@ -4257,6 +4243,17 @@ mod tests {
         system.run();
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert_eq!(set_past_neighbors_params[0].1, "borkety-bork");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    )]
+    fn neighborhood_can_be_crashed_properly_but_not_improperly() {
+        let mut neighborhood = make_standard_subject();
+        neighborhood.crashable = true;
+
+        prove_that_crash_request_handler_is_hooked_up(neighborhood, CRASH_KEY);
     }
 
     fn make_standard_subject() -> Neighborhood {

@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod configurator;
 pub mod node_configurator_initialization;
@@ -12,7 +12,8 @@ use crate::db_config::persistent_configuration::{
 use crate::sub_lib::utils::make_new_multi_config;
 use clap::{value_t, App};
 use dirs::{data_local_dir, home_dir};
-use masq_lib::constants::DEFAULT_CHAIN_NAME;
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
@@ -51,12 +52,12 @@ pub fn determine_config_file_path(
     .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
     let multi_config = make_new_multi_config(&orientation_schema, vec![Box::new(orientation_vcl)])?;
-    let config_file_path = value_m!(multi_config, "config-file", PathBuf).expect_v("config-file");
+    let config_file_path = value_m!(multi_config, "config-file", PathBuf).expectv("config-file");
     let user_specified = multi_config.occurrences_of("config-file") > 0;
-    let (real_user, data_directory_opt, chain_name) =
-        real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
+    let (real_user, data_directory_opt, chain) =
+        real_user_with_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
     let directory =
-        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
+        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
     (directory.join(config_file_path), user_specified).wrap_to_ok()
 }
 
@@ -87,22 +88,26 @@ pub fn real_user_from_multi_config_or_populate(
     }
 }
 
-pub fn real_user_data_directory_opt_and_chain_name(
+pub fn real_user_with_data_directory_opt_and_chain(
     dirs_wrapper: &dyn DirsWrapper,
     multi_config: &MultiConfig,
-) -> (RealUser, Option<PathBuf>, String) {
+) -> (RealUser, Option<PathBuf>, Chain) {
     let real_user = real_user_from_multi_config_or_populate(multi_config, dirs_wrapper);
-    let chain_name =
-        value_m!(multi_config, "chain", String).unwrap_or_else(|| DEFAULT_CHAIN_NAME.to_string());
+    let chain_name = value_m!(multi_config, "chain", String)
+        .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string());
     let data_directory_opt = value_m!(multi_config, "data-directory", PathBuf);
-    (real_user, data_directory_opt, chain_name)
+    (
+        real_user,
+        data_directory_opt,
+        Chain::from(chain_name.as_str()),
+    )
 }
 
 pub fn data_directory_from_context(
     dirs_wrapper: &dyn DirsWrapper,
     real_user: &RealUser,
     data_directory_opt: &Option<PathBuf>,
-    chain_name: &str,
+    chain: Chain,
 ) -> PathBuf {
     match data_directory_opt {
         Some(data_directory) => data_directory.clone(),
@@ -127,7 +132,7 @@ pub fn data_directory_from_context(
                 wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
             PathBuf::from(right_local_data_dir)
                 .join("MASQ")
-                .join(chain_name)
+                .join(chain.rec().literal_identifier)
         }
     }
 }
@@ -159,10 +164,8 @@ impl DirsWrapper for DirsWrapperReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::apps::app_node;
-    use crate::sub_lib::utils::make_new_test_multi_config;
+    use crate::node_test_utils::DirsWrapperMock;
     use crate::test_utils::ArgsBuilder;
-    use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::utils::find_free_port;
     use std::net::{SocketAddr, TcpListener};
@@ -174,24 +177,33 @@ mod tests {
     }
 
     #[test]
-    fn real_user_data_directory_and_chain_id_picks_correct_directory_for_default_chain() {
-        let args = ArgsBuilder::new();
-        let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = make_new_test_multi_config(&app_node(), vec![vcl]).unwrap();
+    fn data_directory_from_context_creates_new_folder_for_every_blockchain_platform() {
+        let dirs_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(PathBuf::from("/nonexistent_home/root".to_string())))
+            .data_dir_result(Some(PathBuf::from("/nonexistent_home/root/.local/share")));
+        let real_user = RealUser::new(
+            None,
+            None,
+            Some(PathBuf::from(
+                "/nonexistent_home/nonexistent_alice".to_string(),
+            )),
+        );
+        let data_dir_opt = None;
+        let chain_name = "eth-ropsten";
 
-        let (real_user, data_directory_opt, chain_name) =
-            real_user_data_directory_opt_and_chain_name(&DirsWrapperReal {}, &multi_config);
-        let directory = data_directory_from_context(
-            &DirsWrapperReal {},
+        let result = data_directory_from_context(
+            &dirs_wrapper,
             &real_user,
-            &data_directory_opt,
-            &chain_name,
+            &data_dir_opt,
+            Chain::from(chain_name),
         );
 
-        let expected_root = DirsWrapperReal {}.data_dir().unwrap();
-        let expected_directory = expected_root.join("MASQ").join(DEFAULT_CHAIN_NAME);
-        assert_eq!(directory, expected_directory);
-        assert_eq!(&chain_name, DEFAULT_CHAIN_NAME);
+        assert_eq!(
+            result,
+            PathBuf::from(
+                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/eth-ropsten".to_string()
+            )
+        )
     }
 
     #[test]

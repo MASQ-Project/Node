@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::MASQNodeUtils;
@@ -6,7 +6,6 @@ use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, NodeStartupConfigBuilder,
 };
-use node_lib::blockchain::blockchain_interface::chain_name_from_id;
 use regex::escape;
 use std::time::Duration;
 
@@ -17,7 +16,7 @@ fn blockchain_bridge_logs_when_started() {
     let subject = cluster.start_real_node(
         NodeStartupConfigBuilder::zero_hop()
             .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(private_key.to_string()))
-            .chain(chain_name_from_id(cluster.chain_id))
+            .chain(cluster.chain)
             .build(),
     );
 

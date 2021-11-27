@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::sub_lib::wallet::Wallet;
@@ -153,6 +153,7 @@ mod tests {
     use crate::test_utils::make_wallet;
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
+        TEST_DEFAULT_CHAIN,
     };
     use rusqlite::NO_PARAMS;
 

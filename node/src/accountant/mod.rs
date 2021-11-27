@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod payable_dao;
 pub mod receivable_dao;
@@ -27,7 +27,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Addr;
@@ -39,14 +39,15 @@ use actix::Recipient;
 use futures::future::Future;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use masq_lib::messages::UiMessageError::UnexpectedMessage;
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest, UiMessageError};
+use masq_lib::crash_point::CrashPoint;
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::path::Path;
+use std::ops::Add;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
@@ -99,6 +100,7 @@ pub struct Accountant {
     payable_dao: Box<dyn PayableDao>,
     receivable_dao: Box<dyn ReceivableDao>,
     banned_dao: Box<dyn BannedDao>,
+    crashable: bool,
     persistent_configuration: Box<dyn PersistentConfiguration>,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
@@ -219,7 +221,12 @@ impl Handler<NodeFromUiMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_node_from_ui_message(msg);
+        let client_id = msg.client_id;
+        if let Ok((body, context_id)) = UiFinancialsRequest::fmb(msg.clone().body) {
+            self.handle_financials(client_id, context_id, body);
+        } else {
+            handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
+        }
     }
 }
 
@@ -238,6 +245,7 @@ impl Accountant {
             payable_dao: payable_dao_factory.make(),
             receivable_dao: receivable_dao_factory.make(),
             banned_dao: banned_dao_factory.make(),
+            crashable: config.crash_point == CrashPoint::Message,
             persistent_configuration: Box::new(PersistentConfigurationReal::new(
                 config_dao_factory.make(),
             )),
@@ -276,20 +284,39 @@ impl Accountant {
         debug!(self.logger, "Scanning for payables");
         let future_logger = self.logger.clone();
 
-        let payables = self
-            .payable_dao
-            .non_pending_payables()
+        let all_non_pending_payables = self.payable_dao.non_pending_payables();
+        debug!(
+            self.logger,
+            "{}",
+            Self::investigate_debt_extremes(&all_non_pending_payables)
+        );
+        let qualified_payables = all_non_pending_payables
             .into_iter()
             .filter(Accountant::should_pay)
             .collect::<Vec<PayableAccount>>();
-
-        if !payables.is_empty() {
+        info!(
+            self.logger,
+            "Chose {} qualified debts to pay",
+            qualified_payables.len()
+        );
+        debug!(
+            self.logger,
+            "{}",
+            Self::payments_debug_summary(&qualified_payables)
+        );
+        if !qualified_payables.is_empty() {
             let report_sent_payments = self.report_sent_payments_sub.clone();
+            // TODO: This is bad code. The ReportAccountsPayable message should have no result;
+            // instead, when the BlockchainBridge completes processing the ReportAccountsPayable
+            // message, it should send a SentPayments message back to the Accountant. There should
+            // be no future here: mixing futures and Actors is a bad idea.
             let future = self
                 .report_accounts_payable_sub
                 .as_ref()
                 .expect("BlockchainBridge is unbound")
-                .send(ReportAccountsPayable { accounts: payables })
+                .send(ReportAccountsPayable {
+                    accounts: qualified_payables,
+                })
                 .then(move |results| match results {
                     Ok(Ok(results)) => {
                         report_sent_payments
@@ -419,6 +446,10 @@ impl Accountant {
     }
 
     fn should_pay(payable: &PayableAccount) -> bool {
+        Self::payable_exceeded_threshold(payable).is_some()
+    }
+
+    fn payable_exceeded_threshold(payable: &PayableAccount) -> Option<u64> {
         // TODO: This calculation should be done in the database, if possible
         let time_since_last_paid = SystemTime::now()
             .duration_since(payable.last_paid_timestamp)
@@ -426,15 +457,19 @@ impl Accountant {
             .as_secs();
 
         if time_since_last_paid <= PAYMENT_CURVES.payment_suggested_after_sec as u64 {
-            return false;
+            return None;
         }
 
         if payable.balance <= PAYMENT_CURVES.permanent_debt_allowed_gwub {
-            return false;
+            return None;
         }
 
         let threshold = Accountant::calculate_payout_threshold(time_since_last_paid);
-        payable.balance as f64 > threshold
+        if payable.balance as f64 > threshold {
+            Some(threshold as u64)
+        } else {
+            None
+        }
     }
 
     fn calculate_payout_threshold(x: u64) -> f64 {
@@ -514,6 +549,80 @@ impl Accountant {
             Some(ref consuming) if consuming.address() == wallet.address() => true,
             _ => wallet.address() == self.earning_wallet.address(),
         }
+    }
+
+    //for debugging only
+    fn investigate_debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
+        if all_non_pending_payables.is_empty() {
+            "Payable scan found no debts".to_string()
+        } else {
+            struct PayableInfo {
+                balance: i64,
+                age: Duration,
+            }
+            let now = SystemTime::now();
+            let init = (
+                PayableInfo {
+                    balance: 0,
+                    age: Duration::ZERO,
+                },
+                PayableInfo {
+                    balance: 0,
+                    age: Duration::ZERO,
+                },
+            );
+            let (biggest, oldest) = all_non_pending_payables.iter().fold(init, |sofar, p| {
+                let (mut biggest, mut oldest) = sofar;
+                let p_age = now
+                    .duration_since(p.last_paid_timestamp)
+                    .expect("Payable time is corrupt");
+                {
+                    //seek for a test for this if you don't understand the purpose
+                    let check_age_significance_across =
+                        || -> bool { p.balance == biggest.balance && p_age > biggest.age };
+                    if p.balance > biggest.balance || check_age_significance_across() {
+                        biggest = PayableInfo {
+                            balance: p.balance,
+                            age: p_age,
+                        }
+                    }
+                    let check_balance_significance_across =
+                        || -> bool { p_age == oldest.age && p.balance > oldest.balance };
+                    if p_age > oldest.age || check_balance_significance_across() {
+                        oldest = PayableInfo {
+                            balance: p.balance,
+                            age: p_age,
+                        }
+                    }
+                }
+                (biggest, oldest)
+            });
+            format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
+                    all_non_pending_payables.len(), biggest.balance, biggest.age.as_secs(),
+                    oldest.balance, oldest.age.as_secs())
+        }
+    }
+
+    fn payments_debug_summary(qualified_payables: &[PayableAccount]) -> String {
+        let now = SystemTime::now();
+        let list = qualified_payables
+            .iter()
+            .map(|payable| {
+                let p_age = now
+                    .duration_since(payable.last_paid_timestamp)
+                    .expect("Payable time is corrupt");
+                let threshold =
+                    Self::payable_exceeded_threshold(payable).expect("Threshold suddenly changed!");
+                format!(
+                    "{} owed for {}sec exceeds threshold: {}; creditor: {}",
+                    payable.balance,
+                    p_age.as_secs(),
+                    threshold,
+                    payable.wallet
+                )
+            })
+            .join("\n");
+        String::from("Paying qualified debts:\n").add(&list)
     }
 
     fn handle_bind_message(&mut self, msg: BindMessage) {
@@ -635,20 +744,6 @@ impl Accountant {
         );
     }
 
-    fn handle_node_from_ui_message(&mut self, msg: NodeFromUiMessage) {
-        let client_id = msg.client_id;
-        let result: Result<(UiFinancialsRequest, u64), UiMessageError> =
-            UiFinancialsRequest::fmb(msg.body);
-        match result {
-            Ok((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
-            Err(UnexpectedMessage(opcode, path)) => debug!(
-                &self.logger,
-                "Ignoring {:?} request from client {} with opcode '{}'", path, client_id, opcode
-            ),
-            Err(e) => panic!("Received obsolete error: {:?}", e),
-        }
-    }
-
     fn handle_financials(&mut self, client_id: u64, context_id: u64, request: UiFinancialsRequest) {
         let payables = self
             .payable_dao
@@ -736,13 +831,14 @@ pub mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
-    use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
+    use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
     use std::cell::RefCell;
     use std::convert::TryFrom;
@@ -1342,48 +1438,6 @@ pub mod tests {
     }
 
     #[test]
-    fn unexpected_ui_message_is_ignored() {
-        init_test_logging();
-        let system = System::new("test");
-        let subject = make_subject(
-            Some(bc_from_ac_plus_earning_wallet(
-                AccountantConfig {
-                    payable_scan_interval: Duration::from_millis(10_000),
-                    payment_received_scan_interval: Duration::from_millis(10_000),
-                },
-                make_wallet("some_wallet_address"),
-            )),
-            None,
-            None,
-            None,
-            None,
-        );
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: MessageBody {
-                    opcode: "farple-prang".to_string(),
-                    path: FireAndForget,
-                    payload: Ok("{}".to_string()),
-                },
-            })
-            .unwrap();
-
-        System::current().stop();
-        system.run();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(ui_gateway_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing(
-            "DEBUG: Accountant: Ignoring FireAndForget request from client 1234 with opcode 'farple-prang'",
-        );
-    }
-
-    #[test]
     fn accountant_calls_payable_dao_payment_sent_when_sent_payments() {
         let payment_sent_parameters = Arc::new(Mutex::new(vec![]));
         let payment_sent_parameters_inner = payment_sent_parameters.clone();
@@ -1766,8 +1820,9 @@ pub mod tests {
     fn accountant_logs_error_when_blockchain_bridge_responds_with_error() {
         init_test_logging();
         let earning_wallet = make_wallet("earner3000");
-        let blockchain_bridge =
-            Recorder::new().retrieve_transactions_response(Err(BlockchainError::QueryFailed));
+        let blockchain_bridge = Recorder::new().retrieve_transactions_response(Err(
+            BlockchainError::QueryFailed("really bad".to_string()),
+        ));
         let blockchain_bridge_awaiter = blockchain_bridge.get_awaiter();
         let blockchain_bridge_recording = blockchain_bridge.get_recording();
         let config = bc_from_ac_plus_earning_wallet(
@@ -1812,7 +1867,7 @@ pub mod tests {
         assert_eq!(earning_wallet, retrieve_transactions_message.recipient);
 
         TestLogHandler::new().exists_log_containing(
-            "WARN: Accountant: Unable to retrieve transactions from Blockchain Bridge: QueryFailed",
+            r#"WARN: Accountant: Unable to retrieve transactions from Blockchain Bridge: QueryFailed("really bad")"#,
         );
     }
 
@@ -2871,6 +2926,88 @@ pub mod tests {
             wallet,
             H256::from_uint(&U256::from(1))
         ));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    )]
+    fn accountant_can_be_crashed_properly_but_not_improperly() {
+        let mut config = BootstrapperConfig::default();
+        config.crash_point = CrashPoint::Message;
+        let accountant = make_subject(Some(config), None, None, None, None);
+
+        prove_that_crash_request_handler_is_hooked_up(accountant, CRASH_KEY);
+    }
+
+    #[test]
+    fn investigate_debt_extremes_picks_the_most_relevant_records() {
+        let now = to_time_t(SystemTime::now());
+        let same_amount_significance = 2_000_000;
+        let same_age_significance = from_time_t(now - 30000);
+        let payables = &[
+            PayableAccount {
+                wallet: make_wallet("wallet0"),
+                balance: same_amount_significance,
+                last_paid_timestamp: from_time_t(now - 5000),
+                pending_payment_transaction: None,
+            },
+            //this debt is more significant because beside being high in amount it's also older, so should be prioritized and picked
+            PayableAccount {
+                wallet: make_wallet("wallet1"),
+                balance: same_amount_significance,
+                last_paid_timestamp: from_time_t(now - 10000),
+                pending_payment_transaction: None,
+            },
+            //similarly these two wallets have debts equally old but the second has a bigger balance and should be chosen
+            PayableAccount {
+                wallet: make_wallet("wallet3"),
+                balance: 100,
+                last_paid_timestamp: same_age_significance,
+                pending_payment_transaction: None,
+            },
+            PayableAccount {
+                wallet: make_wallet("wallet2"),
+                balance: 330,
+                last_paid_timestamp: same_age_significance,
+                pending_payment_transaction: None,
+            },
+        ];
+
+        let result = Accountant::investigate_debt_extremes(payables);
+
+        assert_eq!(result,"Payable scan found 4 debts; the biggest is 2000000 owed for 10000sec, the oldest is 330 owed for 30000sec")
+    }
+
+    #[test]
+    fn payment_debug_summary_prints_a_nice_summary() {
+        let now = to_time_t(SystemTime::now());
+        let qualified_payables = &[
+            PayableAccount {
+                wallet: make_wallet("wallet0"),
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1000,
+                last_paid_timestamp: from_time_t(
+                    now - PAYMENT_CURVES.balance_decreases_for_sec - 1234,
+                ),
+                pending_payment_transaction: None,
+            },
+            PayableAccount {
+                wallet: make_wallet("wallet1"),
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1,
+                last_paid_timestamp: from_time_t(
+                    now - PAYMENT_CURVES.balance_decreases_for_sec - 1,
+                ),
+                pending_payment_transaction: None,
+            },
+        ];
+
+        let result = Accountant::payments_debug_summary(qualified_payables);
+
+        assert_eq!(result,
+                   "Paying qualified debts:\n\
+                   10001000 owed for 2593234sec exceeds threshold: 9512428; creditor: 0x0000000000000000000000000077616c6c657430\n\
+                   10000001 owed for 2592001sec exceeds threshold: 9999604; creditor: 0x0000000000000000000000000077616c6c657431"
+        )
     }
 
     #[test]

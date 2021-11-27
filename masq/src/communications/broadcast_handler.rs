@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
@@ -63,7 +63,7 @@ impl BroadcastHandler for BroadcastHandlerReal {
             let terminal_interface = self
                 .terminal_interface
                 .take()
-                .expect_v("Some(TerminalWrapper)");
+                .expectv("Some(TerminalWrapper)");
             //release the loop if masq has died (testing concerns)
             let mut flag = true;
             while flag {

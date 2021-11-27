@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::daemon::daemon_initializer::{
     DaemonInitializerReal, RecipientsFactory, RecipientsFactoryReal, Rerunner, RerunnerReal,
@@ -50,7 +50,7 @@ impl DaemonInitializerFactoryReal {
     }
 
     fn expect<T>(mut value_opt: Option<T>) -> T {
-        value_opt.take().expect_v(std::any::type_name::<T>())
+        value_opt.take().expectv(std::any::type_name::<T>())
     }
 }
 

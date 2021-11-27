@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::{PayableAccount, Payment};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
@@ -6,6 +6,7 @@ use crate::blockchain::blockchain_interface::BlockchainResult;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -13,7 +14,7 @@ use std::fmt::{Debug, Formatter};
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct BlockchainBridgeConfig {
     pub blockchain_service_url_opt: Option<String>,
-    pub chain_id: u8,
+    pub chain: Chain,
     pub gas_price: u64,
 }
 
@@ -36,6 +37,10 @@ pub struct ReportAccountsPayable {
     pub accounts: Vec<PayableAccount>,
 }
 
+impl Message for ReportAccountsPayable {
+    type Result = Result<Vec<BlockchainResult<Payment>>, String>;
+}
+
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct SetDbPasswordMsg {
     pub client_id: u64,
@@ -46,10 +51,6 @@ pub struct SetDbPasswordMsg {
 pub struct SetGasPriceMsg {
     pub client_id: u64,
     pub gas_price: String,
-}
-
-impl Message for ReportAccountsPayable {
-    type Result = Result<Vec<BlockchainResult<Payment>>, String>;
 }
 
 #[cfg(test)]

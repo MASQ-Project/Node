@@ -1,8 +1,7 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::apps::app_config_dumper;
 use crate::blockchain::bip39::Bip39;
-use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{
     DbInitializer, DbInitializerReal, InitializationError, DATABASE_FILE,
@@ -11,7 +10,7 @@ use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
 use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{
-    data_directory_from_context, real_user_data_directory_opt_and_chain_name, DirsWrapper,
+    data_directory_from_context, real_user_with_data_directory_opt_and_chain, DirsWrapper,
 };
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::run_modes_factories::DumpConfigRunner;
@@ -27,7 +26,7 @@ use masq_lib::shared_schema::ConfiguratorError;
 use serde_json::json;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
-
+use masq_lib::blockchains::chains::Chain;
 use crate::database::db_migrations::MigratorConfig;
 #[cfg(test)]
 use std::any::Any;
@@ -36,9 +35,9 @@ pub struct DumpConfigRunnerReal;
 
 impl DumpConfigRunner for DumpConfigRunnerReal {
     fn go(&self, streams: &mut StdStreams, args: &[String]) -> Result<(), ConfiguratorError> {
-        let (real_user, data_directory, chain_id, password_opt) =
+        let (real_user, data_directory, chain, password_opt) =
             distill_args(&DirsWrapperReal {}, args)?;
-        let cryptde = CryptDEReal::new(chain_id);
+        let cryptde = CryptDEReal::new(chain);
         PrivilegeDropperReal::new().drop_privileges(&real_user);
         let config_dao = make_config_dao(&data_directory, MigratorConfig::migration_suppressed()); //dump config never migrates db
         let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
@@ -128,33 +127,25 @@ fn make_config_dao(data_directory: &Path, migrator_config: MigratorConfig) -> Co
 fn distill_args(
     dirs_wrapper: &dyn DirsWrapper,
     args: &[String],
-) -> Result<(RealUser, PathBuf, u8, Option<String>), ConfiguratorError> {
+) -> Result<(RealUser, PathBuf, Chain, Option<String>), ConfiguratorError> {
     let app = app_config_dumper();
     let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
         Box::new(CommandLineVcl::new(args.to_vec())),
         Box::new(EnvironmentVcl::new(&app)),
     ];
     let multi_config = make_new_multi_config(&app, vcls)?;
-    let (real_user, data_directory_opt, chain_name) =
-        real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
+    let (real_user, data_directory_opt, chain) =
+        real_user_with_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
     let directory =
-        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
+        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
     let password_opt = value_m!(multi_config, "db-password", String);
-    Ok((
-        real_user,
-        directory,
-        chain_id_from_name(&chain_name),
-        password_opt,
-    ))
+    Ok((real_user, directory, chain, password_opt))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
-    use crate::blockchain::blockchain_interface::{
-        chain_id_from_name, contract_creation_block_from_chain_id,
-    };
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
     use crate::database::db_migrations::ExternalData;
@@ -169,9 +160,7 @@ mod tests {
     use bip39::{Language, MnemonicType, Seed};
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
-    };
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
     use std::fs::File;
     use std::io::ErrorKind;
@@ -216,7 +205,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
@@ -236,7 +225,7 @@ mod tests {
             "dump_config_dumps_existing_database_without_password",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN_NAME);
+        .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -267,10 +256,16 @@ mod tests {
             persistent_config
                 .set_past_neighbors(
                     Some(vec![
-                        NodeDescriptor::from_str(main_cryptde(), "QUJDREVGRw@1.2.3.4:1234")
-                            .unwrap(),
-                        NodeDescriptor::from_str(main_cryptde(), "QkNERUZHSA@2.3.4.5:2345")
-                            .unwrap(),
+                        NodeDescriptor::try_from((
+                            main_cryptde(),
+                            "masq://eth-mainnet:QUJDREVGRw@1.2.3.4:1234",
+                        ))
+                        .unwrap(),
+                        NodeDescriptor::try_from((
+                            main_cryptde(),
+                            "masq://eth-mainnet:QkNERUZHSA@2.3.4.5:2345",
+                        ))
+                        .unwrap(),
                     ]),
                     "password",
                 )
@@ -282,7 +277,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
@@ -322,8 +317,7 @@ mod tests {
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
-            &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
-                .to_string(),
+            &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
             &map,
         );
         assert_value(
@@ -344,7 +338,7 @@ mod tests {
             "dump_config_dumps_existing_database_with_correct_password",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN_NAME);
+        .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -375,15 +369,15 @@ mod tests {
             persistent_config
                 .set_past_neighbors(
                     Some(vec![
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
-                            "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
-                        )
+                            "masq://eth-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
+                        ))
                         .unwrap(),
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
-                            "QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
-                        )
+                            "masq://eth-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
+                        ))
                         .unwrap(),
                     ]),
                     "password",
@@ -396,7 +390,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)
             .param("--db-password", "password")
             .opt("--dump-config")
             .into();
@@ -428,13 +422,12 @@ mod tests {
         );
         assert_value("chainName", "ropsten", &map);
         assert_value("gasPrice", "1", &map);
-        assert_value("pastNeighbors", "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
+        assert_value("pastNeighbors", "masq://eth-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,masq://eth-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
         assert_value("neighborhoodMode", "consume-only", &map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
-            &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
-                .to_string(),
+            &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
             &map,
         );
         let expected_ee_entry = dao.get("example_encrypted").unwrap().value_opt.unwrap();
@@ -458,7 +451,7 @@ mod tests {
             "dump_config_dumps_existing_database_with_incorrect_password",
         )
         .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN_NAME);
+        .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
             "passphrase",
@@ -489,15 +482,15 @@ mod tests {
             persistent_config
                 .set_past_neighbors(
                     Some(vec![
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
-                            "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
-                        )
+                            "masq://eth-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
+                        ))
                         .unwrap(),
-                        NodeDescriptor::from_str(
+                        NodeDescriptor::try_from((
                             main_cryptde(),
-                            "QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
-                        )
+                            "masq://eth-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
+                        ))
                         .unwrap(),
                     ]),
                     "password",
@@ -510,7 +503,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
+            .param("--chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)
             .param("--db-password", "incorrect")
             .opt("--dump-config")
             .into();
@@ -551,8 +544,7 @@ mod tests {
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
-            &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
-                .to_string(),
+            &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
             &map,
         );
         assert_value(

@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod utils;
 
@@ -13,6 +13,7 @@ fn node_exits_from_future_error_integration() {
         Some(panic_config),
         true,
         true,
+        false,
         false,
         false,
     );
@@ -30,6 +31,7 @@ fn node_exits_from_future_error_integration() {
         Some(panic_config),
         true,
         true,
+        false,
         false,
         false,
     );

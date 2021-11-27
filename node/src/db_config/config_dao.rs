@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::DaoFactoryReal;
 use rusqlite::types::ToSql;
@@ -237,13 +237,13 @@ fn row_to_config_dao_record(row: &Row) -> ConfigDaoRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::assert_contains;
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::constants::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 
     #[test]
     fn get_all_returns_multiple_results() {

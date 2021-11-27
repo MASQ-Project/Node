@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -461,7 +461,7 @@ impl PersistentConfigurationReal {
     }
 
     fn validate_derivation_path(derivation_path: &str) -> bool {
-        let mnemonic = Bip39::mnemonic(MnemonicType::Words24, Language::English);
+        let mnemonic = Bip39::mnemonic(MnemonicType::Words12, Language::English);
         let seed = Bip39::seed(&mnemonic, "");
         Bip32ECKeyPair::from_raw(seed.as_bytes(), derivation_path).is_ok()
     }
@@ -1037,7 +1037,7 @@ mod tests {
     }
 
     fn make_seed_info(db_password: &str) -> (PlainData, String) {
-        let mnemonic = Bip39::mnemonic(MnemonicType::Words24, Language::English);
+        let mnemonic = Bip39::mnemonic(MnemonicType::Words12, Language::English);
         let mnemonic_seed = Bip39::seed(&mnemonic, "");
         let seed_bytes = PlainData::new(mnemonic_seed.as_ref());
         let encoded_seed = encode_bytes(Some(seed_bytes.clone())).unwrap().unwrap();
@@ -1649,8 +1649,10 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let node_descriptors = vec![
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
-            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
+                .unwrap(),
+            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
+                .unwrap(),
         ];
         let node_descriptors_bytes =
             PlainData::new(&serde_cbor::ser::to_vec(&node_descriptors).unwrap());
@@ -1689,8 +1691,10 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let node_descriptors = vec![
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
-            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
+                .unwrap(),
+            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
+                .unwrap(),
         ];
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = Box::new(

@@ -2,17 +2,17 @@
 name = "node"
 version = "1.0.0"
 license = "GPL-3.0-only"
-authors = ["Substratum Services", "MASQ"]
-copyright = "Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
+authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
+copyright = "Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved."
 description = "MASQ Node is the foundation of MASQ Network, an open-source network that allows anyone to allocate spare computing resources to make the internet a free and fair place for the entire world."
-edition = "2018"
+edition = "2021"
 
 [workspace]
 members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
 
 [dependencies]
 actix = "= 0.7.9"
-backtrace = "0.3.35"
+backtrace = "0.3.61"
 base64 = "0.10.1"
 bytes = "0.4.12"
 chrono = "0.4.7"

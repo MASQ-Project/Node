@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_factory::CommandFactory;
 use crate::command_processor::CommandProcessor;
@@ -142,7 +142,7 @@ fn print_protected(
         }
         Error(e) => {
             let _lock = terminal_interface.lock_ultimately(streams, true);
-            short_writeln!(streams.stderr, "{}", e.expect_v("Some(String)"));
+            short_writeln!(streams.stderr, "{}", e.expectv("Some(String)"));
             Error(None)
         }
         EoF => {

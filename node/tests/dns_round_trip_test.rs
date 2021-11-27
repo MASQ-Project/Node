@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 pub mod utils;
 use node_lib::entry_dns::packet_facade::PacketFacade;
 use serial_test_derive::serial;

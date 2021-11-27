@@ -1,4 +1,5 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use masq_lib::blockchains::chains::Chain;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, NodeReference};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
@@ -6,7 +7,6 @@ use multinode_integration_tests_lib::masq_real_node::{
 };
 use node_lib::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoReal};
-use node_lib::blockchain::blockchain_interface::chain_name_from_id;
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::database::db_migrations::MigratorConfig;
 use node_lib::sub_lib::wallet::Wallet;
@@ -112,7 +112,7 @@ pub fn start_lonely_real_node(cluster: &mut MASQNodeCluster) -> MASQRealNode {
         NodeStartupConfigBuilder::standard()
             .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
             .consuming_wallet_info(make_consuming_wallet_info(&index.to_string()))
-            .chain(chain_name_from_id(cluster.chain_id))
+            .chain(cluster.chain)
             .build(),
     )
 }
@@ -123,7 +123,7 @@ pub fn start_real_node(cluster: &mut MASQNodeCluster, neighbor: NodeReference) -
         NodeStartupConfigBuilder::standard()
             .neighbor(neighbor)
             .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
-            .chain(chain_name_from_id(cluster.chain_id))
+            .chain(cluster.chain)
             .build(),
     )
 }
