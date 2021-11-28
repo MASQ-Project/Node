@@ -468,7 +468,8 @@ impl ConfiguredByPrivilege for Bootstrapper {
             Box::new(ActorFactoryReal {}),
             initialize_database(
                 &self.config.data_directory,
-                self.config.blockchain_bridge_config.chain,
+                false,
+                MigratorConfig::panic_on_migration(),
             )
             .as_ref(),
             &ActorSystemFactoryToolsReal,
@@ -634,6 +635,7 @@ mod tests {
     use std::marker::Sync;
     use std::net::{IpAddr, SocketAddr};
     use std::ops::{DerefMut, Not};
+    use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -641,33 +643,47 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use crossbeam_channel::unbounded;
+    use futures::Future;
     use lazy_static::lazy_static;
+    use log::LevelFilter;
     use regex::Regex;
     use tokio;
+    use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
 
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 
-    use crate::actor_system_factory::{ActorFactory, ActorSystemFactoryTools};
+    use crate::actor_system_factory::{ActorFactory, ActorSystemFactory, ActorSystemFactoryTools};
+    use crate::bootstrapper::{
+        main_cryptde_ref, Bootstrapper, BootstrapperConfig, EnvironmentWrapper, PortConfiguration,
+        RealUser,
+    };
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
+    use crate::listener_handler::{ListenerHandler, ListenerHandlerFactory};
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
+    use crate::server_initializer::LoggerInitializerWrapper;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
-    use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
     use crate::sub_lib::cryptde::PublicKey;
-    use crate::sub_lib::neighborhood::{NeighborhoodMode, NodeDescriptor};
+    use crate::sub_lib::cryptde::{CryptDE, PlainData};
+    use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::logger::Logger;
+    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
     use crate::sub_lib::node_addr::NodeAddr;
+    use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLog;
@@ -682,27 +698,8 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use crate::test_utils::{assert_contains, rate_pack};
     use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::DEFAULT_GAS_PRICE;
     use masq_lib::utils::find_free_port;
-    use actix::Recipient;
-    use actix::System;
-    use crossbeam_channel::unbounded;
-    use lazy_static::lazy_static;
-    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE};
-    use masq_lib::test_utils::environment_guard::ClapGuard;
-    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
-    use regex::Regex;
-    use std::cell::RefCell;
-    use std::io;
-    use std::io::ErrorKind;
-    use std::marker::Sync;
-    use std::net::{IpAddr, SocketAddr};
-    use std::ops::{DerefMut, Not};
-    use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    use tokio;
-    use tokio::prelude::Async;
 
     lazy_static! {
         static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
@@ -1104,7 +1101,7 @@ mod tests {
             config.blockchain_bridge_config,
             BlockchainBridgeConfig {
                 blockchain_service_url_opt: Some("http://infura.io/ID".to_string()),
-                chain_id: DEFAULT_CHAIN_ID,
+                chain: TEST_DEFAULT_CHAIN,
                 gas_price: DEFAULT_GAS_PRICE
             }
         );
@@ -1645,7 +1642,7 @@ mod tests {
             ),
         };
         config.data_directory = data_dir.clone();
-        config.clandestine_port_opt = Some(1234);
+        config.clandestine_port_opt = Some(port);
         let listener_handler = ListenerHandlerNull::new(vec![]).bind_port_result(Ok(()));
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(listener_handler))

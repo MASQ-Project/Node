@@ -15,14 +15,13 @@ use log::LevelFilter;
 
 use crate::apps::app_node;
 use crate::blockchain::bip32::Bip32ECKeyPair;
-use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::PortConfiguration;
 use crate::database::db_migrations::{ExternalData, MigratorConfig};
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path,
-    real_user_data_directory_opt_and_chain_name, real_user_from_multi_config_or_populate,
+    real_user_data_directory_opt_and_chain, real_user_from_multi_config_or_populate,
 };
 use crate::server_initializer::GatheredParams;
 use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
@@ -37,10 +36,11 @@ use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use itertools::Itertools;
-use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_UI_PORT, HTTP_PORT, MASQ_URL_PREFIX, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use masq_lib::shared_schema::ParamError;
-use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::WrapResult;
 use rustc_hex::FromHex;
 use std::ops::Deref;
@@ -114,7 +114,7 @@ impl NodeConfiguratorStandardUnprivileged {
 
     fn pack_up_external_params_for_db(&self, multi_config: &MultiConfig) -> ExternalData {
         ExternalData::new(
-            self.privileged_config.blockchain_bridge_config.chain_id,
+            self.privileged_config.blockchain_bridge_config.chain,
             value_m!(multi_config, "neighborhood-mode", NeighborhoodModeLight)
                 .unwrap_or(NeighborhoodModeLight::Standard),
         )
@@ -172,13 +172,13 @@ pub fn privileged_parse_args(
     multi_config: &MultiConfig,
     privileged_config: &mut BootstrapperConfig,
 ) -> Result<(), ConfiguratorError> {
-    let (real_user, data_directory_opt, chain_name) =
-        real_user_data_directory_opt_and_chain_name(dirs_wrapper, multi_config);
+    let (real_user, data_directory_opt, chain) =
+        real_user_data_directory_opt_and_chain(dirs_wrapper, multi_config);
     let directory =
-        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
+        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
     privileged_config.real_user = real_user;
     privileged_config.data_directory = directory;
-    privileged_config.blockchain_bridge_config.chain_id = chain_id_from_name(&chain_name);
+    privileged_config.blockchain_bridge_config.chain = chain;
 
     let joined_dns_servers_opt = value_m!(multi_config, "dns-servers", String);
     privileged_config.dns_servers = match joined_dns_servers_opt {
@@ -249,7 +249,7 @@ pub fn unprivileged_parse_args(
     unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
     unprivileged_config.blockchain_bridge_config.gas_price =
         if is_user_specified(multi_config, "gas-price") {
-            value_m!(multi_config, "gas-price", u64).expect_v("gas price")
+            value_m!(multi_config, "gas-price", u64).expectv("gas price")
         } else {
             match persistent_config_opt {
                 Some(ref persistent_config) => match persistent_config.gas_price() {
@@ -379,10 +379,10 @@ pub fn make_neighborhood_config(
     }
 }
 
-
 pub fn convert_ci_configs(
     multi_config: &MultiConfig,
-) -> Result<Option<Vec<NodeDescriptor>>, ConfiguratorError> {type DescriptorParsingResult = Result<NodeDescriptor, ParamError>;
+) -> Result<Option<Vec<NodeDescriptor>>, ConfiguratorError> {
+    type DescriptorParsingResult = Result<NodeDescriptor, ParamError>;
     match value_m!(multi_config, "neighbors", String) {
         None => Ok(None),
         Some(joined_configs) => {
@@ -394,47 +394,45 @@ pub fn convert_ci_configs(
                 Ok(None)
             } else {
                 let dummy_cryptde: Box<dyn CryptDE> = {
-                    if value_m!(multi_config, "fake-public-key", String) .is_none() {
+                    if value_m!(multi_config, "fake-public-key", String).is_none() {
                         Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN))
                     } else {
                         Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))
                     }
                 };
-                let desired_chain = Chain::from( value_m!(multi_config, "chain", String)
-                    .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string())
-                .as_str(),
-                    );
-                    let results = validate_descriptors_from_user(
-                        separate_configs,
-                        dummy_cryptde,
-                        desired_chain,
-                    );
-                    let (ok, err): (Vec<DescriptorParsingResult>, Vec<DescriptorParsingResult>) =
-                        results.into_iter().partition(|result| result.is_ok());
-                    let ok = ok
-                        .into_iter()
-                        .map(|ok| ok.expect("NodeDescriptor"))
-                        .collect_vec();
-                let err = err
-                        .into_iter()
-                        .map(|err| err.expect_err("ParamError"))
+                let desired_chain = Chain::from(
+                    value_m!(multi_config, "chain", String)
+                        .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string())
+                        .as_str(),
+                );
+                let results =
+                    validate_descriptors_from_user(separate_configs, dummy_cryptde, desired_chain);
+                let (ok, err): (Vec<DescriptorParsingResult>, Vec<DescriptorParsingResult>) =
+                    results.into_iter().partition(|result| result.is_ok());
+                let ok = ok
+                    .into_iter()
+                    .map(|ok| ok.expect("NodeDescriptor"))
                     .collect_vec();
-                    if err.is_empty() {
-                        Ok(Some(ok))
-                    } else {
-                        Err(ConfiguratorError::new(err))
-                    }
+                let err = err
+                    .into_iter()
+                    .map(|err| err.expect_err("ParamError"))
+                    .collect_vec();
+                if err.is_empty() {
+                    Ok(Some(ok))
+                } else {
+                    Err(ConfiguratorError::new(err))
                 }
             }
         }
     }
+}
 
-    fn validate_descriptors_from_user(
-        descriptors: Vec<String>,
-        dummy_cryptde: Box<dyn CryptDE>,
-        desired_chain: Chain,
-    ) -> Vec<Result<NodeDescriptor, ParamError>> {
-        descriptors.into_iter()
+fn validate_descriptors_from_user(
+    descriptors: Vec<String>,
+    dummy_cryptde: Box<dyn CryptDE>,
+    desired_chain: Chain,
+) -> Vec<Result<NodeDescriptor, ParamError>> {
+    descriptors.into_iter()
                     .map(
                 |node_desc_from_ci| {
                     let node_desc_trimmed = node_desc_from_ci.trim();
@@ -457,20 +455,26 @@ pub fn convert_ci_configs(
                     }
                     )
                 .collect_vec()
-                    }
+}
 
-                            fn validate_mandatory_node_addr(
-                            supplied_descriptor: &str,
-                            descriptor: NodeDescriptor,
-                            ) -> Result<NodeDescriptor, ParamError> {
-                    if descriptor.node_addr_opt.is_some() {
-            Ok(descriptor)
+fn validate_mandatory_node_addr(
+    supplied_descriptor: &str,
+    descriptor: NodeDescriptor,
+) -> Result<NodeDescriptor, ParamError> {
+    if descriptor.node_addr_opt.is_some() {
+        Ok(descriptor)
+    } else {
+        Err(ParamError::new(
+            "neighbors",
+            &format!(
+                "Neighbors supplied without ip addresses and ports are not valid: '{}<N/A>:<N/A>",
+                if supplied_descriptor.ends_with("@:") {
+                    supplied_descriptor.strip_suffix(':').expect("logic failed")
                 } else {
-                    Err(ParamError::new(
-                "neighbors",&format!("Neighbors supplied without ip addresses and ports are not valid: '{}<N/A>:<N/A>",
-            if supplied_descriptor.ends_with("@:") { supplied_descriptor.strip_suffix(':').expect("logic failed")}
-                                     else { supplied_descriptor }))
-        )
+                    supplied_descriptor
+                }
+            ),
+        ))
     }
 }
 
@@ -702,7 +706,6 @@ fn set_db_password_at_first_mention(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::{chain_name_from_id, contract_address};
     use crate::bootstrapper::{BootstrapperConfig, RealUser};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -719,11 +722,11 @@ mod tests {
         make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
-    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE};
+    use masq_lib::constants::DEFAULT_GAS_PRICE;
     use masq_lib::multi_config::{NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::{running_test, SliceToVec};
     use std::fs::File;
     use std::io::Write;
@@ -900,15 +903,15 @@ mod tests {
         )
     }
 
-        #[test]
-        fn convert_ci_configs_handles_blockchain_mismatch() {
-            let multi_config = make_simplified_multi_config([
-                "MASQNode",
-                "--neighbors",
-                "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678",
-                "--chain",
-                DEFAULT_CHAIN.rec().literal_identifier,
-            ]);
+    #[test]
+    fn convert_ci_configs_handles_blockchain_mismatch() {
+        let multi_config = make_simplified_multi_config([
+            "MASQNode",
+            "--neighbors",
+            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678",
+            "--chain",
+            DEFAULT_CHAIN.rec().literal_identifier,
+        ]);
 
         let result = convert_ci_configs(&multi_config).err().unwrap();
 
@@ -1430,7 +1433,7 @@ mod tests {
         let cryptde = CryptDENull::from(&public_key, Chain::EthRopsten);
         let cryptde_traitified = &cryptde as &dyn CryptDE;
 
-        let result = standard::convert_ci_configs(&multi_config);
+        let result = convert_ci_configs(&multi_config);
 
         assert_eq!(result, Ok(Some(
             vec![
@@ -1471,7 +1474,7 @@ mod tests {
         );
         let multi_config = make_simplified_multi_config(["program", "--neighbors", &descriptor]);
 
-        let result = standard::convert_ci_configs(&multi_config);
+        let result = convert_ci_configs(&multi_config);
 
         assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", &format!("Neighbors supplied without ip addresses and ports are not valid: '{}<N/A>:<N/A>",&descriptor[..descriptor.len()-1]))])));
     }
@@ -1487,7 +1490,7 @@ mod tests {
             "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
         ]);
 
-        let result = standard::convert_ci_configs(&multi_config);
+        let result = convert_ci_configs(&multi_config);
 
         assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports are not valid: 'masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>")])))
     }
@@ -2508,10 +2511,14 @@ mod tests {
         config.clandestine_port_opt = Some(1234);
         config.blockchain_bridge_config.gas_price = gas_price;
         config.neighborhood_config.mode =
-            NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(
+            NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::try_from((
                 main_cryptde(),
-                "AQIDBA@1.2.3.4:1234;2345",
-            )
+                format!(
+                    "masq://{}:AQIDBA@1.2.3.4:1234/2345",
+                    TEST_DEFAULT_CHAIN.rec().literal_identifier
+                )
+                .as_str(),
+            ))
             .unwrap()]);
         config.blockchain_bridge_config.blockchain_service_url_opt =
             Some("https://infura.io/ID".to_string());
@@ -2571,7 +2578,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         let set_blockchain_service_url = set_blockchain_service_params_arc.lock().unwrap();
         let no_url: Vec<String> = vec![];
-        assert_eq!(*set_blockchain_service_url, no_url); //if no value available we skip setting it
+        assert_eq!(*set_blockchain_service_url, no_url); //if no value available we skip the setting
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         let no_ports: Vec<u16> = vec![];
         assert_eq!(*set_clandestine_port_params, no_ports);
@@ -2584,13 +2591,14 @@ mod tests {
 
     #[test]
     fn pack_up_external_params_for_db_is_properly_set() {
-        let subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
+        let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
+        subject.privileged_config.blockchain_bridge_config.chain = DEFAULT_CHAIN;
         let multi_config =
             make_simplified_multi_config(["MASQNode", "--neighborhood-mode", "zero-hop"]);
 
         let result = subject.pack_up_external_params_for_db(&multi_config);
 
-        let expected = ExternalData::new(DEFAULT_CHAIN_ID, NeighborhoodModeLight::ZeroHop);
+        let expected = ExternalData::new(DEFAULT_CHAIN, NeighborhoodModeLight::ZeroHop);
         assert_eq!(result, expected)
     }
 }

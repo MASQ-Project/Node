@@ -6,11 +6,12 @@ use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{
     DbInitializer, DbInitializerReal, InitializationError, DATABASE_FILE,
 };
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
 use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{
-    data_directory_from_context, real_user_with_data_directory_opt_and_chain, DirsWrapper,
+    data_directory_from_context, real_user_data_directory_opt_and_chain, DirsWrapper,
 };
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::run_modes_factories::DumpConfigRunner;
@@ -20,16 +21,15 @@ use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
 use clap::value_t;
 use heck::MixedCase;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use serde_json::json;
 use serde_json::{Map, Value};
-use std::path::{Path, PathBuf};
-use masq_lib::blockchains::chains::Chain;
-use crate::database::db_migrations::MigratorConfig;
 #[cfg(test)]
 use std::any::Any;
+use std::path::{Path, PathBuf};
 
 pub struct DumpConfigRunnerReal;
 
@@ -135,7 +135,7 @@ fn distill_args(
     ];
     let multi_config = make_new_multi_config(&app, vcls)?;
     let (real_user, data_directory_opt, chain) =
-        real_user_with_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
+        real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
     let password_opt = value_m!(multi_config, "db-password", String);
@@ -237,7 +237,7 @@ mod tests {
                     &data_dir,
                     true,
                     MigratorConfig::create_or_migrate(ExternalData::new(
-                        DEFAULT_CHAIN_ID,
+                        TEST_DEFAULT_CHAIN,
                         NeighborhoodModeLight::ZeroHop,
                     )),
                 )
@@ -258,12 +258,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QUJDREVGRw@1.2.3.4:1234",
+                            "masq://eth-ropsten:QUJDREVGRw@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QkNERUZHSA@2.3.4.5:2345",
+                            "masq://eth-ropsten:QkNERUZHSA@2.3.4.5:2345",
                         ))
                         .unwrap(),
                     ]),
@@ -306,7 +306,11 @@ mod tests {
             "0x0123456789012345678901234567890123456789",
             &map,
         );
-        assert_value("chainName", "ropsten", &map);
+        assert_value(
+            "chainName",
+            TEST_DEFAULT_CHAIN.rec().literal_identifier,
+            &map,
+        );
         assert_value("gasPrice", "1", &map);
         assert_value(
             "pastNeighbors",
@@ -350,7 +354,7 @@ mod tests {
                     &data_dir,
                     true,
                     MigratorConfig::create_or_migrate(ExternalData::new(
-                        DEFAULT_CHAIN_ID,
+                        TEST_DEFAULT_CHAIN,
                         NeighborhoodModeLight::ConsumeOnly,
                     )),
                 )
@@ -371,12 +375,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
+                            "masq://eth-ropsten:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
+                            "masq://eth-ropsten:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
                     ]),
@@ -420,9 +424,9 @@ mod tests {
             "0x0123456789012345678901234567890123456789",
             &map,
         );
-        assert_value("chainName", "ropsten", &map);
+        assert_value("chainName", "eth-ropsten", &map);
         assert_value("gasPrice", "1", &map);
-        assert_value("pastNeighbors", "masq://eth-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,masq://eth-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
+        assert_value("pastNeighbors", "masq://eth-ropsten:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,masq://eth-ropsten:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
         assert_value("neighborhoodMode", "consume-only", &map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
@@ -463,7 +467,7 @@ mod tests {
                     &data_dir,
                     true,
                     MigratorConfig::create_or_migrate(ExternalData::new(
-                        DEFAULT_CHAIN_ID,
+                        TEST_DEFAULT_CHAIN,
                         NeighborhoodModeLight::Standard,
                     )),
                 )
@@ -484,12 +488,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
+                            "masq://eth-ropsten:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
+                            "masq://eth-ropsten:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
                     ]),
@@ -533,7 +537,11 @@ mod tests {
             "0x0123456789012345678901234567890123456789",
             &map,
         );
-        assert_value("chainName", "ropsten", &map);
+        assert_value(
+            "chainName",
+            TEST_DEFAULT_CHAIN.rec().literal_identifier,
+            &map,
+        );
         assert_value("gasPrice", "1", &map);
         assert_value(
             "pastNeighbors",

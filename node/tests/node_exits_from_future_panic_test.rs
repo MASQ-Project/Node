@@ -21,7 +21,6 @@ fn node_exits_from_future_panic_integration() {
         true,
         false,
         false,
-        false,
     );
 
     let success = node.wait_for_exit().unwrap().status.success();

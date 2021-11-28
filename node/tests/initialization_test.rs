@@ -8,8 +8,8 @@ use masq_lib::messages::{
 };
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
-use masq_lib::test_utils::utils::{TEST_DEFAULT_CHAIN};
 use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
@@ -161,8 +161,10 @@ fn incomplete_node_descriptor_is_refused_integration() {
                              test_default_chain_identifier,test_default_chain_identifier)
                 ),
         ),
-        false,
         true,
+        true,
+        true,
+        false
     );
     match node.wait_for_exit() {
         None => panic!("the process terminated in a strange way"),
@@ -199,6 +201,8 @@ fn started_without_explicit_chain_parameter_runs_fine() {
         "started_without_explicit_chain_parameter_runs_fine",
         Some(config),
         true,
+        true,
+        false,
         false,
     );
 

@@ -3,7 +3,7 @@
 pub mod utils;
 
 use crate::utils::CommandConfig;
-use masq_lib::constants::DEFAULT_CHAIN_NAME;
+use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::messages::{UiShutdownRequest, NODE_UI_PROTOCOL};
 use masq_lib::test_utils::environment_guard::EnvironmentGuard;
 use masq_lib::test_utils::ui_connection::UiConnection;
@@ -35,7 +35,7 @@ fn dump_configuration_with_an_existing_database_integration() {
 
     let mut node = utils::MASQNode::run_dump_config(
         test_name,
-        Some(CommandConfig::new().pair("--chain", DEFAULT_CHAIN_NAME)),
+        Some(CommandConfig::new().pair("--chain", DEFAULT_CHAIN.rec().literal_identifier)),
         false,
         true,
         true,
@@ -60,7 +60,7 @@ fn dump_configuration_and_no_preexisting_database_integration() {
 
     let mut node = utils::MASQNode::run_dump_config(
         "dump_configuration_and_no_preexisting_database_integration",
-        Some(CommandConfig::new().pair("--chain", DEFAULT_CHAIN_NAME)),
+        Some(CommandConfig::new().pair("--chain", DEFAULT_CHAIN.rec().literal_identifier)),
         true,
         true,
         true,

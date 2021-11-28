@@ -49,7 +49,7 @@ impl DaoFactoryReal {
             &DbInitializerReal::default(),
             &self.data_directory,
             self.create_if_necessary,
-            self.migrator_config.take().expect_v("MigratorConfig"),
+            self.migrator_config.take().expectv("MigratorConfig"),
         )
     }
 }

@@ -48,7 +48,6 @@ mod tests {
     };
     use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoRead, ConfigDaoReal};
-    use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 
     #[test]

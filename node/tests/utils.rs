@@ -1,9 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
+use masq_lib::test_utils::utils::node_home_directory;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-use masq_lib::test_utils::utils::{node_home_directory,
-};
 use masq_lib::utils::localhost;
 use node_lib::test_utils::await_value;
 use std::env;
@@ -12,8 +11,7 @@ use std::net::SocketAddr;
 use std::ops::Drop;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::process::Stdio;
-use std::process::{Output, Stdio};
+use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -87,7 +85,6 @@ impl MASQNode {
         sterile_logfile: bool,
         piped_output: bool,
         ensure_start: bool,
-        piped_output: bool,
     ) -> MASQNode {
         Self::start_something(
             test_name,
@@ -96,7 +93,6 @@ impl MASQNode {
             sterile_logfile,
             piped_output,
             ensure_start,
-            piped_output,
             Self::make_daemon_command,
         )
     }
@@ -109,7 +105,6 @@ impl MASQNode {
         sterile_logfile: bool,
         piped_output: bool,
         ensure_start: bool,
-        piped_output: bool,
     ) -> MASQNode {
         Self::start_something(
             test_name,
@@ -126,8 +121,10 @@ impl MASQNode {
     pub fn start_with_blank_config(
         test_name: &str,
         config_opt: Option<CommandConfig>,
-        ensure_start: bool,
+        sterile_database: bool,
+        sterile_logfile: bool,
         piped_output: bool,
+        ensure_start: bool,
     ) -> MASQNode {
         Self::start_something(
             test_name,
@@ -266,12 +263,12 @@ impl MASQNode {
         }
     }
 
-    fn start_something<F: FnOnce(&PathBuf, Option<CommandConfig>) -> process::Command>(
+    fn start_something<F: FnOnce(&PathBuf, Option<CommandConfig>, bool) -> process::Command>(
         test_name: &str,
         config_opt: Option<CommandConfig>,
         sterile_database: bool,
         sterile_logfile: bool,
-        piped_output: bool,
+        piped_streams: bool,
         ensure_start: bool,
         command_getter: F,
     ) -> MASQNode {
@@ -284,7 +281,7 @@ impl MASQNode {
             let _ = Self::remove_logfile(&data_dir);
         }
         let ui_port = Self::ui_port_from_config_opt(&config_opt);
-        let mut command = command_getter(&data_dir, config_opt);
+        let mut command = command_getter(&data_dir, config_opt, sterile_database);
         eprintln!("{:?}", command);
         let command = if piped_streams {
             command.stdout(Stdio::piped()).stderr(Stdio::piped())
@@ -298,7 +295,7 @@ impl MASQNode {
         result
     }
 
-    fn spawn_process(mut cmd: Command, data_dir: PathBuf) -> MASQNode {
+    fn spawn_process(cmd: &mut Command, data_dir: PathBuf) -> MASQNode {
         let child = cmd.spawn().unwrap();
         MASQNode {
             logfile_contents: String::new(),
@@ -363,6 +360,7 @@ impl MASQNode {
     fn make_dump_config_command(
         data_dir: &PathBuf,
         config: Option<CommandConfig>,
+        _unused: bool,
     ) -> process::Command {
         let mut command = command_to_start();
         let mut args = Self::dump_config_args();

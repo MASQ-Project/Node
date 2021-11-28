@@ -5,7 +5,6 @@ use crate::database::db_migrations::{
 };
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
-use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -195,7 +194,7 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "chain_name",
-            Some(&external_params.chain_name),
+            Some(external_params.chain.rec().literal_identifier),
             false,
             "the chain the database is created for",
         );
@@ -252,9 +251,18 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "start_block",
-            Some(&exterbal_params.chain.rec().contract_creation_block.to_string()),
+            Some(
+                &external_params
+                    .chain
+                    .rec()
+                    .contract_creation_block
+                    .to_string(),
+            ),
             false,
-            format!("{} start block", external_params.chain.rec().literal_identifier),
+            &format!(
+                "{} start block",
+                external_params.chain.rec().literal_identifier
+            ),
         );
         Self::set_config_value(
             conn,
@@ -515,7 +523,7 @@ pub mod test_utils {
 
     #[derive(Default)]
     pub struct DbInitializerMock {
-        pub initialize_parameters: Arc<Mutex<Vec<(PathBuf, bool, MigratorConfig)>>>,
+        pub initialize_params: Arc<Mutex<Vec<(PathBuf, bool, MigratorConfig)>>>,
         pub initialize_results:
             RefCell<Vec<Result<Box<dyn ConnectionWrapper>, InitializationError>>>,
     }
@@ -576,7 +584,6 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, revive_tables_of_version_0_and_return_connection,

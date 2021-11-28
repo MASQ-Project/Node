@@ -55,7 +55,7 @@ pub fn determine_config_file_path(
     let config_file_path = value_m!(multi_config, "config-file", PathBuf).expectv("config-file");
     let user_specified = multi_config.occurrences_of("config-file") > 0;
     let (real_user, data_directory_opt, chain) =
-        real_user_with_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
+        real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
     (directory.join(config_file_path), user_specified).wrap_to_ok()
@@ -88,7 +88,7 @@ pub fn real_user_from_multi_config_or_populate(
     }
 }
 
-pub fn real_user_with_data_directory_opt_and_chain(
+pub fn real_user_data_directory_opt_and_chain(
     dirs_wrapper: &dyn DirsWrapper,
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, Chain) {

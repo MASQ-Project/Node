@@ -31,7 +31,6 @@ use crate::sub_lib::utils::handle_ui_crash_request;
 use crate::sub_lib::wallet::{Wallet, WalletError};
 use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
-use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     ALREADY_INITIALIZED_ERROR, BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR,
     CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR, EARLY_QUESTIONING_ABOUT_DATA,
@@ -94,7 +93,7 @@ impl Handler<NodeFromUiMessage> for Configurator {
 type MessageError = (u64, String);
 
 impl Configurator {
-    pub fn new(data_directory: PathBuf) -> Self {
+    pub fn new(data_directory: PathBuf, crashable: bool) -> Self {
         let initializer = DbInitializerReal::default();
         let conn = initializer
             .initialize(&data_directory, false, MigratorConfig::panic_on_migration())
@@ -763,6 +762,7 @@ mod tests {
     use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use bip39::{Language, Mnemonic};
     use masq_lib::automap_tools::AutomapProtocol;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 
@@ -777,7 +777,7 @@ mod tests {
         )));
         let (recorder, _, _) = make_recorder();
         let recorder_addr = recorder.start();
-        let mut subject = Configurator::new(data_dir);
+        let mut subject = Configurator::new(data_dir, false);
         subject.node_to_ui_sub = Some(recorder_addr.recipient());
         subject.new_password_subs = Some(vec![]);
 
@@ -2023,7 +2023,7 @@ mod tests {
         let node_descriptor = NodeDescriptor::from((
             &public_key,
             &node_addr,
-            true,
+            Chain::EthRopsten,
             main_cryptde() as &dyn CryptDE,
         ));
         let persistent_config = PersistentConfigurationMock::new()

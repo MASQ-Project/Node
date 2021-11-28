@@ -6,6 +6,7 @@ use crate::blockchain::blockchain_interface::{
     BlockchainInterfaceNonClandestine, BlockchainResult, Transaction,
 };
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -151,7 +152,7 @@ impl BlockchainBridge {
         };
         let config_dao = Box::new(ConfigDaoReal::new(
             db_initializer
-                .initialize(&data_directory, chain, true)
+                .initialize(&data_directory, true, MigratorConfig::panic_on_migration())
                 .unwrap_or_else(|_| {
                     panic!(
                         "Failed to connect to database at {:?}",

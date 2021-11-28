@@ -243,7 +243,7 @@ mod tests {
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::assert_contains;
     use masq_lib::constants::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 
     #[test]
     fn get_all_returns_multiple_results() {

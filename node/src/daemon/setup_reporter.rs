@@ -873,11 +873,11 @@ mod tests {
     use crate::test_utils::database_utils::revive_tables_of_version_0_and_return_connection;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use masq_lib::blockchains::chains::Chain as Blockchain;
-    use masq_lib::constants::DEFAULT_CHAIN;
     use crate::test_utils::pure_test_utils::{
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
+    use masq_lib::blockchains::chains::Chain as Blockchain;
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
@@ -1706,7 +1706,7 @@ mod tests {
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, "0");
         let existing_setup = setup_cluster_from(vec![
-            ("chain", DEFAULT_CHAIN_NAME, Default),
+            ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             (
                 "data-directory",
                 &data_dir.to_string_lossy().to_string(),

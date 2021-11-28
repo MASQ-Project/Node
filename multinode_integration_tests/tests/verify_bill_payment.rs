@@ -89,7 +89,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&consuming_node_path),
             true,
-            make_migrator_config(cluster.chain_id),
+            make_migrator_config(cluster.chain),
         )
         .unwrap();
     let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
@@ -296,8 +296,8 @@ fn verify_bill_payment() {
     });
 }
 
-fn make_migrator_config(chain_id: u8) -> MigratorConfig {
-    MigratorConfig::create_or_migrate(ExternalData::new(chain_id, NeighborhoodModeLight::Standard))
+fn make_migrator_config(chain: Chain) -> MigratorConfig {
+    MigratorConfig::create_or_migrate(ExternalData::new(chain, NeighborhoodModeLight::Standard))
 }
 
 fn assert_balances(
@@ -377,7 +377,7 @@ fn build_config(
         make_node_wallet(seed, wallet_derivation_path.as_str());
     let config = NodeStartupConfigBuilder::standard()
         .blockchain_service_url(server.service_url())
-        .chain("dev")
+        .chain(Chain::Dev)
         .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_secret))
         .earning_wallet_info(EarningWalletInfo::Address(format!(
             "{}",

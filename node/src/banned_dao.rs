@@ -153,7 +153,6 @@ mod tests {
     use crate::test_utils::make_wallet;
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-        TEST_DEFAULT_CHAIN,
     };
     use rusqlite::NO_PARAMS;
 

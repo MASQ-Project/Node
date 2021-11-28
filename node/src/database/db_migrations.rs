@@ -4,9 +4,8 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::utils::{ExpectValue, WrapResult};
 #[cfg(test)]
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use rusqlite::{Transaction, NO_PARAMS};
 use std::fmt::Debug;
@@ -214,7 +213,11 @@ impl DatabaseMigration for Migrate_1_to_2 {
     ) -> rusqlite::Result<()> {
         let statement = format!(
             "INSERT INTO config (name, value, encrypted) VALUES ('chain_name', '{}', 0)",
-            declaration_utils.external_parameters().chain_name
+            declaration_utils
+                .external_parameters()
+                .chain
+                .rec()
+                .literal_identifier
         );
         declaration_utils.execute_upon_transaction(&[statement.as_str()])
     }
@@ -404,7 +407,7 @@ impl MigratorConfig {
         Self {
             should_be_suppressed: Suppression::No,
             external_dataset: Some(ExternalData {
-                chain_name: TEST_DEFAULT_CHAIN_NAME.to_string(),
+                chain: TEST_DEFAULT_CHAIN,
                 neighborhood_mode: NeighborhoodModeLight::Standard,
             }),
         }
@@ -413,14 +416,14 @@ impl MigratorConfig {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExternalData {
-    pub chain_name: String,
+    pub chain: Chain,
     pub neighborhood_mode: NeighborhoodModeLight,
 }
 
 impl ExternalData {
-    pub fn new(chain_id: Chain, neighborhood_mode: NeighborhoodModeLight) -> Self {
+    pub fn new(chain: Chain, neighborhood_mode: NeighborhoodModeLight) -> Self {
         Self {
-            chain_name: chain.rec().literal_identifier.to_string(),
+            chain,
             neighborhood_mode,
         }
     }
@@ -458,9 +461,9 @@ mod tests {
         assurance_query_for_config_table, revive_tables_of_version_0_and_return_connection,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
     use std::cell::RefCell;
     use std::fmt::Debug;
@@ -588,7 +591,7 @@ mod tests {
 
     fn make_external_migration_parameters() -> ExternalData {
         ExternalData {
-            chain_name: DEFAULT_CHAIN.rec().literal_identifier.to_string(),
+            chain: TEST_DEFAULT_CHAIN,
             neighborhood_mode: NeighborhoodModeLight::Standard,
         }
     }
@@ -1068,7 +1071,7 @@ mod tests {
         assert_eq!(
             *make_mig_declaration_utils_params,
             vec![ExternalData {
-                chain_name: "ropsten".to_string(),
+                chain: TEST_DEFAULT_CHAIN,
                 neighborhood_mode: NeighborhoodModeLight::Standard
             }]
         )
@@ -1212,7 +1215,7 @@ mod tests {
             start_at + 1,
             true,
             MigratorConfig::create_or_migrate(ExternalData::new(
-                DEFAULT_CHAIN_ID,
+                DEFAULT_CHAIN,
                 NeighborhoodModeLight::ConsumeOnly,
             )),
         );
