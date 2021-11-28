@@ -32,7 +32,6 @@ fn node_exits_from_future_error_integration() {
         true,
         false,
         false,
-        false,
     );
 
     let exit_code = node.wait_for_exit().unwrap().status.code();
