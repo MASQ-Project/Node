@@ -22,6 +22,7 @@ use masq_lib::blockchains::blockchain_records::CHAINS;
 use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
 use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX};
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
@@ -114,6 +115,15 @@ impl NeighborhoodMode {
 
     pub fn is_zero_hop(&self) -> bool {
         matches!(self, NeighborhoodMode::ZeroHop)
+    }
+
+    pub fn make_light(&self) -> NeighborhoodModeLight {
+        match self {
+            NeighborhoodMode::Standard(_, _, _) => NeighborhoodModeLight::Standard,
+            NeighborhoodMode::ConsumeOnly(_) => NeighborhoodModeLight::ConsumeOnly,
+            NeighborhoodMode::OriginateOnly(_, _) => NeighborhoodModeLight::OriginateOnly,
+            NeighborhoodMode::ZeroHop => NeighborhoodModeLight::ZeroHop,
+        }
     }
 }
 
@@ -492,7 +502,7 @@ mod tests {
     use actix::Actor;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use masq_lib::utils::localhost;
+    use masq_lib::utils::{localhost, NeighborhoodModeLight};
     use std::str::FromStr;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
@@ -999,5 +1009,74 @@ mod tests {
             };
             assert_eq!(&gf.to_string(), expected_string);
         });
+    }
+
+    #[test]
+    fn neighborhood_mode_light_tights_up_with_the_classic_enum() {
+        let simple_standard = NeighborhoodModeLight::Standard.to_string().to_lowercase();
+        let simple_consume_only = NeighborhoodModeLight::ConsumeOnly
+            .to_string()
+            .to_lowercase();
+        let simple_originate_only = NeighborhoodModeLight::OriginateOnly
+            .to_string()
+            .to_lowercase();
+        let simple_zero_hop = NeighborhoodModeLight::ZeroHop.to_string().to_lowercase();
+        let classic_standard = NeighborhoodMode::Standard(
+            NodeAddr::new(&localhost(), &[1234, 2345]),
+            vec![],
+            rate_pack(100),
+        )
+        .to_string()
+        .to_lowercase();
+        let classic_consume_only = NeighborhoodMode::ConsumeOnly(vec![])
+            .to_string()
+            .to_lowercase();
+        let classic_originate_only = NeighborhoodMode::OriginateOnly(vec![], rate_pack(100))
+            .to_string()
+            .to_lowercase();
+        let classic_zero_hop = NeighborhoodMode::ZeroHop.to_string().to_lowercase();
+        assert_contain_words(simple_standard, classic_standard, &["standard"]);
+        assert_contain_words(
+            simple_consume_only,
+            classic_consume_only,
+            &["consume", "only"],
+        );
+        assert_contain_words(
+            simple_originate_only,
+            classic_originate_only,
+            &["originate", "only"],
+        );
+        assert_contain_words(simple_zero_hop, classic_zero_hop, &["zero", "hop"]);
+    }
+
+    fn assert_contain_words(simple: String, classic: String, words: &[&str]) {
+        words
+            .iter()
+            .for_each(|word| assert!(simple.contains(word) && classic.contains(word)))
+    }
+
+    #[test]
+    fn neighborhood_mode_light_can_be_made_from_neighborhood_mode() {
+        assert_make_light(
+            NeighborhoodMode::Standard(
+                NodeAddr::new(&localhost(), &[1234, 2345]),
+                vec![],
+                rate_pack(100),
+            ),
+            NeighborhoodModeLight::Standard,
+        );
+        assert_make_light(
+            NeighborhoodMode::ConsumeOnly(vec![]),
+            NeighborhoodModeLight::ConsumeOnly,
+        );
+        assert_make_light(
+            NeighborhoodMode::OriginateOnly(vec![], rate_pack(100)),
+            NeighborhoodModeLight::OriginateOnly,
+        );
+        assert_make_light(NeighborhoodMode::ZeroHop, NeighborhoodModeLight::ZeroHop)
+    }
+
+    fn assert_make_light(heavy: NeighborhoodMode, expected_value: NeighborhoodModeLight) {
+        assert_eq!(heavy.make_light(), expected_value)
     }
 }

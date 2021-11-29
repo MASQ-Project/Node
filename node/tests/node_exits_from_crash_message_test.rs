@@ -70,7 +70,8 @@ fn start_node_and_request_crash(dir_name: &str, crash_key: &str) {
         .pair("--crash-point", "message")
         .pair("--neighborhood-mode", "zero-hop")
         .pair("--ui-port", format!("{}", port).as_str());
-    let mut node = utils::MASQNode::start_standard(dir_name, Some(panic_config), true, false);
+    let mut node =
+        utils::MASQNode::start_standard(dir_name, Some(panic_config), true, true, false, true);
     let msg = UiTrafficConverter::new_marshal(
         UiCrashRequest {
             actor: crash_key.to_string(),

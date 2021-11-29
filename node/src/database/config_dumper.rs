@@ -3,12 +3,15 @@
 use crate::apps::app_config_dumper;
 use crate::blockchain::bip39::Bip39;
 use crate::bootstrapper::RealUser;
-use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+use crate::database::db_initializer::{
+    DbInitializer, DbInitializerReal, InitializationError, DATABASE_FILE,
+};
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
 use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{
-    data_directory_from_context, real_user_with_data_directory_opt_and_chain, DirsWrapper,
+    data_directory_from_context, real_user_data_directory_opt_and_chain, DirsWrapper,
 };
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::run_modes_factories::DumpConfigRunner;
@@ -18,16 +21,15 @@ use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
 use clap::value_t;
 use heck::MixedCase;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use serde_json::json;
 use serde_json::{Map, Value};
-use std::path::{Path, PathBuf};
-
-use masq_lib::blockchains::chains::Chain;
 #[cfg(test)]
 use std::any::Any;
+use std::path::{Path, PathBuf};
 
 pub struct DumpConfigRunnerReal;
 
@@ -37,7 +39,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
             distill_args(&DirsWrapperReal {}, args)?;
         let cryptde = CryptDEReal::new(chain);
         PrivilegeDropperReal::new().drop_privileges(&real_user);
-        let config_dao = make_config_dao(&data_directory, chain);
+        let config_dao = make_config_dao(&data_directory, MigratorConfig::migration_suppressed()); //dump config never migrates db
         let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
         let json = configuration_to_json(configuration, password_opt, &cryptde);
         write_string(streams, json);
@@ -109,10 +111,10 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
     }
 }
 
-fn make_config_dao(data_directory: &Path, chain: Chain) -> ConfigDaoReal {
+fn make_config_dao(data_directory: &Path, migrator_config: MigratorConfig) -> ConfigDaoReal {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory, chain, true) // TODO: Probably should be false
-        .unwrap_or_else(|e| {
+        .initialize(data_directory, false, migrator_config)
+        .unwrap_or_else(|e| if e == InitializationError::Nonexistent {panic!("Could not find database at: {}. Would be created when the Node firstly operates. Running --dump-config before has no effect",data_directory.to_string_lossy().to_string())} else {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
                 data_directory.join(DATABASE_FILE),
@@ -133,7 +135,7 @@ fn distill_args(
     ];
     let multi_config = make_new_multi_config(&app, vcls)?;
     let (real_user, data_directory_opt, chain) =
-        real_user_with_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
+        real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
     let password_opt = value_m!(multi_config, "db-password", String);
@@ -144,28 +146,62 @@ fn distill_args(
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
+    use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
+    use crate::database::db_migrations::ExternalData;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,
     };
     use crate::db_config::typed_config_layer::encode_bytes;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::NodeDescriptor;
+    use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
     use crate::test_utils::{main_cryptde, ArgsBuilder};
     use bip39::{Language, MnemonicType, Seed};
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::derivation_path;
+    use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
+    use std::fs::File;
+    use std::io::ErrorKind;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
-    fn dump_config_creates_database_if_nonexistent() {
+    fn database_must_be_created_by_node_before_dump_config_is_used() {
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
-            "dump_config_creates_database_if_nonexistent",
-        )
-        .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
+            "database_must_be_created_by_node_before_dump_config_used",
+        );
+        let mut holder = FakeStreamHolder::new();
+        let args_vec: Vec<String> = ArgsBuilder::new()
+            .param("--data-directory", data_dir.to_str().unwrap())
+            .param("--real-user", "123::")
+            .opt("--dump-config")
+            .into();
+        let subject = DumpConfigRunnerReal;
+
+        let caught_panic = catch_unwind(AssertUnwindSafe(|| {
+            subject.go(&mut holder.streams(), args_vec.as_slice())
+        }))
+        .unwrap_err();
+
+        let string_panic = caught_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(string_panic,&format!("Could not find database at: {}. Would be created when the Node firstly operates. Running --dump-config before has no effect",data_dir.to_str().unwrap()));
+        let err = File::open(&data_dir.join(DATABASE_FILE)).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotFound)
+    }
+
+    #[test]
+    fn dump_config_does_not_migrate_obsolete_database() {
+        let data_dir = ensure_node_home_directory_exists(
+            "config_dumper",
+            "dump_config_does_not_migrate_obsolete_database",
+        );
+        let conn =
+            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
+        let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, "0");
         let mut holder = FakeStreamHolder::new();
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
@@ -178,28 +214,8 @@ mod tests {
         let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
         assert!(result.is_ok());
-        let output = holder.stdout.get_string();
-        let actual_value: Value = serde_json::from_str(&output).unwrap();
-        let actual_map = match &actual_value {
-            Value::Object(map) => map,
-            other => panic!("Was expecting Value::Object, got {:?} instead", other),
-        };
-        let expected_value = json!({
-           "chainName": TEST_DEFAULT_CHAIN.rec().literal_identifier.to_string(),
-           "clandestinePort": actual_map.get ("clandestinePort"),
-           "consumingWalletDerivationPath": null,
-           "consumingWalletPublicKey": null,
-           "earningWalletAddress": null,
-           "exampleEncrypted": null,
-           "gasPrice": "1",
-           "mappingProtocol": null,
-           "pastNeighbors": null,
-           "schemaVersion": CURRENT_SCHEMA_VERSION.to_string(),
-           "seed": null,
-           "startBlock": &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
-        });
-        assert_eq!(actual_value, expected_value);
-        assert!(output.ends_with("\n}\n"))
+        let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, schema_version_after)
     }
 
     #[test]
@@ -218,7 +234,14 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
-                .initialize(&data_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(
+                    &data_dir,
+                    true,
+                    MigratorConfig::create_or_migrate(ExternalData::new(
+                        TEST_DEFAULT_CHAIN,
+                        NeighborhoodModeLight::ZeroHop,
+                    )),
+                )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -236,18 +259,21 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QUJDREVGRw@1.2.3.4:1234",
+                            "masq://eth-ropsten:QUJDREVGRw@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QkNERUZHSA@2.3.4.5:2345",
+                            "masq://eth-ropsten:QkNERUZHSA@2.3.4.5:2345",
                         ))
                         .unwrap(),
                     ]),
                     "password",
                 )
                 .unwrap();
+            persistent_config
+                .set_blockchain_service_url("https://infura.io/ID")
+                .unwrap()
         }
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
@@ -266,37 +292,47 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, TEST_DEFAULT_CHAIN, false)
+            .initialize(&data_dir, false, MigratorConfig::panic_on_migration())
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
-        let check = |key: &str, expected_value: &str| {
-            let actual_value = match map.get(key).unwrap() {
-                Value::String(s) => s,
-                x => panic!("Expected JSON string; found {:?}", x),
-            };
-            assert_eq!(actual_value, expected_value);
-        };
-        check("clandestinePort", "3456");
-        check("consumingWalletDerivationPath", &derivation_path(4, 4));
-        check(
+        assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
+        assert_value("clandestinePort", "3456", &map);
+        assert_value(
+            "consumingWalletDerivationPath",
+            &derivation_path(4, 4),
+            &map,
+        );
+        assert_value(
             "earningWalletAddress",
             "0x0123456789012345678901234567890123456789",
+            &map,
         );
-        check("gasPrice", "1");
-        check(
+        assert_value(
+            "chainName",
+            TEST_DEFAULT_CHAIN.rec().literal_identifier,
+            &map,
+        );
+        assert_value("gasPrice", "1", &map);
+        assert_value(
             "pastNeighbors",
             &dao.get("past_neighbors").unwrap().value_opt.unwrap(),
+            &map,
         );
-        check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
-        check(
+        assert_value("neighborhoodMode", "zero-hop", &map);
+        assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
+        assert_value(
             "startBlock",
             &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
+            &map,
         );
-        check(
+        assert_value(
             "exampleEncrypted",
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
+            &map,
         );
-        check("seed", &dao.get("seed").unwrap().value_opt.unwrap());
+        assert_value("seed", &dao.get("seed").unwrap().value_opt.unwrap(), &map);
+
+        assert!(output.ends_with("\n}\n")) //asserting that there is a blank line at the end
     }
 
     #[test]
@@ -315,7 +351,14 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
-                .initialize(&data_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(
+                    &data_dir,
+                    true,
+                    MigratorConfig::create_or_migrate(ExternalData::new(
+                        TEST_DEFAULT_CHAIN,
+                        NeighborhoodModeLight::ConsumeOnly,
+                    )),
+                )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -333,18 +376,21 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
+                            "masq://eth-ropsten:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
+                            "masq://eth-ropsten:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
                     ]),
                     "password",
                 )
                 .unwrap();
+            persistent_config
+                .set_blockchain_service_url("https://infura.io/ID")
+                .unwrap()
         }
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
@@ -364,38 +410,41 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, TEST_DEFAULT_CHAIN, false)
+            .initialize(&data_dir, false, MigratorConfig::panic_on_migration())
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
-        let check = |key: &str, expected_value: &str| {
-            let actual_value = match map.get(key).unwrap() {
-                Value::String(s) => s,
-                x => panic!("Expected JSON string; found {:?}", x),
-            };
-            assert_eq!(actual_value, expected_value);
-        };
-        check("clandestinePort", "3456");
-        check("consumingWalletDerivationPath", &derivation_path(4, 4));
-        check(
+        assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
+        assert_value("clandestinePort", "3456", &map);
+        assert_value(
+            "consumingWalletDerivationPath",
+            &derivation_path(4, 4),
+            &map,
+        );
+        assert_value(
             "earningWalletAddress",
             "0x0123456789012345678901234567890123456789",
+            &map,
         );
-        check("gasPrice", "1");
-        check("pastNeighbors", "masq://eth-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,masq://eth-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345");
-        check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
-        check(
+        assert_value("chainName", "eth-ropsten", &map);
+        assert_value("gasPrice", "1", &map);
+        assert_value("pastNeighbors", "masq://eth-ropsten:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,masq://eth-ropsten:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
+        assert_value("neighborhoodMode", "consume-only", &map);
+        assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
+        assert_value(
             "startBlock",
             &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
+            &map,
         );
         let expected_ee_entry = dao.get("example_encrypted").unwrap().value_opt.unwrap();
         let expected_ee_decrypted = Bip39::decrypt_bytes(&expected_ee_entry, "password").unwrap();
         let expected_ee_string = encode_bytes(Some(expected_ee_decrypted)).unwrap().unwrap();
-        check("exampleEncrypted", &expected_ee_string);
-        check(
+        assert_value("exampleEncrypted", &expected_ee_string, &map);
+        assert_value(
             "seed",
             &encode_bytes(Some(PlainData::new(seed.as_ref())))
                 .unwrap()
                 .unwrap(),
+            &map,
         );
     }
 
@@ -415,7 +464,14 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
-                .initialize(&data_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(
+                    &data_dir,
+                    true,
+                    MigratorConfig::create_or_migrate(ExternalData::new(
+                        TEST_DEFAULT_CHAIN,
+                        NeighborhoodModeLight::Standard,
+                    )),
+                )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -433,18 +489,21 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
+                            "masq://eth-ropsten:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
+                            "masq://eth-ropsten:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
                     ]),
                     "password",
                 )
                 .unwrap();
+            persistent_config
+                .set_blockchain_service_url("https://infura.io/ID")
+                .unwrap()
         }
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
@@ -457,44 +516,52 @@ mod tests {
 
         let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "we expected Ok but got: {:?}", result);
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, TEST_DEFAULT_CHAIN, false)
+            .initialize(&data_dir, false, MigratorConfig::panic_on_migration())
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
-        let check = |key: &str, expected_value: &str| {
-            let actual_value = match map.get(key).unwrap() {
-                Value::String(s) => s,
-                x => panic!("Expected JSON string; found {:?}", x),
-            };
-            assert_eq!(actual_value, expected_value);
-        };
-        check("clandestinePort", "3456");
-        check("consumingWalletDerivationPath", &derivation_path(4, 4));
-        check(
+        assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
+        assert_value("clandestinePort", "3456", &map);
+        assert_value(
+            "consumingWalletDerivationPath",
+            &derivation_path(4, 4),
+            &map,
+        );
+        assert_value(
             "earningWalletAddress",
             "0x0123456789012345678901234567890123456789",
+            &map,
         );
-        check("gasPrice", "1");
-        check(
+        assert_value(
+            "chainName",
+            TEST_DEFAULT_CHAIN.rec().literal_identifier,
+            &map,
+        );
+        assert_value("gasPrice", "1", &map);
+        assert_value(
             "pastNeighbors",
             &dao.get("past_neighbors").unwrap().value_opt.unwrap(),
+            &map,
         );
-        check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
-        check(
+        assert_value("neighborhoodMode", "standard", &map);
+        assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
+        assert_value(
             "startBlock",
             &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
+            &map,
         );
-        check(
+        assert_value(
             "exampleEncrypted",
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
+            &map,
         );
-        check("seed", &dao.get("seed").unwrap().value_opt.unwrap());
+        assert_value("seed", &dao.get("seed").unwrap().value_opt.unwrap(), &map);
     }
 
     #[test]
@@ -524,5 +591,16 @@ mod tests {
         let data = PlainData::new(b"AABBCC");
 
         let _ = translate_bytes("pastNeighbors", data, cryptde);
+    }
+
+    fn assert_value(key: &str, expected_value: &str, map: &Map<String, Value>) {
+        let actual_value = match map
+            .get(key)
+            .unwrap_or_else(|| panic!("record for {} is missing", key))
+        {
+            Value::String(s) => s,
+            x => panic!("Expected JSON string; found {:?}", x),
+        };
+        assert_eq!(actual_value, expected_value);
     }
 }

@@ -240,9 +240,10 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
+    use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::assert_contains;
     use masq_lib::constants::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 
     #[test]
     fn get_all_returns_multiple_results() {
@@ -250,7 +251,7 @@ mod tests {
             ensure_node_home_directory_exists("config_dao", "get_all_returns_multiple_results");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -283,7 +284,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -300,12 +301,12 @@ mod tests {
         );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         let confirmer = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::panic_on_migration())
                 .unwrap(),
         );
         let initial_value = dao.get("seed").unwrap();
@@ -352,7 +353,7 @@ mod tests {
         let home_dir = ensure_node_home_directory_exists("config_dao", "extract_works");
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         {
@@ -395,12 +396,12 @@ mod tests {
         );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         let confirmer = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, false)
+                .initialize(&home_dir, false, MigratorConfig::panic_on_migration())
                 .unwrap(),
         );
         let initial_value = dao.get("seed").unwrap();
@@ -447,7 +448,7 @@ mod tests {
         );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         let subject = dao.start_transaction().unwrap();
@@ -465,7 +466,7 @@ mod tests {
         );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         {

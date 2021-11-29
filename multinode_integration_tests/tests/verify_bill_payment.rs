@@ -2,13 +2,14 @@
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::utils::derivation_path;
+use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
-    ConsumingWalletInfo, EarningWalletInfo, MASQRealNode, NodeStartupConfigBuilder,
+    ConsumingWalletInfo, EarningWalletInfo, MASQRealNode, NodeStartupConfig,
+    NodeStartupConfigBuilder,
 };
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
@@ -18,6 +19,7 @@ use node_lib::blockchain::blockchain_interface::{
 };
 use node_lib::blockchain::raw_transaction::RawTransaction;
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
+use node_lib::database::db_migrations::{ExternalData, MigratorConfig};
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use rusqlite::NO_PARAMS;
@@ -25,7 +27,7 @@ use rustc_hex::{FromHex, ToHex};
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes};
@@ -35,7 +37,7 @@ use web3::Web3;
 fn verify_bill_payment() {
     let mut cluster = match MASQNodeCluster::start() {
         Ok(cluster) => cluster,
-        Err(_) => panic!(""),
+        Err(e) => panic!("{}", e),
     };
 
     let blockchain_server = BlockchainServer {
@@ -51,7 +53,7 @@ fn verify_bill_payment() {
     let web3 = Web3::new(http.clone());
     let deriv_path = derivation_path(0, 0);
     let seed = make_seed();
-    let (contract_owner_wallet, contract_owner_secret_key) = make_node_wallet(&seed, &deriv_path);
+    let (contract_owner_wallet, _) = make_node_wallet(&seed, &deriv_path);
 
     let contract_addr = deploy_smart_contract(&contract_owner_wallet, &web3, cluster.chain);
     assert_eq!(
@@ -68,51 +70,14 @@ fn verify_bill_payment() {
         "99998043204000000000",
         "472000000000000000000000000",
     );
-    let consuming_config = NodeStartupConfigBuilder::standard()
-        .blockchain_service_url(blockchain_server.service_url())
-        .chain(Chain::Dev)
-        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(contract_owner_secret_key))
-        .earning_wallet_info(EarningWalletInfo::Address(format!(
-            "{}",
-            contract_owner_wallet.clone()
-        )))
-        .build();
+    let (consuming_config, _) = build_config(&blockchain_server, &seed, deriv_path);
 
-    let (serving_node_1_wallet, serving_node_1_secret) =
-        make_node_wallet(&seed, derivation_path(0, 1).as_str());
-    let serving_node_1_config = NodeStartupConfigBuilder::standard()
-        .blockchain_service_url(blockchain_server.service_url())
-        .chain(Chain::Dev)
-        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_1_secret))
-        .earning_wallet_info(EarningWalletInfo::Address(format!(
-            "{}",
-            serving_node_1_wallet.clone()
-        )))
-        .build();
-
-    let (serving_node_2_wallet, serving_node_2_secret) =
-        make_node_wallet(&seed, "m/44'/60'/0'/0/2");
-    let serving_node_2_config = NodeStartupConfigBuilder::standard()
-        .blockchain_service_url(blockchain_server.service_url())
-        .chain(Chain::Dev)
-        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_2_secret))
-        .earning_wallet_info(EarningWalletInfo::Address(format!(
-            "{}",
-            serving_node_2_wallet.clone()
-        )))
-        .build();
-
-    let (serving_node_3_wallet, serving_node_3_secret) =
-        make_node_wallet(&seed, "m/44'/60'/0'/0/3");
-    let serving_node_3_config = NodeStartupConfigBuilder::standard()
-        .blockchain_service_url(blockchain_server.service_url())
-        .chain(Chain::Dev)
-        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_3_secret))
-        .earning_wallet_info(EarningWalletInfo::Address(format!(
-            "{}",
-            serving_node_3_wallet.clone()
-        )))
-        .build();
+    let (serving_node_1_config, serving_node_1_wallet) =
+        build_config(&blockchain_server, &seed, derivation_path(0, 1));
+    let (serving_node_2_config, serving_node_2_wallet) =
+        build_config(&blockchain_server, &seed, derivation_path(0, 2));
+    let (serving_node_3_config, serving_node_3_wallet) =
+        build_config(&blockchain_server, &seed, derivation_path(0, 3));
 
     let amount = 10u64
         * u64::try_from(node_lib::accountant::PAYMENT_CURVES.permanent_debt_allowed_gwub).unwrap();
@@ -121,11 +86,14 @@ fn verify_bill_payment() {
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
     let consuming_node_path = MASQRealNode::node_home_dir(&project_root, &consuming_node_name);
     let consuming_node_connection = DbInitializerReal::default()
-        .initialize(Path::new(&consuming_node_path), cluster.chain, true)
+        .initialize(
+            Path::new(&consuming_node_path),
+            true,
+            make_migrator_config(cluster.chain),
+        )
         .unwrap();
     let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
     open_all_file_permissions(consuming_node_path.clone().into());
-
     assert_eq!(
         format!("{}", &contract_owner_wallet),
         "0x5a4d5df91d0124dec73dbd112f82d6077ccab47d"
@@ -156,7 +124,11 @@ fn verify_bill_payment() {
         cluster.prepare_real_node(&serving_node_1_config);
     let serving_node_1_path = MASQRealNode::node_home_dir(&project_root, &serving_node_1_name);
     let serving_node_1_connection = DbInitializerReal::default()
-        .initialize(Path::new(&serving_node_1_path), cluster.chain, true)
+        .initialize(
+            Path::new(&serving_node_1_path),
+            true,
+            make_migrator_config(cluster.chain),
+        )
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
     serving_node_1_receivable_dao
@@ -168,7 +140,11 @@ fn verify_bill_payment() {
         cluster.prepare_real_node(&serving_node_2_config);
     let serving_node_2_path = MASQRealNode::node_home_dir(&project_root, &serving_node_2_name);
     let serving_node_2_connection = DbInitializerReal::default()
-        .initialize(Path::new(&serving_node_2_path), cluster.chain, true)
+        .initialize(
+            Path::new(&serving_node_2_path),
+            true,
+            make_migrator_config(cluster.chain),
+        )
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
     serving_node_2_receivable_dao
@@ -180,7 +156,11 @@ fn verify_bill_payment() {
         cluster.prepare_real_node(&serving_node_3_config);
     let serving_node_3_path = MASQRealNode::node_home_dir(&project_root, &serving_node_3_name);
     let serving_node_3_connection = DbInitializerReal::default()
-        .initialize(Path::new(&serving_node_3_path), cluster.chain, true)
+        .initialize(
+            Path::new(&serving_node_3_path),
+            true,
+            make_migrator_config(cluster.chain),
+        )
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
     serving_node_3_receivable_dao
@@ -188,10 +168,10 @@ fn verify_bill_payment() {
         .unwrap();
     open_all_file_permissions(serving_node_3_path.clone().into());
 
-    expire_payables(consuming_node_path.into(), cluster.chain);
-    expire_receivables(serving_node_1_path.into(), cluster.chain);
-    expire_receivables(serving_node_2_path.into(), cluster.chain);
-    expire_receivables(serving_node_3_path.into(), cluster.chain);
+    expire_payables(consuming_node_path.into());
+    expire_receivables(serving_node_1_path.into());
+    expire_receivables(serving_node_2_path.into());
+    expire_receivables(serving_node_3_path.into());
 
     assert_balances(
         &contract_owner_wallet,
@@ -232,8 +212,11 @@ fn verify_bill_payment() {
         );
     }
 
-    while !consuming_payable_dao.non_pending_payables().is_empty() {
-        thread::sleep(Duration::from_millis(300));
+    let now = Instant::now();
+    while !consuming_payable_dao.non_pending_payables().is_empty()
+        && now.elapsed() < Duration::from_secs(10)
+    {
+        thread::sleep(Duration::from_millis(400));
     }
 
     assert_balances(
@@ -313,6 +296,10 @@ fn verify_bill_payment() {
     });
 }
 
+fn make_migrator_config(chain: Chain) -> MigratorConfig {
+    MigratorConfig::create_or_migrate(ExternalData::new(chain, NeighborhoodModeLight::Standard))
+}
+
 fn assert_balances(
     wallet: &Wallet,
     blockchain_interface: &BlockchainInterfaceNonClandestine<Http>,
@@ -381,9 +368,28 @@ fn make_seed() -> Seed {
     seed
 }
 
-fn expire_payables(path: PathBuf, chain: Chain) {
+fn build_config(
+    server: &BlockchainServer,
+    seed: &Seed,
+    wallet_derivation_path: String,
+) -> (NodeStartupConfig, Wallet) {
+    let (serving_node_wallet, serving_node_secret) =
+        make_node_wallet(seed, wallet_derivation_path.as_str());
+    let config = NodeStartupConfigBuilder::standard()
+        .blockchain_service_url(server.service_url())
+        .chain(Chain::Dev)
+        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_secret))
+        .earning_wallet_info(EarningWalletInfo::Address(format!(
+            "{}",
+            serving_node_wallet.clone()
+        )))
+        .build();
+    (config, serving_node_wallet)
+}
+
+fn expire_payables(path: PathBuf) {
     let conn = DbInitializerReal::default()
-        .initialize(&path, chain, true)
+        .initialize(&path, true, MigratorConfig::panic_on_migration())
         .unwrap();
     let mut statement = conn
         .prepare(
@@ -398,9 +404,9 @@ fn expire_payables(path: PathBuf, chain: Chain) {
     config_stmt.execute(NO_PARAMS).unwrap();
 }
 
-fn expire_receivables(path: PathBuf, chain: Chain) {
+fn expire_receivables(path: PathBuf) {
     let conn = DbInitializerReal::default()
-        .initialize(&path, chain, true)
+        .initialize(&path, true, MigratorConfig::panic_on_migration())
         .unwrap();
     let mut statement = conn
         .prepare("update receivable set last_received_timestamp = 0")

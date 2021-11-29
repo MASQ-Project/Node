@@ -12,6 +12,8 @@ use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::bootstrapper::BootstrapperConfig;
+use crate::database::dao_utils::DaoFactoryReal;
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoFactory;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -45,6 +47,7 @@ use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::ops::Add;
+use std::path::Path;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
@@ -791,6 +794,10 @@ impl Accountant {
                 body,
             })
             .expect("UiGateway is dead");
+    }
+
+    pub fn dao_factory(data_directory: &Path) -> DaoFactoryReal {
+        DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
     }
 }
 
