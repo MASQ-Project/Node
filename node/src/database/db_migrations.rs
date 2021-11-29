@@ -381,7 +381,7 @@ impl MigratorConfig {
     }
 
     pub fn create_or_migrate(external_params: ExternalData) -> Self {
-        //is used also if a brand new db is being created
+        //is used also if a fresh db is being created
         Self {
             should_be_suppressed: Suppression::No,
             external_dataset: Some(external_params),
@@ -438,7 +438,7 @@ impl From<(MigratorConfig, bool)> for ExternalData {
                 if db_newly_created {
                     "Attempt to create a new database without proper configuration"
                 } else {
-                    "Attempt to migrate the database at a wrong place"
+                    "Attempt to migrate the database at an inappropriate place"
                 }
             )
         })
@@ -458,7 +458,7 @@ mod tests {
     };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
     use crate::test_utils::database_utils::{
-        assurance_query_for_config_table, revive_tables_of_version_0_and_return_connection,
+        assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::constants::DEFAULT_CHAIN;
@@ -712,7 +712,7 @@ mod tests {
             self
         }
 
-        fn set_necessary_tooling_for_mocked_migration_record(
+        fn set_up_necessary_stuff_for_mocked_migration_record(
             self,
             result_o_v: usize,
             result_m: rusqlite::Result<()>,
@@ -886,7 +886,7 @@ mod tests {
         empty_params_arc: &Arc<Mutex<Vec<()>>>,
     ) -> Box<dyn DatabaseMigration> {
         Box::new(
-            DBMigrationRecordMock::default().set_necessary_tooling_for_mocked_migration_record(
+            DBMigrationRecordMock::default().set_up_necessary_stuff_for_mocked_migration_record(
                 old_version,
                 Ok(()),
                 empty_params_arc,
@@ -1082,12 +1082,12 @@ mod tests {
         let first_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let second_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let list_of_migrations: &[&dyn DatabaseMigration] = &[
-            &DBMigrationRecordMock::default().set_necessary_tooling_for_mocked_migration_record(
+            &DBMigrationRecordMock::default().set_up_necessary_stuff_for_mocked_migration_record(
                 0,
                 Ok(()),
                 &first_record_migration_p_arc,
             ),
-            &DBMigrationRecordMock::default().set_necessary_tooling_for_mocked_migration_record(
+            &DBMigrationRecordMock::default().set_up_necessary_stuff_for_mocked_migration_record(
                 1,
                 Ok(()),
                 &second_record_migration_p_arc,
@@ -1120,7 +1120,7 @@ mod tests {
         let dir_path = ensure_node_home_directory_exists("db_migrations", "0_to_1");
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join(DATABASE_FILE);
-        let _ = revive_tables_of_version_0_and_return_connection(&db_path);
+        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
 
         let result = subject.initialize_to_version(
@@ -1153,7 +1153,7 @@ mod tests {
         let start_at = 1;
         let dir_path = ensure_node_home_directory_exists("db_migrations", "1_to_2");
         let db_path = dir_path.join(DATABASE_FILE);
-        let _ = revive_tables_of_version_0_and_return_connection(&db_path);
+        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
         {
             subject
@@ -1197,7 +1197,7 @@ mod tests {
         let start_at = 2;
         let dir_path = ensure_node_home_directory_exists("db_migrations", "2_to_3");
         let db_path = dir_path.join(DATABASE_FILE);
-        let _ = revive_tables_of_version_0_and_return_connection(&db_path);
+        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
         {
             subject

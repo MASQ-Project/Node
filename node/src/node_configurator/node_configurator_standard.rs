@@ -92,7 +92,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
             true,
-            MigratorConfig::create_or_migrate(self.pack_up_external_params_for_db(multi_config)),
+            MigratorConfig::create_or_migrate(self.wrap_up_external_params_for_db(multi_config)),
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_parse_args(
@@ -112,7 +112,7 @@ impl NodeConfiguratorStandardUnprivileged {
         }
     }
 
-    fn pack_up_external_params_for_db(&self, multi_config: &MultiConfig) -> ExternalData {
+    fn wrap_up_external_params_for_db(&self, multi_config: &MultiConfig) -> ExternalData {
         ExternalData::new(
             self.privileged_config.blockchain_bridge_config.chain,
             value_m!(multi_config, "neighborhood-mode", NeighborhoodModeLight)
@@ -2590,13 +2590,13 @@ mod tests {
     }
 
     #[test]
-    fn pack_up_external_params_for_db_is_properly_set() {
+    fn wrap_up_external_params_for_db_is_properly_set() {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config.blockchain_bridge_config.chain = DEFAULT_CHAIN;
         let multi_config =
             make_simplified_multi_config(["MASQNode", "--neighborhood-mode", "zero-hop"]);
 
-        let result = subject.pack_up_external_params_for_db(&multi_config);
+        let result = subject.wrap_up_external_params_for_db(&multi_config);
 
         let expected = ExternalData::new(DEFAULT_CHAIN, NeighborhoodModeLight::ZeroHop);
         assert_eq!(result, expected)

@@ -13,7 +13,7 @@ use futures::future::Future;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use EnterProgram::{Enter, Leave};
+use ProgramEntering::{Enter, Leave};
 
 #[derive(Debug, PartialEq)]
 enum Mode {
@@ -61,7 +61,7 @@ impl RunModes {
         }
     }
 
-    fn entrance_interview(&self, args: &[String], streams: &mut StdStreams) -> EnterProgram {
+    fn entrance_interview(&self, args: &[String], streams: &mut StdStreams) -> ProgramEntering {
         let (mode, privilege_required) = self.determine_mode_and_priv_req(args);
         if let ExitCode(exit_code) = Self::ensure_help_or_version(args, &mode, streams) {
             return Leave(exit_code);
@@ -93,7 +93,7 @@ impl RunModes {
         .get_matches_from_safe(args)
         {
             Err(e) => Self::clap_error_to_likely_contain_help_or_version(e, streams),
-            x => unreachable!("sieve for 'help' or 'version' have flaws {:?}", x),
+            x => unreachable!("sieve for 'help' or 'version' has flaws {:?}", x),
         }
     }
 
@@ -203,7 +203,7 @@ impl RunModes {
     }
 }
 
-enum EnterProgram {
+enum ProgramEntering {
     Enter(Mode),
     Leave(i32),
 }
@@ -260,7 +260,7 @@ impl Runner for RunnerReal {
     fn run_daemon(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
         let mut initializer = self.daemon_initializer_factory.make(args)?;
         initializer.go(streams, args)?;
-        Ok(()) //there might presently be no way to make this fn terminate politely
+        Ok(()) //there might presently be no way to make this fn terminate politely, it blocks at the previous line until somebody kills the process
     }
 }
 

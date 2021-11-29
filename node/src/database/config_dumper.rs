@@ -155,7 +155,7 @@ mod tests {
     use crate::db_config::typed_config_layer::encode_bytes;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::NodeDescriptor;
-    use crate::test_utils::database_utils::revive_tables_of_version_0_and_return_connection;
+    use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
     use crate::test_utils::{main_cryptde, ArgsBuilder};
     use bip39::{Language, MnemonicType, Seed};
     use masq_lib::test_utils::environment_guard::ClapGuard;
@@ -197,7 +197,8 @@ mod tests {
             "config_dumper",
             "dump_config_does_not_migrate_obsolete_database",
         );
-        let conn = revive_tables_of_version_0_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let conn =
+            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, "0");
@@ -515,7 +516,7 @@ mod tests {
 
         let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
-        assert!(result.is_ok(), "{:?}", result);
+        assert!(result.is_ok(), "we expected Ok but got: {:?}", result);
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
             Value::Object(map) => map,
