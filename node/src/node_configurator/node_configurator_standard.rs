@@ -629,16 +629,16 @@ fn get_consuming_wallet_opt_from_derivation_path(
             Ok(None) => Ok(None),
             Ok(Some(mnemonic_seed)) => {
                 let keypair = Bip32ECKeyPair::from_raw(
-                        mnemonic_seed.as_ref(),
-                        &derivation_path,
-                        Bip32ECKeyPairToolsWrapperReal,
+                    mnemonic_seed.as_ref(),
+                    &derivation_path,
+                    Bip32ECKeyPairToolsWrapperReal,
+                )
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Error making keypair from mnemonic seed and derivation path {}",
+                        derivation_path
                     )
-                    .unwrap_or_else(|_| {
-                        panic!(
-                            "Error making keypair from mnemonic seed and derivation path {}",
-                            derivation_path
-                        )
-                    });
+                });
                 Ok(Some(Wallet::from(keypair)))
             }
             Err(e) => match e {
