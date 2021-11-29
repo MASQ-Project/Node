@@ -13,6 +13,7 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::versioned_data::VersionedData;
 use actix::Message;
 use actix::Recipient;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 
@@ -79,6 +80,7 @@ pub struct ProxyServerSubs {
     pub add_route: Recipient<AddRouteMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
+    pub node_from_ui: Recipient<NodeFromUiMessage>,
 }
 
 impl Debug for ProxyServerSubs {
@@ -110,6 +112,7 @@ mod tests {
             add_route: recipient!(recorder, AddRouteMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
+            node_from_ui: recipient!(recorder, NodeFromUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "ProxyServerSubs");

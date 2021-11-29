@@ -1,5 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use masq_lib::blockchains::chains::Chain;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, NodeReference};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
@@ -8,6 +7,7 @@ use multinode_integration_tests_lib::masq_real_node::{
 use node_lib::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoReal};
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
+use node_lib::database::db_migrations::MigratorConfig;
 use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashMap;
 use std::thread;
@@ -37,13 +37,13 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     );
 
     // get all payables from originating node
-    let payables = non_pending_payables(&originating_node, cluster.chain);
+    let payables = non_pending_payables(&originating_node);
 
     // get all receivables from all other nodes
     let receivable_balances = non_originating_nodes
         .iter()
         .flat_map(|node| {
-            receivables(node, cluster.chain)
+            receivables(node)
                 .into_iter()
                 .map(move |receivable_account| (node.earning_wallet(), receivable_account.balance))
         })
@@ -71,7 +71,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     });
 }
 
-fn non_pending_payables(node: &MASQRealNode, chain_id: Chain) -> Vec<PayableAccount> {
+fn non_pending_payables(node: &MASQRealNode) -> Vec<PayableAccount> {
     let db_initializer = DbInitializerReal::default();
     let payable_dao = PayableDaoReal::new(
         db_initializer
@@ -80,15 +80,15 @@ fn non_pending_payables(node: &MASQRealNode, chain_id: Chain) -> Vec<PayableAcco
                     &MASQNodeUtils::find_project_root(),
                     &node.name().to_string(),
                 )),
-                chain_id,
                 true,
+                MigratorConfig::panic_on_migration(),
             )
             .unwrap(),
     );
     payable_dao.non_pending_payables()
 }
 
-fn receivables(node: &MASQRealNode, chain: Chain) -> Vec<ReceivableAccount> {
+fn receivables(node: &MASQRealNode) -> Vec<ReceivableAccount> {
     let db_initializer = DbInitializerReal::default();
     let receivable_dao = ReceivableDaoReal::new(
         db_initializer
@@ -97,8 +97,8 @@ fn receivables(node: &MASQRealNode, chain: Chain) -> Vec<ReceivableAccount> {
                     &MASQNodeUtils::find_project_root(),
                     &node.name().to_string(),
                 )),
-                chain,
                 true,
+                MigratorConfig::panic_on_migration(),
             )
             .unwrap(),
     );

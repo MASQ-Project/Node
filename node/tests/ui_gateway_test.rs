@@ -18,6 +18,9 @@ fn dispatcher_message_integration() {
         "dispatcher_message_integration",
         Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
         true,
+        true,
+        false,
+        true,
     );
     node.wait_for_log("UIGateway bound", Some(5000));
     let descriptor_req = UiDescriptorRequest {};
@@ -39,6 +42,9 @@ fn request_financial_information_integration() {
     let mut node = utils::MASQNode::start_standard(
         "request_financial_information_integration",
         Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+        true,
+        true,
+        false,
         true,
     );
     node.wait_for_log("UIGateway bound", Some(5000));

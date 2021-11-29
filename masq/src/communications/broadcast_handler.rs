@@ -63,7 +63,7 @@ impl BroadcastHandler for BroadcastHandlerReal {
             let terminal_interface = self
                 .terminal_interface
                 .take()
-                .expect_v("Some(TerminalWrapper)");
+                .expectv("Some(TerminalWrapper)");
             //release the loop if masq has died (testing concerns)
             let mut flag = true;
             while flag {
