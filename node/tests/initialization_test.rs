@@ -8,7 +8,8 @@ use masq_lib::messages::{
 };
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
-use masq_lib::test_utils::utils::{node_home_directory, TEST_DEFAULT_CHAIN};
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
 use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
@@ -42,6 +43,8 @@ fn clap_help_does_not_initialize_database_integration() {
         Some(
             CommandConfig::new().opt("--help"), // We don't specify --data-directory because the --help logic doesn't evaluate it
         ),
+        true,
+        true,
         false,
         false,
     );
@@ -58,10 +61,15 @@ fn initialization_sequence_integration() {
         "initialization_sequence_integration",
         Some(CommandConfig::new().pair("--ui-port", format!("{}", daemon_port).as_str())),
         true,
+        true,
         false,
+        true,
     );
     let mut initialization_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL);
-    let data_directory = node_home_directory("integration", "initialization_sequence_integration");
+    let data_directory = ensure_node_home_directory_exists(
+        "initialization_test",
+        "initialization_sequence_integration",
+    );
     let _: UiSetupRequest = initialization_client
         .transact(UiSetupRequest::new(vec![
             ("dns-servers", Some("1.1.1.1")),
@@ -153,8 +161,10 @@ fn incomplete_node_descriptor_is_refused_integration() {
                              test_default_chain_identifier,test_default_chain_identifier)
                 ),
         ),
-        false,
         true,
+        true,
+        true,
+        false
     );
     match node.wait_for_exit() {
         None => panic!("the process terminated in a strange way"),
@@ -191,6 +201,8 @@ fn started_without_explicit_chain_parameter_runs_fine() {
         "started_without_explicit_chain_parameter_runs_fine",
         Some(config),
         true,
+        true,
+        false,
         false,
     );
 
@@ -202,13 +214,15 @@ fn started_without_explicit_chain_parameter_runs_fine() {
 fn requested_chain_meets_different_db_chain_and_panics_integration() {
     let test_name = "requested_chain_meets_different_db_chain_and_panics_integration";
     {
-        fdlimit::raise_fd_limit();
+        //running Node just in order to create a new database which we can do testing on
         let port = find_free_port();
         let mut node = utils::MASQNode::start_standard(
             test_name,
             Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
             true,
+            true,
             false,
+            true,
         );
         node.wait_for_log("UIGateway bound", Some(5000));
         let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
@@ -228,7 +242,7 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
     )
     .unwrap();
 
-    let mut node = MASQNode::start_standard_in_unsterilized_environment(&db_dir);
+    let mut node = MASQNode::start_standard(test_name, None, false, true, false, false);
 
     let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with the wrong chain name detected; expected: eth-ropsten, was: eth-mainnet";
     node.wait_for_log(regex_pattern, Some(1000));

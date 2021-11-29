@@ -14,7 +14,9 @@ fn dns_resolve_failure_http_response_integration() {
         "dns_resolve_failure_http_response_integration",
         None,
         true,
+        true,
         false,
+        true,
     );
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
     stream
@@ -35,7 +37,9 @@ fn dns_resolve_failure_tls_response_integration() {
         "dns_resolve_failure_tls_response_integration",
         None,
         true,
+        true,
         false,
+        true,
     );
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).unwrap();
     stream

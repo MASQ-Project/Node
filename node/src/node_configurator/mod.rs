@@ -3,9 +3,9 @@
 pub mod configurator;
 pub mod node_configurator_initialization;
 pub mod node_configurator_standard;
-
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
@@ -55,7 +55,7 @@ pub fn determine_config_file_path(
     let config_file_path = value_m!(multi_config, "config-file", PathBuf).expectv("config-file");
     let user_specified = multi_config.occurrences_of("config-file") > 0;
     let (real_user, data_directory_opt, chain) =
-        real_user_with_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
+        real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
     (directory.join(config_file_path), user_specified).wrap_to_ok()
@@ -63,10 +63,11 @@ pub fn determine_config_file_path(
 
 pub fn initialize_database(
     data_directory: &Path,
-    chain: Chain,
+    create_if_necessary: bool,
+    migrator_config: MigratorConfig,
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory, chain, true)
+        .initialize(data_directory, create_if_necessary, migrator_config)
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
@@ -87,7 +88,7 @@ pub fn real_user_from_multi_config_or_populate(
     }
 }
 
-pub fn real_user_with_data_directory_opt_and_chain(
+pub fn real_user_data_directory_opt_and_chain(
     dirs_wrapper: &dyn DirsWrapper,
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, Chain) {

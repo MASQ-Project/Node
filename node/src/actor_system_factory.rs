@@ -13,8 +13,8 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
-use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::node_configurator::configurator::Configurator;
 use crate::sub_lib::accountant::AccountantSubs;
@@ -310,21 +310,16 @@ impl ActorFactory for ActorFactoryReal {
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
         let cloned_config = config.clone();
-        let chain = config.blockchain_bridge_config.chain;
-        let payable_dao_factory =
-            DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
-        let receivable_dao_factory =
-            DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
-        let banned_dao_factory =
-            DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
+        let payable_dao_factory = Accountant::dao_factory(data_directory);
+        let receivable_dao_factory = Accountant::dao_factory(data_directory);
+        let banned_dao_factory = Accountant::dao_factory(data_directory);
         banned_cache_loader.load(connection_or_panic(
             db_initializer,
             data_directory,
-            chain,
             false,
+            MigratorConfig::panic_on_migration(),
         ));
-        let config_dao_factory =
-            DaoFactoryReal::new(data_directory, config.blockchain_bridge_config.chain, false);
+        let config_dao_factory = Accountant::dao_factory(data_directory);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
@@ -397,11 +392,10 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
         let data_directory = config.data_directory.clone();
-        let chain_id = config.blockchain_bridge_config.chain;
         let crashable = Self::is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Configurator> =
-            arbiter.start(move |_| Configurator::new(data_directory, chain_id, crashable));
+            arbiter.start(move |_| Configurator::new(data_directory, crashable));
         ConfiguratorSubs {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),

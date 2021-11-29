@@ -17,6 +17,8 @@ fn node_exits_from_future_panic_integration() {
     let mut node = utils::MASQNode::start_standard(
         "node_exits_from_future_panic_integration",
         Some(panic_config),
+        true,
+        true,
         false,
         false,
     );
@@ -32,6 +34,8 @@ fn node_logs_panic_integration() {
     let mut node = utils::MASQNode::start_standard(
         "node_logs_panic_integration",
         Some(panic_config),
+        true,
+        true,
         false,
         false,
     );
@@ -52,7 +56,9 @@ fn node_logfile_does_not_belong_to_root_integration() {
         "node_logfile_does_not_belong_to_root_integration",
         None,
         true,
+        true,
         false,
+        true,
     );
     let logfile_path = utils::MASQNode::path_to_logfile(&node.data_dir);
 
