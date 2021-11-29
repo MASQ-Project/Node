@@ -150,7 +150,8 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     }
 
     fn get_transaction_count(&self, _address: &Wallet) -> Nonce {
-        unimplemented!()
+        error!(self.logger, "Can't get transaction count clandestinely yet",);
+        Ok(0.into())
     }
 }
 

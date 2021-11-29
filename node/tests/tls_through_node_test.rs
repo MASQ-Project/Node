@@ -15,7 +15,14 @@ use std::time::Duration;
 
 #[test]
 fn tls_through_node_integration() {
-    let _node = utils::MASQNode::start_standard("tls_through_node_integration", None, true, false);
+    let _node = utils::MASQNode::start_standard(
+        "tls_through_node_integration",
+        None,
+        true,
+        true,
+        false,
+        true,
+    );
 
     let mut tls_stream = {
         let mut tls_stream: Option<TlsStream<TcpStream>> = None;

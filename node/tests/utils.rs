@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
+use masq_lib::test_utils::utils::node_home_directory;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 use masq_lib::utils::localhost;
 use node_lib::test_utils::await_value;
@@ -10,8 +11,7 @@ use std::net::SocketAddr;
 use std::ops::Drop;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::process::Stdio;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -81,14 +81,18 @@ impl MASQNode {
     pub fn start_daemon(
         test_name: &str,
         config_opt: Option<CommandConfig>,
-        ensure_start: bool,
+        sterile_database: bool,
+        sterile_logfile: bool,
         piped_output: bool,
+        ensure_start: bool,
     ) -> MASQNode {
         Self::start_something(
             test_name,
             config_opt,
-            ensure_start,
+            sterile_database,
+            sterile_logfile,
             piped_output,
+            ensure_start,
             Self::make_daemon_command,
         )
     }
@@ -97,14 +101,18 @@ impl MASQNode {
     pub fn start_standard(
         test_name: &str,
         config_opt: Option<CommandConfig>,
-        ensure_start: bool,
+        sterile_database: bool,
+        sterile_logfile: bool,
         piped_output: bool,
+        ensure_start: bool,
     ) -> MASQNode {
         Self::start_something(
             test_name,
             config_opt,
-            ensure_start,
+            sterile_database,
+            sterile_logfile,
             piped_output,
+            ensure_start,
             Self::make_node_command,
         )
     }
@@ -113,35 +121,40 @@ impl MASQNode {
     pub fn start_with_blank_config(
         test_name: &str,
         config_opt: Option<CommandConfig>,
-        ensure_start: bool,
+        sterile_database: bool,
+        sterile_logfile: bool,
         piped_output: bool,
+        ensure_start: bool,
     ) -> MASQNode {
         Self::start_something(
             test_name,
             config_opt,
-            ensure_start,
+            sterile_database,
+            sterile_logfile,
             piped_output,
+            ensure_start,
             Self::make_masqnode_without_initial_config,
         )
     }
 
     #[allow(dead_code)]
-    pub fn run_dump_config(test_name: &str) -> String {
-        let data_dir = ensure_node_home_directory_exists("integration", test_name);
-        let mut command = MASQNode::make_dump_config_command(&data_dir);
-        let output = command.output().unwrap();
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        format!("stdout:\n{}\nstderr:\n{}", stdout, stderr)
-    }
-
-    #[allow(dead_code)]
-    pub fn start_standard_in_unsterilized_environment(data_dir: &PathBuf) -> MASQNode {
-        let args_extension =
-            CommandConfig::new().pair("--data-directory", data_dir.to_str().unwrap());
-        let mut command = Self::make_node_command(data_dir, Some(args_extension), false);
-        eprintln!("{:?}", command);
-        Self::spawn_process(&mut command, data_dir.into())
+    pub fn run_dump_config(
+        test_name: &str,
+        config_opt: Option<CommandConfig>,
+        sterile_database: bool,
+        sterile_logfile: bool,
+        piped_output: bool,
+        ensure_start: bool,
+    ) -> MASQNode {
+        Self::start_something(
+            test_name,
+            config_opt,
+            sterile_database,
+            sterile_logfile,
+            piped_output,
+            ensure_start,
+            Self::make_dump_config_command,
+        )
     }
 
     #[allow(dead_code)]
@@ -253,14 +266,22 @@ impl MASQNode {
     fn start_something<F: FnOnce(&PathBuf, Option<CommandConfig>, bool) -> process::Command>(
         test_name: &str,
         config_opt: Option<CommandConfig>,
-        ensure_start: bool,
+        sterile_database: bool,
+        sterile_logfile: bool,
         piped_streams: bool,
+        ensure_start: bool,
         command_getter: F,
     ) -> MASQNode {
-        let data_dir = ensure_node_home_directory_exists("integration", test_name);
-        Self::remove_logfile(&data_dir);
+        let data_dir = if sterile_database {
+            ensure_node_home_directory_exists("integration", test_name)
+        } else {
+            node_home_directory("integration", test_name)
+        };
+        if sterile_logfile {
+            let _ = Self::remove_logfile(&data_dir);
+        }
         let ui_port = Self::ui_port_from_config_opt(&config_opt);
-        let mut command = command_getter(&data_dir, config_opt, true);
+        let mut command = command_getter(&data_dir, config_opt, sterile_database);
         eprintln!("{:?}", command);
         let command = if piped_streams {
             command.stdout(Stdio::piped()).stderr(Stdio::piped())
@@ -336,11 +357,14 @@ impl MASQNode {
         command
     }
 
-    #[allow(dead_code)]
-    fn make_dump_config_command(data_dir: &PathBuf) -> process::Command {
-        Self::remove_database(&data_dir);
+    fn make_dump_config_command(
+        data_dir: &PathBuf,
+        config: Option<CommandConfig>,
+        _unused: bool,
+    ) -> process::Command {
         let mut command = command_to_start();
-        let args = Self::dump_config_args(data_dir.as_path());
+        let mut args = Self::dump_config_args();
+        args.extend(Self::get_extra_args(data_dir, config));
         command.args(&args);
         command
     }
@@ -364,10 +388,9 @@ impl MASQNode {
     }
 
     #[allow(dead_code)]
-    fn dump_config_args(data_dir: &Path) -> Vec<String> {
+    fn dump_config_args() -> Vec<String> {
         apply_prefix_parameters(CommandConfig::new())
             .opt("--dump-config")
-            .pair("--data-directory", data_dir.to_str().unwrap())
             .args
     }
 

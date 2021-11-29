@@ -1,9 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-use crate::database::db_migrations::{DbMigrator, DbMigratorReal, ExternalMigrationParameters};
+use crate::database::db_migrations::{
+    DbMigrator, DbMigratorReal, ExternalData, MigratorConfig, Suppression,
+};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
-use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -19,30 +20,31 @@ use std::path::Path;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: usize = 2;
+pub const CURRENT_SCHEMA_VERSION: usize = 3;
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
     Nonexistent,
     UndetectableVersion(String),
     SqliteError(rusqlite::Error),
-    DbMigrationError(String),
+    MigrationError(String),
+    SuppressedMigrationError,
 }
 
 pub trait DbInitializer {
     fn initialize(
         &self,
         path: &Path,
-        chain: Chain,
         create_if_necessary: bool,
+        migrator_config: MigratorConfig,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 
     fn initialize_to_version(
         &self,
         path: &Path,
-        chain: Chain,
         target_version: usize,
         create_if_necessary: bool,
+        migrator_config: MigratorConfig,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 }
 
@@ -58,18 +60,23 @@ impl DbInitializer for DbInitializerReal {
     fn initialize(
         &self,
         path: &Path,
-        chain: Chain,
         create_if_necessary: bool,
+        migrator_config: MigratorConfig,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-        self.initialize_to_version(path, chain, CURRENT_SCHEMA_VERSION, create_if_necessary)
+        self.initialize_to_version(
+            path,
+            CURRENT_SCHEMA_VERSION,
+            create_if_necessary,
+            migrator_config,
+        )
     }
 
     fn initialize_to_version(
         &self,
         path: &Path,
-        chain: Chain,
         target_version: usize,
         create_if_necessary: bool,
+        migrator_config: MigratorConfig,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         let is_creation_necessary = Self::is_creation_necessary(path);
         if !create_if_necessary && is_creation_necessary {
@@ -82,16 +89,28 @@ impl DbInitializer for DbInitializerReal {
             Ok(conn) => {
                 eprintln!("Opened existing database at {:?}", database_file_path);
                 let config = self.extract_configurations(&conn);
-                let external_parameters = ExternalMigrationParameters::new(chain);
-                let migrator = Box::new(DbMigratorReal::new(external_parameters));
-                self.update_if_required_and_get_connection(
-                    conn,
-                    config.get("schema_version"),
-                    target_version,
-                    database_file_path,
-                    flags,
-                    migrator,
-                )
+                match (
+                    Self::is_migration_required(config.get("schema_version"))?,
+                    &migrator_config.should_be_suppressed,
+                ) {
+                    (None, _) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
+                    (Some(mismatched_version), &Suppression::No) => {
+                        let external_params = ExternalData::from((migrator_config, false));
+                        let migrator = Box::new(DbMigratorReal::new(external_params));
+                        self.migrate_and_return_connection(
+                            conn,
+                            mismatched_version,
+                            target_version,
+                            database_file_path,
+                            flags,
+                            migrator,
+                        )
+                    }
+                    (Some(_), &Suppression::Yes) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
+                    (Some(_), &Suppression::WithErr) => {
+                        Err(InitializationError::SuppressedMigrationError)
+                    }
+                }
             }
             Err(_) => {
                 let mut flags = OpenFlags::empty();
@@ -100,7 +119,10 @@ impl DbInitializer for DbInitializerReal {
                 match Connection::open_with_flags(database_file_path, flags) {
                     Ok(conn) => {
                         eprintln!("Created new database at {:?}", database_file_path);
-                        self.create_database_tables(&conn, chain);
+                        self.create_database_tables(
+                            &conn,
+                            ExternalData::from((migrator_config, true)),
+                        );
                         Ok(Box::new(ConnectionWrapperReal::new(conn)))
                     }
                     Err(e) => Err(InitializationError::SqliteError(e)),
@@ -135,9 +157,9 @@ impl DbInitializerReal {
         }
     }
 
-    fn create_database_tables(&self, conn: &Connection, chain: Chain) {
+    fn create_database_tables(&self, conn: &Connection, external_params: ExternalData) {
         self.create_config_table(conn);
-        self.initialize_config(conn, chain);
+        self.initialize_config(conn, external_params);
         self.create_payable_table(conn);
         self.create_receivable_table(conn);
         self.create_banned_table(conn);
@@ -160,8 +182,22 @@ impl DbInitializerReal {
         .expect("Can't create config name index");
     }
 
-    fn initialize_config(&self, conn: &Connection, chain: Chain) {
+    fn initialize_config(&self, conn: &Connection, external_params: ExternalData) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
+        Self::set_config_value(
+            conn,
+            "blockchain_service_url",
+            None,
+            false,
+            "blockchain service url to interact with the blockchain",
+        );
+        Self::set_config_value(
+            conn,
+            "chain_name",
+            Some(external_params.chain.rec().literal_identifier),
+            false,
+            "the chain the database is created for",
+        );
         Self::set_config_value(
             conn,
             "clandestine_port",
@@ -199,30 +235,39 @@ impl DbInitializerReal {
         );
         Self::set_config_value(
             conn,
+            "neighborhood_mode",
+            Some(&external_params.neighborhood_mode.to_string()),
+            false,
+            "neighborhood mode being used",
+        );
+        Self::set_config_value(
+            conn,
             "schema_version",
             Some(&CURRENT_SCHEMA_VERSION.to_string()),
             false,
             "database version",
         );
-        Self::set_config_value(
-            conn,
-            "chain_name",
-            Some(chain.rec().literal_identifier),
-            false,
-            "the chain the database is created for",
-        );
         Self::set_config_value(conn, "seed", None, true, "mnemonic seed");
         Self::set_config_value(
             conn,
             "start_block",
-            Some(&chain.rec().contract_creation_block.to_string()),
+            Some(
+                &external_params
+                    .chain
+                    .rec()
+                    .contract_creation_block
+                    .to_string(),
+            ),
             false,
-            format!("{} start block", chain.rec().literal_identifier).as_str(),
+            &format!(
+                "{} start block",
+                external_params.chain.rec().literal_identifier
+            ),
         );
         Self::set_config_value(
             conn,
             "gas_price",
-            Some(DEFAULT_GAS_PRICE),
+            Some(&DEFAULT_GAS_PRICE.to_string()),
             false,
             "gas price",
         );
@@ -292,15 +337,9 @@ impl DbInitializerReal {
         .collect::<HashMap<String, Option<String>>>()
     }
 
-    fn update_if_required_and_get_connection(
-        &self,
-        conn: Connection,
+    fn is_migration_required(
         version_found: Option<&Option<String>>,
-        target_version: usize,
-        db_file_path: &Path,
-        opening_flags: OpenFlags,
-        migrator: Box<dyn DbMigrator>,
-    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
+    ) -> Result<Option<usize>, InitializationError> {
         match version_found {
             None => Err(InitializationError::UndetectableVersion(format!(
                 "Need {}, found nothing",
@@ -313,34 +352,43 @@ impl DbInitializerReal {
             Some(Some(v_from_db)) => {
                 let v_from_db = Self::validate_schema_version(v_from_db);
                 if v_from_db == CURRENT_SCHEMA_VERSION {
-                    Ok(Box::new(ConnectionWrapperReal::new(conn)))
+                    Ok(None)
                 } else {
-                    warning!(
-                        Logger::new("DbInitializer"),
-                        "Database is incompatible and its updating is necessary"
-                    );
-                    let wrapped_connection = ConnectionWrapperReal::new(conn);
-                    match migrator.migrate_database(
-                        v_from_db,
-                        target_version,
-                        Box::new(wrapped_connection),
-                    ) {
-                        Ok(_) => {
-                            let wrapped_conn = self.double_check_the_result_of_db_migration(
-                                db_file_path,
-                                opening_flags,
-                                target_version,
-                            );
-                            Ok(wrapped_conn)
-                        }
-                        Err(e) => Err(InitializationError::DbMigrationError(e)),
-                    }
+                    Ok(Some(v_from_db))
                 }
             }
         }
     }
 
-    fn double_check_the_result_of_db_migration(
+    fn migrate_and_return_connection(
+        &self,
+        conn: Connection,
+        mismatched_version: usize,
+        target_version: usize,
+        db_file_path: &Path,
+        opening_flags: OpenFlags,
+        migrator: Box<dyn DbMigrator>,
+    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
+        warning!(
+            Logger::new("DbInitializer"),
+            "Database is incompatible and its updating is necessary"
+        );
+        let wrapped_connection = ConnectionWrapperReal::new(conn);
+        match migrator.migrate_database(
+            mismatched_version,
+            target_version,
+            Box::new(wrapped_connection),
+        ) {
+            Ok(_) => {
+                let wrapped_conn =
+                    self.double_check_migration_result(db_file_path, opening_flags, target_version);
+                Ok(wrapped_conn)
+            }
+            Err(e) => Err(InitializationError::MigrationError(e)),
+        }
+    }
+
+    fn double_check_migration_result(
         &self,
         db_file_path: &Path,
         opening_flags: OpenFlags,
@@ -414,11 +462,11 @@ impl DbInitializerReal {
 pub fn connection_or_panic(
     db_initializer: &dyn DbInitializer,
     path: &Path,
-    chain: Chain,
     create_if_necessary: bool,
+    migrator_config: MigratorConfig,
 ) -> Box<dyn ConnectionWrapper> {
     db_initializer
-        .initialize(path, chain, create_if_necessary)
+        .initialize(path, create_if_necessary, migrator_config)
         .unwrap_or_else(|_| {
             panic!(
                 "Failed to connect to database at {:?}",
@@ -431,7 +479,7 @@ pub fn connection_or_panic(
 pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::{DbInitializer, InitializationError};
-    use masq_lib::blockchains::chains::Chain;
+    use crate::database::db_migrations::MigratorConfig;
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
@@ -475,7 +523,7 @@ pub mod test_utils {
 
     #[derive(Default)]
     pub struct DbInitializerMock {
-        pub initialize_params: Arc<Mutex<Vec<(PathBuf, Chain, bool)>>>,
+        pub initialize_params: Arc<Mutex<Vec<(PathBuf, bool, MigratorConfig)>>>,
         pub initialize_results:
             RefCell<Vec<Result<Box<dyn ConnectionWrapper>, InitializationError>>>,
     }
@@ -484,13 +532,13 @@ pub mod test_utils {
         fn initialize(
             &self,
             path: &Path,
-            chain: Chain,
             create_if_necessary: bool,
+            migrator_config: MigratorConfig,
         ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
             self.initialize_params.lock().unwrap().push((
                 path.to_path_buf(),
-                chain,
                 create_if_necessary,
+                migrator_config,
             ));
             self.initialize_results.borrow_mut().remove(0)
         }
@@ -499,9 +547,9 @@ pub mod test_utils {
         fn initialize_to_version(
             &self,
             path: &Path,
-            chain: Chain,
             target_version: usize,
             create_if_necessary: bool,
+            migrator_config: MigratorConfig,
         ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
             intentionally_blank!()
             /*all existing test calls only initialize() in the mocked version,
@@ -517,7 +565,7 @@ pub mod test_utils {
 
         pub fn initialize_parameters(
             mut self,
-            parameters: Arc<Mutex<Vec<(PathBuf, Chain, bool)>>>,
+            parameters: Arc<Mutex<Vec<(PathBuf, bool, MigratorConfig)>>>,
         ) -> DbInitializerMock {
             self.initialize_params = parameters;
             self
@@ -536,8 +584,10 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
     use crate::test_utils::database_utils::{
-        revive_tables_of_the_version_0_and_return_the_connection_to_the_db, DbMigratorMock,
+        assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
+        DbMigratorMock,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use itertools::Itertools;
@@ -563,7 +613,7 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(&home_dir, TEST_DEFAULT_CHAIN, false);
+        let result = subject.initialize(&home_dir, false, MigratorConfig::test_default());
 
         assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
         let result = Connection::open(&home_dir.join(DATABASE_FILE));
@@ -581,7 +631,7 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(&home_dir, TEST_DEFAULT_CHAIN, false);
+        let result = subject.initialize(&home_dir, false, MigratorConfig::test_default());
 
         assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
         let mut flags = OpenFlags::empty();
@@ -602,7 +652,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         subject
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -623,7 +673,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         subject
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -646,7 +696,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         subject
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -669,7 +719,7 @@ mod tests {
         let target_version = 1;
         let subject = DbInitializerReal::default();
 
-        let _ = subject.double_check_the_result_of_db_migration(
+        let _ = subject.double_check_migration_result(
             &home_dir.join(DATABASE_FILE),
             OpenFlags::SQLITE_OPEN_READ_WRITE,
             target_version,
@@ -678,20 +728,20 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "DB migration failed; the resulting records are still incorrect")]
-    fn panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_update(
+    fn panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_migration(
     ) {
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
-            "panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_update",
+            "panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_migration",
         );
         let db_file_path = home_dir.join(DATABASE_FILE);
-        let _ = revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_file_path);
+        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_file_path);
         let target_version = 1;
         //schema_version equals to 0 but current schema version must be at least 1 and more
 
         let subject = DbInitializerReal::default();
 
-        let _ = subject.double_check_the_result_of_db_migration(
+        let _ = subject.double_check_migration_result(
             &home_dir.join(DATABASE_FILE),
             OpenFlags::SQLITE_OPEN_READ_WRITE,
             target_version,
@@ -707,7 +757,7 @@ mod tests {
         let subject = DbInitializerReal::default();
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap();
         }
         {
@@ -722,7 +772,7 @@ mod tests {
         }
 
         subject
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::panic_on_migration())
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -741,7 +791,7 @@ mod tests {
             assert_eq!(actual_name, expected_name);
             value
         };
-
+        verify(&mut config_vec, "blockchain_service_url", None);
         verify(
             &mut config_vec,
             "chain_name",
@@ -755,8 +805,13 @@ mod tests {
         verify(&mut config_vec, "consuming_wallet_public_key", None);
         verify(&mut config_vec, "earning_wallet_address", None);
         verify(&mut config_vec, EXAMPLE_ENCRYPTED, None);
-        verify(&mut config_vec, "gas_price", Some(DEFAULT_GAS_PRICE));
+        verify(
+            &mut config_vec,
+            "gas_price",
+            Some(&DEFAULT_GAS_PRICE.to_string()),
+        );
         verify(&mut config_vec, "mapping_protocol", None);
+        verify(&mut config_vec, "neighborhood_mode", Some("standard"));
         verify(&mut config_vec, "past_neighbors", None);
         verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database
         verify(
@@ -784,7 +839,7 @@ mod tests {
         );
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -797,7 +852,7 @@ mod tests {
         }
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(&home_dir, TEST_DEFAULT_CHAIN, true);
+        let result = subject.initialize(&home_dir, true, MigratorConfig::panic_on_migration());
 
         assert_eq!(
             result.err().unwrap(),
@@ -810,14 +865,14 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Database version should be purely numeric, but was: boooobles")]
-    fn existing_database_with_junk_in_place_of_its_schema_version_is_caught() {
+    fn existing_database_with_junk_in_place_of_schema_version_is_caught() {
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
             "existing_database_with_junk_in_place_of_its_schema_version_is_caught",
         );
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -830,12 +885,11 @@ mod tests {
         }
         let subject = DbInitializerReal::default();
 
-        let _ = subject.initialize(&home_dir, TEST_DEFAULT_CHAIN, true);
+        let _ = subject.initialize(&home_dir, true, MigratorConfig::panic_on_migration());
     }
 
     #[test]
-    fn existing_database_with_the_wrong_version_comes_to_migrator_that_makes_it_gradually_migrate_to_upper_versions(
-    ) {
+    fn database_of_old_version_comes_to_migrator_where_it_gradually_migrates_to_upper_versions() {
         init_test_logging();
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
@@ -846,17 +900,21 @@ mod tests {
         std::fs::create_dir(updated_db_path_dir).unwrap();
         std::fs::create_dir(from_scratch_db_path_dir).unwrap();
         {
-            revive_tables_of_the_version_0_and_return_the_connection_to_the_db(
+            bring_db_of_version_0_back_to_life_and_return_connection(
                 &updated_db_path_dir.join(DATABASE_FILE),
             );
         }
         let subject = DbInitializerReal::default();
 
         let _ = subject
-            .initialize(&updated_db_path_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&updated_db_path_dir, true, MigratorConfig::test_default())
             .unwrap();
         let _ = subject
-            .initialize(&from_scratch_db_path_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(
+                &from_scratch_db_path_dir,
+                true,
+                MigratorConfig::test_default(),
+            )
             .unwrap();
 
         let conn_updated = Connection::open_with_flags(
@@ -892,12 +950,11 @@ mod tests {
     }
 
     #[test]
-    fn update_if_required_and_get_connection_starts_db_migration_and_hands_in_an_error_from_database_operations(
-    ) {
+    fn migrate_and_return_connection_hands_in_an_error_from_migration_operations() {
         init_test_logging();
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
-            "update_if_required_and_get_connection_starts_db_migration_and_hands_in_an_error_from_database_operations",
+            "migrate_and_return_connection_hands_in_an_error_from_migration_operations",
         );
         let migrate_database_params_arc = Arc::new(Mutex::new(vec![]));
         let db_file_path = home_dir.join(DATABASE_FILE);
@@ -906,11 +963,11 @@ mod tests {
         let target_version = 5; //not relevant
         let migrator = Box::new(DbMigratorMock::default().inject_logger()
             .migrate_database_params(&migrate_database_params_arc)
-            .migrate_database_result(Err("Updating database from version 0 to 1 failed: Transaction couldn't be processed".to_string())));
+            .migrate_database_result(Err("Migrating database from version 0 to 1 failed: Transaction couldn't be processed".to_string())));
 
-        let result = subject.update_if_required_and_get_connection(
+        let result = subject.migrate_and_return_connection(
             conn,
-            Some(&Some("0".to_string())),
+            0,
             target_version,
             &db_file_path,
             OpenFlags::SQLITE_OPEN_READ_WRITE,
@@ -923,8 +980,8 @@ mod tests {
         };
         assert_eq!(
             error,
-            InitializationError::DbMigrationError(
-                "Updating database from version 0 to 1 failed: Transaction couldn't be processed"
+            InitializationError::MigrationError(
+                "Migrating database from version 0 to 1 failed: Transaction couldn't be processed"
                     .to_string()
             )
         );
@@ -940,6 +997,85 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             "WARN: DbInitializer: Database is incompatible and its updating is necessary",
         );
+    }
+
+    #[test]
+    fn database_migration_can_be_suppressed() {
+        let data_dir = ensure_node_home_directory_exists(
+            "db_initializer",
+            "database_migration_can_be_suppressed",
+        );
+        let conn =
+            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
+        let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
+        let subject = DbInitializerReal::default();
+
+        let result = subject.initialize(&data_dir, false, MigratorConfig::migration_suppressed());
+
+        let wrapped_connection = result.unwrap();
+        let (_, schema_version_after, _) = assurance_query_for_config_table(
+            wrapped_connection.as_ref(),
+            "select name, value, encrypted from config where name = 'schema_version'",
+        );
+        assert_eq!(schema_version_after.unwrap(), schema_version_before)
+    }
+
+    #[test]
+    #[should_panic(expected = "Attempt to migrate the database at an inappropriate place")]
+    fn database_migration_causes_panic_if_not_allowed() {
+        let data_dir = ensure_node_home_directory_exists(
+            "db_initializer",
+            "database_migration_causes_panic_if_not_allowed",
+        );
+        let _ =
+            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let subject = DbInitializerReal::default();
+
+        let _ = subject.initialize(&data_dir, false, MigratorConfig::panic_on_migration());
+    }
+
+    #[test]
+    #[should_panic(expected = "Attempt to create a new database without proper configuration")]
+    fn database_creation_panics_if_config_is_missing() {
+        let data_dir = ensure_node_home_directory_exists(
+            "db_initializer",
+            "database_creation_panics_if_config_is_missing",
+        );
+        let subject = DbInitializerReal::default();
+
+        let _ = subject.initialize(
+            &data_dir,
+            true,
+            MigratorConfig::migration_suppressed(), //suppressed doesn't contain a populated config; only 'create_or_migrate()' does
+        );
+    }
+
+    #[test]
+    fn database_migration_can_be_suppressed_and_give_an_initialization_error() {
+        let data_dir = ensure_node_home_directory_exists(
+            "db_initializer",
+            "database_migration_can_be_suppressed_and_give_an_initialization_error",
+        );
+        let conn =
+            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
+        let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
+        let subject = DbInitializerReal::default();
+
+        let result = subject.initialize(
+            &data_dir,
+            false,
+            MigratorConfig::migration_suppressed_with_error(),
+        );
+
+        let err = match result {
+            Ok(_) => panic!("expected an Err, got Ok"),
+            Err(e) => e,
+        };
+        assert_eq!(err, InitializationError::SuppressedMigrationError);
+        let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_after, schema_version_before)
     }
 
     #[test]
@@ -974,7 +1110,7 @@ mod tests {
             ensure_node_home_directory_exists("db_initializer", "initialize_config_with_seed");
 
         DbInitializerReal::default()
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
         let mut flags = OpenFlags::empty();

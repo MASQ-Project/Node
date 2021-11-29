@@ -520,6 +520,7 @@ pub mod pure_test_utils {
             .mnemonic_seed_exists_result(Ok(false))
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
+            .blockchain_service_url_result(Ok(None))
     }
 
     pub struct ChannelFactoryMock {
