@@ -16,6 +16,7 @@ pub struct BlockchainBridgeConfig {
     pub blockchain_service_url_opt: Option<String>,
     pub chain: Chain,
     pub gas_price: u64,
+    pub pending_tx_checkout_interval: u64,
 }
 
 #[derive(Clone)]

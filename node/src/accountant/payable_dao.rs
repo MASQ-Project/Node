@@ -43,6 +43,8 @@ pub trait PayableDao: Debug + Send {
 
     fn payment_sent(&self, sent_payment: &Payment) -> Result<(), PaymentError>;
 
+    fn transaction_confirmed(&self, wallet: &Wallet) -> Result<(), PaymentError>;
+
     fn payment_confirmed(
         &self,
         wallet: &Wallet,
@@ -95,6 +97,10 @@ impl PayableDao for PayableDaoReal {
             Ok(_) => Ok(()),
             Err(e) => panic!("Database is corrupt: {}", e),
         }
+    }
+
+    fn transaction_confirmed(&self, wallet: &Wallet) -> Result<(), PaymentError> {
+        todo!()
     }
 
     fn payment_confirmed(

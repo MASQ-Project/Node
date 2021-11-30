@@ -13,6 +13,7 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
+use crate::blockchain::blockchain_interface::BlockchainInterfaceToolFactories;
 use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
@@ -372,6 +373,8 @@ impl ActorFactory for ActorFactoryReal {
         let wallet_opt = config.consuming_wallet.clone();
         let data_directory = config.data_directory.clone();
         let chain_id = config.blockchain_bridge_config.chain;
+        let pending_tx_checkout_interval =
+            config.blockchain_bridge_config.pending_tx_checkout_interval;
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
             let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
@@ -385,6 +388,8 @@ impl ActorFactory for ActorFactoryReal {
                 persistent_config,
                 crashable,
                 wallet_opt,
+                BlockchainInterfaceToolFactories::default(),
+                pending_tx_checkout_interval,
             )
         });
         BlockchainBridge::make_subs_from(&addr)
@@ -933,6 +938,7 @@ mod tests {
                 blockchain_service_url_opt: None,
                 chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
+                pending_tx_checkout_interval: 100,
             },
             port_configurations: HashMap::new(),
             db_password_opt: None,
@@ -1003,6 +1009,7 @@ mod tests {
                 blockchain_service_url_opt: None,
                 chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
+                pending_tx_checkout_interval: 100,
             },
             port_configurations: HashMap::new(),
             db_password_opt: None,
@@ -1089,6 +1096,7 @@ mod tests {
                 blockchain_service_url_opt: None,
                 chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
+                pending_tx_checkout_interval: 100
             }
         );
         assert_eq!(
@@ -1115,6 +1123,7 @@ mod tests {
                 blockchain_service_url_opt: None,
                 chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
+                pending_tx_checkout_interval: 100,
             },
             port_configurations: HashMap::new(),
             db_password_opt: None,
@@ -1172,6 +1181,7 @@ mod tests {
                 blockchain_service_url_opt: None,
                 chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
+                pending_tx_checkout_interval: 100,
             },
             port_configurations: HashMap::new(),
             db_password_opt: None,

@@ -1,13 +1,44 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use ethereum_types::H256;
+use std::any::Any;
 use std::fmt::Debug;
 use web3::futures::Future;
-use web3::types::{Bytes, SignedTransaction, TransactionParameters};
-use web3::Transport;
-use web3::{Error as Web3Error, Web3};
+use web3::types::{Bytes, SignedTransaction, Transaction, TransactionParameters};
+use web3::Error as Web3Error;
+use web3::{Transport, Web3};
 
-pub trait SendTransactionToolsWrapper {
+pub trait ToolFactories {
+    fn make_send_transaction_tools<'a>(
+        &'a self,
+        tool_factory: &'a (dyn SendTransactionToolWrapperFactory + 'a),
+    ) -> Box<dyn SendTransactionToolWrapper + 'a>;
+}
+
+pub trait SendTransactionToolWrapperFactory {
+    fn make<'a>(
+        &'a self,
+        real_factory_assembly_line: Box<
+            dyn FnOnce() -> Box<dyn SendTransactionToolWrapper + 'a> + 'a,
+        >,
+    ) -> Box<dyn SendTransactionToolWrapper + 'a>;
+    as_any_dcl!();
+}
+
+#[derive(Debug, PartialEq)]
+pub struct SendTransactionToolWrapperFactoryReal;
+
+impl SendTransactionToolWrapperFactory for SendTransactionToolWrapperFactoryReal {
+    fn make<'a>(
+        &'a self,
+        real_assembly_line: Box<dyn FnOnce() -> Box<dyn SendTransactionToolWrapper + 'a> + 'a>,
+    ) -> Box<dyn SendTransactionToolWrapper + 'a> {
+        real_assembly_line()
+    }
+    as_any_impl!();
+}
+
+pub trait SendTransactionToolWrapper {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
@@ -16,18 +47,18 @@ pub trait SendTransactionToolsWrapper {
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error>;
 }
 
-pub struct SendTransactionToolsWrapperReal<'a, T: Transport + Debug> {
+pub struct SendTransactionToolWrapperReal<'a, T: Transport + Debug> {
     web3: &'a Web3<T>,
 }
 
-impl<'a, T: Transport + Debug> SendTransactionToolsWrapperReal<'a, T> {
+impl<'a, T: Transport + Debug> SendTransactionToolWrapperReal<'a, T> {
     pub fn new(web3: &'a Web3<T>) -> Self {
         Self { web3 }
     }
 }
 
-impl<'a, T: Transport + Debug> SendTransactionToolsWrapper
-    for SendTransactionToolsWrapperReal<'a, T>
+impl<'a, T: Transport + Debug> SendTransactionToolWrapper
+    for SendTransactionToolWrapperReal<'a, T>
 {
     fn sign_transaction(
         &self,
@@ -45,9 +76,9 @@ impl<'a, T: Transport + Debug> SendTransactionToolsWrapper
     }
 }
 
-pub struct SendTransactionToolsWrapperNull;
+pub struct SendTransactionToolWrapperNull;
 
-impl SendTransactionToolsWrapper for SendTransactionToolsWrapperNull {
+impl SendTransactionToolWrapper for SendTransactionToolWrapperNull {
     fn sign_transaction(
         &self,
         _transaction_params: TransactionParameters,
@@ -61,10 +92,42 @@ impl SendTransactionToolsWrapper for SendTransactionToolsWrapperNull {
     }
 }
 
+//TODO the following lines are just a sketch...be careful
+pub trait CheckOutPendingTransactionToolWrapperFactory {
+    fn make<'a>(
+        &'a self,
+        real_assembly_line: Box<
+            dyn FnOnce() -> Box<dyn CheckOutPendingTransactionToolWrapper + 'a> + 'a,
+        >,
+    ) -> Box<dyn CheckOutPendingTransactionToolWrapper + 'a>;
+    as_any_dcl!();
+}
+
+#[derive(Debug, PartialEq)]
+pub struct CheckOutPendingTransactionToolWrapperFactoryReal;
+
+impl CheckOutPendingTransactionToolWrapperFactory
+    for CheckOutPendingTransactionToolWrapperFactoryReal
+{
+    fn make<'a>(
+        &'a self,
+        real_assembly_line: Box<
+            dyn FnOnce() -> Box<dyn CheckOutPendingTransactionToolWrapper + 'a> + 'a,
+        >,
+    ) -> Box<dyn CheckOutPendingTransactionToolWrapper + 'a> {
+        todo!()
+    }
+    as_any_impl!();
+}
+
+pub trait CheckOutPendingTransactionToolWrapper {
+    fn transaction_info(&self, transaction_hash: H256) -> Result<Transaction, Web3Error>;
+}
+
 #[cfg(test)]
 mod tests {
     use crate::blockchain::tool_wrappers::{
-        SendTransactionToolsWrapper, SendTransactionToolsWrapperNull,
+        SendTransactionToolWrapper, SendTransactionToolWrapperNull,
     };
     use web3::types::{Bytes, TransactionParameters};
 
@@ -85,7 +148,7 @@ mod tests {
                 .unwrap();
 
         let _ =
-            SendTransactionToolsWrapperNull.sign_transaction(transaction_parameters, &secret_key);
+            SendTransactionToolWrapperNull.sign_transaction(transaction_parameters, &secret_key);
     }
 
     #[test]
@@ -93,6 +156,6 @@ mod tests {
     fn null_send_raw_transaction_stops_the_run() {
         let rlp = Bytes(b"data".to_vec());
 
-        let _ = SendTransactionToolsWrapperNull.send_raw_transaction(rlp);
+        let _ = SendTransactionToolWrapperNull.send_raw_transaction(rlp);
     }
 }
