@@ -36,7 +36,7 @@ use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::{DEFAULT_UI_PORT};
+use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
@@ -47,7 +47,7 @@ use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::{SocketAddr, Ipv4Addr};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -445,19 +445,18 @@ impl ConfiguredByPrivilege for Bootstrapper {
             self.config.blockchain_bridge_config.chain,
         );
         match &self.config.neighborhood_config.mode {
-            NeighborhoodMode::Standard(node_addr, _, _) if node_addr.ip_addr() != Ipv4Addr::new (0, 0, 0, 0) => {
+            NeighborhoodMode::Standard(node_addr, _, _)
+                if node_addr.ip_addr() != Ipv4Addr::new(0, 0, 0, 0) =>
+            {
                 let node_descriptor = Bootstrapper::make_local_descriptor(
                     cryptde_ref,
                     self.config.neighborhood_config.mode.node_addr_opt(),
                     self.config.blockchain_bridge_config.chain,
                 );
-                Bootstrapper::report_local_descriptor(
-                    cryptde_ref,
-                    &node_descriptor,
-                );
-                self.config.node_descriptor_opt = Some (node_descriptor);
-            },
-            _ => ()
+                Bootstrapper::report_local_descriptor(cryptde_ref, &node_descriptor);
+                self.config.node_descriptor_opt = Some(node_descriptor);
+            }
+            _ => (),
         }
         let stream_handler_pool_subs = self
             .actor_system_factory
@@ -514,22 +513,24 @@ impl Bootstrapper {
         (main_cryptde_ref(), alias_cryptde_ref())
     }
 
-    fn make_local_descriptor (
+    fn make_local_descriptor(
         cryptde: &dyn CryptDE,
         node_addr_opt: Option<NodeAddr>,
         chain: Chain,
     ) -> NodeDescriptor {
         match node_addr_opt {
-            Some(node_addr) => NodeDescriptor::from((cryptde.public_key(), &node_addr, chain, cryptde)),
-            None => NodeDescriptor::from((cryptde.public_key(), chain, cryptde))
+            Some(node_addr) => {
+                NodeDescriptor::from((cryptde.public_key(), &node_addr, chain, cryptde))
+            }
+            None => NodeDescriptor::from((cryptde.public_key(), chain, cryptde)),
         }
     }
 
-    pub fn report_local_descriptor (
-        cryptde: &dyn CryptDE,
-        descriptor: &NodeDescriptor
-    ) {
-        let descriptor_msg = format!("MASQ Node local descriptor: {}", descriptor.to_string(cryptde));
+    pub fn report_local_descriptor(cryptde: &dyn CryptDE, descriptor: &NodeDescriptor) {
+        let descriptor_msg = format!(
+            "MASQ Node local descriptor: {}",
+            descriptor.to_string(cryptde)
+        );
         info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
     }
 
@@ -608,7 +609,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::marker::Sync;
     use std::net::{IpAddr, SocketAddr};
-    use std::ops::{DerefMut};
+    use std::ops::DerefMut;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -1055,16 +1056,20 @@ mod tests {
             .unwrap();
 
         let config = subject.config;
-        assert_eq!(config.node_descriptor_opt.unwrap(), NodeDescriptor::from ((
-            main_cryptde_ref().public_key(),
-            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5000]),
-            Chain::EthRopsten,
-            main_cryptde_ref()
-        )));
+        assert_eq!(
+            config.node_descriptor_opt.unwrap(),
+            NodeDescriptor::from((
+                main_cryptde_ref().public_key(),
+                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5000]),
+                Chain::EthRopsten,
+                main_cryptde_ref()
+            ))
+        );
     }
 
     #[test]
-    fn initialize_as_unprivileged_does_not_create_or_report_descriptor_when_ip_is_not_supplied_in_standard_mode() {
+    fn initialize_as_unprivileged_does_not_create_or_report_descriptor_when_ip_is_not_supplied_in_standard_mode(
+    ) {
         init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1093,9 +1098,16 @@ mod tests {
             .unwrap();
 
         let config = subject.config;
-        assert!(config.node_descriptor_opt.is_none(), "Node descriptor should have been None, not {:?}", config.node_descriptor_opt);
-        assert!(!holder.stdout.get_string().contains ("MASQ Node local descriptor"));
-        TestLogHandler::new().exists_no_log_containing ("MASQ Node local descriptor");
+        assert!(
+            config.node_descriptor_opt.is_none(),
+            "Node descriptor should have been None, not {:?}",
+            config.node_descriptor_opt
+        );
+        assert!(!holder
+            .stdout
+            .get_string()
+            .contains("MASQ Node local descriptor"));
+        TestLogHandler::new().exists_no_log_containing("MASQ Node local descriptor");
     }
 
     #[test]
@@ -1288,7 +1300,7 @@ mod tests {
                 Some(node_addr),
                 TEST_DEFAULT_CHAIN,
             );
-            Bootstrapper::report_local_descriptor (cryptde_ref, &descriptor);
+            Bootstrapper::report_local_descriptor(cryptde_ref, &descriptor);
 
             cryptde_ref
         };
@@ -1327,12 +1339,9 @@ mod tests {
         let (main_cryptde_ref, alias_cryptde_ref) = {
             let (main_cryptde_ref, alias_cryptde_ref) =
                 Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
-            let descriptor = Bootstrapper::make_local_descriptor(
-                main_cryptde_ref,
-                None,
-                TEST_DEFAULT_CHAIN,
-            );
-            Bootstrapper::report_local_descriptor (main_cryptde_ref, &descriptor);
+            let descriptor =
+                Bootstrapper::make_local_descriptor(main_cryptde_ref, None, TEST_DEFAULT_CHAIN);
+            Bootstrapper::report_local_descriptor(main_cryptde_ref, &descriptor);
 
             (main_cryptde_ref, alias_cryptde_ref)
         };

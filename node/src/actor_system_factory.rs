@@ -562,7 +562,9 @@ mod tests {
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
-    use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1, NodeRecordMetadataMessage, NodeDescriptor};
+    use crate::sub_lib::neighborhood::{
+        DispatcherNodeQueryMessage, GossipFailure_0v1, NodeDescriptor, NodeRecordMetadataMessage,
+    };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeQueryMessage};
     use crate::sub_lib::neighborhood::{NeighborhoodMode, RemoveNeighborMessage};
     use crate::sub_lib::neighborhood::{RouteQueryMessage, DEFAULT_RATE_PACK};
@@ -604,6 +606,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use crossbeam_channel::unbounded;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
@@ -1071,22 +1074,22 @@ mod tests {
                 ),
             },
         };
-        let system = System::new("MASQNode");
-        let make_params_arc = Arc::new (Mutex::new (vec![]));
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ActorSystemFactoryReal::new();
         subject.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new()
-                .make_params (&make_params_arc)
+                .make_params(&make_params_arc)
                 .make_result(
-                AutomapControlMock::new()
-                    .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
-                    .add_mapping_params(&add_mapping_params_arc)
-                    .add_mapping_result(Ok(()))
-                    .add_mapping_result(Ok(())),
-            ),
+                    AutomapControlMock::new()
+                        .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.5").unwrap()))
+                        .add_mapping_params(&add_mapping_params_arc)
+                        .add_mapping_result(Ok(()))
+                        .add_mapping_result(Ok(())),
+                ),
         );
-        let join_handle = thread::spawn (move || {
+        let join_handle = thread::spawn(move || {
+            let system = System::new("MASQNode");
             system.run();
         });
 
@@ -1099,10 +1102,10 @@ mod tests {
 
         let mut make_params = make_params_arc.lock().unwrap();
         let change_handler: ChangeHandler = make_params.remove(0).1;
-        change_handler (AutomapChange::NewIp(IpAddr::from_str ("1.2.3.4").unwrap()));
+        change_handler(AutomapChange::NewIp(IpAddr::from_str("1.2.3.4").unwrap()));
 
         System::current().stop();
-        join_handle.join();
+        join_handle.join().unwrap();
         check_bind_message(&recordings.dispatcher, false);
         check_bind_message(&recordings.hopper, false);
         check_bind_message(&recordings.proxy_client, false);
@@ -1171,7 +1174,6 @@ mod tests {
         );
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![1234, 2345]);
-
     }
 
     #[test]
@@ -1369,8 +1371,8 @@ mod tests {
                 }
             );
         };
-        check_recording (recording_arc1);
-        check_recording (recording_arc2);
+        check_recording(recording_arc1);
+        check_recording(recording_arc2);
     }
 
     #[test]

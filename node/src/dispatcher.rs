@@ -1,31 +1,31 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::bootstrapper::Bootstrapper;
 use crate::stream_messages::{PoolBindMessage, RemovedStreamType};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
+use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::test_utils::main_cryptde;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use lazy_static::lazy_static;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiCrashRequest, UiDescriptorRequest, UiDescriptorResponse,
 };
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
-use crate::sub_lib::neighborhood::NodeDescriptor;
-use crate::test_utils::main_cryptde;
-use crate::sub_lib::node_addr::NodeAddr;
 use std::net::{IpAddr, Ipv4Addr};
-use lazy_static::lazy_static;
-use crate::bootstrapper::Bootstrapper;
 
 pub const CRASH_KEY: &str = "DISPATCHER";
 lazy_static! {
-    static ref NULL_IP_ADDRESS: IpAddr = IpAddr::V4 (Ipv4Addr::new (0, 0, 0, 0));
+    static ref NULL_IP_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
 }
 
 struct DispatcherOutSubs {
@@ -137,11 +137,11 @@ impl Handler<NewPublicIp> for Dispatcher {
 
     fn handle(&mut self, msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
         let ports = match &self.node_descriptor.node_addr_opt {
-            Some (node_addr) => node_addr.ports().clone(),
-            None => todo! (),
+            Some(node_addr) => node_addr.ports(),
+            None => todo!(),
         };
-        self.node_descriptor.node_addr_opt = Some(NodeAddr::new (&msg.new_ip, &ports));
-        Bootstrapper::report_local_descriptor (main_cryptde(), &self.node_descriptor);
+        self.node_descriptor.node_addr_opt = Some(NodeAddr::new(&msg.new_ip, &ports));
+        Bootstrapper::report_local_descriptor(main_cryptde(), &self.node_descriptor);
     }
 }
 
@@ -183,11 +183,11 @@ impl Dispatcher {
 
     fn handle_descriptor_request(&mut self, client_id: u64, context_id: u64) {
         let node_descriptor_opt = match &self.node_descriptor.node_addr_opt {
-            Some (node_addr) if node_addr.ip_addr() == *NULL_IP_ADDRESS => None,
-            Some (_) => Some (self.node_descriptor.clone()),
+            Some(node_addr) if node_addr.ip_addr() == *NULL_IP_ADDRESS => None,
+            Some(_) => Some(self.node_descriptor.clone()),
             None => None,
         };
-        let node_desc_str_opt = node_descriptor_opt.map (|nd| nd.to_string(main_cryptde()));
+        let node_desc_str_opt = node_descriptor_opt.map(|nd| nd.to_string(main_cryptde()));
         let response_inner = UiDescriptorResponse {
             node_descriptor_opt: node_desc_str_opt,
         };
@@ -206,29 +206,32 @@ impl Dispatcher {
 mod tests {
     use super::*;
     use crate::actor_system_factory::{ActorFactory, ActorFactoryReal};
-    use crate::bootstrapper::{BootstrapperConfig};
+    use crate::bootstrapper::BootstrapperConfig;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::stream_messages::NonClandestineAttributes;
     use crate::sub_lib::dispatcher::Endpoint;
+    use crate::sub_lib::neighborhood::NodeDescriptor;
+    use crate::sub_lib::node_addr::NodeAddr;
+    use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use actix::Addr;
     use actix::System;
+    use lazy_static::lazy_static;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::messages::{ToMessageBody, UiDescriptorResponse};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::MessageTarget;
-    use std::net::{SocketAddr, Ipv4Addr, IpAddr};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::str::FromStr;
     use std::thread;
-    use crate::sub_lib::neighborhood::NodeDescriptor;
-    use crate::test_utils::main_cryptde;
-    use lazy_static::lazy_static;
-    use crate::sub_lib::node_addr::NodeAddr;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     lazy_static! {
-        static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::from_str(main_cryptde(),
-            "masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXgXEN6zQ@12.23.45.67:1234").unwrap();
+        static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::from_str(
+            main_cryptde(),
+            "masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXgXEN6zQ@12.23.45.67:1234"
+        )
+        .unwrap();
     }
 
     #[test]
@@ -500,21 +503,22 @@ mod tests {
         let system = System::new("test");
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut node_descriptor = NODE_DESCRIPTOR.clone();
-        node_descriptor.node_addr_opt = Some (NodeAddr::new (
+        node_descriptor.node_addr_opt = Some(NodeAddr::new(
             &IpAddr::from_str("0.0.0.0").unwrap(),
             &node_descriptor.node_addr_opt.as_ref().unwrap().ports(),
         ));
         let subject = Dispatcher::new(CrashPoint::None, &node_descriptor);
         let addr = subject.start();
-        let peer_actors = peer_actors_builder()
-            .ui_gateway(ui_gateway)
-            .build();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
-        let new_ip_addr = IpAddr::V4(Ipv4Addr::new (87, 65, 43, 21));
+        let new_ip_addr = IpAddr::V4(Ipv4Addr::new(87, 65, 43, 21));
         let mut new_node_descriptor = node_descriptor.clone();
-        new_node_descriptor.node_addr_opt = Some (NodeAddr::new (&new_ip_addr, &node_descriptor.node_addr_opt.as_ref().unwrap().ports()));
+        new_node_descriptor.node_addr_opt = Some(NodeAddr::new(
+            &new_ip_addr,
+            &node_descriptor.node_addr_opt.as_ref().unwrap().ports(),
+        ));
         let ip_change_msg = NewPublicIp {
-            new_ip: new_ip_addr
+            new_ip: new_ip_addr,
         };
         let descriptor_msg = NodeFromUiMessage {
             client_id: 1234,
@@ -528,25 +532,32 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(ui_gateway_recording.get_record::<NodeToUiMessage>(0), &NodeToUiMessage {
-            target: MessageTarget::ClientId(1234),
-            body: UiDescriptorResponse {
-                node_descriptor_opt: None,
+        assert_eq!(
+            ui_gateway_recording.get_record::<NodeToUiMessage>(0),
+            &NodeToUiMessage {
+                target: MessageTarget::ClientId(1234),
+                body: UiDescriptorResponse {
+                    node_descriptor_opt: None,
+                }
+                .tmb(4321)
             }
-            .tmb(4321)
-        });
-        assert_eq!(ui_gateway_recording.get_record::<NodeToUiMessage>(1), &NodeToUiMessage {
-            target: MessageTarget::ClientId(1234),
-            body: UiDescriptorResponse {
-                node_descriptor_opt: Some (new_node_descriptor.to_string(main_cryptde())),
+        );
+        assert_eq!(
+            ui_gateway_recording.get_record::<NodeToUiMessage>(1),
+            &NodeToUiMessage {
+                target: MessageTarget::ClientId(1234),
+                body: UiDescriptorResponse {
+                    node_descriptor_opt: Some(new_node_descriptor.to_string(main_cryptde())),
+                }
+                .tmb(4321)
             }
-            .tmb(4321)
-        });
+        );
         TestLogHandler::new().exists_log_containing(
             format!(
                 "INFO: Bootstrapper: MASQ Node local descriptor: {}",
                 new_node_descriptor.to_string(main_cryptde())
-            ).as_str(),
+            )
+            .as_str(),
         );
     }
 
@@ -556,8 +567,11 @@ mod tests {
         let system = System::new("test");
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
-        let node_descriptor = NodeDescriptor::from_str(main_cryptde(),
-            "masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@13.23.13.23:4545").unwrap();
+        let node_descriptor = NodeDescriptor::from_str(
+            main_cryptde(),
+            "masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@13.23.13.23:4545",
+        )
+        .unwrap();
         bootstrapper_config.node_descriptor_opt = Some(node_descriptor.clone());
         let msg = NodeFromUiMessage {
             client_id: 1234,
@@ -584,7 +598,7 @@ mod tests {
             &NodeToUiMessage {
                 target: MessageTarget::ClientId(1234),
                 body: UiDescriptorResponse {
-                    node_descriptor_opt: Some (node_descriptor.to_string(main_cryptde())),
+                    node_descriptor_opt: Some(node_descriptor.to_string(main_cryptde())),
                 }
                 .tmb(4321)
             }
