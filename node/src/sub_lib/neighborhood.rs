@@ -24,8 +24,9 @@ use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_UR
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
-use std::net::IpAddr;
+use std::net::{IpAddr};
 use std::str::FromStr;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -124,6 +125,16 @@ pub struct NodeDescriptor {
     pub blockchain: Chain,
     pub encryption_public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
+}
+
+impl Default for NodeDescriptor {
+    fn default() -> Self {
+        Self::from ((
+            &PublicKey::from ([0u8; 32].to_vec()),
+            Chain::default(),
+            &CryptDEReal::new(Chain::default()) as &dyn CryptDE,
+        ))
+    }
 }
 
 impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE)> for NodeDescriptor {

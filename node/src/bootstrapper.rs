@@ -308,7 +308,7 @@ pub struct BootstrapperConfig {
     pub blockchain_bridge_config: BlockchainBridgeConfig,
     pub port_configurations: HashMap<u16, PortConfiguration>,
     pub data_directory: PathBuf,
-    pub node_descriptor_opt: Option<NodeDescriptor>,
+    pub node_descriptor: NodeDescriptor,
     pub main_cryptde_null_opt: Option<CryptDENull>,
     pub alias_cryptde_null_opt: Option<CryptDENull>,
     pub mapping_protocol_opt: Option<AutomapProtocol>,
@@ -352,7 +352,7 @@ impl BootstrapperConfig {
             },
             port_configurations: HashMap::new(),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: None,
+            node_descriptor: NodeDescriptor::default(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -454,7 +454,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
                     self.config.blockchain_bridge_config.chain,
                 );
                 Bootstrapper::report_local_descriptor(cryptde_ref, &node_descriptor);
-                self.config.node_descriptor_opt = Some(node_descriptor);
+                self.config.node_descriptor = node_descriptor;
             }
             _ => (),
         }
@@ -1057,7 +1057,7 @@ mod tests {
 
         let config = subject.config;
         assert_eq!(
-            config.node_descriptor_opt.unwrap(),
+            config.node_descriptor,
             NodeDescriptor::from((
                 main_cryptde_ref().public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5000]),
@@ -1068,12 +1068,12 @@ mod tests {
     }
 
     #[test]
-    fn initialize_as_unprivileged_does_not_create_or_report_descriptor_when_ip_is_not_supplied_in_standard_mode(
+    fn initialize_as_unprivileged_does_not_report_descriptor_when_ip_is_not_supplied_in_standard_mode(
     ) {
         init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
-            "initialize_as_unprivileged_does_not_create_or_report_descriptor_when_ip_is_not_supplied_in_standard_mode",
+            "initialize_as_unprivileged_does_not_report_descriptor_when_ip_is_not_supplied_in_standard_mode",
         );
         let mut holder = FakeStreamHolder::new();
         let mut config = BootstrapperConfig::new();
@@ -1099,9 +1099,9 @@ mod tests {
 
         let config = subject.config;
         assert!(
-            config.node_descriptor_opt.is_none(),
-            "Node descriptor should have been None, not {:?}",
-            config.node_descriptor_opt
+            config.node_descriptor.node_addr_opt.is_none(),
+            "Node descriptor NodeAddr should have been None, not {:?}",
+            config.node_descriptor.node_addr_opt
         );
         assert!(!holder
             .stdout

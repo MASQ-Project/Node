@@ -317,9 +317,9 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
         let crash_point = config.crash_point;
-        let node_descriptor_opt = config.node_descriptor_opt.clone();
+        let node_descriptor = config.node_descriptor.clone();
         let addr: Addr<Dispatcher> = Arbiter::start(move |_| {
-            Dispatcher::new(crash_point, node_descriptor_opt.clone())
+            Dispatcher::new(crash_point, Some(node_descriptor))
         });
         (
             Dispatcher::make_subs_from(&addr),
@@ -990,7 +990,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: None,
+            node_descriptor: NodeDescriptor::default(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -1061,7 +1061,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap()),
+            node_descriptor: NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -1151,8 +1151,8 @@ mod tests {
         assert_eq!(ui_gateway_config.ui_port, 5335);
         let dispatcher_param = Parameters::get(parameters.dispatcher_params);
         assert_eq!(
-            dispatcher_param.node_descriptor_opt,
-            Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap())
+            dispatcher_param.node_descriptor,
+            NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap()
         );
         let blockchain_bridge_param = Parameters::get(parameters.blockchain_bridge_params);
         assert_eq!(
@@ -1240,7 +1240,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap()),
+            node_descriptor: NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -1300,7 +1300,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: None,
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap()),
+            node_descriptor: NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: Some(AutomapProtocol::Pmp),

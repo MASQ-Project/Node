@@ -579,7 +579,7 @@ mod tests {
             "masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@13.23.13.23:4545",
         )
         .unwrap();
-        bootstrapper_config.node_descriptor_opt = Some(node_descriptor.clone());
+        bootstrapper_config.node_descriptor = node_descriptor.clone();
         let msg = NodeFromUiMessage {
             client_id: 1234,
             body: UiDescriptorRequest {}.tmb(4321),
@@ -623,7 +623,7 @@ mod tests {
             "masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@0.0.0.0:4545",
         )
         .unwrap();
-        bootstrapper_config.node_descriptor_opt = Some(node_descriptor);
+        bootstrapper_config.node_descriptor = node_descriptor;
         let msg = NodeFromUiMessage {
             client_id: 1234,
             body: UiDescriptorRequest {}.tmb(4321),
@@ -668,7 +668,7 @@ mod tests {
             "masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@0.0.0.0:4545",
         )
             .unwrap();
-        bootstrapper_config.node_descriptor_opt = Some(node_descriptor);
+        bootstrapper_config.node_descriptor = node_descriptor;
         let msg = NodeFromUiMessage {
             client_id: 1234,
             body: UiDescriptorRequest {}.tmb(4321),
