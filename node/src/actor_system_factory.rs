@@ -319,7 +319,7 @@ impl ActorFactory for ActorFactoryReal {
         let crash_point = config.crash_point;
         let node_descriptor = config.node_descriptor.clone();
         let addr: Addr<Dispatcher> = Arbiter::start(move |_| {
-            Dispatcher::new(crash_point, Some(node_descriptor))
+            Dispatcher::new(crash_point, node_descriptor)
         });
         (
             Dispatcher::make_subs_from(&addr),
