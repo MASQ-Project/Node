@@ -473,7 +473,6 @@ mod tests {
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::FromHex;
-    use std::borrow::BorrowMut;
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex};
