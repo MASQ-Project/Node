@@ -137,7 +137,7 @@ impl Handler<NewPublicIp> for Dispatcher {
 
     fn handle(&mut self, msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
         match &self.node_descriptor.node_addr_opt {
-            None => todo! (),
+            None => warning!(self.logger, "Received attempt to set public IP to {} while not in Standard mode - rejecting", msg.new_ip),
             Some (node_addr) => {
                 let ports = &node_addr.ports();
                 self.node_descriptor.node_addr_opt = Some(NodeAddr::new(&msg.new_ip, ports));
@@ -226,6 +226,8 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::str::FromStr;
     use std::thread;
+    use crate::sub_lib::cryptde::CryptDE;
+    use masq_lib::blockchains::chains::Chain;
 
     lazy_static! {
         static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::from_str(
@@ -698,5 +700,53 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@1.2.3.4:4545");
+    }
+
+    #[test]
+    fn new_ip_message_without_node_addr_is_logged_and_ignored() {
+        init_test_logging();
+        let system = System::new("test");
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        let node_descriptor = NodeDescriptor::from ((
+            main_cryptde().public_key(),
+            Chain::default(),
+            main_cryptde() as &dyn CryptDE
+        ));
+        bootstrapper_config.node_descriptor = node_descriptor;
+        let msg = NodeFromUiMessage {
+            client_id: 1234,
+            body: UiDescriptorRequest {}.tmb(4321),
+        };
+        let (dispatcher_subs, _) =
+            ActorFactoryReal {}.make_and_start_dispatcher(&bootstrapper_config);
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        dispatcher_subs
+            .bind
+            .try_send(BindMessage { peer_actors })
+            .unwrap();
+        dispatcher_subs
+            .new_ip_sub
+            .try_send (NewPublicIp { new_ip: IpAddr::from_str ("1.2.3.4").unwrap() })
+            .unwrap();
+
+        dispatcher_subs.ui_sub.try_send(msg).unwrap();
+
+        thread::sleep(std::time::Duration::from_millis(15)); //Required to break unknown race condition, probably inside actix.
+        System::current().stop_with_code(0);
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq!(
+            response,
+            &NodeToUiMessage {
+                target: MessageTarget::ClientId(1234),
+                body: UiDescriptorResponse {
+                    node_descriptor_opt: None,
+                }
+                .tmb(4321)
+            }
+        );
+        TestLogHandler::new().exists_log_containing("WARN: Dispatcher: Received attempt to set public IP to 1.2.3.4 while not in Standard mode - rejecting");
     }
 }
