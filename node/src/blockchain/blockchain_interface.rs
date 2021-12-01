@@ -18,7 +18,7 @@ use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
 use web3::types::{
     Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
-    H256, U256,
+    TransactionReceipt, H256, U256,
 };
 use web3::{Transport, Web3};
 
@@ -73,6 +73,7 @@ pub type BlockchainResult<T> = Result<T, BlockchainError>;
 pub type Balance = BlockchainResult<web3::types::U256>;
 pub type Nonce = BlockchainResult<web3::types::U256>;
 pub type Transactions = BlockchainResult<Vec<Transaction>>;
+pub type TxReceipt = BlockchainResult<TransactionReceipt>;
 
 pub trait BlockchainInterface: ToolFactories {
     fn contract_address(&self) -> Address;
@@ -101,6 +102,8 @@ pub trait BlockchainInterface: ToolFactories {
     }
 
     fn get_transaction_count(&self, address: &Wallet) -> Nonce;
+
+    fn get_transaction_receipt(&self, hash: H256) -> TxReceipt;
 }
 
 // TODO: This probably should go away
@@ -162,6 +165,10 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn get_transaction_count(&self, _address: &Wallet) -> Nonce {
         error!(self.logger, "Can't get transaction count clandestinely yet",);
         Ok(0.into())
+    }
+
+    fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
+        todo!()
     }
 }
 
@@ -320,6 +327,10 @@ where
             .transaction_count(wallet.address(), Some(BlockNumber::Pending))
             .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
+    }
+
+    fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
+        todo!()
     }
 
     // fn send_transaction_tools<'a>(&'a self, tool_factory: &dyn ToolFactories) -> Box<dyn SendTransactionToolWrapper + 'a> {

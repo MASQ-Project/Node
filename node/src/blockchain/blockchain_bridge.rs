@@ -20,20 +20,20 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::handle_ui_crash_request;
 use crate::sub_lib::wallet::Wallet;
-use actix::{AsyncContext, Context};
 use actix::Handler;
 use actix::Message;
 use actix::{Actor, MessageResult};
 use actix::{Addr, Recipient};
+use actix::{AsyncContext, Context};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use web3::transports::Http;
-use web3::types::H256;
+use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -109,14 +109,27 @@ impl Handler<RetrieveTransactions> for BlockchainBridge {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Message)]
-pub struct CheckOutPendingTxConfirmation {pending_tx_hashes: Vec<H256>, attempt: u16}
+#[derive(Debug, PartialEq, Message, Clone)]
+pub struct CheckOutPendingTxForConfirmation {
+    pending_txs_info: Vec<PendingTxInfo>,
+    attempt: u16,
+}
 
-impl Handler<CheckOutPendingTxConfirmation> for BlockchainBridge {
+impl Handler<CheckOutPendingTxForConfirmation> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: CheckOutPendingTxConfirmation, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_checkout_pending_tx(msg.pending_tx_hashes)
+    fn handle(
+        &mut self,
+        msg: CheckOutPendingTxForConfirmation,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let attempt = msg.attempt;
+        let statuses = self.handle_pending_tx_checkout(msg);
+        let (cancelations, still_pending_as_actor_msg) =
+            PendingTransactionStatus::merge_still_pending_and_separate_from_others(
+                statuses, attempt,
+            );
+        unimplemented!()
     }
 }
 
@@ -128,10 +141,16 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
         msg: ReportAccountsPayable,
         ctx: &mut Self::Context,
     ) -> <Self as Handler<ReportAccountsPayable>>::Result {
-        let (result, hashes) = self.handle_report_accounts_payable(msg);
-        if !hashes.is_empty() {
-            unimplemented!();
-            ctx.notify_later(CheckOutPendingTxConfirmation {pending_tx_hashes: hashes,attempt: 1}, Duration::from_millis(self.tx_confirmation.pending_tx_checkout_interval));
+        let (result, pending_txs_info) = self.handle_report_accounts_payable(msg);
+        //TODO test later that if there is now hash we don't send a msg, but we will need more tools to set it up than I have now
+        if !pending_txs_info.is_empty() {
+            ctx.notify_later(
+                CheckOutPendingTxForConfirmation {
+                    pending_txs_info,
+                    attempt: 1,
+                },
+                Duration::from_millis(self.tx_confirmation.pending_tx_checkout_interval),
+            );
         }
         result
     }
@@ -217,7 +236,7 @@ impl BlockchainBridge {
     fn handle_report_accounts_payable(
         &self,
         creditors_msg: ReportAccountsPayable,
-    ) -> (MessageResult<ReportAccountsPayable>, Vec<H256>) {
+    ) -> (MessageResult<ReportAccountsPayable>, Vec<PendingTxInfo>) {
         let result = match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => {
                 let gas_price = match self.persistent_config.gas_price() {
@@ -248,21 +267,24 @@ impl BlockchainBridge {
 
     fn collect_hashes_from_sent_payments(
         result: &Result<Vec<BlockchainResult<Payment>>, String>,
-    ) -> Vec<H256> {
+    ) -> Vec<PendingTxInfo> {
         let mut hashes_of_pending_tx = vec![];
         result.as_ref().map(|collection| {
             collection.iter().for_each(|result| {
-                result
-                    .as_ref()
-                    .map(|payment| hashes_of_pending_tx.push(payment.transaction.clone()));
+                result.as_ref().map(|payment| {
+                    hashes_of_pending_tx.push(PendingTxInfo {
+                        hash: payment.transaction.clone(),
+                        when_sent: payment.timestamp,
+                    })
+                });
             })
         });
         hashes_of_pending_tx
     }
 
-    fn add_new_pending_transactions_on_list(&self, txs: &[H256]) -> Result<(), String> {
-        txs.iter().map(|hash| if self.tx_confirmation.list_of_pending_txs.borrow_mut().insert(hash.clone())
-        {Ok(())} else {Err(format!("Repeated attempt for an insertion of the same hash of a pending transaction: {}", hash))}).collect()
+    fn add_new_pending_transactions_on_list(&self, txs: &[PendingTxInfo]) -> Result<(), String> {
+        txs.iter().map(|pending_tx| if self.tx_confirmation.list_of_pending_txs.borrow_mut().insert(pending_tx.hash.clone())
+        {Ok(())} else {Err(format!("Repeated attempt for an insertion of the same hash of a pending transaction: {}", pending_tx.hash))}).collect()
     }
 
     fn process_payments(
@@ -308,14 +330,112 @@ impl BlockchainBridge {
             .collect::<Vec<BlockchainResult<Payment>>>()
     }
 
-    fn handle_checkout_pending_tx(&self, hashes: Vec<H256>){
-        todo!()
+    fn handle_pending_tx_checkout(
+        &self,
+        msg: CheckOutPendingTxForConfirmation,
+    ) -> Vec<PendingTransactionStatus> {
+        msg.pending_txs_info
+            .iter()
+            .map(|pending_tx_info| {
+                match self
+                    .blockchain_interface
+                    .get_transaction_receipt(pending_tx_info.hash)
+                {
+                    Ok(receipt) => Self::receipt_check_for_pending_tx(
+                        receipt,
+                        pending_tx_info,
+                        msg.attempt,
+                        &self.logger,
+                    ),
+                    Err(e) => unimplemented!(),
+                }
+            })
+            .collect()
+    }
+
+    fn receipt_check_for_pending_tx(
+        receipt: TransactionReceipt,
+        tx_info: &PendingTxInfo,
+        attempt: u16,
+        logger: &Logger,
+    ) -> PendingTransactionStatus {
+        fn elapsed_in_sec(old_timestamp: SystemTime) -> u64 {
+            old_timestamp
+                .elapsed()
+                .expect("time counts for elapsed failed")
+                .as_secs()
+        }
+        match receipt.status{
+            None => {
+                info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}s after its sending",tx_info.hash, attempt, elapsed_in_sec(tx_info.when_sent));
+                PendingTransactionStatus::StillPending{ pending_tx_info: tx_info.clone(), attempt}},
+            Some(status_code) => match status_code.as_u64(){
+                0 => {info!(logger,"Transaction '{}' has been confirmed at attempt {} at {}s after its sending",tx_info.hash,attempt,elapsed_in_sec(tx_info.when_sent)); PendingTransactionStatus::Confirmed(tx_info.hash)},
+                1 => {warning!(logger,"Pending transaction '{}' announced as a failure on the check of attempt {} at {}s after its sending",tx_info.hash,attempt,elapsed_in_sec(tx_info.when_sent)); PendingTransactionStatus::Failure(tx_info.hash)},
+                _ => unreachable!("tx receipt for pending '{}' - tx status: code other than 0 or 1 shouldn't be possible",tx_info.hash)
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct PendingTxInfo {
+    hash: H256,
+    when_sent: SystemTime,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+enum PendingTransactionStatus {
+    StillPending {
+        pending_tx_info: PendingTxInfo,
+        attempt: u16,
+    }, //will want to go back to the start and send a new
+    Failure(H256), //will send a message to Accountant, log a warn and should resent the tx
+    Confirmed(H256), //will send a message to Accountant
+}
+
+//TODO will send CancelPendingTxStatus msg to Accountant
+
+impl PendingTransactionStatus {
+    fn merge_still_pending_and_separate_from_others(
+        vec: Vec<Self>,
+        attempt: u16,
+    ) -> (Vec<Self>, CheckOutPendingTxForConfirmation) {
+        let (not_pending, pending): (Vec<PendingTransactionStatus>, Vec<PendingTransactionStatus>) =
+            vec.into_iter().partition(|item| item.is_non_pending());
+
+        let init = CheckOutPendingTxForConfirmation {
+            pending_txs_info: vec![],
+            attempt: attempt + 1,
+        };
+        let recollected = pending.into_iter().fold(init, |mut so_far, now| {
+            if let PendingTransactionStatus::StillPending {
+                pending_tx_info,
+                attempt: attempt_from_tx_info,
+            } = now
+            {
+                if attempt_from_tx_info != attempt {
+                    panic!("incompatible attempts of tx confirmations, something is broken; should be {} but was {}", attempt, attempt_from_tx_info)
+                };
+                so_far.pending_txs_info.push(pending_tx_info)
+            } else {
+                panic!("previous measures failed")
+            }
+            so_far
+        });
+        (not_pending, recollected)
+    }
+
+    fn is_non_pending(&self) -> bool {
+        match self {
+            Self::StillPending { .. } => false,
+            _ => true,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::BorrowMut;
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::test_utils::{bc_from_ac_plus_earning_wallet, make_accountant};
@@ -323,16 +443,14 @@ mod tests {
     use crate::accountant::{Accountant, SentPayments};
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::blockchain_interface::{
-        Balance, BlockchainError, BlockchainResult, Nonce, Transaction, Transactions,
+        Balance, BlockchainError, BlockchainResult, Nonce, Transaction, Transactions, TxReceipt,
     };
     use crate::blockchain::test_utils::{
-        make_blockchain_interface_tool_factories, make_default_signed_transaction,
-        make_fake_event_loop_handle, CheckOutPendingTransactionToolWrapperFactoryMock,
-        SendTransactionToolWrapperFactoryMock, SendTransactionToolWrapperMock, TestTransport,
+        make_blockchain_interface_tool_factories, CheckOutPendingTransactionToolWrapperFactoryMock,
+        SendTransactionToolWrapperFactoryMock, SendTransactionToolWrapperMock,
     };
     use crate::blockchain::tool_wrappers::{
         SendTransactionToolWrapper, SendTransactionToolWrapperFactory,
-        SendTransactionToolWrapperNull, SendTransactionToolWrapperReal,
     };
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::database::db_initializer::test_utils::DbInitializerMock;
@@ -349,19 +467,18 @@ mod tests {
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
     use actix::{Addr, Arbiter};
-    use ethereum_types::BigEndianHash;
+    use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
     use futures::future::Future;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::FromHex;
-    use serde_json::json;
+    use std::borrow::BorrowMut;
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
-    use web3::types::{Address, Res, H256, U256};
-    use web3::Transport;
+    use web3::types::{Address, TransactionReceipt, H256, U256};
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -430,9 +547,11 @@ mod tests {
         pub retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
         send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
         send_transaction_results: RefCell<Vec<BlockchainResult<H256>>>,
+        get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
+        get_transaction_receipt_results: RefCell<Vec<TxReceipt>>,
         pub contract_address_results: RefCell<Vec<Address>>,
         pub get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
-        pub get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>
+        pub get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
     }
 
     impl BlockchainInterfaceMock {
@@ -458,6 +577,18 @@ mod tests {
 
         fn get_transaction_count_result(self, result: BlockchainResult<U256>) -> Self {
             self.get_transaction_count_results.borrow_mut().push(result);
+            self
+        }
+
+        fn get_transaction_receipt_params(mut self, params: &Arc<Mutex<Vec<H256>>>) -> Self {
+            self.get_transaction_receipt_params = params.clone();
+            self
+        }
+
+        fn get_transaction_receipt_result(self, result: TxReceipt) -> Self {
+            self.get_transaction_receipt_results
+                .borrow_mut()
+                .push(result);
             self
         }
 
@@ -512,6 +643,14 @@ mod tests {
                 .push(wallet.clone());
             self.get_transaction_count_results.borrow_mut().remove(0)
         }
+
+        fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
+            self.get_transaction_receipt_params
+                .lock()
+                .unwrap()
+                .push(hash);
+            self.get_transaction_receipt_results.borrow_mut().remove(0)
+        }
     }
 
     impl ToolFactories for BlockchainInterfaceMock {
@@ -519,9 +658,9 @@ mod tests {
             &'a self,
             tool_factory_from_blockchain_bridge: &'a (dyn SendTransactionToolWrapperFactory + 'a),
         ) -> Box<dyn SendTransactionToolWrapper + 'a> {
-            tool_factory_from_blockchain_bridge.make(Box::new(|| -> Box<dyn SendTransactionToolWrapper + 'a> {
-                panic!("shouldn't be called")
-            }))
+            tool_factory_from_blockchain_bridge.make(Box::new(
+                || -> Box<dyn SendTransactionToolWrapper + 'a> { panic!("shouldn't be called") },
+            ))
         }
     }
 
@@ -753,14 +892,14 @@ mod tests {
 
         let result = subject.handle_report_accounts_payable(request);
 
-        let (result, hashes) = result;
+        let (result, pending_tx_info) = result;
         assert_eq!(
             result.0,
             Ok(vec![Err(BlockchainError::TransactionFailed(String::from(
                 "mock payment failure"
             )))])
         );
-        assert_eq!(hashes.len(), 1);
+        assert!(pending_tx_info.is_empty());
         let actual_wallet = transaction_count_parameters.lock().unwrap().remove(0);
         assert_eq!(actual_wallet, consuming_wallet);
     }
@@ -788,9 +927,9 @@ mod tests {
 
         let result = subject.handle_report_accounts_payable(request);
 
-        let (result, hashes) = result;
+        let (result, pending_tx_info) = result;
         assert_eq!(result.0, Err("No consuming wallet specified".to_string()));
-        assert_eq!(hashes.len(), 1)
+        assert!(pending_tx_info.is_empty())
     }
 
     #[test]
@@ -819,14 +958,14 @@ mod tests {
 
         let result = subject.handle_report_accounts_payable(request);
 
-        let (result, hashes) = result;
+        let (result, pending_tx_info) = result;
         assert_eq!(
             result.0,
             Err(String::from(
                 "ReportAccountPayable: gas-price: TransactionError"
             ))
         );
-        assert_eq!(hashes.len(), 1)
+        assert!(pending_tx_info.is_empty())
     }
 
     #[test]
@@ -972,13 +1111,7 @@ mod tests {
         // let conn_wrapped = DbInitializerReal::default().initialize(&db_dir,true,MigratorConfig::test_default()).unwrap();
         let payment_sent_params_arc = Arc::new(Mutex::new(vec![]));
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut transport = TestTransport::default();
-        transport.add_response(json!(
-            "0x0000000000000000000000000000000000000000000000000000000000000001"
-        ));
-        transport.add_response(json!(
-            "0x0000000000000000000000000000000000000000000000000000000000000002"
-        ));
+        let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::new()
             .payment_sent_params(&payment_sent_params_arc)
             .payment_sent_result(Ok(()))
@@ -992,30 +1125,27 @@ mod tests {
             },
             make_wallet("some_wallet_address"),
         );
-        let blockchain_interface = BlockchainInterfaceNonClandestine::new(
-            transport.clone(),
-            make_fake_event_loop_handle(),
-            TEST_DEFAULT_CHAIN,
-        );
+        let pending_tx_hash_1 = H256::from_uint(&U256::from(123));
+        let pending_tx_hash_2 = H256::from_uint(&U256::from(567));
+        let transaction_receipt_tx_1_first_round = TransactionReceipt::default();
+        let transaction_receipt_tx_2_first_round = TransactionReceipt::default();
+        let blockchain_interface = BlockchainInterfaceMock::default()
+            .get_transaction_count_result(Ok(web3::types::U256::from(1)))
+            .get_transaction_count_result(Ok(web3::types::U256::from(2)))
+            .send_transaction_result(Ok(pending_tx_hash_1))
+            .send_transaction_result(Ok(pending_tx_hash_2))
+            .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
+            .get_transaction_receipt_result(Ok(transaction_receipt_tx_1_first_round))
+            .get_transaction_receipt_result(Ok(transaction_receipt_tx_2_first_round));
         let consuming_wallet = make_paying_wallet(b"wallet");
         let system = System::new("pending_transaction");
         let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(130));
-        //with this mocked version it doesn't matter if the data for one is the same as for the other one; the important part is what we gets back from send_raw_transaction()
-        let signed_transaction_sentinel = make_default_signed_transaction();
-        let first_transaction_hash = H256::from_uint(&U256::from(123456789));
-        let send_transaction_tools_for_the_first_tx = SendTransactionToolWrapperMock::default()
-            .sign_transaction_result(Ok(signed_transaction_sentinel.clone()))
-            .send_raw_transaction_result(Ok(first_transaction_hash));
-        let second_transaction_hash = H256::from_uint(&U256::from(987654321));
-        let send_transaction_tools_for_the_second_tx = SendTransactionToolWrapperMock::default()
-            .sign_transaction_result(Ok(signed_transaction_sentinel))
-            .send_raw_transaction_result(Ok(second_transaction_hash));
         let non_clandestine_send_tx_tool_factory = SendTransactionToolWrapperFactoryMock::default()
-            .make_result(Box::new(send_transaction_tools_for_the_first_tx))
-            .make_result(Box::new(send_transaction_tools_for_the_second_tx));
+            .make_result(Box::new(SendTransactionToolWrapperMock::default()))
+            .make_result(Box::new(SendTransactionToolWrapperMock::default()));
         let non_clandestine_chack_out_pending_tx_tool_factory =
             CheckOutPendingTransactionToolWrapperFactoryMock::default();
-        let pending_tx_checkout_interval = 1; //in seconds
+        let pending_tx_checkout_interval_ms = 10;
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),
@@ -1025,7 +1155,7 @@ mod tests {
                 Some(non_clandestine_send_tx_tool_factory),
                 Some(non_clandestine_chack_out_pending_tx_tool_factory),
             ),
-            pending_tx_checkout_interval,
+            pending_tx_checkout_interval_ms,
         );
         let accountant_addr = Arbiter::builder()
             .stop_system_on_panic(true)
@@ -1091,7 +1221,7 @@ mod tests {
         assert_eq!(first_payment.to, wallet_account_1);
         assert_eq!(first_payment.amount, 5500);
         assert!(to_time_t(first_payment.timestamp) > (to_time_t(SystemTime::now()) - 10));
-        assert_eq!(first_payment.transaction, first_transaction_hash);
+        assert_eq!(first_payment.transaction, pending_tx_hash_1);
         let second_payment = payment_sent_parameters.remove(0);
         assert!(
             payment_sent_parameters.is_empty(),
@@ -1101,12 +1231,216 @@ mod tests {
         assert_eq!(second_payment.to, wallet_account_2);
         assert_eq!(second_payment.amount, 123456);
         assert!(to_time_t(second_payment.timestamp) > (to_time_t(SystemTime::now()) - 10));
-        assert_eq!(second_payment.transaction, second_transaction_hash);
+        assert_eq!(second_payment.transaction, pending_tx_hash_2);
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
         assert_eq!(
             *transaction_confirmed_params,
             vec![wallet_account_1, wallet_account_2]
         )
+    }
+
+    #[test]
+    fn receipt_check_for_pending_tx_when_tx_confirmed() {
+        init_test_logging();
+        let hash = H256::from_uint(&U256::from(789));
+        let mut tx_receipt = TransactionReceipt::default();
+        tx_receipt.transaction_hash = hash;
+        tx_receipt.status = Some(U64::from(0)); //success
+        let when_sent = SystemTime::now()
+            .checked_sub(Duration::from_secs(150))
+            .unwrap();
+        let pending_tx_info = PendingTxInfo { hash, when_sent };
+        let attempt = 5;
+
+        let result = BlockchainBridge::receipt_check_for_pending_tx(
+            tx_receipt,
+            &pending_tx_info,
+            attempt,
+            &Logger::new("receipt_check_logger"),
+        );
+
+        assert_eq!(result, PendingTransactionStatus::Confirmed(hash));
+        TestLogHandler::new().exists_log_containing("INFO: receipt_check_logger: Transaction '0x0000…0315' has been confirmed at attempt 5 at 150s after its sending");
+    }
+
+    #[test]
+    fn receipt_check_for_pending_tx_when_tx_status_is_none() {
+        init_test_logging();
+        let hash = H256::from_uint(&U256::from(567));
+        let mut tx_receipt = TransactionReceipt::default();
+        tx_receipt.transaction_hash = hash;
+        let when_sent = SystemTime::now()
+            .checked_sub(Duration::from_secs(5))
+            .unwrap();
+        let pending_tx_info = PendingTxInfo { hash, when_sent };
+        let attempt = 1;
+
+        let result = BlockchainBridge::receipt_check_for_pending_tx(
+            tx_receipt,
+            &pending_tx_info,
+            attempt,
+            &Logger::new("receipt_check_logger"),
+        );
+
+        assert_eq!(
+            result,
+            PendingTransactionStatus::StillPending {
+                pending_tx_info,
+                attempt
+            }
+        );
+        TestLogHandler::new().exists_log_containing("INFO: receipt_check_logger: Pending transaction '0x0000…0237' couldn't be confirmed at attempt 1 at 5s after its sending");
+    }
+
+    #[test]
+    fn receipt_check_for_pending_tx_when_tx_status_is_a_failure() {
+        init_test_logging();
+        let hash = H256::from_uint(&U256::from(789));
+        let mut tx_receipt = TransactionReceipt::default();
+        tx_receipt.transaction_hash = hash;
+        tx_receipt.status = Some(U64::from(1)); //failure
+        let when_sent = SystemTime::now()
+            .checked_sub(Duration::from_secs(150))
+            .unwrap();
+        let pending_tx_info = PendingTxInfo { hash, when_sent };
+        let attempt = 5;
+
+        let result = BlockchainBridge::receipt_check_for_pending_tx(
+            tx_receipt,
+            &pending_tx_info,
+            attempt,
+            &Logger::new("receipt_check_logger"),
+        );
+
+        assert_eq!(result, PendingTransactionStatus::Failure(hash));
+        TestLogHandler::new().exists_log_containing("WARN: receipt_check_logger: Pending transaction '0x0000…0315' announced as a failure on the check of attempt 5 at 150s after its sending");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "tx receipt for pending '0x0000…007b' - tx status: code other than 0 or 1 shouldn't be possible"
+    )]
+    fn receipt_check_for_pending_tx_panics_at_undefined_status_code() {
+        let hash = H256::from_uint(&U256::from(123));
+        let mut tx_receipt = TransactionReceipt::default();
+        tx_receipt.status = Some(U64::from(456));
+        tx_receipt.transaction_hash = hash;
+        let when_sent = SystemTime::now();
+        let pending_tx_info = PendingTxInfo { hash, when_sent };
+
+        let result = BlockchainBridge::receipt_check_for_pending_tx(
+            tx_receipt,
+            &pending_tx_info,
+            1,
+            &Logger::new("receipt_check_logger"),
+        );
+    }
+
+    #[test]
+    fn merging_pending_tx_info_works_including_incrementing_the_attempt_number() {
+        let confirmed_status =
+            PendingTransactionStatus::Confirmed(H256::from_uint(&U256::from(123)));
+        let failure_status = PendingTransactionStatus::Failure(H256::from_uint(&U256::from(456)));
+        let first_tx_hash = H256::from_uint(&U256::from(123));
+        let first_timestamp = from_time_t(150000);
+        let first_pending_tx_info = PendingTxInfo {
+            hash: first_tx_hash,
+            when_sent: first_timestamp,
+        };
+        let attempt = 4;
+        let first_pending_tx_status = PendingTransactionStatus::StillPending {
+            pending_tx_info: first_pending_tx_info.clone(),
+            attempt,
+        };
+        let second_tx_hash = H256::from_uint(&U256::from(578));
+        let second_timestamp = from_time_t(178000);
+        let second_pending_tx_info = PendingTxInfo {
+            hash: second_tx_hash,
+            when_sent: second_timestamp,
+        };
+        let second_pending_tx_status = PendingTransactionStatus::StillPending {
+            pending_tx_info: second_pending_tx_info.clone(),
+            attempt,
+        };
+        let statuses = vec![
+            first_pending_tx_status,
+            confirmed_status.clone(),
+            second_pending_tx_status,
+            failure_status.clone(),
+        ];
+
+        let result = PendingTransactionStatus::merge_still_pending_and_separate_from_others(
+            statuses, attempt,
+        );
+
+        let (to_cancel, to_repeat) = result;
+        assert_eq!(to_cancel, vec![confirmed_status, failure_status]);
+        assert_eq!(
+            to_repeat,
+            CheckOutPendingTxForConfirmation {
+                pending_txs_info: vec![first_pending_tx_info, second_pending_tx_info],
+                attempt: 5
+            }
+        )
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "incompatible attempts of tx confirmations, something is broken; should be 2 but was 5"
+    )]
+    fn merging_pending_tx_info_panics_at_pending_records_with_incompatible_attempt_numbers() {
+        let first_tx_hash = H256::from_uint(&U256::from(123));
+        let first_timestamp = from_time_t(150000);
+        let first_pending_tx_info = PendingTxInfo {
+            hash: first_tx_hash,
+            when_sent: first_timestamp,
+        };
+        let believed_attempt = 2;
+        let attempt_1 = 2;
+        let first_pending_tx_status = PendingTransactionStatus::StillPending {
+            pending_tx_info: first_pending_tx_info.clone(),
+            attempt: attempt_1,
+        };
+        let second_tx_hash = H256::from_uint(&U256::from(578));
+        let second_timestamp = from_time_t(178000);
+        let second_pending_tx_info = PendingTxInfo {
+            hash: second_tx_hash,
+            when_sent: second_timestamp,
+        };
+        let attempt_2 = 5;
+        let second_pending_tx_status = PendingTransactionStatus::StillPending {
+            pending_tx_info: second_pending_tx_info.clone(),
+            attempt: attempt_2,
+        };
+        let statuses = vec![first_pending_tx_status, second_pending_tx_status];
+
+        let result = PendingTransactionStatus::merge_still_pending_and_separate_from_others(
+            statuses,
+            believed_attempt,
+        );
+    }
+
+    #[test]
+    fn is_non_pending_is_properly_set() {
+        assert_eq!(
+            PendingTransactionStatus::Failure(H256::from_uint(&U256::from(123))).is_non_pending(),
+            true
+        );
+        assert_eq!(
+            PendingTransactionStatus::Confirmed(H256::from_uint(&U256::from(123))).is_non_pending(),
+            true
+        );
+        assert_eq!(
+            PendingTransactionStatus::StillPending {
+                pending_tx_info: PendingTxInfo {
+                    hash: H256::from_uint(&U256::from(123)),
+                    when_sent: SystemTime::now()
+                },
+                attempt: 4
+            }
+            .is_non_pending(),
+            false
+        );
     }
 
     #[test]
