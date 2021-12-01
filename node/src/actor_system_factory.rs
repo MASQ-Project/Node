@@ -51,7 +51,6 @@ use automap_lib::control_layer::automap_control::{
 };
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::ExpectValue;
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
@@ -198,7 +197,7 @@ impl ActorSystemFactoryReal {
             &config,
             vec![
                 peer_actors.neighborhood.new_public_ip.clone(),
-                // TODO peer_actors.dispatcher.new_ip_sub.clone(),
+                peer_actors.dispatcher.new_ip_sub.clone(),
             ],
         );
 
@@ -239,10 +238,12 @@ impl ActorSystemFactoryReal {
             if node_addr.ip_addr() != IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
                 return;
             }
-            let inner_recipients = new_ip_recipients.clone();
             let change_handler = move |change: AutomapChange| match change {
                 AutomapChange::NewIp(new_public_ip) => {
-                    Self::notify_of_public_ip_change(inner_recipients.as_slice(), new_public_ip)
+                    exit_process(
+                        1,
+                        format! ("IP change to {} reported from ISP. We can't handle that until GH-499. Going down...", new_public_ip).as_str()
+                    );
                 }
                 AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(e),
             };
@@ -316,9 +317,9 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
         let crash_point = config.crash_point;
-        let descriptor = config.node_descriptor_opt.clone();
+        let node_descriptor_opt = config.node_descriptor_opt.clone();
         let addr: Addr<Dispatcher> = Arbiter::start(move |_| {
-            Dispatcher::new(crash_point, &descriptor.expect_v("node descriptor"))
+            Dispatcher::new(crash_point, node_descriptor_opt.clone())
         });
         (
             Dispatcher::make_subs_from(&addr),
@@ -606,7 +607,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use crossbeam_channel::unbounded;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
@@ -1074,24 +1074,17 @@ mod tests {
                 ),
             },
         };
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ActorSystemFactoryReal::new();
         subject.automap_control_factory = Box::new(
-            AutomapControlFactoryMock::new()
-                .make_params(&make_params_arc)
-                .make_result(
-                    AutomapControlMock::new()
-                        .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.5").unwrap()))
-                        .add_mapping_params(&add_mapping_params_arc)
-                        .add_mapping_result(Ok(()))
-                        .add_mapping_result(Ok(())),
-                ),
+            AutomapControlFactoryMock::new().make_result(
+                AutomapControlMock::new()
+                    .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+                    .add_mapping_params(&add_mapping_params_arc)
+                    .add_mapping_result(Ok(()))
+                    .add_mapping_result(Ok(())),
+            ),
         );
-        let join_handle = thread::spawn(move || {
-            let system = System::new("MASQNode");
-            system.run();
-        });
 
         let _ = subject.prepare_initial_messages(
             main_cryptde(),
@@ -1100,12 +1093,9 @@ mod tests {
             Box::new(actor_factory),
         );
 
-        let mut make_params = make_params_arc.lock().unwrap();
-        let change_handler: ChangeHandler = make_params.remove(0).1;
-        change_handler(AutomapChange::NewIp(IpAddr::from_str("1.2.3.4").unwrap()));
-
+        let system = System::new("MASQNode");
         System::current().stop();
-        join_handle.join().unwrap();
+        system.run();
         check_bind_message(&recordings.dispatcher, false);
         check_bind_message(&recordings.hopper, false);
         check_bind_message(&recordings.proxy_client, false);
@@ -1113,6 +1103,11 @@ mod tests {
         check_bind_message(&recordings.neighborhood, false);
         check_bind_message(&recordings.ui_gateway, false);
         check_bind_message(&recordings.accountant, false);
+        check_new_ip_message(
+            &recordings.dispatcher,
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            2,
+        );
         check_new_ip_message(
             &recordings.neighborhood,
             IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1174,6 +1169,50 @@ mod tests {
         );
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![1234, 2345]);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "1: IP change to 1.2.3.5 reported from ISP. We can't handle that until GH-499. Going down..."
+    )]
+    fn change_handler_panics_when_receiving_ip_change_from_isp() {
+        running_test();
+        let actor_factory = ActorFactoryMock::new();
+        let mut config = BootstrapperConfig::default();
+        config.neighborhood_config = NeighborhoodConfig {
+            mode: NeighborhoodMode::Standard(
+                NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234]),
+                vec![],
+                rate_pack(100),
+            ),
+        };
+        // config.node_descriptor_opt = Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap());
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = ActorSystemFactoryReal::new();
+        subject.automap_control_factory = Box::new(
+            AutomapControlFactoryMock::new()
+                .make_params(&make_params_arc)
+                .make_result(
+                    AutomapControlMock::new()
+                        .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+                        .add_mapping_result(Ok(())),
+                ),
+        );
+
+        let _ = subject.prepare_initial_messages(
+            main_cryptde(),
+            alias_cryptde(),
+            config.clone(),
+            Box::new(actor_factory),
+        );
+
+        let mut make_params = make_params_arc.lock().unwrap();
+        let change_handler: ChangeHandler = make_params.remove(0).1;
+        change_handler(AutomapChange::NewIp(IpAddr::from_str("1.2.3.5").unwrap()));
+
+        let system = System::new("MASQNode");
+        System::current().stop();
+        system.run();
     }
 
     #[test]
@@ -1321,58 +1360,6 @@ mod tests {
         subject.start_automap(&config, vec![new_ip_recipient]);
 
         // no not-enough-results-provided error: test passes
-    }
-
-    #[test]
-    fn start_automap_change_handler_handles_ip_changes_properly() {
-        let mut subject = ActorSystemFactoryReal::new();
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let automap_control = AutomapControlMock::new()
-            .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
-            .add_mapping_result(Ok(()));
-        subject.automap_control_factory = Box::new(
-            AutomapControlFactoryMock::new()
-                .make_params(&make_params_arc)
-                .make_result(automap_control),
-        );
-        let mut config = BootstrapperConfig::default();
-        config.mapping_protocol_opt = None;
-        config.neighborhood_config.mode = NeighborhoodMode::Standard(
-            NodeAddr::new(&IpAddr::from_str("0.0.0.0").unwrap(), &[1234]),
-            vec![],
-            DEFAULT_RATE_PACK,
-        );
-        let (recorder1, _, recording_arc1) = make_recorder();
-        let new_ip_recipient1 = recorder1.start().recipient();
-        let (recorder2, _, recording_arc2) = make_recorder();
-        let new_ip_recipient2 = recorder2.start().recipient();
-
-        subject.start_automap(&config, vec![new_ip_recipient1, new_ip_recipient2]);
-
-        let make_params = make_params_arc.lock().unwrap();
-        assert_eq!(make_params[0].0, None);
-        let system = System::new("test");
-        let change_handler = &make_params[0].1;
-        change_handler(AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
-        System::current().stop();
-        system.run();
-        let check_recording = |recording_arc: Arc<Mutex<Recording>>| {
-            let recording = recording_arc.lock().unwrap();
-            assert_eq!(
-                recording.get_record::<NewPublicIp>(0),
-                &NewPublicIp {
-                    new_ip: IpAddr::from_str("1.2.3.4").unwrap()
-                }
-            );
-            assert_eq!(
-                recording.get_record::<NewPublicIp>(1),
-                &NewPublicIp {
-                    new_ip: IpAddr::from_str("4.3.2.1").unwrap()
-                }
-            );
-        };
-        check_recording(recording_arc1);
-        check_recording(recording_arc2);
     }
 
     #[test]

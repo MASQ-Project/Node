@@ -39,7 +39,7 @@ struct DispatcherOutSubs {
 pub struct Dispatcher {
     subs: Option<DispatcherOutSubs>,
     crashable: bool,
-    node_descriptor: NodeDescriptor,
+    node_descriptor_opt: Option<NodeDescriptor>,
     to_stream: Option<Recipient<TransmitDataMsg>>,
     logger: Logger,
 }
@@ -136,21 +136,26 @@ impl Handler<NewPublicIp> for Dispatcher {
     type Result = ();
 
     fn handle(&mut self, msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
-        let ports = match &self.node_descriptor.node_addr_opt {
-            Some(node_addr) => node_addr.ports(),
-            None => todo!(),
-        };
-        self.node_descriptor.node_addr_opt = Some(NodeAddr::new(&msg.new_ip, &ports));
-        Bootstrapper::report_local_descriptor(main_cryptde(), &self.node_descriptor);
+        match &mut self.node_descriptor_opt {
+            None => todo! (),
+            Some (node_descriptor) => match &node_descriptor.node_addr_opt {
+                None => todo! (),
+                Some (node_addr) => {
+                    let ports = &node_addr.ports();
+                    node_descriptor.node_addr_opt = Some(NodeAddr::new(&msg.new_ip, ports));
+                    Bootstrapper::report_local_descriptor(main_cryptde(), node_descriptor);
+                },
+            }
+        }
     }
 }
 
 impl Dispatcher {
-    pub fn new(crash_point: CrashPoint, node_descriptor: &NodeDescriptor) -> Dispatcher {
+    pub fn new(crash_point: CrashPoint, node_descriptor_opt: Option<NodeDescriptor>) -> Dispatcher {
         Dispatcher {
             subs: None,
             crashable: crash_point == CrashPoint::Message,
-            node_descriptor: node_descriptor.clone(),
+            node_descriptor_opt: node_descriptor_opt,
             to_stream: None,
             logger: Logger::new("Dispatcher"),
         }
@@ -182,12 +187,14 @@ impl Dispatcher {
     }
 
     fn handle_descriptor_request(&mut self, client_id: u64, context_id: u64) {
-        let node_descriptor_opt = match &self.node_descriptor.node_addr_opt {
-            Some(node_addr) if node_addr.ip_addr() == *NULL_IP_ADDRESS => None,
-            Some(_) => Some(self.node_descriptor.clone()),
+        let node_desc_str_opt = match &self.node_descriptor_opt {
+            Some(node_descriptor) => match &node_descriptor.node_addr_opt {
+                Some(node_addr) if node_addr.ip_addr() == *NULL_IP_ADDRESS => None,
+                Some(_) => Some(node_descriptor.to_string(main_cryptde())),
+                None => None,
+            }
             None => None,
         };
-        let node_desc_str_opt = node_descriptor_opt.map(|nd| nd.to_string(main_cryptde()));
         let response_inner = UiDescriptorResponse {
             node_descriptor_opt: node_desc_str_opt,
         };
@@ -237,7 +244,7 @@ mod tests {
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
+        let subject = Dispatcher::new(CrashPoint::None, Some(NODE_DESCRIPTOR.clone()));
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
         let proxy_server = Recorder::new();
@@ -278,7 +285,7 @@ mod tests {
     #[test]
     fn sends_inbound_data_for_hopper_to_hopper() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
+        let subject = Dispatcher::new(CrashPoint::None, Some(NODE_DESCRIPTOR.clone()));
         let subject_addr: Addr<Dispatcher> = subject.start();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -317,7 +324,7 @@ mod tests {
     #[should_panic(expected = "ProxyServer unbound in Dispatcher")]
     fn inbound_client_data_handler_panics_when_proxy_server_is_unbound() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
+        let subject = Dispatcher::new(CrashPoint::None, Some(NODE_DESCRIPTOR.clone()));
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
@@ -342,7 +349,7 @@ mod tests {
     #[should_panic(expected = "Hopper unbound in Dispatcher")]
     fn inbound_client_data_handler_panics_when_hopper_is_unbound() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
+        let subject = Dispatcher::new(CrashPoint::None, Some(NODE_DESCRIPTOR.clone()));
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
@@ -367,7 +374,7 @@ mod tests {
     #[should_panic(expected = "StreamHandlerPool unbound in Dispatcher")]
     fn panics_when_stream_handler_pool_is_unbound() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
+        let subject = Dispatcher::new(CrashPoint::None, Some(NODE_DESCRIPTOR.clone()));
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_obcd = subject_addr.recipient::<TransmitDataMsg>();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -388,7 +395,7 @@ mod tests {
     #[test]
     fn forwards_outbound_data_to_stream_handler_pool() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
+        let subject = Dispatcher::new(CrashPoint::None, Some(NODE_DESCRIPTOR.clone()));
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_obcd = subject_addr.clone().recipient::<TransmitDataMsg>();
         let stream_handler_pool = Recorder::new();
@@ -435,7 +442,7 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_routes_non_clandestine_to_proxy_server() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
+        let subject = Dispatcher::new(CrashPoint::None, Some(NODE_DESCRIPTOR.clone()));
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -469,7 +476,7 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_routes_clandestine_to_neighborhood() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, &NODE_DESCRIPTOR);
+        let subject = Dispatcher::new(CrashPoint::None, Some(NODE_DESCRIPTOR.clone()));
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -507,7 +514,7 @@ mod tests {
             &IpAddr::from_str("0.0.0.0").unwrap(),
             &node_descriptor.node_addr_opt.as_ref().unwrap().ports(),
         ));
-        let subject = Dispatcher::new(CrashPoint::None, &node_descriptor);
+        let subject = Dispatcher::new(CrashPoint::None, Some(node_descriptor.clone()));
         let addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -562,8 +569,8 @@ mod tests {
     }
 
     #[test]
-    //joined with inspecting whether dispatcher obtains the information of the descriptor correctly
-    fn descriptor_request_results_in_descriptor_response() {
+    // joined with inspecting whether dispatcher obtains the information of the descriptor correctly
+    fn descriptor_request_after_start_with_ip_results_in_descriptor_response() {
         let system = System::new("test");
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
@@ -577,7 +584,7 @@ mod tests {
             client_id: 1234,
             body: UiDescriptorRequest {}.tmb(4321),
         };
-        //Here dispatcher takes what it needs from the BootstrapperConfig
+        // Here dispatcher takes what it needs from the BootstrapperConfig
         let (dispatcher_subs, _) =
             ActorFactoryReal {}.make_and_start_dispatcher(&bootstrapper_config);
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -603,5 +610,99 @@ mod tests {
                 .tmb(4321)
             }
         )
+    }
+
+    #[test]
+    // joined with inspecting whether dispatcher obtains the information of the descriptor correctly
+    fn descriptor_request_after_start_without_ip_before_automap_results_in_null_descriptor_response() {
+        let system = System::new("test");
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        let node_descriptor = NodeDescriptor::from_str(
+            main_cryptde(),
+            "masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@0.0.0.0:4545",
+        )
+        .unwrap();
+        bootstrapper_config.node_descriptor_opt = Some(node_descriptor);
+        let msg = NodeFromUiMessage {
+            client_id: 1234,
+            body: UiDescriptorRequest {}.tmb(4321),
+        };
+        // Here dispatcher doesn't get what it needs from the BootstrapperConfig
+        let (dispatcher_subs, _) =
+            ActorFactoryReal {}.make_and_start_dispatcher(&bootstrapper_config);
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        dispatcher_subs
+            .bind
+            .try_send(BindMessage { peer_actors })
+            .unwrap();
+
+        dispatcher_subs.ui_sub.try_send(msg).unwrap();
+
+        thread::sleep(std::time::Duration::from_millis(15)); //Required to break unknown race condition, probably inside actix.
+        System::current().stop_with_code(0);
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq!(
+            response,
+            &NodeToUiMessage {
+                target: MessageTarget::ClientId(1234),
+                body: UiDescriptorResponse {
+                    node_descriptor_opt: None,
+                }
+                .tmb(4321)
+            }
+        )
+    }
+
+    #[test]
+    // joined with inspecting whether dispatcher obtains the information of the descriptor correctly
+    fn descriptor_request_after_start_without_ip_after_automap_results_in_descriptor_response() {
+        init_test_logging();
+        let system = System::new("test");
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        let node_descriptor = NodeDescriptor::from_str(
+            main_cryptde(),
+            "masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@0.0.0.0:4545",
+        )
+            .unwrap();
+        bootstrapper_config.node_descriptor_opt = Some(node_descriptor);
+        let msg = NodeFromUiMessage {
+            client_id: 1234,
+            body: UiDescriptorRequest {}.tmb(4321),
+        };
+        // Here dispatcher doesn't get what it needs from the BootstrapperConfig
+        let (dispatcher_subs, _) =
+            ActorFactoryReal {}.make_and_start_dispatcher(&bootstrapper_config);
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        dispatcher_subs
+            .bind
+            .try_send(BindMessage { peer_actors })
+            .unwrap();
+        dispatcher_subs
+            .new_ip_sub
+            .try_send (NewPublicIp { new_ip: IpAddr::from_str ("1.2.3.4").unwrap() })
+            .unwrap();
+
+        dispatcher_subs.ui_sub.try_send(msg).unwrap();
+
+        thread::sleep(std::time::Duration::from_millis(15)); //Required to break unknown race condition, probably inside actix.
+        System::current().stop_with_code(0);
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq!(
+            response,
+            &NodeToUiMessage {
+                target: MessageTarget::ClientId(1234),
+                body: UiDescriptorResponse {
+                    node_descriptor_opt: Some ("masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@1.2.3.4:4545".to_string()),
+                }
+                .tmb(4321)
+            }
+        );
+        TestLogHandler::new().exists_log_containing("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@1.2.3.4:4545");
     }
 }
