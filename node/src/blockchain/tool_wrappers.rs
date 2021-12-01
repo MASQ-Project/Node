@@ -11,7 +11,7 @@ use web3::{Transport, Web3};
 pub trait ToolFactories {
     fn make_send_transaction_tools<'a>(
         &'a self,
-        tool_factory: &'a (dyn SendTransactionToolWrapperFactory + 'a),
+        tool_factory_from_blockchain_bridge: &'a (dyn SendTransactionToolWrapperFactory + 'a),
     ) -> Box<dyn SendTransactionToolWrapper + 'a>;
 }
 

@@ -101,13 +101,6 @@ pub trait BlockchainInterface: ToolFactories {
     }
 
     fn get_transaction_count(&self, address: &Wallet) -> Nonce;
-
-    fn send_transaction_tools<'a>(
-        &'a self,
-        _tool_factory: &dyn ToolFactories,
-    ) -> Box<dyn SendTransactionToolWrapper + 'a> {
-        intentionally_blank!()
-    }
 }
 
 // TODO: This probably should go away
@@ -337,12 +330,12 @@ where
 impl<T: Transport + Debug + 'static> ToolFactories for BlockchainInterfaceNonClandestine<T> {
     fn make_send_transaction_tools<'a>(
         &'a self,
-        tool_factory: &'a (dyn SendTransactionToolWrapperFactory + 'a),
+        tool_factory_from_blockcahin_bridge: &'a (dyn SendTransactionToolWrapperFactory + 'a),
     ) -> Box<dyn SendTransactionToolWrapper + 'a> {
         let real_assembly_line = Box::new(|| -> Box<dyn SendTransactionToolWrapper + 'a> {
             Box::new(SendTransactionToolWrapperReal::new(&self.web3))
         });
-        tool_factory.make(real_assembly_line)
+        tool_factory_from_blockcahin_bridge.make(real_assembly_line)
     }
 }
 
@@ -451,7 +444,7 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle,
-        SendTransactionToolsWrapperMock, TestTransport,
+        SendTransactionToolWrapperMock, TestTransport,
     };
     use crate::blockchain::tool_wrappers::{
         CheckOutPendingTransactionToolWrapperFactoryReal, SendTransactionToolWrapperFactoryReal,
@@ -932,7 +925,7 @@ mod tests {
             .sign_transaction(transaction_parameters_expected.clone(), &secret)
             .wait()
             .unwrap();
-        let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
+        let send_transaction_tools = &SendTransactionToolWrapperMock::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             .sign_transaction_result(Ok(signed_transaction.clone()))
             .send_raw_transaction_params(&send_raw_transaction_params_arc)
@@ -1034,7 +1027,7 @@ mod tests {
     ) {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let consuming_wallet_secret_raw_bytes = b"my-wallet";
-        let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
+        let send_transaction_tools = &SendTransactionToolWrapperMock::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             //I don't want to set up all the mocks - I want see just the params coming in
             .sign_transaction_result(Err(Web3Error::Internal));
@@ -1095,7 +1088,7 @@ mod tests {
     #[test]
     fn send_transaction_fails_on_signing_transaction() {
         let transport = TestTransport::default();
-        let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
+        let send_transaction_tools = &SendTransactionToolWrapperMock::default()
             .sign_transaction_result(Err(Web3Error::Signing(
                 secp256k1secrets::Error::InvalidSecretKey,
             )));
@@ -1127,7 +1120,7 @@ mod tests {
     fn send_transaction_fails_on_sending_raw_tx() {
         let transport = TestTransport::default();
         let signed_transaction = make_default_signed_transaction();
-        let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
+        let send_transaction_tools = &SendTransactionToolWrapperMock::default()
             .sign_transaction_result(Ok(signed_transaction))
             .send_raw_transaction_result(Err(Web3Error::Transport(
                 "Transaction crashed".to_string(),

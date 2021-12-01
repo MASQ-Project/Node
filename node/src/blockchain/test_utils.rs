@@ -136,8 +136,8 @@ impl SendTransactionToolWrapperFactoryMock {
     }
 }
 
-#[derive(Default)]
-pub struct SendTransactionToolsWrapperMock {
+#[derive(Default, Debug)]
+pub struct SendTransactionToolWrapperMock {
     sign_transaction_params:
         Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
     sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
@@ -145,7 +145,7 @@ pub struct SendTransactionToolsWrapperMock {
     send_raw_transaction_results: RefCell<Vec<Result<H256, Web3Error>>>,
 }
 
-impl SendTransactionToolWrapper for SendTransactionToolsWrapperMock {
+impl SendTransactionToolWrapper for SendTransactionToolWrapperMock {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
@@ -164,7 +164,7 @@ impl SendTransactionToolWrapper for SendTransactionToolsWrapperMock {
     }
 }
 
-impl SendTransactionToolsWrapperMock {
+impl SendTransactionToolWrapperMock {
     pub fn sign_transaction_params(
         mut self,
         params: &Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,

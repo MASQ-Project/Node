@@ -3,7 +3,7 @@ use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
-use crate::blockchain::blockchain_bridge::DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_SEC;
+use crate::blockchain::blockchain_bridge::DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
@@ -341,7 +341,7 @@ impl BootstrapperConfig {
                 blockchain_service_url_opt: None,
                 chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
-                pending_tx_checkout_interval: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_SEC,
+                pending_tx_checkout_interval: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             port_configurations: HashMap::new(),
             data_directory: PathBuf::new(),
@@ -658,7 +658,7 @@ mod tests {
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 
     use crate::actor_system_factory::{ActorFactory, ActorSystemFactory, ActorSystemFactoryTools};
-    use crate::blockchain::blockchain_bridge::DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_SEC;
+    use crate::blockchain::blockchain_bridge::DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS;
     use crate::bootstrapper::{
         main_cryptde_ref, Bootstrapper, BootstrapperConfig, EnvironmentWrapper, PortConfiguration,
         RealUser,
@@ -1106,7 +1106,7 @@ mod tests {
                 blockchain_service_url_opt: Some("http://infura.io/ID".to_string()),
                 chain: TEST_DEFAULT_CHAIN,
                 gas_price: DEFAULT_GAS_PRICE,
-                pending_tx_checkout_interval: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_SEC
+                pending_tx_checkout_interval: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS
             }
         );
     }
