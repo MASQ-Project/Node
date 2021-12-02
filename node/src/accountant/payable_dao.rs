@@ -24,15 +24,17 @@ pub struct Payment {
     pub to: Wallet,
     pub amount: u64,
     pub timestamp: SystemTime,
+    pub previous_timestamp: SystemTime,
     pub transaction: H256,
 }
 
 impl Payment {
-    pub fn new(to: Wallet, amount: u64, txn: H256) -> Self {
+    pub fn new(to: Wallet, amount: u64, txn: H256, previous_timestamp: SystemTime) -> Self {
         Self {
             to,
             amount,
             timestamp: SystemTime::now(),
+            previous_timestamp,
             transaction: txn,
         }
     }
@@ -43,15 +45,9 @@ pub trait PayableDao: Debug + Send {
 
     fn payment_sent(&self, sent_payment: &Payment) -> Result<(), PaymentError>;
 
-    fn transaction_confirmed(&self, wallet: &Wallet) -> Result<(), PaymentError>;
+    fn transaction_confirmed(&self, hash: H256) -> Result<(), PaymentError>;
 
-    fn payment_confirmed(
-        &self,
-        wallet: &Wallet,
-        amount: u64,
-        confirmation_noticed_timestamp: SystemTime,
-        transaction_hash: H256,
-    ) -> Result<(), PaymentError>;
+    fn transaction_canceled(&self, invalid_payment: &Payment) -> Result<i64, PaymentError>;
 
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount>;
 
@@ -99,19 +95,12 @@ impl PayableDao for PayableDaoReal {
         }
     }
 
-    fn transaction_confirmed(&self, wallet: &Wallet) -> Result<(), PaymentError> {
+    fn transaction_confirmed(&self, hash: H256) -> Result<(), PaymentError> {
         todo!()
     }
 
-    fn payment_confirmed(
-        &self,
-        _wallet: &Wallet,
-        amount: u64,
-        _confirmation_noticed_timestamp: SystemTime,
-        _transaction_hash: H256,
-    ) -> Result<(), PaymentError> {
-        let _signed_amount = jackass_unsigned_to_signed(amount)?;
-        unimplemented!("SC-925: TODO")
+    fn transaction_canceled(&self, invalid_payment: &Payment) -> Result<i64, PaymentError> {
+        todo!()
     }
 
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount> {
@@ -313,6 +302,7 @@ impl PayableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::test_utils::earlier_in_seconds;
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -428,7 +418,12 @@ mod tests {
                 .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
-        let payment = Payment::new(wallet.clone(), 1, H256::from_uint(&U256::from(1)));
+        let payment = Payment::new(
+            wallet.clone(),
+            1,
+            H256::from_uint(&U256::from(1)),
+            earlier_in_seconds(5000),
+        );
 
         let before_account_status = subject.account_status(&payment.to);
         assert!(before_account_status.is_none());
@@ -460,7 +455,12 @@ mod tests {
                 .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
-        let payment = Payment::new(wallet.clone(), 1, H256::from_uint(&U256::from(1)));
+        let payment = Payment::new(
+            wallet.clone(),
+            1,
+            H256::from_uint(&U256::from(1)),
+            earlier_in_seconds(5000),
+        );
 
         let before_account_status = subject.account_status(&payment.to);
         assert!(before_account_status.is_none());
@@ -490,7 +490,12 @@ mod tests {
                 .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
-        let payment = Payment::new(wallet, std::u64::MAX, H256::from_uint(&U256::from(1)));
+        let payment = Payment::new(
+            wallet,
+            std::u64::MAX,
+            H256::from_uint(&U256::from(1)),
+            earlier_in_seconds(5000),
+        );
 
         let result = subject.payment_sent(&payment);
 
@@ -499,25 +504,26 @@ mod tests {
 
     #[test]
     fn payment_confirmed_works_for_overflow() {
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "payment_confirmed_works_for_overflow",
-        );
-        let wallet = make_wallet("booga");
-        let subject = PayableDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
-                .unwrap(),
-        );
-
-        let result = subject.payment_confirmed(
-            &wallet,
-            std::u64::MAX,
-            SystemTime::now(),
-            H256::from_uint(&U256::from(1)),
-        );
-
-        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
+        //TODO maybe we use it in the new confirm_transaction
+        // let home_dir = ensure_node_home_directory_exists(
+        //     "payable_dao",
+        //     "payment_confirmed_works_for_overflow",
+        // );
+        // let wallet = make_wallet("booga");
+        // let subject = PayableDaoReal::new(
+        //     DbInitializerReal::default()
+        //         .initialize(&home_dir, true, MigratorConfig::test_default())
+        //         .unwrap(),
+        // );
+        //
+        // let result = subject.payment_confirmed(
+        //     &wallet,
+        //     std::u64::MAX,
+        //     SystemTime::now(),
+        //     H256::from_uint(&U256::from(1)),
+        // );
+        //
+        // assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
     }
 
     #[test]
@@ -647,8 +653,9 @@ mod tests {
 
         let result = subject.payment_sent(&Payment::new(
             make_wallet("foobar"),
-            std::u64::MAX,
+            u64::MAX,
             H256::from_uint(&U256::from(123)),
+            earlier_in_seconds(5000),
         ));
 
         assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))

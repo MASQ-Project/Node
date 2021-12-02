@@ -148,12 +148,12 @@ impl Handler<CheckPendingTransactionOutForConfirmation> for BlockchainBridge {
 
 #[derive(Debug, PartialEq, Message, Clone)]
 pub struct CancelFailedPendingTransaction {
-    invalid_payment: Payment,
+    pub invalid_payment: Payment,
 }
 
 #[derive(Debug, PartialEq, Message, Clone)]
 pub struct ConfirmPendingTransaction {
-    hash: H256,
+    pub hash: H256,
 }
 
 impl Handler<ReportAccountsPayable> for BlockchainBridge {
@@ -347,7 +347,12 @@ impl BlockchainBridge {
                                 )
                                 .as_ref(),
                         ) {
-                            Ok(hash) => Ok(Payment::new(payable.wallet.clone(), amount, hash)),
+                            Ok(hash) => Ok(Payment::new(
+                                payable.wallet.clone(),
+                                amount,
+                                hash,
+                                payable.last_paid_timestamp,
+                            )),
                             Err(e) => Err(e),
                         }
                     }
@@ -517,10 +522,13 @@ impl PendingTransactionStatus {
 mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
-    use crate::accountant::test_utils::{bc_from_ac_plus_earning_wallet, make_accountant};
+    use crate::accountant::test_utils::{
+        bc_from_ac_plus_earning_wallet, earlier_in_seconds, make_accountant,
+    };
     use crate::accountant::tests::PayableDaoMock;
     use crate::accountant::{Accountant, SentPayments};
     use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::blockchain_bridge::Payment;
     use crate::blockchain::blockchain_interface::{
         Balance, BlockchainError, BlockchainResult, Nonce, Transaction, Transactions, TxReceipt,
     };
@@ -819,6 +827,7 @@ mod tests {
             .make_result(Box::new(SendTransactionToolWrapperMock::default()))
             .make_result(Box::new(SendTransactionToolWrapperMock::default()));
         let consuming_wallet = make_paying_wallet(b"somewallet");
+        let earlier_in_seconds = earlier_in_seconds(5000);
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
@@ -837,13 +846,13 @@ mod tests {
                 PayableAccount {
                     wallet: make_wallet("blah"),
                     balance: 42,
-                    last_paid_timestamp: SystemTime::now(),
+                    last_paid_timestamp: earlier_in_seconds,
                     pending_payment_transaction: None,
                 },
                 PayableAccount {
                     wallet: make_wallet("foo"),
                     balance: 21,
-                    last_paid_timestamp: SystemTime::now(),
+                    last_paid_timestamp: earlier_in_seconds,
                     pending_payment_transaction: None,
                 },
             ],
@@ -877,6 +886,7 @@ mod tests {
             make_wallet("blah"),
             42,
             H256::from("sometransactionhash".keccak256()),
+            earlier_in_seconds,
         );
 
         if let Ok(zero) = result.clone().get(0).unwrap().clone() {
@@ -901,6 +911,7 @@ mod tests {
             make_wallet("foo"),
             21,
             H256::from("someothertransactionhash".keccak256()),
+            earlier_in_seconds,
         );
 
         if let Ok(one) = result.clone().get(1).unwrap().clone() {
@@ -1165,6 +1176,7 @@ mod tests {
             to: wallet,
             amount: balance as u64,
             timestamp,
+            previous_timestamp: earlier_in_seconds(5000),
             transaction: pending_tx_hash,
         };
         assert!(subject
@@ -1193,12 +1205,16 @@ mod tests {
         //and writes a record for the respective account of the wallet where the transaction was sent to.
         let payment_sent_params_arc = Arc::new(Mutex::new(vec![]));
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
+        let transaction_canceled_params_arc = Arc::new(Mutex::new(vec![]));
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::new()
             .payment_sent_params(&payment_sent_params_arc)
             .payment_sent_result(Ok(()))
             .payment_sent_result(Ok(()))
-            .transaction_confirmed_params(&transaction_confirmed_params_arc);
+            .transaction_confirmed_params(&transaction_confirmed_params_arc)
+            .transaction_confirmed_result(Ok(()))
+            .transaction_canceled_params(&transaction_canceled_params_arc)
+            .transaction_canceled_result(Ok(5000));
         //TODO we will want also results
         let bootstrapper_config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
@@ -1328,11 +1344,34 @@ mod tests {
         assert_eq!(second_payment.amount, 123456);
         assert!(to_time_t(second_payment.timestamp) > (to_time_t(SystemTime::now()) - 10));
         assert_eq!(second_payment.transaction, pending_tx_hash_2);
-        let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
+        let expected_payment_param_for_first_tx = Payment {
+            to: wallet_account_1,
+            amount: 5500,
+            timestamp: SystemTime::now(), //we cannot say what exactly it should be, ignoring
+            previous_timestamp: from_time_t(16548475),
+            transaction: pending_tx_hash_1,
+        };
+        let mut transaction_canceled_params = transaction_canceled_params_arc.lock().unwrap();
+        let cancellation_param_for_tx_1 = transaction_canceled_params.remove(0);
+        assert!(transaction_canceled_params.is_empty());
         assert_eq!(
-            *transaction_confirmed_params,
-            vec![wallet_account_1, wallet_account_2]
+            cancellation_param_for_tx_1.amount,
+            expected_payment_param_for_first_tx.amount
         );
+        assert_eq!(
+            cancellation_param_for_tx_1.previous_timestamp,
+            expected_payment_param_for_first_tx.previous_timestamp
+        );
+        assert_eq!(
+            cancellation_param_for_tx_1.to,
+            expected_payment_param_for_first_tx.to
+        );
+        assert_eq!(
+            cancellation_param_for_tx_1.transaction,
+            expected_payment_param_for_first_tx.transaction
+        );
+        let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
+        assert_eq!(*transaction_confirmed_params, vec![pending_tx_hash_2]);
         let get_transaction_receipt_params = get_transaction_receipt_params_arc.lock().unwrap();
         assert_eq!(
             *get_transaction_receipt_params,
@@ -1340,6 +1379,9 @@ mod tests {
                 pending_tx_hash_1,
                 pending_tx_hash_2,
                 pending_tx_hash_1,
+                pending_tx_hash_2,
+                pending_tx_hash_1,
+                pending_tx_hash_2,
                 pending_tx_hash_2
             ]
         )
@@ -1361,6 +1403,7 @@ mod tests {
             to: make_wallet("blah"),
             amount: 123,
             timestamp: when_sent,
+            previous_timestamp: earlier_in_seconds(5000),
             transaction: hash,
         };
         assert!(subject
@@ -1396,6 +1439,7 @@ mod tests {
             to: make_wallet("blah"),
             amount: 123,
             timestamp: when_sent,
+            previous_timestamp: earlier_in_seconds(5000),
             transaction: hash,
         };
         assert!(subject
@@ -1435,6 +1479,7 @@ mod tests {
             to: make_wallet("blah"),
             amount: 123,
             timestamp: when_sent,
+            previous_timestamp: earlier_in_seconds(5000),
             transaction: hash,
         };
         assert!(subject
@@ -1464,8 +1509,6 @@ mod tests {
         let mut tx_receipt = TransactionReceipt::default();
         tx_receipt.status = Some(U64::from(456));
         tx_receipt.transaction_hash = hash;
-        // let when_sent = SystemTime::now();
-        // let pending_tx_info = PendingTxInfo { hash, when_sent };
         let subject = make_subject();
 
         let result = subject.receipt_check_for_pending_tx(
@@ -1593,12 +1636,14 @@ mod tests {
             to: make_wallet("blah"),
             amount: 897,
             timestamp: SystemTime::now(),
+            previous_timestamp: earlier_in_seconds(5000),
             transaction: transaction1_hash,
         };
         let payment_2 = Payment {
             to: make_wallet("bababoo"),
             amount: 345,
             timestamp: SystemTime::now(),
+            previous_timestamp: earlier_in_seconds(5000),
             transaction: transaction2_hash,
         };
         let result = subject.add_new_pending_transactions_on_list(vec![payment_1, payment_2]);

@@ -18,7 +18,7 @@ use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMoc
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -304,4 +304,10 @@ pub fn bc_from_ac_plus_wallets(
     bc.consuming_wallet = Some(consuming_wallet);
     bc.earning_wallet = earning_wallet;
     bc
+}
+
+pub fn earlier_in_seconds(seconds: u64) -> SystemTime {
+    SystemTime::now()
+        .checked_sub(Duration::from_secs(seconds))
+        .unwrap()
 }
