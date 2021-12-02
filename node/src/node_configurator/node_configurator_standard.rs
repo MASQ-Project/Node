@@ -14,7 +14,7 @@ use clap::value_t;
 use log::LevelFilter;
 
 use crate::apps::app_node;
-use crate::blockchain::bip32::Bip32ECKeyPair;
+use crate::blockchain::bip32::{Bip32ECKeyPair, Bip32ECKeyPairToolsWrapperReal};
 use crate::bootstrapper::PortConfiguration;
 use crate::database::db_migrations::{ExternalData, MigratorConfig};
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
@@ -628,13 +628,17 @@ fn get_consuming_wallet_opt_from_derivation_path(
         Ok(Some(derivation_path)) => match persistent_config.mnemonic_seed(db_password) {
             Ok(None) => Ok(None),
             Ok(Some(mnemonic_seed)) => {
-                let keypair = Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), &derivation_path)
-                    .unwrap_or_else(|_| {
-                        panic!(
-                            "Error making keypair from mnemonic seed and derivation path {}",
-                            derivation_path
-                        )
-                    });
+                let keypair = Bip32ECKeyPair::from_raw(
+                    mnemonic_seed.as_ref(),
+                    &derivation_path,
+                    Bip32ECKeyPairToolsWrapperReal,
+                )
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Error making keypair from mnemonic seed and derivation path {}",
+                        derivation_path
+                    )
+                });
                 Ok(Some(Wallet::from(keypair)))
             }
             Err(e) => match e {
@@ -2160,7 +2164,12 @@ mod tests {
 
         let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
         let expected_consuming_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), "m/44'/60'/1'/2/3").unwrap(),
+            Bip32ECKeyPair::from_raw(
+                mnemonic_seed.as_ref(),
+                "m/44'/60'/1'/2/3",
+                Bip32ECKeyPairToolsWrapperReal,
+            )
+            .unwrap(),
         );
         assert_eq!(config.consuming_wallet, Some(expected_consuming_wallet));
         assert_eq!(
