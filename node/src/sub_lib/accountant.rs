@@ -1,5 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{ReceivedPayments, SentPayments};
+use crate::blockchain::blockchain_bridge::{
+    CancelFailedPendingTransaction, ConfirmPendingTransaction,
+};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -33,6 +36,8 @@ pub struct AccountantSubs {
     pub report_routing_service_consumed: Recipient<ReportRoutingServiceConsumedMessage>,
     pub report_exit_service_consumed: Recipient<ReportExitServiceConsumedMessage>,
     pub report_new_payments: Recipient<ReceivedPayments>,
+    pub cancel_pending_tx: Recipient<CancelFailedPendingTransaction>,
+    pub confirm_pending_tx: Recipient<ConfirmPendingTransaction>,
     pub report_sent_payments: Recipient<SentPayments>,
     pub ui_message_sub: Recipient<NodeFromUiMessage>,
 }
@@ -89,31 +94,14 @@ pub struct FinancialStatisticsMessage {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
 
     #[test]
     fn accountant_subs_debug() {
-        let recorder = Recorder::new().start();
+        let addr = Recorder::new().start();
 
-        let subject = AccountantSubs {
-            bind: recipient!(recorder, BindMessage),
-            start: recipient!(recorder, StartMessage),
-            report_routing_service_provided: recipient!(
-                recorder,
-                ReportRoutingServiceProvidedMessage
-            ),
-            report_exit_service_provided: recipient!(recorder, ReportExitServiceProvidedMessage),
-            report_routing_service_consumed: recipient!(
-                recorder,
-                ReportRoutingServiceConsumedMessage
-            ),
-            report_exit_service_consumed: recipient!(recorder, ReportExitServiceConsumedMessage),
-            report_new_payments: recipient!(recorder, ReceivedPayments),
-            report_sent_payments: recipient!(recorder, SentPayments),
-            ui_message_sub: recipient!(recorder, NodeFromUiMessage),
-        };
+        let subject = make_accountant_subs_from_recorder(&addr);
 
         assert_eq!(format!("{:?}", subject), "AccountantSubs");
     }

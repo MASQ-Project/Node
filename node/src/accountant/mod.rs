@@ -9,7 +9,9 @@ pub mod test_utils;
 use crate::accountant::payable_dao::{PayableAccount, PayableDaoFactory, Payment};
 use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDaoFactory};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
-use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+use crate::blockchain::blockchain_bridge::{
+    CancelFailedPendingTransaction, ConfirmPendingTransaction, RetrieveTransactions,
+};
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
@@ -217,6 +219,26 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
     }
 }
 
+impl Handler<CancelFailedPendingTransaction> for Accountant {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: CancelFailedPendingTransaction,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        self.handle_cancel_pending_transaction()
+    }
+}
+
+impl Handler<ConfirmPendingTransaction> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: ConfirmPendingTransaction, ctx: &mut Self::Context) -> Self::Result {
+        self.handle_confirm_pending_transaction()
+    }
+}
+
 impl Handler<NodeFromUiMessage> for Accountant {
     type Result = ();
 
@@ -260,23 +282,17 @@ impl Accountant {
 
     pub fn make_subs_from(addr: &Addr<Accountant>) -> AccountantSubs {
         AccountantSubs {
-            bind: addr.clone().recipient::<BindMessage>(),
-            start: addr.clone().recipient::<StartMessage>(),
-            report_routing_service_provided: addr
-                .clone()
-                .recipient::<ReportRoutingServiceProvidedMessage>(),
-            report_exit_service_provided: addr
-                .clone()
-                .recipient::<ReportExitServiceProvidedMessage>(),
-            report_routing_service_consumed: addr
-                .clone()
-                .recipient::<ReportRoutingServiceConsumedMessage>(),
-            report_exit_service_consumed: addr
-                .clone()
-                .recipient::<ReportExitServiceConsumedMessage>(),
-            report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
-            report_sent_payments: addr.clone().recipient::<SentPayments>(),
-            ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+            bind: recipient!(addr, BindMessage),
+            start: recipient!(addr, StartMessage),
+            report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
+            report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
+            report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
+            report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
+            report_new_payments: recipient!(addr, ReceivedPayments),
+            cancel_pending_tx: recipient!(addr, CancelFailedPendingTransaction),
+            confirm_pending_tx: recipient!(addr, ConfirmPendingTransaction),
+            report_sent_payments: recipient!(addr, SentPayments),
+            ui_message_sub: recipient!(addr, NodeFromUiMessage),
         }
     }
 
@@ -794,6 +810,16 @@ impl Accountant {
                 body,
             })
             .expect("UiGateway is dead");
+    }
+
+    fn handle_cancel_pending_transaction(&self) {
+        unimplemented!()
+        //self.payable_dao
+    }
+
+    fn handle_confirm_pending_transaction(&self) {
+        unimplemented!()
+        //self.payable_dao
     }
 
     pub fn dao_factory(data_directory: &Path) -> DaoFactoryReal {

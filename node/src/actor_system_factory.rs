@@ -417,50 +417,32 @@ impl ActorFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::{ReceivedPayments, SentPayments};
-    use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
-    use crate::neighborhood::gossip::Gossip_0v1;
     use crate::node_test_utils::{
-        make_stream_handler_pool_subs_from, make_stream_handler_pool_subs_from_an_addr,
+        make_stream_handler_pool_subs_from, make_stream_handler_pool_subs_from_recorder,
         start_recorder_refcell_opt,
     };
     use crate::sub_lib::accountant::AccountantConfig;
-    use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
-    use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-    use crate::sub_lib::accountant::{
-        ReportExitServiceConsumedMessage, ReportExitServiceProvidedMessage,
-    };
-    use crate::sub_lib::blockchain_bridge::{BlockchainBridgeConfig, ReportAccountsPayable};
-    use crate::sub_lib::configurator::NewPasswordMessage;
+    use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
-    use crate::sub_lib::hopper::IncipientCoresPackage;
-    use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
-    use crate::sub_lib::neighborhood::RouteQueryMessage;
-    use crate::sub_lib::neighborhood::{
-        DispatcherNodeQueryMessage, GossipFailure_0v1, NodeRecordMetadataMessage,
-    };
-    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeQueryMessage};
-    use crate::sub_lib::neighborhood::{NeighborhoodMode, RemoveNeighborMessage};
+    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
-    use crate::sub_lib::proxy_client::{
-        ClientResponsePayload_0v1, DnsResolveFailure_0v1, InboundServerData,
-    };
-    use crate::sub_lib::proxy_server::{
-        AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
-    };
-    use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::{CleanUpMessage, DummyActor};
-    use crate::test_utils::recorder::Recording;
+    use crate::test_utils::recorder::{
+        make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from,
+        make_configurator_subs_from, make_hopper_subs_from, make_neighborhood_subs_from,
+        make_proxy_client_subs_from, make_proxy_server_subs_from,
+        make_ui_gateway_subs_from_recorder, Recording,
+    };
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
@@ -472,7 +454,6 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::ui_gateway::NodeFromUiMessage;
-    use masq_lib::ui_gateway::NodeToUiMessage;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::net::Ipv4Addr;
@@ -653,21 +634,7 @@ mod tests {
                 .unwrap()
                 .get_or_insert((main_cryptde, alias_cryptde, config.clone()));
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.proxy_server);
-            ProxyServerSubs {
-                bind: recipient!(addr, BindMessage),
-                from_dispatcher: recipient!(addr, InboundClientData),
-                from_hopper: addr
-                    .clone()
-                    .recipient::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(),
-                dns_failure_from_hopper: addr
-                    .clone()
-                    .recipient::<ExpiredCoresPackage<DnsResolveFailure_0v1>>(),
-                add_return_route: recipient!(addr, AddReturnRouteMessage),
-                add_route: recipient!(addr, AddRouteMessage),
-                stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-                set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
-                node_from_ui: recipient!(addr, NodeFromUiMessage),
-            }
+            make_proxy_server_subs_from(&addr)
         }
 
         fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs {
@@ -677,15 +644,7 @@ mod tests {
                 .unwrap()
                 .get_or_insert(config);
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.hopper);
-            HopperSubs {
-                bind: recipient!(addr, BindMessage),
-                from_hopper_client: recipient!(addr, IncipientCoresPackage),
-                from_hopper_client_no_lookup: addr
-                    .clone()
-                    .recipient::<NoLookupIncipientCoresPackage>(),
-                from_dispatcher: recipient!(addr, InboundClientData),
-                node_from_ui: recipient!(addr, NodeFromUiMessage),
-            }
+            make_hopper_subs_from(&addr)
         }
 
         fn make_and_start_neighborhood(
@@ -699,23 +658,7 @@ mod tests {
                 .unwrap()
                 .get_or_insert((cryptde, config.clone()));
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.neighborhood);
-            NeighborhoodSubs {
-                bind: recipient!(addr, BindMessage),
-                start: recipient!(addr, StartMessage),
-                node_query: recipient!(addr, NodeQueryMessage),
-                route_query: recipient!(addr, RouteQueryMessage),
-                update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
-                from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>(),
-                gossip_failure: addr
-                    .clone()
-                    .recipient::<ExpiredCoresPackage<GossipFailure_0v1>>(),
-                dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
-                remove_neighbor: recipient!(addr, RemoveNeighborMessage),
-                stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-                set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
-                from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
-                new_password_sub: addr.clone().recipient::<NewPasswordMessage>(),
-            }
+            make_neighborhood_subs_from(&addr)
         }
 
         fn make_and_start_accountant(
@@ -731,25 +674,7 @@ mod tests {
                 .unwrap()
                 .get_or_insert((config.clone(), data_directory.to_path_buf()));
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.accountant);
-            AccountantSubs {
-                bind: recipient!(addr, BindMessage),
-                start: recipient!(addr, StartMessage),
-                report_routing_service_provided: addr
-                    .clone()
-                    .recipient::<ReportRoutingServiceProvidedMessage>(),
-                report_exit_service_provided: addr
-                    .clone()
-                    .recipient::<ReportExitServiceProvidedMessage>(),
-                report_routing_service_consumed: addr
-                    .clone()
-                    .recipient::<ReportRoutingServiceConsumedMessage>(),
-                report_exit_service_consumed: addr
-                    .clone()
-                    .recipient::<ReportExitServiceConsumedMessage>(),
-                report_new_payments: recipient!(addr, ReceivedPayments),
-                report_sent_payments: recipient!(addr, SentPayments),
-                ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
-            }
+            make_accountant_subs_from_recorder(&addr)
         }
 
         fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs {
@@ -759,11 +684,7 @@ mod tests {
                 .unwrap()
                 .get_or_insert(config.ui_gateway_config.clone());
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.ui_gateway);
-            UiGatewaySubs {
-                bind: recipient!(addr, BindMessage),
-                node_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
-                node_to_ui_message_sub: recipient!(addr, NodeToUiMessage),
-            }
+            make_ui_gateway_subs_from_recorder(&addr)
         }
 
         fn make_and_start_stream_handler_pool(
@@ -771,7 +692,7 @@ mod tests {
             _: &BootstrapperConfig,
         ) -> StreamHandlerPoolSubs {
             let addr = start_recorder_refcell_opt(&self.stream_handler_pool);
-            make_stream_handler_pool_subs_from_an_addr(addr)
+            make_stream_handler_pool_subs_from_recorder(&addr)
         }
 
         fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
@@ -781,15 +702,7 @@ mod tests {
                 .unwrap()
                 .get_or_insert(config);
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.proxy_client);
-            ProxyClientSubs {
-                bind: recipient!(addr, BindMessage),
-                from_hopper: addr
-                    .clone()
-                    .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
-                inbound_server_data: recipient!(addr, InboundServerData),
-                dns_resolve_failed: recipient!(addr, DnsResolveFailure_0v1),
-                node_from_ui: recipient!(addr, NodeFromUiMessage),
-            }
+            make_proxy_client_subs_from(&addr)
         }
 
         fn make_and_start_blockchain_bridge(
@@ -802,12 +715,7 @@ mod tests {
                 .unwrap()
                 .get_or_insert(config.clone());
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.blockchain_bridge);
-            BlockchainBridgeSubs {
-                bind: recipient!(addr, BindMessage),
-                report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
-                retrieve_transactions: addr.clone().recipient::<RetrieveTransactions>(),
-                ui_sub: addr.clone().recipient::<NodeFromUiMessage>(),
-            }
+            make_blockchain_bridge_subs_from(&addr)
         }
 
         fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
@@ -817,10 +725,7 @@ mod tests {
                 .unwrap()
                 .get_or_insert(config.clone());
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.configurator);
-            ConfiguratorSubs {
-                bind: recipient!(addr, BindMessage),
-                node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
-            }
+            make_configurator_subs_from(&addr)
         }
     }
 
