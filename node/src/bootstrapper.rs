@@ -444,19 +444,16 @@ impl ConfiguredByPrivilege for Bootstrapper {
             &self.config.alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
-        match &self.config.neighborhood_config.mode {
-            NeighborhoodMode::Standard(node_addr, _, _)
-                if node_addr.ip_addr() != Ipv4Addr::new(0, 0, 0, 0) =>
-            {
-                let node_descriptor = Bootstrapper::make_local_descriptor(
-                    cryptde_ref,
-                    self.config.neighborhood_config.mode.node_addr_opt(),
-                    self.config.blockchain_bridge_config.chain,
-                );
-                Bootstrapper::report_local_descriptor(cryptde_ref, &node_descriptor);
-                self.config.node_descriptor = node_descriptor;
+        if let NeighborhoodMode::Standard(node_addr, _, _) = &self.config.neighborhood_config.mode {
+            let node_descriptor = Bootstrapper::make_local_descriptor(
+                cryptde_ref,
+                self.config.neighborhood_config.mode.node_addr_opt(),
+                self.config.blockchain_bridge_config.chain,
+            );
+            self.config.node_descriptor = node_descriptor;
+            if node_addr.ip_addr() != Ipv4Addr::new(0, 0, 0, 0) {
+                Bootstrapper::report_local_descriptor(cryptde_ref, &self.config.node_descriptor);
             }
-            _ => (),
         }
         let stream_handler_pool_subs = self
             .actor_system_factory
@@ -1024,11 +1021,12 @@ mod tests {
     }
 
     #[test]
-    fn initialize_as_unprivileged_passes_node_descriptor_to_ui_config() {
+    fn initialize_as_unprivileged_with_ip_passes_node_descriptor_to_ui_config_and_reports_it() {
         let _lock = INITIALIZATION.lock();
+        init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
-            "initialize_as_unprivileged_passes_node_descriptor_to_ui_config",
+            "initialize_as_unprivileged_with_ip_passes_node_descriptor_to_ui_config_and_reports_it",
         );
         let mut config = BootstrapperConfig::new();
         config.clandestine_port_opt = Some(1234);
@@ -1047,7 +1045,7 @@ mod tests {
                     "--ip",
                     "1.2.3.4",
                     "--clandestine-port",
-                    "5000",
+                    "5123",
                     "--data-directory",
                     data_dir.to_str().unwrap(),
                 ]),
@@ -1060,11 +1058,12 @@ mod tests {
             config.node_descriptor,
             NodeDescriptor::from((
                 main_cryptde_ref().public_key(),
-                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5000]),
+                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
                 Chain::EthRopsten,
                 main_cryptde_ref()
             ))
         );
+        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
     }
 
     #[test]
@@ -1092,22 +1091,22 @@ mod tests {
                     "MASQNode",
                     "--data-directory",
                     data_dir.to_str().unwrap(),
+                    "--clandestine-port",
+                    "5124",
                 ]),
                 &mut holder.streams(),
             )
             .unwrap();
 
         let config = subject.config;
-        assert!(
-            config.node_descriptor.node_addr_opt.is_none(),
-            "Node descriptor NodeAddr should have been None, not {:?}",
-            config.node_descriptor.node_addr_opt
+        assert_eq!(
+            config.node_descriptor.node_addr_opt,
+            Some(NodeAddr::new(
+                &IpAddr::from_str("0.0.0.0").unwrap(),
+                &vec![5124]
+            ))
         );
-        assert!(!holder
-            .stdout
-            .get_string()
-            .contains("MASQ Node local descriptor"));
-        TestLogHandler::new().exists_no_log_containing("MASQ Node local descriptor");
+        TestLogHandler::new().exists_no_log_containing("@0.0.0.0:5124");
     }
 
     #[test]

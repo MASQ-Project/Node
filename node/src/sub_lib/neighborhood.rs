@@ -4,6 +4,7 @@ use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
+use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::ExpiredCoresPackage;
 use crate::sub_lib::node_addr::NodeAddr;
@@ -24,9 +25,8 @@ use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_UR
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
-use std::net::{IpAddr};
+use std::net::IpAddr;
 use std::str::FromStr;
-use crate::sub_lib::cryptde_real::CryptDEReal;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -129,8 +129,8 @@ pub struct NodeDescriptor {
 
 impl Default for NodeDescriptor {
     fn default() -> Self {
-        Self::from ((
-            &PublicKey::from ([0u8; 32].to_vec()),
+        Self::from((
+            &PublicKey::from([0u8; 32].to_vec()),
             Chain::default(),
             &CryptDEReal::new(Chain::default()) as &dyn CryptDE,
         ))

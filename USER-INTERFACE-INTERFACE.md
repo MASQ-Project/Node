@@ -454,12 +454,12 @@ Requests the Node descriptor from a Node.
 ##### Layout:
 ```
 "payload": {
-    "nodeDescriptor": <optional string>
+    "nodeDescriptorOpt": <optional string>
 }
 ```
 ##### Description:
 If the Node has a Node descriptor, it's returned in this message. If the Node has not yet established its Node
-descriptor (for example, if it's still waiting on the router to get a public IP address), the `nodeDescriptor`
+descriptor (for example, if it's still waiting on the router to get a public IP address), the `nodeDescriptorOpt`
 field will be null or absent.
 
 #### `financials`

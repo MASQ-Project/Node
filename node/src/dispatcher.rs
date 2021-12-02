@@ -137,12 +137,16 @@ impl Handler<NewPublicIp> for Dispatcher {
 
     fn handle(&mut self, msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
         match &self.node_descriptor.node_addr_opt {
-            None => warning!(self.logger, "Received attempt to set public IP to {} while not in Standard mode - rejecting", msg.new_ip),
-            Some (node_addr) => {
+            None => warning!(
+                self.logger,
+                "Received attempt to set public IP to {} while not in Standard mode - rejecting",
+                msg.new_ip
+            ),
+            Some(node_addr) => {
                 let ports = &node_addr.ports();
                 self.node_descriptor.node_addr_opt = Some(NodeAddr::new(&msg.new_ip, ports));
                 Bootstrapper::report_local_descriptor(main_cryptde(), &self.node_descriptor);
-            },
+            }
         }
     }
 }
@@ -184,9 +188,9 @@ impl Dispatcher {
     }
 
     fn handle_descriptor_request(&mut self, client_id: u64, context_id: u64) {
-        let node_desc_str_opt= match &self.node_descriptor.node_addr_opt {
+        let node_desc_str_opt = match &self.node_descriptor.node_addr_opt {
             Some(node_addr) if node_addr.ip_addr() == *NULL_IP_ADDRESS => None,
-            Some(_) => Some (self.node_descriptor.to_string(main_cryptde())),
+            Some(_) => Some(self.node_descriptor.to_string(main_cryptde())),
             None => None,
         };
         let response_inner = UiDescriptorResponse {
@@ -210,6 +214,7 @@ mod tests {
     use crate::bootstrapper::BootstrapperConfig;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::stream_messages::NonClandestineAttributes;
+    use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::node_addr::NodeAddr;
@@ -219,6 +224,7 @@ mod tests {
     use actix::Addr;
     use actix::System;
     use lazy_static::lazy_static;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::messages::{ToMessageBody, UiDescriptorResponse};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -226,8 +232,6 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::str::FromStr;
     use std::thread;
-    use crate::sub_lib::cryptde::CryptDE;
-    use masq_lib::blockchains::chains::Chain;
 
     lazy_static! {
         static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::from_str(
@@ -610,7 +614,8 @@ mod tests {
 
     #[test]
     // joined with inspecting whether dispatcher obtains the information of the descriptor correctly
-    fn descriptor_request_after_start_without_ip_before_automap_results_in_null_descriptor_response() {
+    fn descriptor_request_after_start_without_ip_before_automap_results_in_null_descriptor_response(
+    ) {
         let system = System::new("test");
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
@@ -663,7 +668,7 @@ mod tests {
             main_cryptde(),
             "masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@0.0.0.0:4545",
         )
-            .unwrap();
+        .unwrap();
         bootstrapper_config.node_descriptor = node_descriptor;
         let msg = NodeFromUiMessage {
             client_id: 1234,
@@ -679,7 +684,9 @@ mod tests {
             .unwrap();
         dispatcher_subs
             .new_ip_sub
-            .try_send (NewPublicIp { new_ip: IpAddr::from_str ("1.2.3.4").unwrap() })
+            .try_send(NewPublicIp {
+                new_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            })
             .unwrap();
 
         dispatcher_subs.ui_sub.try_send(msg).unwrap();
@@ -708,10 +715,10 @@ mod tests {
         let system = System::new("test");
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
-        let node_descriptor = NodeDescriptor::from ((
+        let node_descriptor = NodeDescriptor::from((
             main_cryptde().public_key(),
             Chain::default(),
-            main_cryptde() as &dyn CryptDE
+            main_cryptde() as &dyn CryptDE,
         ));
         bootstrapper_config.node_descriptor = node_descriptor;
         let msg = NodeFromUiMessage {
@@ -727,7 +734,9 @@ mod tests {
             .unwrap();
         dispatcher_subs
             .new_ip_sub
-            .try_send (NewPublicIp { new_ip: IpAddr::from_str ("1.2.3.4").unwrap() })
+            .try_send(NewPublicIp {
+                new_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            })
             .unwrap();
 
         dispatcher_subs.ui_sub.try_send(msg).unwrap();
