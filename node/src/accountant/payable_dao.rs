@@ -2,8 +2,10 @@
 use crate::accountant::{jackass_unsigned_to_signed, PaymentError};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
-use crate::database::dao_utils::DaoFactoryReal;
+use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
 use crate::sub_lib::wallet::Wallet;
+use masq_lib::utils::WrapResult;
+use rusqlite::types::Value::Null;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{Error, OptionalExtension, NO_PARAMS};
 use serde_json::{self, json};
@@ -96,11 +98,35 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn transaction_confirmed(&self, hash: H256) -> Result<(), PaymentError> {
-        todo!()
+        let mut stm = self.conn.prepare("update payable set pending_payment_transaction = ? where pending_payment_transaction = ?").expect("Internal error");
+        let params: &[&dyn ToSql] = &[&Null, &format!("0x{:x}", hash)];
+        match stm.execute(params) {
+            Ok(1) => Ok(()),
+            Ok(x) => panic!("unexpected behaviour; expected just one row, got: {}", x), //technically untested
+            Err(e) => Err(PaymentError::RusqliteError(e.to_string())),
+        }
     }
 
     fn transaction_canceled(&self, invalid_payment: &Payment) -> Result<i64, PaymentError> {
-        todo!()
+        let amount_signed = jackass_unsigned_to_signed(invalid_payment.amount)?;
+        let mut stm = self.conn
+            .prepare("update payable set balance = balance + ?, last_paid_timestamp = ?, pending_payment_transaction = ? where wallet_address = ? and pending_payment_transaction = ?").expect("Internal error");
+        let params: &[&dyn ToSql] = &[
+            &amount_signed,
+            &to_time_t(invalid_payment.previous_timestamp),
+            &Null,
+            &invalid_payment.to,
+            &format!("0x{:x}", invalid_payment.transaction),
+        ];
+        match stm.execute(params) {
+            Ok(1) => self
+                .account_status(&invalid_payment.to)
+                .expect("the row just modified somehow disappeared now")
+                .balance
+                .wrap_to_ok(),
+            Ok(x) => panic!("unexpected behaviour; expected just one row, got: {}", x), //technically untested
+            Err(e) => Err(PaymentError::RusqliteError(e.to_string())),
+        }
     }
 
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount> {
@@ -303,6 +329,7 @@ impl PayableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::test_utils::earlier_in_seconds;
+    use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -310,7 +337,9 @@ mod tests {
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use rusqlite::Connection as RusqliteConnection;
     use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+    use std::path::Path;
     use std::str::FromStr;
     use web3::types::U256;
 
@@ -503,27 +532,97 @@ mod tests {
     }
 
     #[test]
-    fn payment_confirmed_works_for_overflow() {
-        //TODO maybe we use it in the new confirm_transaction
-        // let home_dir = ensure_node_home_directory_exists(
-        //     "payable_dao",
-        //     "payment_confirmed_works_for_overflow",
-        // );
-        // let wallet = make_wallet("booga");
-        // let subject = PayableDaoReal::new(
-        //     DbInitializerReal::default()
-        //         .initialize(&home_dir, true, MigratorConfig::test_default())
-        //         .unwrap(),
-        // );
-        //
-        // let result = subject.payment_confirmed(
-        //     &wallet,
-        //     std::u64::MAX,
-        //     SystemTime::now(),
-        //     H256::from_uint(&U256::from(1)),
-        // );
-        //
-        // assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
+    fn transaction_canceled_works_for_overflow() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "transaction_canceled_works_for_overflow",
+        );
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .unwrap(),
+        );
+        let payment = Payment {
+            to: make_wallet("blah"),
+            amount: u64::MAX,
+            timestamp: SystemTime::now(),
+            previous_timestamp: earlier_in_seconds(5000),
+            transaction: H256::from_uint(&U256::from(12345)),
+        };
+
+        let result = subject.transaction_canceled(&payment);
+
+        assert_eq!(result, Err(PaymentError::SignConversion(u64::MAX)))
+    }
+
+    #[test]
+    fn transaction_canceled_works_for_generic_sql_error() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "transaction_canceled_works_for_generic_sql_error",
+        );
+        let conn = how_to_trick_rusqlite_to_throw_an_error(&home_dir);
+        let conn_wrapped = ConnectionWrapperReal::new(conn);
+        let subject = PayableDaoReal::new(Box::new(conn_wrapped));
+        let payment = Payment {
+            to: make_wallet("blah"),
+            amount: 123,
+            timestamp: SystemTime::now(),
+            previous_timestamp: earlier_in_seconds(5000),
+            transaction: H256::from_uint(&U256::from(12345)),
+        };
+
+        let result = subject.transaction_canceled(&payment);
+
+        assert_eq!(
+            result,
+            Err(PaymentError::RusqliteError(
+                "attempt to write a readonly database".to_string()
+            ))
+        )
+    }
+
+    #[test]
+    fn transaction_confirmed_works_for_generic_sql_error() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "transaction_confirmed_works_for_generic_sql_error",
+        );
+        let conn = how_to_trick_rusqlite_to_throw_an_error(&home_dir);
+        let conn_wrapped = ConnectionWrapperReal::new(conn);
+        let subject = PayableDaoReal::new(Box::new(conn_wrapped));
+
+        let result = subject.transaction_confirmed(H256::from_uint(&U256::from(12345)));
+
+        assert_eq!(
+            result,
+            Err(PaymentError::RusqliteError(
+                "attempt to write a readonly database".to_string()
+            ))
+        )
+    }
+
+    fn how_to_trick_rusqlite_to_throw_an_error(path: &Path) -> Connection {
+        let db_path = path.join("experiment.db");
+        let conn = RusqliteConnection::open_with_flags(&db_path, OpenFlags::default()).unwrap();
+        {
+            let mut stm = conn
+                .prepare(
+                    "\
+                    create table payable (\
+                    wallet_address real primary key,
+                    balance text not null,
+                    last_paid_timestamp real not null,
+                    pending_payment_transaction real not null)\
+                    ",
+                )
+                .unwrap();
+            stm.execute(NO_PARAMS).unwrap();
+        }
+        conn.close().unwrap();
+        let conn = RusqliteConnection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+        conn
     }
 
     #[test]

@@ -58,6 +58,8 @@ pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
 
+const TX_CANCELLATION_RETRY_MS: u16 = 10_000;
+
 const SECONDS_PER_DAY: i64 = 86_400;
 
 lazy_static! {
@@ -71,9 +73,10 @@ lazy_static! {
     };
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum PaymentError {
     SignConversion(u64),
+    RusqliteError(String),
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -104,6 +107,7 @@ pub struct Accountant {
     receivable_dao: Box<dyn ReceivableDao>,
     banned_dao: Box<dyn BannedDao>,
     crashable: bool,
+    tx_cancellation_retry_ms: u16,
     persistent_configuration: Box<dyn PersistentConfiguration>,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
@@ -226,9 +230,14 @@ impl Handler<CancelFailedPendingTransaction> for Accountant {
     fn handle(
         &mut self,
         msg: CancelFailedPendingTransaction,
-        _ctx: &mut Self::Context,
+        ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.handle_cancel_pending_transaction(msg.invalid_payment)
+        if let Some(msg) = self.handle_cancel_pending_transaction(msg) {
+            ctx.notify_later(
+                msg,
+                Duration::from_millis(self.tx_cancellation_retry_ms as u64),
+            );
+        }
     }
 }
 
@@ -269,6 +278,7 @@ impl Accountant {
             receivable_dao: receivable_dao_factory.make(),
             banned_dao: banned_dao_factory.make(),
             crashable: config.crash_point == CrashPoint::Message,
+            tx_cancellation_retry_ms: TX_CANCELLATION_RETRY_MS,
             persistent_configuration: Box::new(PersistentConfigurationReal::new(
                 config_dao_factory.make(),
             )),
@@ -295,6 +305,10 @@ impl Accountant {
             report_sent_payments: recipient!(addr, SentPayments),
             ui_message_sub: recipient!(addr, NodeFromUiMessage),
         }
+    }
+
+    pub fn dao_factory(data_directory: &Path) -> DaoFactoryReal {
+        DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
     }
 
     fn scan_for_payables(&mut self) {
@@ -521,6 +535,7 @@ impl Accountant {
                     byte_rate,
                     payload_size
                 ),
+                Err(PaymentError::RusqliteError(e))=> unimplemented!()
             };
         } else {
             info!(
@@ -552,6 +567,7 @@ impl Accountant {
                     byte_rate,
                     payload_size
                 ),
+                Err(PaymentError::RusqliteError(e)) => unimplemented!()
             };
         } else {
             info!(
@@ -680,6 +696,7 @@ impl Accountant {
                         payment.to,
                         payment.transaction,
                     ),
+                    Err(PaymentError::RusqliteError(e)) => unimplemented!()
                 },
                 Err(e) => warning!(
                     self.logger,
@@ -813,11 +830,22 @@ impl Accountant {
             .expect("UiGateway is dead");
     }
 
-    fn handle_cancel_pending_transaction(&self, invalid_payment: Payment) {
-        match self.payable_dao.transaction_canceled(&invalid_payment){
-            Ok(balance) => info!(self.logger,"Transaction {} for wallet {} was successfully canceled; state of the creditor's account was reverted back to balance {}",invalid_payment.transaction,invalid_payment.to,balance),
-            Err(e) => unimplemented!()
-        };
+    fn handle_cancel_pending_transaction(
+        &self,
+        msg: CancelFailedPendingTransaction,
+    ) -> Option<CancelFailedPendingTransaction> {
+        match self.payable_dao.transaction_canceled(&msg.invalid_payment) {
+            Ok(balance) => info!(self.logger,"Transaction {} for wallet {} was successfully canceled; state of the creditor's account was reverted back to balance {}",msg.invalid_payment.transaction,msg.invalid_payment.to,balance),
+            Err(e) => {
+                match msg.attempt {
+                    1 => {warning!(self.logger,"First attempt to cancel pending transaction '{}' failed on: {:?}; will retry in {}ms",msg.invalid_payment.transaction,e,self.tx_cancellation_retry_ms); return Some(CancelFailedPendingTransaction{attempt: msg.attempt + 1, ..msg})}
+                    //TODO I'll need to change this, it's not going to change anything to retry, hopeless
+                    2 => error!(self.logger,"We have failed to revert a record of your invalid payment; record for this wallet's account: {} has stayed inconsistent with the reality; this is going to result in a (probably) permanent ban from the creditor; debt balance faultily subtracted for: {}", msg.invalid_payment.to, msg.invalid_payment.amount),
+                    _ => unreachable!("this option isn't allowed")
+                };
+            }
+        }
+        None
     }
 
     fn handle_confirm_pending_transaction(&self, hash: H256) {
@@ -826,10 +854,6 @@ impl Accountant {
         } else {
             info!(self.logger, "Transaction {:x} was confirmed", hash)
         }
-    }
-
-    pub fn dao_factory(data_directory: &Path) -> DaoFactoryReal {
-        DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
     }
 }
 
@@ -847,7 +871,6 @@ pub fn jackass_unsigned_to_signed(unsigned: u64) -> Result<i64, PaymentError> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::accountant::payable_dao::PayableDaoReal;
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::test_utils::{
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_accountant,
@@ -869,11 +892,13 @@ pub mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
+    use crate::test_utils::pure_test_utils::{
+        prove_that_crash_request_handler_is_hooked_up, CleanUpMessage, DummyActor,
+    };
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use actix::System;
+    use actix::{Arbiter, System};
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -2832,19 +2857,144 @@ pub mod tests {
     }
 
     #[test]
-    fn handle_cancel_pending_transaction_works() {
+    fn handle_cancel_pending_transaction_works_for_real() {
+        init_test_logging();
         let home_dir = ensure_node_home_directory_exists(
             "accountant",
-            "handle_cancel_pending_transaction_manages_recover_previous_db_record",
+            "handle_cancel_pending_transaction_works_for_real",
         );
-        let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
-            .unwrap();
-        let payable_dao = PayableDaoReal::new(wrapped_conn);
-        let tx_hash = H256::from("sometransactionhash".keccak256());
+        let dao_factory = DaoFactoryReal::new(&home_dir, true, MigratorConfig::test_default());
         let mut subject = AccountantBuilder::default()
-            .payable_dao_factory(Box::new(PayableDaoFactoryMock::new(Box::new(payable_dao))))
+            .payable_dao_factory(Box::new(dao_factory))
             .build();
+        let tx_hash = H256::from("sometransactionhash".keccak256());
+        let recipient_wallet = make_wallet("wallet");
+        let amount = 4567;
+        let timestamp_from_time_of_payment = SystemTime::now();
+        let timestamp_from_previously = earlier_in_seconds(6000);
+        let invalid_payment = Payment {
+            to: recipient_wallet.clone(),
+            amount,
+            timestamp: timestamp_from_time_of_payment,
+            previous_timestamp: timestamp_from_previously,
+            transaction: tx_hash,
+        };
+        let sent_payment_msg = SentPayments {
+            payments: vec![Ok(invalid_payment.clone())],
+        };
+        let conn_for_assertion = DbInitializerReal::default()
+            .initialize(&home_dir, false, MigratorConfig::test_default())
+            .unwrap();
+        let mut stm = conn_for_assertion
+            .prepare("select * from payable where wallet_address = ?")
+            .unwrap();
+        let res = stm.query_row(&[recipient_wallet.to_string()], |row| Ok(()));
+        let err = res.unwrap_err();
+        assert_eq!(err, Error::QueryReturnedNoRows);
+        subject.handle_sent_payments(sent_payment_msg);
+        let closure = |row: &Row| {
+            let wallet: String = row.get(0).unwrap();
+            let balance: i64 = row.get(1).unwrap();
+            let timestamp: i64 = row.get(2).unwrap();
+            let pending_tx_hash_opt: Option<String> = row.get(3).unwrap();
+            Ok((wallet, balance, timestamp, pending_tx_hash_opt))
+        };
+        let res = stm
+            .query_row(&[recipient_wallet.to_string()], closure)
+            .unwrap();
+        let (wallet, balance, timestamp, hash_opt) = res;
+        assert_eq!(wallet, recipient_wallet.to_string());
+        assert_eq!(balance, -(amount as i64));
+        assert_eq!(timestamp, to_time_t(timestamp_from_time_of_payment));
+        let hash = hash_opt.unwrap();
+        assert_eq!(H256::from_str(&hash[2..]).unwrap(), tx_hash);
+
+        let _ = subject.handle_cancel_pending_transaction(CancelFailedPendingTransaction {
+            invalid_payment,
+            attempt: 1,
+        });
+
+        let res = stm
+            .query_row(&[recipient_wallet.to_string()], closure)
+            .unwrap();
+        let (wallet, balance, timestamp, hash) = res;
+        assert_eq!(wallet, recipient_wallet.to_string());
+        assert_eq!(balance, 0);
+        assert_eq!(timestamp, to_time_t(timestamp_from_previously));
+        assert_eq!(hash, None);
+        TestLogHandler::new().exists_log_containing("INFO: Accountant: Transaction 0x051a…8c19 \
+         for wallet 0x000000000000000000000000000077616c6c6574 was successfully canceled; state of the \
+          creditor's account was reverted back to balance 0");
+    }
+
+    #[test]
+    fn handle_cancel_pending_transaction_tries_second_attempt_a_bit_later_on_failure_and_fails_again(
+    ) {
+        init_test_logging();
+        let transaction_canceled_params_arc = Arc::new(Mutex::new(vec![]));
+        let transaction_canceled_params_arc_clone = transaction_canceled_params_arc.clone();
+        let payment = Payment {
+            to: make_wallet("wallet"),
+            amount: 4565,
+            timestamp: SystemTime::now(),
+            previous_timestamp: earlier_in_seconds(5000),
+            transaction: H256::from_uint(&U256::from(4545)),
+        };
+        let dummy_actor = DummyActor::new(None);
+        let system = System::new("cancel_pending_transaction");
+        let addr = Arbiter::builder()
+            .stop_system_on_panic(true)
+            .start(move |_| {
+                let payable_dao = PayableDaoMock::new()
+                    //this err doesn't make sense but I expect there might be more error variants later
+                    .transaction_canceled_params(&transaction_canceled_params_arc_clone)
+                    .transaction_canceled_result(Err(PaymentError::SignConversion(45)))
+                    .transaction_canceled_result(Err(PaymentError::SignConversion(45)));
+                let mut subject = AccountantBuilder::default()
+                    .payable_dao_factory(Box::new(PayableDaoFactoryMock::new(Box::new(
+                        payable_dao,
+                    ))))
+                    .build();
+                subject.tx_cancellation_retry_ms = 2;
+                subject
+            });
+        let subs = Accountant::make_subs_from(&addr);
+
+        let _ = subs
+            .cancel_pending_tx
+            .try_send(CancelFailedPendingTransaction {
+                invalid_payment: payment.clone(),
+                attempt: 1,
+            })
+            .unwrap();
+
+        let dummy_actor_addr = Arbiter::builder()
+            .stop_system_on_panic(true)
+            .start(move |_| dummy_actor);
+        dummy_actor_addr
+            .try_send(CleanUpMessage { sleep_ms: 3000 })
+            .unwrap();
+        assert_eq!(system.run(), 0);
+        let transaction_canceled_params = transaction_canceled_params_arc.lock().unwrap();
+        assert_eq!(*transaction_canceled_params, vec![payment.clone(), payment]);
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing("WARN: Accountant: First attempt to cancel pending transaction '0x0000…11c1' failed on: SignConversion(45); will retry in 2ms");
+        log_handler.exists_log_containing("ERROR: Accountant: We have failed to revert a record of your invalid payment; record for this wallet's account: 0x000000000000000000000000000077616c6c6574 \
+         has stayed inconsistent with the reality; this is going to result in a (probably) permanent ban from the creditor; debt balance faultily subtracted for: 4565");
+    }
+
+    #[test]
+    fn handle_confirm_transaction_works_for_real() {
+        init_test_logging();
+        let home_dir = ensure_node_home_directory_exists(
+            "accountant",
+            "handle_confirm_transaction_works_for_real",
+        );
+        let dao_factory = DaoFactoryReal::new(&home_dir, true, MigratorConfig::test_default());
+        let mut subject = AccountantBuilder::default()
+            .payable_dao_factory(Box::new(dao_factory))
+            .build();
+        let tx_hash = H256::from("sometransactionhash".keccak256());
         let recipient_wallet = make_wallet("wallet");
         let amount = 4567;
         let timestamp_from_time_of_payment = SystemTime::now();
@@ -2865,70 +3015,41 @@ pub mod tests {
         let mut stm = conn_for_assertion
             .prepare("select * from payable where wallet_address = ?")
             .unwrap();
-        let res = stm.query_row(&[recipient_wallet.to_string()], |row| Ok(()));
-        let err = res.unwrap_err();
-        assert_eq!(err, Error::QueryReturnedNoRows);
         subject.handle_sent_payments(sent_payment_msg);
         let closure = |row: &Row| {
             let wallet: String = row.get(0).unwrap();
             let balance: i64 = row.get(1).unwrap();
             let timestamp: i64 = row.get(2).unwrap();
-            let hash_of_pending_tx: String = row.get(3).unwrap();
-            Ok((wallet, balance, timestamp, hash_of_pending_tx))
+            let pending_tx_hash_opt: Option<String> = row.get(3).unwrap();
+            Ok((wallet, balance, timestamp, pending_tx_hash_opt))
         };
-        let res = stm
+        let query_result = stm
             .query_row(&[recipient_wallet.to_string()], closure)
             .unwrap();
-        let (wallet, balance, timestamp, hash) = res;
-        assert_eq!(wallet, recipient_wallet.to_string());
-        assert_eq!(balance, -(amount as i64));
-        assert_eq!(timestamp, to_time_t(timestamp_from_time_of_payment));
+
+        let hash_opt = query_result.3.clone();
+        let assertion_of_values_not_to_change =
+            |query_result: (String, i64, i64, Option<String>)| {
+                let (wallet, balance, timestamp, hash_opt) = query_result;
+                assert_eq!(wallet, recipient_wallet.to_string());
+                assert_eq!(balance, -(amount as i64)); //a bit nonsensical balance example but can be excused
+                assert_eq!(timestamp, to_time_t(timestamp_from_time_of_payment));
+            };
+        assertion_of_values_not_to_change(query_result);
+        let hash = hash_opt.unwrap();
         assert_eq!(H256::from_str(&hash[2..]).unwrap(), tx_hash);
 
-        let _ = subject.handle_cancel_pending_transaction(payment);
+        let _ = subject.handle_confirm_pending_transaction(tx_hash);
 
-        let res = stm
+        let query_result = stm
             .query_row(&[recipient_wallet.to_string()], closure)
             .unwrap();
-        let (wallet, balance, timestamp, hash) = res;
-        assert_eq!(wallet, recipient_wallet.to_string());
-        assert_eq!(balance, 0);
-        assert_eq!(timestamp, to_time_t(timestamp_from_previously));
-        assert_eq!(hash, String::new());
-    }
-
-    #[test]
-    fn handle_cancel_pending_transaction_logs_success() {
-        init_test_logging();
-        let payable_dao = PayableDaoMock::new().transaction_canceled_result(Ok(4789));
-        let subject = AccountantBuilder::default()
-            .payable_dao_factory(Box::new(PayableDaoFactoryMock::new(Box::new(payable_dao))))
-            .build();
-        let payment = Payment {
-            to: make_wallet("wallet"),
-            amount: 4565,
-            timestamp: SystemTime::now(),
-            previous_timestamp: earlier_in_seconds(5000),
-            transaction: H256::from_uint(&U256::from(4545)),
-        };
-
-        subject.handle_cancel_pending_transaction(payment);
-
-        TestLogHandler::new().exists_log_containing("INFO: Accountant: Transaction 0x0000…11c1 for wallet 0x000000000000000000000000000077616c6c6574 was successfully canceled; state of the creditor's account was reverted back to balance 4789");
-    }
-
-    #[test]
-    fn handle_confirm_pending_transaction_logs_success() {
-        init_test_logging();
-        let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Ok(()));
-        let subject = AccountantBuilder::default()
-            .payable_dao_factory(Box::new(PayableDaoFactoryMock::new(Box::new(payable_dao))))
-            .build();
-        let tx_hash = H256::from_uint(&U256::from(4545));
-
-        subject.handle_confirm_pending_transaction(tx_hash);
-
-        TestLogHandler::new().exists_log_containing("INFO: Accountant: Transaction 00000000000000000000000000000000000000000000000000000000000011c1 was confirmed");
+        let hash_opt = query_result.3.clone();
+        assertion_of_values_not_to_change(query_result);
+        assert_eq!(hash_opt, None);
+        TestLogHandler::new().exists_log_containing(
+            "INFO: Accountant: Transaction 051aae12b9595ccaa43c2eabfd5b86347c37fa0988167165b0b17b23fcaa8c19 was confirmed"
+        );
     }
 
     #[test]

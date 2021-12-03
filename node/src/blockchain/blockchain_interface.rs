@@ -73,7 +73,7 @@ pub type BlockchainResult<T> = Result<T, BlockchainError>;
 pub type Balance = BlockchainResult<web3::types::U256>;
 pub type Nonce = BlockchainResult<web3::types::U256>;
 pub type Transactions = BlockchainResult<Vec<Transaction>>;
-pub type TxReceipt = BlockchainResult<TransactionReceipt>;
+pub type TxReceipt = BlockchainResult<Option<TransactionReceipt>>;
 
 pub trait BlockchainInterface: ToolFactories {
     fn contract_address(&self) -> Address;
@@ -330,7 +330,11 @@ where
     }
 
     fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
-        todo!()
+        self.web3
+            .eth()
+            .transaction_receipt(hash)
+            .map_err(|e| unimplemented!("{}", e.to_string()))
+            .wait()
     }
 
     // fn send_transaction_tools<'a>(&'a self, tool_factory: &dyn ToolFactories) -> Box<dyn SendTransactionToolWrapper + 'a> {
@@ -465,7 +469,7 @@ mod tests {
     use crate::test_utils::{await_value, make_paying_wallet};
     use crate::test_utils::{make_wallet, TestRawTransaction};
     use crossbeam_channel::unbounded;
-    use ethereum_types::BigEndianHash;
+    use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
@@ -478,6 +482,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use web3::transports::Http;
+    use web3::types::H2048;
     use web3::Error as Web3Error;
 
     #[test]
@@ -1458,6 +1463,47 @@ mod tests {
         );
         transport.assert_no_more_requests();
         assert_eq!(result, Ok(U256::from(1)));
+    }
+
+    #[test]
+    fn blockchain_interface_non_clandestine_can_fetch_transaction_receipt() {
+        let port = find_free_port();
+        thread::spawn(move || {
+            Server::new(|_req, mut rsp| {
+                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":2,"result":{"transactionHash":"0xa128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e","blockHash":"0x6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18","blockNumber":"0xb0328d","contractAddress":null,"cumulativeGasUsed":"0x60ef","effectiveGasPrice":"0x22ecb25c00","from":"0x7424d05b59647119b01ff81e2d3987b6c358bf9c","gasUsed":"0x60ef","logs":[],"logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000","status":"0x0","to":"0x384dec25e03f94931767ce4c3556168468ba24c3","transactionIndex":"0x0","type":"0x0"}}"#.to_vec())?)
+            })
+                .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
+        });
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            event_loop_handle,
+            TEST_DEFAULT_CHAIN,
+        );
+        let tx_hash =
+            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
+                .unwrap();
+
+        let result = subject.get_transaction_receipt(tx_hash);
+
+        let expected_receipt = TransactionReceipt{
+            transaction_hash: tx_hash,
+            transaction_index: Default::default(),
+            block_hash: Some(H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18").unwrap()),
+            block_number:Some(U64::from_str("b0328d").unwrap()),
+            cumulative_gas_used: U256::from_str("60ef").unwrap(),
+            gas_used: Some(U256::from_str("60ef").unwrap()),
+            contract_address: None,
+            logs: vec![],
+            status: Some(U64::from(0)),
+            root: None,
+            logs_bloom: H2048::from_str("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000").unwrap()
+        };
+        assert_eq!(result, Ok(Some(expected_receipt)));
     }
 
     #[test]

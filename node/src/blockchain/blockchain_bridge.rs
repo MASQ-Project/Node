@@ -39,7 +39,7 @@ use web3::types::{TransactionReceipt, H256};
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
 //TODO this might become chain specific later on
-pub const DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS: u64 = 30;
+pub const DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS: u64 = 5_000;
 
 pub struct BlockchainBridge {
     consuming_wallet_opt: Option<Wallet>,
@@ -68,10 +68,10 @@ impl Handler<BindMessage> for BlockchainBridge {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         //TODO is this dead code?
-        self.set_consuming_wallet_subs_opt = Some(vec![
-            msg.peer_actors.neighborhood.set_consuming_wallet_sub,
-            msg.peer_actors.proxy_server.set_consuming_wallet_sub,
-        ]);
+        // self.set_consuming_wallet_subs_opt = Some(vec![
+        //     msg.peer_actors.neighborhood.set_consuming_wallet_sub,
+        //     msg.peer_actors.proxy_server.set_consuming_wallet_sub,
+        // ]);
         self.tx_confirmation.cancel_failed_pending_tx_subs_opt =
             Some(msg.peer_actors.accountant.cancel_pending_tx);
         self.tx_confirmation.confirm_pending_tx_subs_opt =
@@ -149,6 +149,7 @@ impl Handler<CheckPendingTransactionOutForConfirmation> for BlockchainBridge {
 #[derive(Debug, PartialEq, Message, Clone)]
 pub struct CancelFailedPendingTransaction {
     pub invalid_payment: Payment,
+    pub attempt: u8,
 }
 
 #[derive(Debug, PartialEq, Message, Clone)]
@@ -373,12 +374,19 @@ impl BlockchainBridge {
                     .blockchain_interface
                     .get_transaction_receipt(pending_tx_hash)
                 {
-                    Ok(receipt) => self.receipt_check_for_pending_tx(
-                        receipt,
-                        pending_tx_hash,
-                        msg.attempt,
-                        &self.logger,
-                    ),
+                    Ok(receipt_opt) => match receipt_opt {
+                        Some(receipt) => self.receipt_check_for_pending_tx(
+                            receipt,
+                            pending_tx_hash,
+                            msg.attempt,
+                            &self.logger,
+                        ),
+                        None => PendingTransactionStatus::StillPending {
+                            hash: pending_tx_hash,
+                            attempt: msg.attempt,
+                        },
+                    },
+
                     Err(e) => unimplemented!(),
                 }
             })
@@ -430,6 +438,7 @@ impl BlockchainBridge {
                     .expect("Accountant is unbound")
                     .try_send(CancelFailedPendingTransaction {
                         invalid_payment: removed_payment,
+                        attempt: 1,
                     })
                     .expect("Accountant is dead");
             } else if let PendingTransactionStatus::Confirmed(_) = status {
@@ -469,8 +478,6 @@ enum PendingTransactionStatus {
     Failure(H256), //will send a message to Accountant, log a warn and should resent the tx
     Confirmed(H256), //will send a message to Accountant
 }
-
-//TODO will send CancelPendingTxStatus msg to Accountant
 
 impl PendingTransactionStatus {
     fn merge_still_pending_and_separate_from_others(
@@ -1193,16 +1200,18 @@ mod tests {
     }
 
     #[test]
-    fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed() {
+    fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
         //we send a list of creditor accounts with mature debts to BlockchainBridge
-        //it acts like it's sending transactions for paying the debts (transacting is mocked),
-        //next to that BlockchainBridge registers Hashes of the pending transactions and also prepares himself
+        //he acts like he's sending transactions for paying the debts (transacting is mocked),
+        //next BlockchainBridge registers Hashes and payment backups of the pending transactions and also prepares himself
         //a self-notification to be sent later on letting him know he should check whether the transactions have been confirmed
         // - this message will go over back repeatedly in intervals; when it finds a confirmation of the transaction
-        //it sends a message to Accountant to update the state of the database by blanking out the column for pending
+        //it sends a message to Accountant to update the state of the database (mocked) by blanking out the column for pending
         //transactions for the given confirmed transaction;
-        //along with the previous, right away when we get hashes of the new pending transactions Account is given a message
-        //and writes a record for the respective account of the wallet where the transaction was sent to.
+        //along with the previous, right away when we get hashes of the new pending transactions Accountant is given a message
+        //and writes a record for the respective account belonging to the wallet where the transaction was sent to.
+        //One transaction is canceled after failure detected and the other is successfully confirmed.
+        //On failure state of the account is reverted back to the state how it was before the stimulus to pay came up.
         let payment_sent_params_arc = Arc::new(Mutex::new(vec![]));
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let transaction_canceled_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1215,7 +1224,6 @@ mod tests {
             .transaction_confirmed_result(Ok(()))
             .transaction_canceled_params(&transaction_canceled_params_arc)
             .transaction_canceled_result(Ok(5000));
-        //TODO we will want also results
         let bootstrapper_config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(1_000_000), //we don't care about the scan
@@ -1225,7 +1233,6 @@ mod tests {
         );
         let pending_tx_hash_1 = H256::from_uint(&U256::from(123));
         let pending_tx_hash_2 = H256::from_uint(&U256::from(567));
-        let transaction_receipt_tx_1_first_round = TransactionReceipt::default();
         let transaction_receipt_tx_2_first_round = TransactionReceipt::default();
         let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
         let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
@@ -1240,13 +1247,13 @@ mod tests {
             .send_transaction_result(Ok(pending_tx_hash_1))
             .send_transaction_result(Ok(pending_tx_hash_2))
             .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
-            .get_transaction_receipt_result(Ok(transaction_receipt_tx_1_first_round))
-            .get_transaction_receipt_result(Ok(transaction_receipt_tx_2_first_round))
-            .get_transaction_receipt_result(Ok(transaction_receipt_tx_1_second_round))
-            .get_transaction_receipt_result(Ok(transaction_receipt_tx_2_second_round))
-            .get_transaction_receipt_result(Ok(transaction_receipt_tx_1_third_round))
-            .get_transaction_receipt_result(Ok(transaction_receipt_tx_2_third_round))
-            .get_transaction_receipt_result(Ok(transaction_receipt_tx_2_fourth_round));
+            .get_transaction_receipt_result(Ok(None))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_first_round)))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_1_second_round)))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_second_round)))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_1_third_round)))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_third_round)))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_fourth_round)));
         let consuming_wallet = make_paying_wallet(b"wallet");
         let system = System::new("pending_transaction");
         let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(130));
@@ -1323,10 +1330,11 @@ mod tests {
         });
         actix::spawn(future);
 
-        //TODO try to delete the dummy acter once you have the self notifications ready to work
+        //I need one more actor on an Arbiter's thread (that invokes panics if something wrong);
+        //but the subject - BlockchainBridge - is hard to put onto one, so I used this solution
         dummy_actor_addr
             .try_send(CleanUpMessage { sleep_ms: 3000 })
-            .unwrap(); //I'm trying to prolong the life time of the system so that the future has time to complete
+            .unwrap();
         assert_eq!(system.run(), 0);
         let mut payment_sent_parameters = payment_sent_params_arc.lock().unwrap();
         let first_payment = payment_sent_parameters.remove(0);
@@ -1384,6 +1392,32 @@ mod tests {
                 pending_tx_hash_2,
                 pending_tx_hash_2
             ]
+        )
+    }
+
+    #[test]
+    fn handle_pending_tx_checkout_handles_none_returned_for_tx_receipt() {
+        let blockchain_interface =
+            BlockchainInterfaceMock::default().get_transaction_receipt_result(Ok(None));
+        let subject = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Box::new(PersistentConfigurationMock::default()),
+            false,
+            None,
+            make_blockchain_interface_tool_factories(None, None),
+            DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
+        );
+        let hash = H256::from_uint(&U256::from(789));
+        let msg = CheckPendingTransactionOutForConfirmation {
+            hashes: vec![hash],
+            attempt: 3,
+        };
+
+        let result = subject.handle_pending_tx_checkout(msg.clone());
+
+        assert_eq!(
+            result,
+            vec![PendingTransactionStatus::StillPending { hash, attempt: 3 }]
         )
     }
 
