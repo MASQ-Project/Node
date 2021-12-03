@@ -8,7 +8,7 @@ use std::any::Any;
 use std::convert::TryFrom;
 use std::net::Ipv4Addr;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct GetOpcodeData {
     pub epoch_opt: Option<u32>,
     pub external_ip_address_opt: Option<Ipv4Addr>,
@@ -48,15 +48,6 @@ impl OpcodeData for GetOpcodeData {
 }
 
 impl PmpOpcodeData for GetOpcodeData {}
-
-impl Default for GetOpcodeData {
-    fn default() -> Self {
-        Self {
-            epoch_opt: None,
-            external_ip_address_opt: None,
-        }
-    }
-}
 
 impl TryFrom<(Direction, &[u8])> for GetOpcodeData {
     type Error = ParseError;
