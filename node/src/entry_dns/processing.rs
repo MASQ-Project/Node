@@ -36,7 +36,7 @@ pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger
     response_size
 }
 
-fn make_response(mut facade: &mut PacketFacade) -> usize {
+fn make_response(facade: &mut PacketFacade) -> usize {
     match facade.get_opcode() {
         None => return make_format_error(facade),
         Some(opcode) if opcode == u8::from(OpCode::Query) => (),
@@ -76,7 +76,7 @@ fn make_response(mut facade: &mut PacketFacade) -> usize {
                 3600,
                 &Ipv6Addr::LOCALHOST.octets(),
             ),
-            _ => return make_not_implemented_error(&mut facade),
+            _ => return make_not_implemented_error(facade),
         };
     }
     facade.get_length()
