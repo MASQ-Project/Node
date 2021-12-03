@@ -54,14 +54,8 @@ impl Display for UnmarshalError {
         }
     }
 }
-
+#[derive(Default)]
 pub struct UiTrafficConverter {}
-
-impl Default for UiTrafficConverter {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 impl UiTrafficConverter {
     pub fn new() -> Self {
