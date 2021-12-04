@@ -535,7 +535,7 @@ impl Accountant {
                     byte_rate,
                     payload_size
                 ),
-                Err(PaymentError::RusqliteError(e))=> unimplemented!()
+                Err(PaymentError::RusqliteError(e))=> unimplemented!("{}",e)
             };
         } else {
             info!(
@@ -567,7 +567,7 @@ impl Accountant {
                     byte_rate,
                     payload_size
                 ),
-                Err(PaymentError::RusqliteError(e)) => unimplemented!()
+                Err(PaymentError::RusqliteError(e)) => unimplemented!("{}",e)
             };
         } else {
             info!(
@@ -696,7 +696,7 @@ impl Accountant {
                         payment.to,
                         payment.transaction,
                     ),
-                    Err(PaymentError::RusqliteError(e)) => unimplemented!()
+                    Err(PaymentError::RusqliteError(e)) => unimplemented!("{}",e)
                 },
                 Err(e) => warning!(
                     self.logger,
@@ -850,7 +850,7 @@ impl Accountant {
 
     fn handle_confirm_pending_transaction(&self, hash: H256) {
         if let Err(e) = self.payable_dao.transaction_confirmed(hash) {
-            unimplemented!()
+            unimplemented!("{:?}", e)
         } else {
             info!(self.logger, "Transaction {:x} was confirmed", hash)
         }
@@ -2888,7 +2888,7 @@ pub mod tests {
         let mut stm = conn_for_assertion
             .prepare("select * from payable where wallet_address = ?")
             .unwrap();
-        let res = stm.query_row(&[recipient_wallet.to_string()], |row| Ok(()));
+        let res = stm.query_row(&[recipient_wallet.to_string()], |_row| Ok(()));
         let err = res.unwrap_err();
         assert_eq!(err, Error::QueryReturnedNoRows);
         subject.handle_sent_payments(sent_payment_msg);
@@ -3030,7 +3030,7 @@ pub mod tests {
         let hash_opt = query_result.3.clone();
         let assertion_of_values_not_to_change =
             |query_result: (String, i64, i64, Option<String>)| {
-                let (wallet, balance, timestamp, hash_opt) = query_result;
+                let (wallet, balance, timestamp, _) = query_result;
                 assert_eq!(wallet, recipient_wallet.to_string());
                 assert_eq!(balance, -(amount as i64)); //a bit nonsensical balance example but can be excused
                 assert_eq!(timestamp, to_time_t(timestamp_from_time_of_payment));

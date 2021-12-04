@@ -1,9 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::tool_wrappers::{
-    CheckOutPendingTransactionToolWrapperFactory, CheckOutPendingTransactionToolWrapperFactoryReal,
-    SendTransactionToolWrapper, SendTransactionToolWrapperFactory,
-    SendTransactionToolWrapperFactoryReal, SendTransactionToolWrapperReal, ToolFactories,
+    SendTransactionToolWrapper, SendTransactionToolWrapperReal,
 };
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
@@ -61,6 +59,7 @@ pub enum BlockchainError {
     UnusableWallet(String),
     QueryFailed(String),
     TransactionFailed(String),
+    RpcRequestFailure(String),
 }
 
 impl Display for BlockchainError {
@@ -75,7 +74,7 @@ pub type Nonce = BlockchainResult<web3::types::U256>;
 pub type Transactions = BlockchainResult<Vec<Transaction>>;
 pub type TxReceipt = BlockchainResult<Option<TransactionReceipt>>;
 
-pub trait BlockchainInterface: ToolFactories {
+pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
 
     fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions;
@@ -104,6 +103,10 @@ pub trait BlockchainInterface: ToolFactories {
     fn get_transaction_count(&self, address: &Wallet) -> Nonce;
 
     fn get_transaction_receipt(&self, hash: H256) -> TxReceipt;
+
+    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolWrapper + 'a> {
+        intentionally_blank!()
+    }
 }
 
 // TODO: This probably should go away
@@ -167,17 +170,12 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Ok(0.into())
     }
 
-    fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
-        todo!()
-    }
-}
-
-impl ToolFactories for BlockchainInterfaceClandestine {
-    fn make_send_transaction_tools(
-        &self,
-        tool_factory: &dyn SendTransactionToolWrapperFactory,
-    ) -> Box<dyn SendTransactionToolWrapper> {
-        todo!()
+    fn get_transaction_receipt(&self, _hash: H256) -> TxReceipt {
+        error!(
+            self.logger,
+            "Can't get transaction receipt clandestinely yet",
+        );
+        Ok(None)
     }
 }
 
@@ -337,20 +335,8 @@ where
             .wait()
     }
 
-    // fn send_transaction_tools<'a>(&'a self, tool_factory: &dyn ToolFactories) -> Box<dyn SendTransactionToolWrapper + 'a> {
-    //     Box::new(SendTransactionToolWrapperReal::new(&self.web3))
-    // }
-}
-
-impl<T: Transport + Debug + 'static> ToolFactories for BlockchainInterfaceNonClandestine<T> {
-    fn make_send_transaction_tools<'a>(
-        &'a self,
-        tool_factory_from_blockcahin_bridge: &'a (dyn SendTransactionToolWrapperFactory + 'a),
-    ) -> Box<dyn SendTransactionToolWrapper + 'a> {
-        let real_assembly_line = Box::new(|| -> Box<dyn SendTransactionToolWrapper + 'a> {
-            Box::new(SendTransactionToolWrapperReal::new(&self.web3))
-        });
-        tool_factory_from_blockcahin_bridge.make(real_assembly_line)
+    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolWrapper + 'a> {
+        Box::new(SendTransactionToolWrapperReal::new(&self.web3))
     }
 }
 
@@ -437,22 +423,6 @@ where
     }
 }
 
-pub struct BlockchainInterfaceToolFactories {
-    pub non_clandestine_send_transaction_factory: Box<dyn SendTransactionToolWrapperFactory>,
-    pub check_out_pending_tx: Box<dyn CheckOutPendingTransactionToolWrapperFactory>,
-}
-
-impl Default for BlockchainInterfaceToolFactories {
-    fn default() -> Self {
-        BlockchainInterfaceToolFactories {
-            non_clandestine_send_transaction_factory: Box::new(
-                SendTransactionToolWrapperFactoryReal,
-            ),
-            check_out_pending_tx: Box::new(CheckOutPendingTransactionToolWrapperFactoryReal),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -460,9 +430,6 @@ mod tests {
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle,
         SendTransactionToolWrapperMock, TestTransport,
-    };
-    use crate::blockchain::tool_wrappers::{
-        CheckOutPendingTransactionToolWrapperFactoryReal, SendTransactionToolWrapperFactoryReal,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::pure_test_utils::decode_hex;
@@ -896,9 +863,7 @@ mod tests {
             9000,
             U256::from(1),
             2u64,
-            subject
-                .make_send_transaction_tools(&SendTransactionToolWrapperFactoryReal)
-                .as_ref(),
+            subject.send_transaction_tools().as_ref(),
         );
 
         transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0b8e83e714af8bf1685b496912ee4aeff7007ba0f4c29ae50f513bc71ce6a18f4a06a923088306b4ee9cbfcdc62c9b396385f9b1c380134bf046d6c9ae47dea6578""#)]);
@@ -1089,9 +1054,7 @@ mod tests {
             9000,
             U256::from(1),
             2u64,
-            subject
-                .make_send_transaction_tools(&SendTransactionToolWrapperFactoryReal)
-                .as_ref(),
+            subject.send_transaction_tools().as_ref(),
         );
 
         assert_eq!(result,
@@ -1193,8 +1156,7 @@ mod tests {
         let transport = TestTransport::default();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
-        let send_transaction_tools =
-            subject.make_send_transaction_tools(&SendTransactionToolWrapperFactoryReal);
+        let send_transaction_tools = subject.send_transaction_tools();
         let consuming_wallet = test_consuming_wallet_with_secret();
         let recipient_wallet = test_recipient_wallet();
         let nonce_of_the_real_transaction = U256::from(nonce);
@@ -1548,21 +1510,5 @@ mod tests {
             TRANSFER_METHOD_ID,
             "transfer(address,uint256)".keccak256()[0..4]
         );
-    }
-
-    #[test]
-    fn blockchain_interface_tool_factories_are_properly_defaulted() {
-        let result = BlockchainInterfaceToolFactories::default();
-
-        assert!(result
-            .check_out_pending_tx
-            .as_any()
-            .downcast_ref::<CheckOutPendingTransactionToolWrapperFactoryReal>()
-            .is_some());
-        assert!(result
-            .non_clandestine_send_transaction_factory
-            .as_any()
-            .downcast_ref::<SendTransactionToolWrapperFactoryReal>()
-            .is_some())
     }
 }

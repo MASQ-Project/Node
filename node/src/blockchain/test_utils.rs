@@ -2,13 +2,10 @@
 
 #![cfg(test)]
 
-use crate::blockchain::blockchain_interface::{
-    BlockchainInterfaceToolFactories, REQUESTS_IN_PARALLEL,
-};
-use crate::blockchain::tool_wrappers::{
-    CheckOutPendingTransactionToolWrapper, CheckOutPendingTransactionToolWrapperFactory,
-    SendTransactionToolWrapper, SendTransactionToolWrapperFactory,
-};
+use crate::blockchain::blockchain_bridge::CheckPendingTransactionForConfirmation;
+use crate::blockchain::blockchain_interface::REQUESTS_IN_PARALLEL;
+use crate::blockchain::tool_wrappers::{NotifyLaterCheckMsgHandle, SendTransactionToolWrapper};
+use actix::SpawnHandle;
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::H256;
 use jsonrpc_core as rpc;
@@ -16,9 +13,10 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use web3::transports::{EventLoopHandle, Http};
-use web3::types::{Bytes, SignedTransaction, Transaction, TransactionParameters};
-use web3::{Error as Web3Error, Web3};
+use web3::types::{Bytes, SignedTransaction, TransactionParameters};
+use web3::Error as Web3Error;
 use web3::{RequestId, Transport};
 
 pub fn make_meaningless_phrase() -> String {
@@ -97,36 +95,9 @@ pub fn make_fake_event_loop_handle() -> EventLoopHandle {
         .0
 }
 
-pub fn make_blockchain_interface_tool_factories(
-    non_clandestine_send_tx_opt: Option<SendTransactionToolWrapperFactoryMock>,
-    check_out_pending_tx_opt: Option<CheckOutPendingTransactionToolWrapperFactoryMock>,
-) -> BlockchainInterfaceToolFactories {
-    BlockchainInterfaceToolFactories {
-        non_clandestine_send_transaction_factory: Box::new(
-            non_clandestine_send_tx_opt.unwrap_or(SendTransactionToolWrapperFactoryMock::default()),
-        ),
-        check_out_pending_tx: Box::new(
-            check_out_pending_tx_opt
-                .unwrap_or(CheckOutPendingTransactionToolWrapperFactoryMock::default()),
-        ),
-    }
-}
-
 #[derive(Default)]
 pub struct SendTransactionToolWrapperFactoryMock {
     make_results: RefCell<Vec<Box<dyn SendTransactionToolWrapper>>>,
-}
-
-impl SendTransactionToolWrapperFactory for SendTransactionToolWrapperFactoryMock {
-    fn make<'a>(
-        &'a self,
-        _real_factory_assembly_line: Box<
-            dyn FnOnce() -> Box<dyn SendTransactionToolWrapper + 'a> + 'a,
-        >,
-    ) -> Box<dyn SendTransactionToolWrapper + 'a> {
-        //todo will I want to assert on the closure somehow?
-        self.make_results.borrow_mut().remove(0)
-    }
 }
 
 impl SendTransactionToolWrapperFactoryMock {
@@ -198,25 +169,33 @@ pub fn make_default_signed_transaction() -> SignedTransaction {
 }
 
 #[derive(Default)]
-pub struct CheckOutPendingTransactionToolWrapperFactoryMock {}
+pub struct NotifyLaterCheckMsgHandleHalfMock {
+    notify_later_params: Arc<Mutex<Vec<(CheckPendingTransactionForConfirmation, Duration)>>>, //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself
+}
 
-impl CheckOutPendingTransactionToolWrapperFactory
-    for CheckOutPendingTransactionToolWrapperFactoryMock
-{
-    fn make<'a>(
-        &'a self,
-        real_assembly_line: Box<
-            dyn FnOnce() -> Box<dyn CheckOutPendingTransactionToolWrapper + 'a> + 'a,
-        >,
-    ) -> Box<dyn CheckOutPendingTransactionToolWrapper + 'a> {
-        todo!()
+impl NotifyLaterCheckMsgHandleHalfMock {
+    pub fn notify_later_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(CheckPendingTransactionForConfirmation, Duration)>>>,
+    ) -> Self {
+        self.notify_later_params = params.clone();
+        self
     }
 }
 
-pub struct CheckOutPendingTransactionToolWrapperMock {}
-
-impl CheckOutPendingTransactionToolWrapper for CheckOutPendingTransactionToolWrapperMock {
-    fn transaction_info(&self, transaction_hash: H256) -> Result<Transaction, Web3Error> {
-        todo!()
+impl NotifyLaterCheckMsgHandle for NotifyLaterCheckMsgHandleHalfMock {
+    fn notify_later<'a>(
+        &'a self,
+        msg: CheckPendingTransactionForConfirmation,
+        interval: Duration,
+        mut closure: Box<
+            dyn FnMut(CheckPendingTransactionForConfirmation, Duration) -> SpawnHandle + 'a,
+        >,
+    ) -> SpawnHandle {
+        self.notify_later_params
+            .lock()
+            .unwrap()
+            .push((msg.clone(), interval.clone()));
+        closure(msg, interval)
     }
 }

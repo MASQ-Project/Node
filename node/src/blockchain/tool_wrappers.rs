@@ -1,42 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::blockchain_bridge::CheckPendingTransactionForConfirmation;
+use actix::SpawnHandle;
 use ethereum_types::H256;
-use std::any::Any;
 use std::fmt::Debug;
+use std::time::Duration;
 use web3::futures::Future;
-use web3::types::{Bytes, SignedTransaction, Transaction, TransactionParameters};
+use web3::types::{Bytes, SignedTransaction, TransactionParameters};
 use web3::Error as Web3Error;
 use web3::{Transport, Web3};
-
-pub trait ToolFactories {
-    fn make_send_transaction_tools<'a>(
-        &'a self,
-        tool_factory_from_blockchain_bridge: &'a (dyn SendTransactionToolWrapperFactory + 'a),
-    ) -> Box<dyn SendTransactionToolWrapper + 'a>;
-}
-
-pub trait SendTransactionToolWrapperFactory {
-    fn make<'a>(
-        &'a self,
-        real_factory_assembly_line: Box<
-            dyn FnOnce() -> Box<dyn SendTransactionToolWrapper + 'a> + 'a,
-        >,
-    ) -> Box<dyn SendTransactionToolWrapper + 'a>;
-    as_any_dcl!();
-}
-
-#[derive(Debug, PartialEq)]
-pub struct SendTransactionToolWrapperFactoryReal;
-
-impl SendTransactionToolWrapperFactory for SendTransactionToolWrapperFactoryReal {
-    fn make<'a>(
-        &'a self,
-        real_assembly_line: Box<dyn FnOnce() -> Box<dyn SendTransactionToolWrapper + 'a> + 'a>,
-    ) -> Box<dyn SendTransactionToolWrapper + 'a> {
-        real_assembly_line()
-    }
-    as_any_impl!();
-}
 
 pub trait SendTransactionToolWrapper {
     fn sign_transaction(
@@ -92,36 +64,30 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperNull {
     }
 }
 
-//TODO the following lines are just a sketch...be careful
-pub trait CheckOutPendingTransactionToolWrapperFactory {
-    fn make<'a>(
+pub trait NotifyLaterCheckMsgHandle {
+    fn notify_later<'a>(
         &'a self,
-        real_assembly_line: Box<
-            dyn FnOnce() -> Box<dyn CheckOutPendingTransactionToolWrapper + 'a> + 'a,
+        msg: CheckPendingTransactionForConfirmation,
+        interval: Duration,
+        closure: Box<
+            dyn FnMut(CheckPendingTransactionForConfirmation, Duration) -> SpawnHandle + 'a,
         >,
-    ) -> Box<dyn CheckOutPendingTransactionToolWrapper + 'a>;
-    as_any_dcl!();
+    ) -> SpawnHandle;
 }
 
-#[derive(Debug, PartialEq)]
-pub struct CheckOutPendingTransactionToolWrapperFactoryReal;
+pub struct NotifyLaterCheckMsgHandleReal;
 
-impl CheckOutPendingTransactionToolWrapperFactory
-    for CheckOutPendingTransactionToolWrapperFactoryReal
-{
-    fn make<'a>(
+impl NotifyLaterCheckMsgHandle for NotifyLaterCheckMsgHandleReal {
+    fn notify_later<'a>(
         &'a self,
-        real_assembly_line: Box<
-            dyn FnOnce() -> Box<dyn CheckOutPendingTransactionToolWrapper + 'a> + 'a,
+        msg: CheckPendingTransactionForConfirmation,
+        interval: Duration,
+        mut closure: Box<
+            dyn FnMut(CheckPendingTransactionForConfirmation, Duration) -> SpawnHandle + 'a,
         >,
-    ) -> Box<dyn CheckOutPendingTransactionToolWrapper + 'a> {
-        todo!()
+    ) -> SpawnHandle {
+        closure(msg, interval)
     }
-    as_any_impl!();
-}
-
-pub trait CheckOutPendingTransactionToolWrapper {
-    fn transaction_info(&self, transaction_hash: H256) -> Result<Transaction, Web3Error>;
 }
 
 #[cfg(test)]
