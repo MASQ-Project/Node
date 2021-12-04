@@ -477,10 +477,10 @@ impl<'a> PacketFacade<'a> {
     }
 
     pub fn clear(&mut self) {
-        PacketFacade::u16_to(0x0000, &mut self.buf, 4);
-        PacketFacade::u16_to(0x0000, &mut self.buf, 6);
-        PacketFacade::u16_to(0x0000, &mut self.buf, 8);
-        PacketFacade::u16_to(0x0000, &mut self.buf, 10);
+        PacketFacade::u16_to(0x0000, self.buf, 4);
+        PacketFacade::u16_to(0x0000, self.buf, 6);
+        PacketFacade::u16_to(0x0000, self.buf, 8);
+        PacketFacade::u16_to(0x0000, self.buf, 10);
         self.length = 12
     }
 
