@@ -22,7 +22,7 @@ impl DnsInspector for WinDnsInspector {
         let dns_server_list_csv = self.find_dns_server_list(interfaces)?;
         let ip_vec: Vec<_> = dns_server_list_csv
             .split(',')
-            .flat_map(|ip_str| IpAddr::from_str(ip_str))
+            .flat_map(IpAddr::from_str)
             .collect();
         Ok(ip_vec)
     }

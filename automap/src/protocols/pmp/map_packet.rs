@@ -7,7 +7,7 @@ use crate::protocols::utils::{
 use std::any::Any;
 use std::convert::TryFrom;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct MapOpcodeData {
     pub epoch_opt: Option<u32>,
     pub internal_port: u16,
@@ -50,17 +50,6 @@ impl OpcodeData for MapOpcodeData {
 }
 
 impl PmpOpcodeData for MapOpcodeData {}
-
-impl Default for MapOpcodeData {
-    fn default() -> Self {
-        Self {
-            epoch_opt: None,
-            internal_port: 0,
-            external_port: 0,
-            lifetime: 0,
-        }
-    }
-}
 
 impl TryFrom<(Direction, &[u8])> for MapOpcodeData {
     type Error = ParseError;
