@@ -32,7 +32,7 @@ pub struct RecipientsFactoryReal {}
 
 impl RecipientsFactory for RecipientsFactoryReal {
     fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients {
-        let ui_gateway_addr = UiGateway::new(&UiGatewayConfig { ui_port }).start();
+        let ui_gateway_addr = UiGateway::new(&UiGatewayConfig { ui_port }, false).start();
         let daemon_addr = Daemon::new(launcher).start();
         Recipients {
             ui_gateway_from_sub: ui_gateway_addr.clone().recipient(),
@@ -114,7 +114,7 @@ impl DaemonInitializerReal {
             params
                 .dirs_wrapper
                 .data_dir()
-                .expect_v("data directory")
+                .expectv("data directory")
                 .join("MASQ"),
             &RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref()),
             LevelFilter::Trace,

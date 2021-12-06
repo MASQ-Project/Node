@@ -3,7 +3,7 @@ use super::bootstrapper::Bootstrapper;
 use super::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::bootstrapper::RealUser;
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
-use crate::node_configurator::node_configurator_standard::standard::server_initializer_collected_params;
+use crate::node_configurator::node_configurator_standard::server_initializer_collected_params;
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib;

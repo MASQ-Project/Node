@@ -12,6 +12,7 @@ use sodiumoxide::crypto::secretbox;
 use sodiumoxide::crypto::sign as signing;
 use sodiumoxide::crypto::{box_ as encryption, hash};
 use sodiumoxide::randombytes::randombytes_into;
+use std::any::Any;
 
 lazy_static! {
     static ref INITIALIZED: bool = {
@@ -179,6 +180,12 @@ impl CryptDE for CryptDEReal {
 
     fn digest(&self) -> [u8; 32] {
         self.digest
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        //I don't know about a use of this for cryptDEReal anywhere;
+        //created for a special case of manipulation with cryptDENull where I know I'm not going to meet cryptDEReal there
+        unimplemented!()
     }
 }
 

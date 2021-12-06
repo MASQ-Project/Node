@@ -131,6 +131,11 @@ impl Logger {
         level <= self.level_limit
     }
 
+    #[cfg(test)]
+    pub fn set_level_for_a_test(&mut self, level: Level) {
+        self.level_limit = level
+    }
+
     fn generic_log<F>(&self, level: Level, log_function: F)
     where
         F: FnOnce() -> String,

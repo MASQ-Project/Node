@@ -2,9 +2,10 @@
 
 use lazy_static::lazy_static;
 use std::fmt;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 #[cfg(not(target_os = "windows"))]
@@ -101,6 +102,39 @@ where
     }
 }
 
+#[derive(PartialEq, Debug, Clone)]
+pub enum NeighborhoodModeLight {
+    Standard,
+    ConsumeOnly,
+    OriginateOnly,
+    ZeroHop,
+}
+
+impl Display for NeighborhoodModeLight {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Standard => write!(f, "standard"),
+            Self::ConsumeOnly => write!(f, "consume-only"),
+            Self::OriginateOnly => write!(f, "originate-only"),
+            Self::ZeroHop => write!(f, "zero-hop"),
+        }
+    }
+}
+
+impl FromStr for NeighborhoodModeLight {
+    type Err = String;
+
+    fn from_str(str: &str) -> Result<Self, Self::Err> {
+        Ok(match str {
+            "standard" => Self::Standard,
+            "consume-only" => Self::ConsumeOnly,
+            "originate-only" => Self::OriginateOnly,
+            "zero-hop" => Self::ZeroHop,
+            x => return Err(format!("Invalid value read for neighborhood mode: {}", x)),
+        })
+    }
+}
+
 pub fn running_test() {
     unsafe {
         RUNNING_TEST = true;
@@ -142,12 +176,12 @@ impl<const N: usize> SliceToVec<String> for [&str; N] {
 
 pub trait ExpectValue<T> {
     #[track_caller]
-    fn expect_v(self, msg: &str) -> T;
+    fn expectv(self, msg: &str) -> T;
 }
 
 impl<T> ExpectValue<T> for Option<T> {
     #[inline]
-    fn expect_v(self, subject: &str) -> T {
+    fn expectv(self, subject: &str) -> T {
         match self {
             Some(v) => v,
             None => expect_value_panic(subject, None),
@@ -157,7 +191,7 @@ impl<T> ExpectValue<T> for Option<T> {
 
 impl<T, E: Debug> ExpectValue<T> for Result<T, E> {
     #[inline]
-    fn expect_v(self, subject: &str) -> T {
+    fn expectv(self, subject: &str) -> T {
         match self {
             Ok(v) => v,
             Err(e) => expect_value_panic(subject, Some(&e)),
@@ -193,6 +227,10 @@ impl<T> WrapResult for T {
     fn wrap_to_err<V>(self) -> Result<V, Self> {
         Err(self)
     }
+}
+
+pub fn type_name_of<T>(_examined: T) -> &'static str {
+    std::any::type_name::<T>()
 }
 
 #[macro_export]
@@ -355,36 +393,83 @@ mod tests {
     }
 
     #[test]
+    fn neighborhood_mode_light_has_display() {
+        assert_eq!(NeighborhoodModeLight::Standard.to_string(), "standard");
+        assert_eq!(
+            NeighborhoodModeLight::ConsumeOnly.to_string(),
+            "consume-only"
+        );
+        assert_eq!(
+            NeighborhoodModeLight::OriginateOnly.to_string(),
+            "originate-only"
+        );
+        assert_eq!(NeighborhoodModeLight::ZeroHop.to_string(), "zero-hop")
+    }
+
+    #[test]
+    fn neighborhood_mode_light_from_str() {
+        assert_eq!(
+            NeighborhoodModeLight::from_str("standard").unwrap(),
+            NeighborhoodModeLight::Standard
+        );
+        assert_eq!(
+            NeighborhoodModeLight::from_str("consume-only").unwrap(),
+            NeighborhoodModeLight::ConsumeOnly
+        );
+        assert_eq!(
+            NeighborhoodModeLight::from_str("originate-only").unwrap(),
+            NeighborhoodModeLight::OriginateOnly
+        );
+        assert_eq!(
+            NeighborhoodModeLight::from_str("zero-hop").unwrap(),
+            NeighborhoodModeLight::ZeroHop
+        );
+
+        assert_eq!(
+            NeighborhoodModeLight::from_str("blah"),
+            Err(String::from(
+                "Invalid value read for neighborhood mode: blah"
+            ))
+        )
+    }
+
+    #[test]
     #[should_panic(expected = "value for 'meaningful code' badly prepared")]
-    fn expect_v_panics_for_none() {
+    fn expectv_panics_for_none() {
         let subject: Option<u16> = None;
 
-        let _ = subject.expect_v("meaningful code");
+        let _ = subject.expectv("meaningful code");
     }
 
     #[test]
     #[should_panic(expected = r#"value for 'safety feature' badly prepared, got: "alarm"#)]
-    fn expect_v_panics_for_error_variant() {
+    fn expectv_panics_for_error_variant() {
         let subject: Result<String, String> = Err("alarm".to_string());
 
-        let _ = subject.expect_v("safety feature");
+        let _ = subject.expectv("safety feature");
     }
 
     #[test]
-    fn expect_v_unwraps_option() {
+    fn expectv_unwraps_option() {
         let subject = Some(456);
 
-        let result = subject.expect_v("meaningful code");
+        let result = subject.expectv("meaningful code");
 
         assert_eq!(result, 456)
     }
 
     #[test]
-    fn expect_v_unwraps_result() {
+    fn expectv_unwraps_result() {
         let subject: Result<String, String> = Ok("all right".to_string());
 
-        let result = subject.expect_v("safety feature");
+        let result = subject.expectv("safety feature");
 
         assert_eq!(result, "all right".to_string())
+    }
+
+    #[test]
+    fn type_name_of_works() {
+        let result = type_name_of(running_test);
+        assert_eq!(result, "masq_lib::utils::running_test")
     }
 }
