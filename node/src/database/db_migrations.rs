@@ -7,7 +7,7 @@ use masq_lib::blockchains::chains::Chain;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
-use rusqlite::{Transaction, NO_PARAMS};
+use rusqlite::Transaction;
 use std::fmt::Debug;
 
 pub trait DbMigrator {
@@ -153,7 +153,7 @@ impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
         let transaction = self.root_transaction_ref;
         sql_statements.iter().fold(Ok(()), |so_far, stm| {
             if so_far.is_ok() {
-                transaction.execute(stm, NO_PARAMS).map(|_| ())
+                transaction.execute(stm, []).map(|_| ())
             } else {
                 so_far
             }
@@ -310,7 +310,7 @@ impl DbMigratorReal {
                 "UPDATE {} SET value = {} WHERE name = 'schema_version'",
                 name_of_given_table, update_to
             ),
-            NO_PARAMS,
+            [],
         )?;
         Ok(())
     }
@@ -464,7 +464,7 @@ mod tests {
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::NeighborhoodModeLight;
-    use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
+    use rusqlite::{Connection, Error, OptionalExtension};
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
@@ -844,7 +844,7 @@ mod tests {
             name TEXT,
             count TEXT
         )",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
         let correct_statement_1 = "INSERT INTO test (name,count) VALUES ('mushrooms','270')";
@@ -871,11 +871,9 @@ mod tests {
         let connection = Connection::open(&db_path).unwrap();
         //when an error occurs, the underlying transaction gets rolled back, and we cannot see any changes to the database
         let assertion: Option<(String, String)> = connection
-            .query_row(
-                "SELECT count FROM test WHERE name='mushrooms'",
-                NO_PARAMS,
-                |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())),
-            )
+            .query_row("SELECT count FROM test WHERE name='mushrooms'", [], |row| {
+                Ok((row.get(0).unwrap(), row.get(1).unwrap()))
+            })
             .optional()
             .unwrap();
         assert!(assertion.is_none()) //means no result for this query
@@ -921,13 +919,13 @@ mod tests {
             name TEXT,
             value TEXT
         )",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
         connection
             .execute(
                 "INSERT INTO test (name, value) VALUES ('schema_version', '2')",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
@@ -962,7 +960,7 @@ mod tests {
             .unwrap()
             .query_row(
                 "SELECT name, value FROM test WHERE name='schema_version'",
-                NO_PARAMS,
+                [],
                 |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())),
             )
             .unwrap();
@@ -995,7 +993,7 @@ mod tests {
             name TEXT,
             value TEXT
         )",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
