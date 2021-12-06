@@ -1,5 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+pub mod dot_graph;
+pub mod gossip;
+pub mod gossip_acceptor;
+pub mod gossip_producer;
+pub mod neighborhood_database;
+pub mod node_record;
+
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
@@ -12,20 +19,14 @@ use actix::MessageResult;
 use actix::Recipient;
 use actix::{Actor, System};
 use itertools::Itertools;
-
-use gossip_acceptor::GossipAcceptor;
-use gossip_acceptor::GossipAcceptorReal;
-use gossip_producer::GossipProducer;
-use gossip_producer::GossipProducerReal;
 use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::UiShutdownRequest;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue};
-use neighborhood_database::NeighborhoodDatabase;
-use node_record::NodeRecord;
 
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
@@ -57,21 +58,18 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
+use gossip_acceptor::GossipAcceptor;
+use gossip_acceptor::GossipAcceptorReal;
+use gossip_producer::GossipProducer;
+use gossip_producer::GossipProducerReal;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::crash_point::CrashPoint;
+use neighborhood_database::NeighborhoodDatabase;
+use node_record::NodeRecord;
 use masq_lib::logger::Logger;
-
-mod dot_graph;
-pub mod gossip;
-pub mod gossip_acceptor;
-#[cfg(not(feature = "expose_test_privates"))]
-mod gossip_producer;
-#[cfg(feature = "expose_test_privates")]
-pub mod gossip_producer;
-pub mod neighborhood_database;
-pub mod node_record;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 
@@ -89,6 +87,7 @@ pub struct Neighborhood {
     next_return_route_id: u32,
     initial_neighbors: Vec<NodeDescriptor>,
     chain: Chain,
+    crashable: bool,
     data_directory: PathBuf,
     persistent_config_opt: Option<Box<dyn PersistentConfiguration>>,
     db_password_opt: Option<String>,
@@ -275,8 +274,10 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body) {
+        if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
             self.handle_shutdown_order(client_id, body);
+        } else {
+            handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
     }
 }
@@ -345,13 +346,13 @@ impl Neighborhood {
             config.earning_wallet.clone(),
             cryptde,
         );
-        let is_mainnet = Self::is_mainnet_by_chain(config.blockchain_bridge_config.chain);
+        let is_mainnet = config.blockchain_bridge_config.chain.is_mainnet();
         let initial_neighbors: Vec<NodeDescriptor> = neighborhood_config
             .mode
             .neighbor_configs()
             .iter()
             .map(|nc| {
-                let mainnet_nc = Self::is_mainnet_by_descriptor(nc);
+                let mainnet_nc = nc.blockchain.is_mainnet();
                 if mainnet_nc != is_mainnet {
                     panic!(
                         "Neighbor {} is {}on the mainnet blockchain",
@@ -377,6 +378,7 @@ impl Neighborhood {
             next_return_route_id: 0,
             initial_neighbors,
             chain: config.blockchain_bridge_config.chain,
+            crashable: config.crash_point == CrashPoint::Message,
             data_directory: config.data_directory.clone(),
             persistent_config_opt: None,
             db_password_opt: config.db_password_opt.clone(),
@@ -405,20 +407,6 @@ impl Neighborhood {
         }
     }
 
-    fn is_mainnet_by_descriptor(nd: &NodeDescriptor) -> bool {
-        Self::mainnets().iter().any(|chain| &nd.blockchain == chain)
-    }
-
-    fn is_mainnet_by_chain(chain: Chain) -> bool {
-        Self::mainnets()
-            .iter()
-            .any(|mainnet_chain| mainnet_chain == &chain)
-    }
-
-    fn mainnets() -> &'static [Chain] {
-        &[Chain::PolyMainnet, Chain::EthMainnet]
-    }
-
     fn handle_start_message(&mut self) {
         self.connect_database();
         self.send_debut_gossip();
@@ -430,7 +418,7 @@ impl Neighborhood {
             .neighborhood_database
             .root()
             .node_addr_opt()
-            .expect_v("Root node")
+            .expectv("Root node")
             .ip_addr();
         self.neighborhood_database.new_public_ip(new_public_ip);
         info!(
@@ -467,7 +455,11 @@ impl Neighborhood {
         if self.persistent_config_opt.is_none() {
             let db_initializer = DbInitializerReal::default();
             let conn = db_initializer
-                .initialize(&self.data_directory, self.chain, true) // TODO: Probably should be false
+                .initialize(
+                    &self.data_directory,
+                    false,
+                    MigratorConfig::panic_on_migration(),
+                )
                 .expect("Neighborhood could not connect to database");
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
         }
@@ -494,7 +486,7 @@ impl Neighborhood {
                             node_addr,
                             MessageType::Gossip(gossip.clone().into()),
                         )
-                        .expect("Key magically disappeared"),
+                        .expectv("public key"),
                     )
                     .expect("hopper is dead");
                 trace!(
@@ -588,7 +580,7 @@ impl Neighborhood {
                     node_descriptor
                         .node_addr_opt
                         .as_ref()
-                        .expect("NodeAddr disappeared")
+                        .expectv("NodeAddr")
                         .ip_addr(),
                     failure
                 );
@@ -607,7 +599,7 @@ impl Neighborhood {
                 NodeDescriptor::from((
                     self.neighborhood_database
                         .node_by_key(k)
-                        .expect("Node disappeared"),
+                        .expectv("NodeRecord"),
                     self.chain,
                     self.cryptde,
                 ))
@@ -1301,6 +1293,7 @@ mod tests {
         neighborhood_from_nodes,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1310,7 +1303,6 @@ mod tests {
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
-    use masq_lib::blockchains::blockchain_records::CHAINS;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     #[test]
@@ -1322,10 +1314,10 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let mut bc = bc_from_nc_plus(
             NeighborhoodConfig {
-                mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(
+                mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::try_from((
                     cryptde,
                     "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
-                )
+                ))
                 .unwrap()]),
             },
             earning_wallet.clone(),
@@ -1346,10 +1338,10 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let mut bc = bc_from_nc_plus(
             NeighborhoodConfig {
-                mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(
+                mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::try_from((
                     cryptde,
                     "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
-                )
+                ))
                 .unwrap()]),
             },
             earning_wallet.clone(),
@@ -1418,12 +1410,21 @@ mod tests {
     #[test]
     fn node_with_zero_hop_config_ignores_start_message() {
         init_test_logging();
+        let data_dir = ensure_node_home_directory_exists(
+            "neighborhood/mod",
+            "node_with_zero_hop_config_ignores_start_message",
+        );
+        {
+            let _ = DbInitializerReal::default()
+                .initialize(&data_dir, true, MigratorConfig::test_default())
+                .unwrap();
+        }
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system =
             System::new("node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message");
-        let subject = Neighborhood::new(
+        let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
                 NeighborhoodConfig {
@@ -1434,6 +1435,7 @@ mod tests {
                 "node_with_zero_hop_config_ignores_start_message",
             ),
         );
+        subject.data_directory = data_dir;
         let addr: Addr<Neighborhood> = subject.start();
         let sub = addr.clone().recipient::<StartMessage>();
         let (hopper, _, hopper_recording_arc) = make_recorder();
@@ -1455,22 +1457,36 @@ mod tests {
         expected = "--neighbors node descriptors must have IP address and port list, not 'masq://eth-ropsten:AwQFBg@:'"
     )]
     fn node_with_neighbor_config_having_no_node_addr_panics() {
+        let data_dir = ensure_node_home_directory_exists(
+            "neighborhood/mod",
+            "node_with_neighbor_config_having_no_node_addr_panics",
+        );
+        {
+            let _ = DbInitializerReal::default()
+                .initialize(&data_dir, true, MigratorConfig::test_default())
+                .unwrap();
+        }
         let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let neighbor_node = make_node_record(3456, true);
         let system = System::new("node_with_bad_neighbor_config_panics");
-        let subject = Neighborhood::new(
+        let node_descriptor = NodeDescriptor {
+            blockchain: Chain::EthRopsten,
+            encryption_public_key: cryptde
+                .descriptor_fragment_to_first_contact_public_key(
+                    &cryptde.public_key_to_descriptor_fragment(neighbor_node.public_key()),
+                )
+                .expect("Internal error"),
+            node_addr_opt: None,
+        };
+        let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                        vec![NodeDescriptor::from((
-                            neighbor_node.public_key(),
-                            Chain::EthRopsten,
-                            cryptde,
-                        ))],
+                        vec![node_descriptor],
                         rate_pack(100),
                     ),
                 },
@@ -1479,6 +1495,7 @@ mod tests {
                 "node_with_neighbor_config_having_no_node_addr_panics",
             ),
         );
+        subject.data_directory = data_dir;
         let addr: Addr<Neighborhood> = subject.start();
         let sub = addr.clone().recipient::<StartMessage>();
         let peer_actors = peer_actors_builder().build();
@@ -1506,14 +1523,10 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from((
-                                &one_neighbor_node,
-                                Chain::EthRopsten, //TODO seems wrong again; should be the opposite?
-                                cryptde,
-                            )),
+                            NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde)),
                             NodeDescriptor::from((
                                 &another_neighbor_node,
-                                Chain::EthRopsten, //TODO..again
+                                Chain::EthRopsten,
                                 cryptde,
                             )),
                         ],
@@ -3472,11 +3485,20 @@ mod tests {
 
     #[test]
     fn node_gossips_to_neighbors_on_startup() {
+        let data_dir = ensure_node_home_directory_exists(
+            "neighborhood/mod",
+            "node_gossips_to_neighbors_on_startup",
+        );
+        {
+            let _ = DbInitializerReal::default()
+                .initialize(&data_dir, true, MigratorConfig::test_default())
+                .unwrap();
+        }
         let cryptde: &dyn CryptDE = main_cryptde();
         let neighbor = make_node_record(1234, true);
         let (hopper, _, hopper_recording) = make_recorder();
         let neighbor_inside = neighbor.clone();
-        let subject = Neighborhood::new(
+        let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
                 NeighborhoodConfig {
@@ -3495,6 +3517,7 @@ mod tests {
                 "node_gossips_to_neighbors_on_startup",
             ),
         );
+        subject.data_directory = data_dir;
         let this_node = subject.neighborhood_database.root().clone();
         let system = System::new("node_gossips_to_neighbors_on_startup");
         let addr: Addr<Neighborhood> = subject.start();
@@ -3600,12 +3623,7 @@ mod tests {
 
     fn node_record_to_neighbor_config(node_record_ref: &NodeRecord) -> NodeDescriptor {
         let cryptde: &dyn CryptDE = main_cryptde();
-        NodeDescriptor::from((
-            &node_record_ref.public_key().clone(),
-            &node_record_ref.node_addr_opt().unwrap().clone(),
-            Chain::EthRopsten,
-            cryptde,
-        ))
+        NodeDescriptor::from((node_record_ref, Chain::EthRopsten, cryptde))
     }
 
     #[test]
@@ -4275,38 +4293,14 @@ mod tests {
     }
 
     #[test]
-    fn is_mainnet_by_descriptor_knows_about_all_mainnets() {
-        let searched_str = "mainnet";
-        assert_mainnet_exist();
-        CHAINS.iter().for_each(|blockchain_record| {
-            if blockchain_record.literal_identifier.contains(searched_str) {
-                let descriptor = NodeDescriptor {
-                    blockchain: blockchain_record.self_id,
-                    encryption_public_key: PublicKey::from(&b"blah"[..]),
-                    node_addr_opt: None,
-                };
-                assert_eq!(Neighborhood::is_mainnet_by_descriptor(&descriptor), true)
-            }
-        })
-    }
+    #[should_panic(
+        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    )]
+    fn neighborhood_can_be_crashed_properly_but_not_improperly() {
+        let mut neighborhood = make_standard_subject();
+        neighborhood.crashable = true;
 
-    #[test]
-    fn is_mainnet_by_chain_knows_about_all_mainnets() {
-        let searched_str = "mainnet";
-        assert_mainnet_exist();
-        CHAINS.iter().for_each(|blockchain_record| {
-            if blockchain_record.literal_identifier.contains(searched_str) {
-                let chain = blockchain_record.self_id;
-                assert_eq!(Neighborhood::is_mainnet_by_chain(chain), true)
-            }
-        })
-    }
-
-    fn assert_mainnet_exist() {
-        assert!(CHAINS
-            .iter()
-            .find(|blockchain_record| blockchain_record.literal_identifier.contains("mainnet"))
-            .is_some());
+        prove_that_crash_request_handler_is_hooked_up(neighborhood, CRASH_KEY);
     }
 
     fn make_standard_subject() -> Neighborhood {

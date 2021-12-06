@@ -256,7 +256,7 @@ impl NeighborhoodDatabase {
         let record = self.root_mut();
         let public_key = record.public_key().clone();
         let node_addr_opt = record.metadata.node_addr_opt.clone();
-        let old_node_addr = node_addr_opt.expect_v("Root node");
+        let old_node_addr = node_addr_opt.expectv("Root node");
         let new_node_addr = NodeAddr::new(&public_ip, &old_node_addr.ports());
         record.metadata.node_addr_opt = Some(new_node_addr);
         self.by_ip_addr.remove(&old_node_addr.ip_addr());

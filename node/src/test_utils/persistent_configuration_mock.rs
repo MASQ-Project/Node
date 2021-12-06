@@ -5,12 +5,16 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::utils::AutomapProtocol;
+use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct PersistentConfigurationMock {
+    blockchain_service_url_results: RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
+    set_blockchain_service_url_params: Arc<Mutex<Vec<String>>>,
+    set_blockchain_service_url_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     current_schema_version_results: RefCell<Vec<String>>,
     chain_name_results: RefCell<Vec<String>>,
     check_password_params: Arc<Mutex<Vec<Option<String>>>>,
@@ -36,6 +40,12 @@ pub struct PersistentConfigurationMock {
     earning_wallet_address_results: RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
     set_wallet_info_params: Arc<Mutex<Vec<(PlainData, String, String, String)>>>,
     set_wallet_info_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    mapping_protocol_results: RefCell<Vec<Result<Option<AutomapProtocol>, PersistentConfigError>>>,
+    set_mapping_protocol_params: Arc<Mutex<Vec<Option<AutomapProtocol>>>>,
+    set_mapping_protocol_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    neighborhood_mode_results: RefCell<Vec<Result<NeighborhoodModeLight, PersistentConfigError>>>,
+    set_neighborhood_mode_params: Arc<Mutex<Vec<NeighborhoodModeLight>>>,
+    set_neighborhood_mode_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     past_neighbors_params: Arc<Mutex<Vec<String>>>,
     past_neighbors_results:
         RefCell<Vec<Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>>>,
@@ -44,12 +54,23 @@ pub struct PersistentConfigurationMock {
     start_block_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
     set_start_block_params: Arc<Mutex<Vec<u64>>>,
     set_start_block_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    mapping_protocol_results: RefCell<Vec<Result<Option<AutomapProtocol>, PersistentConfigError>>>,
-    set_mapping_protocol_params: Arc<Mutex<Vec<Option<AutomapProtocol>>>>,
-    set_mapping_protocol_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
 }
 
 impl PersistentConfiguration for PersistentConfigurationMock {
+    fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
+        self.blockchain_service_url_results.borrow_mut().remove(0)
+    }
+
+    fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError> {
+        self.set_blockchain_service_url_params
+            .lock()
+            .unwrap()
+            .push(url.to_string());
+        self.set_blockchain_service_url_results
+            .borrow_mut()
+            .remove(0)
+    }
+
     fn current_schema_version(&self) -> String {
         Self::result_from(&self.current_schema_version_results)
     }
@@ -186,11 +207,51 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_mapping_protocol_params.lock().unwrap().push(value);
         self.set_mapping_protocol_results.borrow_mut().remove(0)
     }
+
+    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
+        self.neighborhood_mode_results.borrow_mut().remove(0)
+    }
+
+    fn set_neighborhood_mode(
+        &mut self,
+        value: NeighborhoodModeLight,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_neighborhood_mode_params
+            .lock()
+            .unwrap()
+            .push(value);
+        self.set_neighborhood_mode_results.borrow_mut().remove(0)
+    }
 }
 
 impl PersistentConfigurationMock {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn blockchain_service_url_result(
+        self,
+        result: Result<Option<String>, PersistentConfigError>,
+    ) -> Self {
+        self.blockchain_service_url_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn set_blockchain_service_url_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.set_blockchain_service_url_params = params.clone();
+        self
+    }
+
+    pub fn set_blockchain_service_url_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> Self {
+        self.set_blockchain_service_url_results
+            .borrow_mut()
+            .push(result);
+        self
     }
 
     pub fn current_schema_version_result(self, result: &str) -> PersistentConfigurationMock {
@@ -291,6 +352,30 @@ impl PersistentConfigurationMock {
         result: Result<bool, PersistentConfigError>,
     ) -> PersistentConfigurationMock {
         self.mnemonic_seed_exists_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn neighborhood_mode_result(
+        self,
+        result: Result<NeighborhoodModeLight, PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.neighborhood_mode_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_neighborhood_mode_params(
+        mut self,
+        params: &Arc<Mutex<Vec<NeighborhoodModeLight>>>,
+    ) -> PersistentConfigurationMock {
+        self.set_neighborhood_mode_params = params.clone();
+        self
+    }
+
+    pub fn set_neighborhood_mode_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.set_neighborhood_mode_results.borrow_mut().push(result);
         self
     }
 

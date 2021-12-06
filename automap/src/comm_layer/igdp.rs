@@ -461,7 +461,7 @@ impl IgdpTransactor {
                 // if the mapping isn't permanent
                 if let Err(e) = Self::remap_port(
                     inner.mapping_adder.as_ref(),
-                    inner.gateway_opt.as_ref().expect_v("gateway_opt").as_ref(),
+                    inner.gateway_opt.as_ref().expectv("gateway_opt").as_ref(),
                     mapping_config.hole_port,
                     mapping_config.remap_interval,
                     &inner.logger,

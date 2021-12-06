@@ -4,9 +4,6 @@
 #[macro_use]
 pub mod sub_lib;
 
-#[cfg_attr(test, macro_use)]
-extern crate clap;
-
 #[macro_use]
 extern crate masq_lib;
 
@@ -47,6 +44,6 @@ mod stream_messages;
 mod stream_reader;
 mod stream_writer_sorted;
 mod stream_writer_unsorted;
-pub mod test_utils; //TODO we should take collections of testing utils and make them test contingent.
+pub mod test_utils; //TODO we should make some effort for collections of testing utils to be really test conditioned.
 pub mod tls_discriminator_factory;
 pub mod ui_gateway;

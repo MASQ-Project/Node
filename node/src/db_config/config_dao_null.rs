@@ -83,9 +83,9 @@ mod tests {
     use super::*;
     use crate::database::db_initializer::DbInitializer;
     use crate::db_config::config_dao::ConfigDaoReal;
-    use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
+    use crate::database::db_migrations::MigratorConfig;
 
     #[test]
     fn get_all_knows_ever_present_values() {
@@ -171,7 +171,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&data_dir, Chain::EthMainnet, true)
+            .initialize(&data_dir, true, MigratorConfig::test_default())
             .unwrap();
         let real_config_dao = ConfigDaoReal::new(conn);
         let records = real_config_dao.get_all().unwrap();

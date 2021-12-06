@@ -22,8 +22,6 @@ use std::collections::HashMap;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
-use std::path::PathBuf;
-use std::str::FromStr;
 
 pub trait RecipientsFactory {
     fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients;
@@ -34,7 +32,7 @@ pub struct RecipientsFactoryReal {}
 
 impl RecipientsFactory for RecipientsFactoryReal {
     fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients {
-        let ui_gateway_addr = UiGateway::new(&UiGatewayConfig { ui_port }).start();
+        let ui_gateway_addr = UiGateway::new(&UiGatewayConfig { ui_port }, false).start();
         let daemon_addr = Daemon::new(launcher).start();
         Recipients {
             ui_gateway_from_sub: ui_gateway_addr.clone().recipient(),
@@ -112,32 +110,13 @@ impl RerunnerReal {
 
 impl DaemonInitializerReal {
     pub fn new(config: InitializationConfig, mut params: ClusteredParams) -> DaemonInitializerReal {
-        let real_user = RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref());
-        let dirs_home_dir_opt = params.dirs_wrapper.home_dir();
-        let dirs_home_dir = dirs_home_dir_opt
-            .as_ref()
-            .expect_v("home directory")
-            .to_str()
-            .expect_v("path string");
-        let dirs_data_dir_opt = params.dirs_wrapper.data_dir();
-        let dirs_data_dir = dirs_data_dir_opt
-            .as_ref()
-            .expect("data directory")
-            .to_str()
-            .expect_v("path string");
-        let real_home_dir = real_user
-            .home_dir_opt
-            .as_ref()
-            .expect_v("home directory")
-            .to_str()
-            .expect_v("path string");
-        let relative_data_dir = &dirs_data_dir[(dirs_home_dir.len() + 1)..];
-        let real_data_dir = PathBuf::from_str(real_home_dir)
-            .expect_v("path string")
-            .join(relative_data_dir);
         params.logger_initializer_wrapper.init(
-            real_data_dir.join("MASQ"),
-            &real_user,
+            params
+                .dirs_wrapper
+                .data_dir()
+                .expectv("data directory")
+                .join("MASQ"),
+            &RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref()),
             LevelFilter::Trace,
             Some("daemon"),
         );

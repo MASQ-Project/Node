@@ -142,7 +142,7 @@ fn print_protected(
         }
         Error(e) => {
             let _lock = terminal_interface.lock_ultimately(streams, true);
-            short_writeln!(streams.stderr, "{}", e.expect_v("Some(String)"));
+            short_writeln!(streams.stderr, "{}", e.expectv("Some(String)"));
             Error(None)
         }
         EoF => {

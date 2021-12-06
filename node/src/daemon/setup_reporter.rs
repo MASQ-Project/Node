@@ -7,10 +7,11 @@ use crate::daemon::dns_inspector::dns_inspector_factory::{
 };
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, InitializationError};
 use crate::db_config::config_dao_null::ConfigDaoNull;
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::node_configurator::node_configurator_standard::standard::{
+use crate::node_configurator::node_configurator_standard::{
     privileged_parse_args, unprivileged_parse_args,
 };
 use crate::node_configurator::{
@@ -120,8 +121,11 @@ impl SetupReporter for SetupReporterReal {
                 chain,
             ),
         };
-        let (configured_setup, error_opt) =
-            self.calculate_configured_setup(&all_but_configured, &data_directory, chain);
+        let (configured_setup, error_opt) = self.calculate_configured_setup(
+            &all_but_configured,
+            &data_directory,
+            chain
+        );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
@@ -274,7 +278,7 @@ impl SetupReporterReal {
         &self,
         combined_setup: &SetupCluster,
         data_directory: &Path,
-        chain: BlockChain,
+        _chain: BlockChain, // TODO: Maybe remove this parameter?
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
@@ -289,10 +293,8 @@ impl SetupReporterReal {
             Err(ce) => return (HashMap::new(), Some(ce)),
         };
         let ((bootstrapper_config, persistent_config_opt), error_opt) = self.run_configuration(
-            self.dirs_wrapper.as_ref(),
             &multi_config,
             data_directory,
-            chain,
         );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -397,10 +399,8 @@ impl SetupReporterReal {
     #[allow(clippy::type_complexity)]
     fn run_configuration(
         &self,
-        dirs_wrapper: &dyn DirsWrapper,
         multi_config: &MultiConfig,
         data_directory: &Path,
-        chain: BlockChain,
     ) -> (
         (BootstrapperConfig, Option<Box<dyn PersistentConfiguration>>),
         Option<ConfiguratorError>,
@@ -408,14 +408,18 @@ impl SetupReporterReal {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.data_directory = data_directory.to_path_buf();
-        match privileged_parse_args(dirs_wrapper, multi_config, &mut bootstrapper_config) {
+        match privileged_parse_args(self.dirs_wrapper.as_ref(), multi_config, &mut bootstrapper_config) {
             Ok(_) => (),
             Err(ce) => {
                 error_so_far.extend(ce);
             }
         };
         let initializer = DbInitializerReal::default();
-        match initializer.initialize(data_directory, chain, false) {
+        match initializer.initialize(
+            data_directory,
+            false,
+            MigratorConfig::migration_suppressed_with_error(),
+        ) {
             Ok(conn) => {
                 let mut persistent_config = PersistentConfigurationReal::from(conn);
                 match unprivileged_parse_args(
@@ -935,7 +939,9 @@ mod tests {
     use crate::bootstrapper::RealUser;
     use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
     use crate::daemon::dns_inspector::DnsInspectionError;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+    use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };
@@ -946,12 +952,16 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
+    use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::pure_test_utils::{
+        make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
+    };
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::AutomapProtocol;
     use std::cell::RefCell;
@@ -962,6 +972,8 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::convert::TryFrom;
+    use rusqlite::NO_PARAMS;
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -1042,7 +1054,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
@@ -1788,7 +1800,48 @@ mod tests {
     }
 
     #[test]
-    fn get_modified_blanking_something_that_shouldnt_be_blanked_fails_properly() {
+    fn get_modified_setup_does_not_support_database_migration() {
+        let data_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_setup_does_not_support_database_migration",
+        );
+        let conn =
+            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
+        let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, "0");
+        let existing_setup = setup_cluster_from(vec![
+            ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
+            (
+                "data-directory",
+                &data_dir.to_string_lossy().to_string(),
+                Set,
+            ),
+            (
+                "real-user",
+                &crate::bootstrapper::RealUser::new(None, None, None)
+                    .populate(&DirsWrapperReal {})
+                    .to_string(),
+                Default,
+            ),
+        ]);
+        let incoming_setup = vec![("ip", "1.2.3.4")]
+            .into_iter()
+            .map(|(name, value)| UiSetupRequestValue::new(name, value))
+            .collect_vec();
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let _ = subject
+            .get_modified_setup(existing_setup, incoming_setup)
+            .unwrap();
+
+        let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, schema_version_after)
+    }
+
+    #[test]
+    fn get_modified_blanking_something_that_should_not_be_blanked_fails_properly() {
         let _guard = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "setup_reporter",
@@ -1820,6 +1873,42 @@ mod tests {
                 Set
             )
         );
+    }
+
+    #[test]
+    fn run_configuration_suppresses_db_migration_which_is_why_it_refuses_to_initiate_persistent_config(
+    ) {
+        let data_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "run_configuration_suppresses_db_migration_which_is_why_it_refuses_to_initiate_persistent_config",
+        );
+        let conn =
+            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        conn.execute(
+            "update config set value = 55 where name = 'gas_price'",
+            NO_PARAMS,
+        )
+        .unwrap();
+        let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
+        let updated_gas_price = dao.get("gas_price").unwrap().value_opt.unwrap();
+        assert_eq!(updated_gas_price, "55");
+        let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, "0");
+        let multi_config = make_simplified_multi_config([
+            "MASQNode",
+            "--data-directory",
+            data_dir.to_str().unwrap(),
+        ]);
+        let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
+        let subject = SetupReporterReal::new(Box::new (dirs_wrapper));
+
+        let ((bootstrapper_config, persistent_config), _) =
+            subject.run_configuration(&multi_config, &data_dir);
+
+        assert_ne!(bootstrapper_config.blockchain_bridge_config.gas_price, 55); //asserting negation
+        assert!(persistent_config.is_none());
+        let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, schema_version_after)
     }
 
     #[test]
@@ -2044,7 +2133,7 @@ mod tests {
             .calculate_configured_setup(
                 &setup,
                 &data_directory,
-                Blockchain::EthMainnet, //irrelevant
+                Blockchain::default()
             )
             .0;
 
@@ -2124,7 +2213,7 @@ mod tests {
             .calculate_configured_setup(
                 &setup,
                 &data_directory,
-                Blockchain::EthMainnet, //irrelevant
+                Blockchain::default()
             )
             .0;
 
@@ -2156,9 +2245,8 @@ mod tests {
             .calculate_configured_setup(
                 &setup,
                 &data_directory,
-                Blockchain::EthMainnet, //irrelevant
-            )
-            .1
+                Blockchain::default()
+            ).1
             .unwrap();
 
         assert_eq!(result.param_errors[0].parameter, "config-file");
@@ -2194,13 +2282,13 @@ mod tests {
         .collect();
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
-        let result = subject
+        let result =
+            subject
             .calculate_configured_setup(
                 &setup,
                 &data_dir,
-                Blockchain::EthMainnet, //irrelevant
-            )
-            .0;
+                Blockchain::default()
+            ).0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
@@ -2237,7 +2325,7 @@ mod tests {
             .calculate_configured_setup(
                 &setup,
                 &data_directory,
-                Blockchain::EthMainnet, //irrelevant
+                Blockchain::default(),
             )
             .1
             .unwrap();
@@ -2539,15 +2627,15 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .past_neighbors_params(&past_neighbors_params_arc)
             .past_neighbors_result(Ok(Some(vec![
-                NodeDescriptor::from_str(
+                NodeDescriptor::try_from((
                     main_cryptde(),
                     "masq://eth-mainnet:MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234",
-                )
+                ))
                 .unwrap(),
-                NodeDescriptor::from_str(
+                NodeDescriptor::try_from((
                     main_cryptde(),
                     "masq://eth-mainnet:ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE@4.3.2.1:4321",
-                )
+                ))
                 .unwrap(),
             ])));
         let subject = Neighbors {};

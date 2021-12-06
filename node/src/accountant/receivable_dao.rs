@@ -384,6 +384,7 @@ mod tests {
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
+    use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
@@ -391,7 +392,7 @@ mod tests {
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};
 
@@ -422,7 +423,7 @@ mod tests {
         );
         let mut subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         let payments = vec![Transaction {
@@ -448,7 +449,7 @@ mod tests {
             "try_multi_insert_payment_handles_error_setting_start_block",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         {
             let mut stmt = conn.prepare("drop table config").unwrap();
@@ -480,7 +481,7 @@ mod tests {
             "try_multi_insert_payment_handles_error_adding_receivables",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         {
             let mut stmt = conn.prepare("drop table receivable").unwrap();
@@ -508,7 +509,7 @@ mod tests {
         let status = {
             let subject = ReceivableDaoReal::new(
                 DbInitializerReal::default()
-                    .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                    .initialize(&home_dir, true, MigratorConfig::test_default())
                     .unwrap(),
             );
 
@@ -544,7 +545,7 @@ mod tests {
         let subject = {
             let subject = ReceivableDaoReal::new(
                 DbInitializerReal::default()
-                    .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                    .initialize(&home_dir, true, MigratorConfig::test_default())
                     .unwrap(),
             );
             subject.more_money_receivable(&wallet, 1234).unwrap();
@@ -579,7 +580,7 @@ mod tests {
         );
         let subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -600,7 +601,7 @@ mod tests {
         let mut subject = {
             let subject = ReceivableDaoReal::new(
                 DbInitializerReal::default()
-                    .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                    .initialize(&home_dir, true, MigratorConfig::test_default())
                     .unwrap(),
             );
             subject.more_money_receivable(&debtor1, 1234).unwrap();
@@ -645,7 +646,7 @@ mod tests {
 
         let config_dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -662,7 +663,7 @@ mod tests {
         let debtor = make_wallet("unknown_wallet");
         let mut subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -727,7 +728,7 @@ mod tests {
 
         let mut receivable_dao = ReceivableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -747,7 +748,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -768,7 +769,7 @@ mod tests {
 
         let subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -839,7 +840,7 @@ mod tests {
         let home_dir = ensure_node_home_directory_exists("accountant", "new_delinquencies");
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         add_receivable_account(&conn, &not_delinquent_inside_grace_period);
         add_receivable_account(&conn, &not_delinquent_after_grace_below_slope);
@@ -877,7 +878,7 @@ mod tests {
             ensure_node_home_directory_exists("accountant", "new_delinquencies_shallow_slope");
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         add_receivable_account(&conn, &not_delinquent);
         add_receivable_account(&conn, &delinquent);
@@ -910,7 +911,7 @@ mod tests {
             ensure_node_home_directory_exists("accountant", "new_delinquencies_steep_slope");
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         add_receivable_account(&conn, &not_delinquent);
         add_receivable_account(&conn, &delinquent);
@@ -946,7 +947,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         add_receivable_account(&conn, &existing_delinquency);
         add_receivable_account(&conn, &new_delinquency);
@@ -976,7 +977,7 @@ mod tests {
         let home_dir = ensure_node_home_directory_exists("accountant", "paid_delinquencies");
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         add_receivable_account(&conn, &paid_delinquent);
         add_receivable_account(&conn, &unpaid_delinquent);
@@ -1011,7 +1012,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         add_receivable_account(&conn, &newly_non_delinquent);
         add_receivable_account(&conn, &old_non_delinquent);
@@ -1028,7 +1029,7 @@ mod tests {
     fn top_records_and_total() {
         let home_dir = ensure_node_home_directory_exists("receivable_dao", "top_records_and_total");
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let insert = |wallet: &str, balance: i64, timestamp: i64| {
             let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp];
@@ -1091,7 +1092,7 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("receivable_dao", "correctly_totals_zero_records");
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, TEST_DEFAULT_CHAIN, true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let subject = ReceivableDaoReal::new(conn);
 

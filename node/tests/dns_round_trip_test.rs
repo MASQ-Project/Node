@@ -14,6 +14,9 @@ fn handles_two_consecutive_ipv4_dns_requests_integration() {
         "handles_two_consecutive_ipv4_dns_requests_integration",
         None,
         true,
+        true,
+        false,
+        true,
     );
 
     perform_ipv4_query();
@@ -26,6 +29,9 @@ fn handles_consecutive_heterogeneous_dns_requests_integration() {
     let _node = utils::MASQNode::start_standard(
         "handles_consecutive_heterogeneous_dns_requests_integration",
         None,
+        true,
+        true,
+        false,
         true,
     );
 

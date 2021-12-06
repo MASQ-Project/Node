@@ -7,8 +7,10 @@ use crate::sub_lib::cryptde::PrivateKey;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, SymmetricKey};
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::utils::ExpectValue;
 use rand::prelude::*;
 use rustc_hex::ToHex;
+use std::any::Any;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 
@@ -107,7 +109,7 @@ impl CryptDE for CryptDENull {
     }
 
     fn public_key_to_descriptor_fragment(&self, public_key: &PublicKey) -> String {
-        base64::encode_config(public_key.as_slice(), base64::STANDARD_NO_PAD)
+        base64::encode_config(public_key.as_slice(), base64::URL_SAFE_NO_PAD)
     }
 
     fn descriptor_fragment_to_first_contact_public_key(
@@ -117,7 +119,7 @@ impl CryptDE for CryptDENull {
         if descriptor_fragment.is_empty() {
             return Err("Public key cannot be empty".to_string());
         }
-        let half_key = match base64::decode_config(descriptor_fragment, base64::STANDARD_NO_PAD) {
+        let half_key = match base64::decode_config(descriptor_fragment, base64::URL_SAFE_NO_PAD) {
             Ok(half_key) => half_key,
             Err(_) => {
                 return Err(format!(
@@ -131,6 +133,18 @@ impl CryptDE for CryptDENull {
 
     fn digest(&self) -> [u8; 32] {
         self.digest
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl<'a> From<&'a dyn CryptDE> for &'a CryptDENull {
+    fn from(cryptde_generic: &'a dyn CryptDE) -> Self {
+        cryptde_generic
+            .as_any()
+            .downcast_ref()
+            .expectv("CryptDENull")
     }
 }
 
@@ -261,7 +275,7 @@ mod tests {
 
     #[test]
     fn decode_with_empty_key() {
-        let mut subject = main_cryptde().clone();
+        let mut subject = CryptDENull::new(TEST_DEFAULT_CHAIN);
         subject.private_key = PrivateKey::new(b"");
 
         let result = subject.decode(&CryptData::new(b"keydata"));
@@ -271,7 +285,7 @@ mod tests {
 
     #[test]
     fn decode_with_empty_data() {
-        let mut subject = main_cryptde().clone();
+        let mut subject = CryptDENull::new(TEST_DEFAULT_CHAIN);
         subject.private_key = PrivateKey::new(b"key");
 
         let result = subject.decode(&CryptData::new(b""));
@@ -281,7 +295,7 @@ mod tests {
 
     #[test]
     fn decode_with_key_and_data() {
-        let mut subject = main_cryptde().clone();
+        let mut subject = CryptDENull::new(TEST_DEFAULT_CHAIN);
         subject.private_key = PrivateKey::new(b"key");
 
         let result = subject.decode(&CryptData::new(b"keydata"));
@@ -291,8 +305,8 @@ mod tests {
 
     #[test]
     fn decode_with_incorrect_private_key() {
-        let mut subject = main_cryptde().clone();
-        subject.private_key = PrivateKey::new(b"badKey");
+        let mut subject = CryptDENull::new(TEST_DEFAULT_CHAIN);
+        subject.private_key = PrivateKey::new(b"badkey");
 
         let result = subject.decode(&CryptData::new(b"keydataxyz"));
 
@@ -301,7 +315,7 @@ mod tests {
 
     #[test]
     fn decode_with_key_exceeding_data_length() {
-        let mut subject = main_cryptde().clone();
+        let mut subject = CryptDENull::new(TEST_DEFAULT_CHAIN);
         subject.private_key = PrivateKey::new(b"invalidkey");
 
         let result = subject.decode(&CryptData::new(b"keydata"));
@@ -329,7 +343,7 @@ mod tests {
 
     #[test]
     fn gen_key_sym_can_be_controlled_and_wraps_properly() {
-        let mut subject = main_cryptde().clone();
+        let mut subject = CryptDENull::new(TEST_DEFAULT_CHAIN);
 
         subject.set_next_symmetric_key_seed(0xFFFFFFFFFFFFFFFFu64);
         let key1 = subject.gen_key_sym();

@@ -14,8 +14,10 @@ use bip39::{Language, MnemonicType};
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
+use masq_lib::utils::{NeighborhoodModeLight};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
+use websocket::url::Url;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -29,7 +31,9 @@ pub enum PersistentConfigError {
     BadMnemonicSeed(PlainData),
     BadDerivationPathFormat(String),
     BadAddressFormat(String),
+    InvalidUrl(String),
     Collision(String),
+    UninterpretableValue(String),
 }
 
 impl From<TypedConfigLayerError> for PersistentConfigError {
@@ -69,6 +73,8 @@ impl PersistentConfigError {
 }
 
 pub trait PersistentConfiguration {
+    fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError>;
+    fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError>;
     fn current_schema_version(&self) -> String;
     fn chain_name(&self) -> String;
     fn check_password(
@@ -117,6 +123,11 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
+    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError>;
+    fn set_neighborhood_mode(
+        &mut self,
+        value: NeighborhoodModeLight,
+    ) -> Result<(), PersistentConfigError>;
 }
 
 pub struct PersistentConfigurationReal {
@@ -125,6 +136,20 @@ pub struct PersistentConfigurationReal {
 }
 
 impl PersistentConfiguration for PersistentConfigurationReal {
+    fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
+        match self.dao.get("blockchain_service_url")?.value_opt {
+            None => Ok(None),
+            Some(url) => Ok(Some(url)),
+        }
+    }
+
+    fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        Url::parse(url).map_err(|e| PersistentConfigError::InvalidUrl(e.to_string()))?;
+        writer.set("blockchain_service_url", Some(url.to_string()))?;
+        Ok(writer.commit()?)
+    }
+
     fn current_schema_version(&self) -> String {
         match self.dao.get("schema_version") {
             Ok(record) => match record.value_opt {
@@ -399,6 +424,26 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         writer.set("mapping_protocol", value.map(|v| v.to_string()))?;
         Ok(writer.commit()?)
     }
+
+    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
+        NeighborhoodModeLight::from_str(
+            self.dao
+                .get("neighborhood_mode")?
+                .value_opt
+                .expect("ever-supplied value neighborhood_mode is missing; database is corrupt!")
+                .as_str(),
+        )
+        .map_err(PersistentConfigError::UninterpretableValue)
+    }
+
+    fn set_neighborhood_mode(
+        &mut self,
+        value: NeighborhoodModeLight,
+    ) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        writer.set("neighborhood_mode", Some(value.to_string()))?;
+        Ok(writer.commit()?)
+    }
 }
 
 impl From<Box<dyn ConnectionWrapper>> for PersistentConfigurationReal {
@@ -449,6 +494,7 @@ mod tests {
     use masq_lib::utils::{derivation_path, find_free_port};
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
+    use std::convert::TryFrom;
 
     #[test]
     fn from_config_dao_error() {
@@ -666,6 +712,79 @@ mod tests {
     }
 
     #[test]
+    fn blockchain_service_success() {
+        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "blockchain_service_url",
+            Some("https://ifura.io/ID"),
+            false,
+        )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.blockchain_service_url().unwrap();
+
+        assert_eq!(result, Some("https://ifura.io/ID".to_string()));
+    }
+
+    #[test]
+    fn blockchain_service_allows_none_value() {
+        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "blockchain_service_url",
+            None,
+            false,
+        )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.blockchain_service_url().unwrap();
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn set_blockchain_service_works() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .set_params(&set_params_arc)
+                .set_result(Ok(()))
+                .commit_result(Ok(())),
+        );
+        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_blockchain_service_url("https://ifura.io/ID");
+
+        assert_eq!(result, Ok(()));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![(
+                "blockchain_service_url".to_string(),
+                Some("https://ifura.io/ID".to_string())
+            )]
+        );
+    }
+
+    #[test]
+    fn set_blockchain_service_complains_if_invalid_url() {
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .set_result(Ok(()))
+                .commit_result(Ok(())),
+        );
+        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_blockchain_service_url("https.ifura.io");
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::InvalidUrl(
+                "relative URL without a base".to_string()
+            ))
+        );
+    }
+
+    #[test]
     fn clandestine_port_success() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
@@ -724,11 +843,6 @@ mod tests {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = Box::new(
             ConfigDaoWriteableMock::new()
-                .get_result(Ok(ConfigDaoRecord::new(
-                    "clandestine_port",
-                    Some("1234"),
-                    false,
-                )))
                 .set_params(&set_params_arc)
                 .set_result(Ok(()))
                 .commit_result(Ok(())),
@@ -1547,9 +1661,9 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let node_descriptors = vec![
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234")
+            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
                 .unwrap(),
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345")
+            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
                 .unwrap(),
         ];
         let node_descriptors_bytes =
@@ -1589,9 +1703,9 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let node_descriptors = vec![
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234")
+            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
                 .unwrap(),
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345")
+            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
                 .unwrap(),
         ];
         let set_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1637,7 +1751,7 @@ mod tests {
     }
 
     #[test]
-    fn mapping_protocol() {
+    fn mapping_protocol_works() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
@@ -1692,5 +1806,67 @@ mod tests {
         assert!(result.is_ok());
         let set_params = set_params_arc.lock().unwrap();
         assert_eq!(*set_params, vec![("mapping_protocol".to_string(), None)]);
+    }
+
+    #[test]
+    fn neighborhood_mode_works() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "neighborhood_mode",
+                Some("standard"),
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.neighborhood_mode().unwrap();
+
+        assert_eq!(result, NeighborhoodModeLight::Standard);
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(*get_params, vec!["neighborhood_mode".to_string()]);
+    }
+
+    #[test]
+    fn neighborhood_mode_detects_specific_error() {
+        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "neighborhood_mode",
+            Some("blah"),
+            false,
+        )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.neighborhood_mode();
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::UninterpretableValue(
+                "Invalid value read for neighborhood mode: blah".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn set_neighborhood_mode_works() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoWriteableMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()))
+            .commit_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(
+            ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
+        ));
+
+        let result = subject.set_neighborhood_mode(NeighborhoodModeLight::ConsumeOnly);
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![(
+                "neighborhood_mode".to_string(),
+                Some("consume-only".to_string())
+            )]
+        );
     }
 }
