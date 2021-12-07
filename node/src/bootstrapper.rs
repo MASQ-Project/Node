@@ -1192,7 +1192,7 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &make_simplified_multi_config(["MASQNode", "--ip", "1.2.3.4"]),
+                &make_simplified_multi_config(["MASQNode", "--ip", "1.2.3.4", "--clandestine-port", "5123"]),
                 &mut FakeStreamHolder::new().streams(),
             )
             .unwrap();
@@ -1740,7 +1740,7 @@ mod tests {
 
         let result = subject.set_up_clandestine_port();
 
-        assert_eq!(result, Some(1234u16));
+        assert_eq!(result, Some(port));
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
         assert_eq!(persistent_config.clandestine_port().unwrap(), port);

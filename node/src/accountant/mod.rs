@@ -377,6 +377,10 @@ impl Accountant {
             });
     }
 
+    // TODO FIXME EMERGENCY: This method must advance the start block to the current end of the
+    // blockchain; otherwise each incoming payment will be credited every time this method is
+    // executed. Extra credit: to protect against mid-scan panics, advance the start block
+    // every time a payment is credited.
     fn scan_for_received_payments(&mut self) {
         let future_logger = self.logger.clone();
         debug!(

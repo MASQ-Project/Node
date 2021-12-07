@@ -86,6 +86,7 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
     use crate::database::db_migrations::MigratorConfig;
+    use masq_lib::blockchains::chains::Chain;
 
     #[test]
     fn get_all_knows_ever_present_values() {
@@ -115,7 +116,7 @@ mod tests {
 
         assert_eq!(
             subject.get("chain_name").unwrap(),
-            ConfigDaoRecord::new("chain_name", Some("mainnet"), false)
+            ConfigDaoRecord::new("chain_name", Some(Chain::default().rec().literal_identifier), false)
         );
         assert_eq!(
             subject.get("clandestine_port").unwrap(),
