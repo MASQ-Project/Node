@@ -5,6 +5,7 @@ use crate::db_config::config_dao::{
     ConfigDao, ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord, ConfigDaoWrite,
 };
 use itertools::Itertools;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::ETH_MAINNET_CONTRACT_CREATION_BLOCK;
 use rusqlite::Transaction;
 use std::collections::HashMap;
@@ -64,7 +65,10 @@ impl ConfigDaoReadWrite for ConfigDaoNull {}
 impl Default for ConfigDaoNull {
     fn default() -> Self {
         let mut data = HashMap::new();
-        data.insert("chain_name".to_string(), "mainnet".to_string());
+        data.insert(
+            "chain_name".to_string(),
+            Chain::default().rec().literal_identifier.to_string(),
+        );
         data.insert(
             "clandestine_port".to_string(),
             DbInitializerReal::choose_clandestine_port().to_string(),
@@ -82,11 +86,11 @@ impl Default for ConfigDaoNull {
 mod tests {
     use super::*;
     use crate::database::db_initializer::DbInitializer;
+    use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoReal;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
-    use crate::database::db_migrations::MigratorConfig;
-    use masq_lib::blockchains::chains::Chain;
 
     #[test]
     fn get_all_knows_ever_present_values() {
@@ -98,7 +102,11 @@ mod tests {
         assert_eq!(
             data,
             vec![
-                ConfigDaoRecord::new("chain_name", Some("mainnet"), false),
+                ConfigDaoRecord::new(
+                    "chain_name",
+                    Some(Chain::default().rec().literal_identifier),
+                    false
+                ),
                 ConfigDaoRecord::new("clandestine_port", Some(expected_clandestine_port), false),
                 ConfigDaoRecord::new("gas_price", Some("1"), false),
                 ConfigDaoRecord::new(
@@ -116,7 +124,11 @@ mod tests {
 
         assert_eq!(
             subject.get("chain_name").unwrap(),
-            ConfigDaoRecord::new("chain_name", Some(Chain::default().rec().literal_identifier), false)
+            ConfigDaoRecord::new(
+                "chain_name",
+                Some(Chain::default().rec().literal_identifier),
+                false
+            )
         );
         assert_eq!(
             subject.get("clandestine_port").unwrap(),

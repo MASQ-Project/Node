@@ -2,9 +2,9 @@
 use log::logger;
 use log::Level;
 #[allow(unused_imports)]
-use log::Record;
-#[allow(unused_imports)]
 use log::Metadata;
+#[allow(unused_imports)]
+use log::Record;
 
 #[derive(Clone)]
 pub struct Logger {
@@ -410,11 +410,11 @@ mod tests {
         );
     }
 
-    fn make_logger_at_level (level: Level) -> Logger {
-        let logger = Logger {
+    fn make_logger_at_level(level: Level) -> Logger {
+        Logger {
             name: "test".to_string(),
             #[cfg(not(feature = "no_test_share"))]
             level_limit: level,
-        };
+        }
     }
 }

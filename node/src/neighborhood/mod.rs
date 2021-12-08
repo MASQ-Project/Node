@@ -67,9 +67,9 @@ use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
+use masq_lib::logger::Logger;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
-use masq_lib::logger::Logger;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 

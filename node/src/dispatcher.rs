@@ -229,10 +229,10 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiDescriptorResponse};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::MessageTarget;
+    use std::convert::TryFrom;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::str::FromStr;
     use std::thread;
-    use std::convert::TryFrom;
 
     lazy_static! {
         static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::try_from((
@@ -727,12 +727,13 @@ mod tests {
         let system = System::new("test");
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
-        let node_descriptor = NodeDescriptor::from((
+        let mut node_descriptor = NodeDescriptor::from((
             main_cryptde().public_key(),
             &NodeAddr::default(),
             Chain::default(),
             main_cryptde() as &dyn CryptDE,
         ));
+        node_descriptor.node_addr_opt = None;
         bootstrapper_config.node_descriptor = node_descriptor;
         let msg = NodeFromUiMessage {
             client_id: 1234,

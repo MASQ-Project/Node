@@ -6,8 +6,8 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::net::{IpAddr, Ipv4Addr};
 use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
 #[derive(PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -41,7 +41,7 @@ impl NodeAddr {
 
 impl Default for NodeAddr {
     fn default() -> Self {
-        NodeAddr::new (&IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0)), &[])
+        NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[])
     }
 }
 

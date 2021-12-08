@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use clap::App;
+use masq_lib::logger::Logger;
 use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
@@ -8,7 +9,6 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::type_name_of;
 use std::io::ErrorKind;
 use std::time::{SystemTime, UNIX_EPOCH};
-use masq_lib::logger::Logger;
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
@@ -149,10 +149,10 @@ pub fn make_new_test_multi_config<'a>(
 pub mod tests {
     use super::*;
     use crate::apps::app_node;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use log::Level;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::multi_config::CommandLineVcl;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     #[test]
     fn indicates_dead_stream_identifies_dead_stream_errors() {

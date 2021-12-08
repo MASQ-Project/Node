@@ -31,18 +31,18 @@ use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use actix::{Addr, Arbiter};
 use actix::Recipient;
+use actix::{Addr, Arbiter};
 use automap_lib::comm_layer::AutomapError;
 use automap_lib::control_layer::automap_control::{
     AutomapChange, AutomapControl, AutomapControlReal, ChangeHandler,
 };
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::crash_point::CrashPoint;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
-use masq_lib::crash_point::CrashPoint;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -73,7 +73,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
 }
 
 impl ActorSystemFactoryReal {
-    pub fn new () -> Self {
+    pub fn new() -> Self {
         Self {}
     }
 }
@@ -110,11 +110,8 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         let db_initializer = DbInitializerReal::default();
         // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
-        let proxy_server_subs = actor_factory.make_and_start_proxy_server(
-            main_cryptde,
-            alias_cryptde,
-            &config,
-        );
+        let proxy_server_subs =
+            actor_factory.make_and_start_proxy_server(main_cryptde, alias_cryptde, &config);
         let proxy_client_subs_opt = if !config.neighborhood_config.mode.is_consume_only() {
             Some(
                 actor_factory.make_and_start_proxy_client(ProxyClientConfig {
@@ -127,7 +124,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
                         .clone()
                         .exit_service_rate,
                     exit_byte_rate: config.neighborhood_config.mode.rate_pack().exit_byte_rate,
-                    crashable: is_crashable (&config),
+                    crashable: is_crashable(&config),
                 }),
             )
         } else {
@@ -246,7 +243,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
 impl ActorSystemFactoryToolsReal {
     pub fn new() -> Self {
         Self {
-            automap_control_factory: Box::new (AutomapControlFactoryReal::new()),
+            automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
         }
     }
 
@@ -357,8 +354,8 @@ impl ActorFactory for ActorFactoryReal {
         let node_descriptor = config.node_descriptor.clone();
         let crashable = is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<Dispatcher> = arbiter
-            .start(move |_| Dispatcher::new(node_descriptor, crashable));
+        let addr: Addr<Dispatcher> =
+            arbiter.start(move |_| Dispatcher::new(node_descriptor, crashable));
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -612,13 +609,13 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::pure_test_utils::{CleanUpMessage, DummyActor};
+    use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::recorder::{Recorder};
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
-    use actix::{System, Arbiter, Actor};
+    use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
     use crossbeam_channel::bounded;
     use log::LevelFilter;
@@ -631,6 +628,7 @@ mod tests {
     use masq_lib::utils::running_test;
     use std::cell::RefCell;
     use std::collections::HashMap;
+    use std::convert::TryFrom;
     use std::net::Ipv4Addr;
     use std::net::{IpAddr, SocketAddr, SocketAddrV4};
     use std::path::PathBuf;
@@ -639,7 +637,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use std::convert::TryFrom;
 
     #[derive(Default)]
     struct ActorSystemFactoryToolsMock {
@@ -809,11 +806,7 @@ mod tests {
                 .proxy_server_params
                 .lock()
                 .unwrap()
-                .get_or_insert((
-                    main_cryptde,
-                    alias_cryptde,
-                    config.clone(),
-                ));
+                .get_or_insert((main_cryptde, alias_cryptde, config.clone()));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
             ProxyServerSubs {
                 bind: recipient!(addr, BindMessage),
@@ -1142,12 +1135,7 @@ mod tests {
         );
 
         let system = System::new("test");
-        subject.make_and_start_actors(
-            config,
-            Box::new(actor_factory),
-            &persistent_config,
-            &tools,
-        );
+        subject.make_and_start_actors(config, Box::new(actor_factory), &persistent_config, &tools);
         System::current().stop();
         system.run();
 
@@ -1253,18 +1241,21 @@ mod tests {
         assert_eq!(proxy_client_config.exit_service_rate, 104);
         assert_eq!(proxy_client_config.exit_byte_rate, 103);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
-        let (
-            actual_main_cryptde,
-            actual_alias_cryptde,
-            bootstrapper_config,
-        ) = Parameters::get(parameters.proxy_server_params);
+        let (actual_main_cryptde, actual_alias_cryptde, bootstrapper_config) =
+            Parameters::get(parameters.proxy_server_params);
         check_cryptde(actual_main_cryptde);
         check_cryptde(actual_alias_cryptde);
         assert_ne!(
             actual_main_cryptde.public_key(),
             actual_alias_cryptde.public_key()
         );
-        assert_eq!(bootstrapper_config.neighborhood_config.mode.is_decentralized(), true);
+        assert_eq!(
+            bootstrapper_config
+                .neighborhood_config
+                .mode
+                .is_decentralized(),
+            true
+        );
         assert_eq!(
             bootstrapper_config.consuming_wallet_opt,
             Some(make_wallet("consuming"))
@@ -1688,7 +1679,8 @@ mod tests {
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
 
-        let _ = ActorSystemFactoryToolsReal::new().database_chain_assertion(chain, &persistent_config);
+        let _ =
+            ActorSystemFactoryToolsReal::new().database_chain_assertion(chain, &persistent_config);
     }
 
     #[test]

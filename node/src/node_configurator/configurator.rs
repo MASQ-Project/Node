@@ -766,7 +766,7 @@ mod tests {
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::{derivation_path, NeighborhoodModeLight, AutomapProtocol};
+    use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
 
     #[test]
     fn constructor_connects_with_database() {

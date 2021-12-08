@@ -309,7 +309,7 @@ mod tests {
             neighborhood_mode: "zero-hop".to_string(),
             consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
             earning_wallet_address_opt: Some("earning wallet".to_string()),
-            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
+            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
             past_neighbors: vec![],
             start_block: 3456,
         };

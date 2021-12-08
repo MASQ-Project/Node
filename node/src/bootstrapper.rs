@@ -553,10 +553,15 @@ impl Bootstrapper {
                 NodeDescriptor::from((cryptde.public_key(), &node_addr, chain, cryptde))
             }
             None => {
-                let mut result = NodeDescriptor::from((cryptde.public_key(), &NodeAddr::default(), chain, cryptde));
+                let mut result = NodeDescriptor::from((
+                    cryptde.public_key(),
+                    &NodeAddr::default(),
+                    chain,
+                    cryptde,
+                ));
                 result.node_addr_opt = None;
                 result
-            },
+            }
         }
     }
 
@@ -716,9 +721,9 @@ mod tests {
     use crate::test_utils::{assert_contains, rate_pack};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_GAS_PRICE;
-    use masq_lib::utils::find_free_port;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
     use masq_lib::logger::Logger;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
+    use masq_lib::utils::find_free_port;
 
     lazy_static! {
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
@@ -1192,7 +1197,13 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &make_simplified_multi_config(["MASQNode", "--ip", "1.2.3.4", "--clandestine-port", "5123"]),
+                &make_simplified_multi_config([
+                    "MASQNode",
+                    "--ip",
+                    "1.2.3.4",
+                    "--clandestine-port",
+                    "5123",
+                ]),
                 &mut FakeStreamHolder::new().streams(),
             )
             .unwrap();

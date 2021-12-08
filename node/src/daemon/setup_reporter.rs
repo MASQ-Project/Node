@@ -6,8 +6,8 @@ use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
 };
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, InitializationError};
-use crate::db_config::config_dao_null::ConfigDaoNull;
 use crate::database::db_migrations::MigratorConfig;
+use crate::db_config::config_dao_null::ConfigDaoNull;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
@@ -121,11 +121,8 @@ impl SetupReporter for SetupReporterReal {
                 chain,
             ),
         };
-        let (configured_setup, error_opt) = self.calculate_configured_setup(
-            &all_but_configured,
-            &data_directory,
-            chain
-        );
+        let (configured_setup, error_opt) =
+            self.calculate_configured_setup(&all_but_configured, &data_directory, chain);
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
@@ -292,10 +289,8 @@ impl SetupReporterReal {
             Ok(mc) => mc,
             Err(ce) => return (HashMap::new(), Some(ce)),
         };
-        let ((bootstrapper_config, persistent_config_opt), error_opt) = self.run_configuration(
-            &multi_config,
-            data_directory,
-        );
+        let ((bootstrapper_config, persistent_config_opt), error_opt) =
+            self.run_configuration(&multi_config, data_directory);
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
@@ -408,7 +403,11 @@ impl SetupReporterReal {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.data_directory = data_directory.to_path_buf();
-        match privileged_parse_args(self.dirs_wrapper.as_ref(), multi_config, &mut bootstrapper_config) {
+        match privileged_parse_args(
+            self.dirs_wrapper.as_ref(),
+            multi_config,
+            &mut bootstrapper_config,
+        ) {
             Ok(_) => (),
             Err(ce) => {
                 error_so_far.extend(ce);
@@ -441,7 +440,9 @@ impl SetupReporterReal {
                     }
                 }
             }
-            Err(InitializationError::Nonexistent | InitializationError::SuppressedMigrationError) => {
+            Err(
+                InitializationError::Nonexistent | InitializationError::SuppressedMigrationError,
+            ) => {
                 // When the Daemon runs for the first time, the database will not yet have been
                 // created. If the database is old, it should not be used by the Daemon.
                 let mut persistent_config =
@@ -953,7 +954,6 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::{
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
@@ -962,9 +962,12 @@ mod tests {
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::AutomapProtocol;
+    use rusqlite::NO_PARAMS;
     use std::cell::RefCell;
+    use std::convert::TryFrom;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
     use std::fs::File;
@@ -972,8 +975,6 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::convert::TryFrom;
-    use rusqlite::NO_PARAMS;
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -1900,7 +1901,7 @@ mod tests {
             data_dir.to_str().unwrap(),
         ]);
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
-        let subject = SetupReporterReal::new(Box::new (dirs_wrapper));
+        let subject = SetupReporterReal::new(Box::new(dirs_wrapper));
 
         let ((bootstrapper_config, persistent_config), _) =
             subject.run_configuration(&multi_config, &data_dir);
@@ -2130,11 +2131,7 @@ mod tests {
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
         let result = subject
-            .calculate_configured_setup(
-                &setup,
-                &data_directory,
-                Blockchain::default()
-            )
+            .calculate_configured_setup(&setup, &data_directory, Blockchain::default())
             .0;
 
         assert_eq!(
@@ -2210,11 +2207,7 @@ mod tests {
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
         let result = subject
-            .calculate_configured_setup(
-                &setup,
-                &data_directory,
-                Blockchain::default()
-            )
+            .calculate_configured_setup(&setup, &data_directory, Blockchain::default())
             .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
@@ -2242,11 +2235,8 @@ mod tests {
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
         let result = subject
-            .calculate_configured_setup(
-                &setup,
-                &data_directory,
-                Blockchain::default()
-            ).1
+            .calculate_configured_setup(&setup, &data_directory, Blockchain::default())
+            .1
             .unwrap();
 
         assert_eq!(result.param_errors[0].parameter, "config-file");
@@ -2282,13 +2272,9 @@ mod tests {
         .collect();
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
-        let result =
-            subject
-            .calculate_configured_setup(
-                &setup,
-                &data_dir,
-                Blockchain::default()
-            ).0;
+        let result = subject
+            .calculate_configured_setup(&setup, &data_dir, Blockchain::default())
+            .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
@@ -2322,11 +2308,7 @@ mod tests {
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
         let result = subject
-            .calculate_configured_setup(
-                &setup,
-                &data_directory,
-                Blockchain::default(),
-            )
+            .calculate_configured_setup(&setup, &data_directory, Blockchain::default())
             .1
             .unwrap();
 

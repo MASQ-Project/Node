@@ -22,6 +22,8 @@ use std::collections::HashMap;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 pub trait RecipientsFactory {
     fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients;
@@ -110,13 +112,32 @@ impl RerunnerReal {
 
 impl DaemonInitializerReal {
     pub fn new(config: InitializationConfig, mut params: ClusteredParams) -> DaemonInitializerReal {
+        let real_user = RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref());
+        let dirs_home_dir_opt = params.dirs_wrapper.home_dir();
+        let dirs_home_dir = dirs_home_dir_opt
+            .as_ref()
+            .expectv("home directory")
+            .to_str()
+            .expectv("path string");
+        let dirs_data_dir_opt = params.dirs_wrapper.data_dir();
+        let dirs_data_dir = dirs_data_dir_opt
+            .as_ref()
+            .expect("data directory")
+            .to_str()
+            .expectv("path string");
+        let real_home_dir = real_user
+            .home_dir_opt
+            .as_ref()
+            .expectv("home directory")
+            .to_str()
+            .expectv("path string");
+        let relative_data_dir = &dirs_data_dir[(dirs_home_dir.len() + 1)..];
+        let real_data_dir = PathBuf::from_str(real_home_dir)
+            .expectv("path string")
+            .join(relative_data_dir);
         params.logger_initializer_wrapper.init(
-            params
-                .dirs_wrapper
-                .data_dir()
-                .expectv("data directory")
-                .join("MASQ"),
-            &RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref()),
+            real_data_dir.join("MASQ"),
+            &real_user,
             LevelFilter::Trace,
             Some("daemon"),
         );

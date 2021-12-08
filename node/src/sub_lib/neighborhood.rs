@@ -25,10 +25,10 @@ use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_UR
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};
-use std::fmt::{Debug, Display, Formatter};
-use std::net::{IpAddr};
-use std::str::FromStr;
 use std::convert::TryFrom;
+use std::fmt::{Debug, Display, Formatter};
+use std::net::IpAddr;
+use std::str::FromStr;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,

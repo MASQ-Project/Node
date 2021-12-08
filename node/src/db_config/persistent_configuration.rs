@@ -14,7 +14,7 @@ use bip39::{Language, MnemonicType};
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
-use masq_lib::utils::{NeighborhoodModeLight};
+use masq_lib::utils::NeighborhoodModeLight;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
@@ -492,9 +492,9 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use bip39::{Language, MnemonicType};
     use masq_lib::utils::{derivation_path, find_free_port};
+    use std::convert::TryFrom;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
-    use std::convert::TryFrom;
 
     #[test]
     fn from_config_dao_error() {

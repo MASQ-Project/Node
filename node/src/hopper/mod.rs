@@ -17,9 +17,9 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use consuming_service::ConsumingService;
+use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use routing_service::RoutingService;
-use masq_lib::logger::Logger;
 
 pub const CRASH_KEY: &str = "HOPPER";
 

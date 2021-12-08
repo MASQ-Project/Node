@@ -461,6 +461,7 @@ mod tests {
         assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
     };
     use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
@@ -469,7 +470,6 @@ mod tests {
     use std::fs::create_dir_all;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
-    use masq_lib::test_utils::logging::{TestLogHandler, init_test_logging};
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {

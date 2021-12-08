@@ -45,9 +45,9 @@ use masq_lib::shared_schema::ParamError;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::WrapResult;
 use rustc_hex::FromHex;
+use std::convert::TryFrom;
 use std::ops::Deref;
 use std::str::FromStr;
-use std::convert::TryFrom;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -174,12 +174,12 @@ pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
 }
 
 // All initialization that doesn't specifically require lack of privilege should be done here.
-    pub fn privileged_parse_args(
-        dirs_wrapper: &dyn DirsWrapper,
-        multi_config: &MultiConfig,
-        privileged_config: &mut BootstrapperConfig,
-    ) -> Result<(), ConfiguratorError> {
-        let (real_user, data_directory_opt, chain) =
+pub fn privileged_parse_args(
+    dirs_wrapper: &dyn DirsWrapper,
+    multi_config: &MultiConfig,
+    privileged_config: &mut BootstrapperConfig,
+) -> Result<(), ConfiguratorError> {
+    let (real_user, data_directory_opt, chain) =
         real_user_data_directory_opt_and_chain(dirs_wrapper, multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
@@ -235,11 +235,11 @@ pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
 }
 
 // Only initialization that cannot be done with privilege should happen here.
-    pub fn unprivileged_parse_args(
-        multi_config: &MultiConfig,
-        unprivileged_config: &mut BootstrapperConfig,
-        persistent_config: &mut dyn PersistentConfiguration,
-        logger: &Logger,
+pub fn unprivileged_parse_args(
+    multi_config: &MultiConfig,
+    unprivileged_config: &mut BootstrapperConfig,
+    persistent_config: &mut dyn PersistentConfiguration,
+    logger: &Logger,
 ) -> Result<(), ConfiguratorError> {
     unprivileged_config
         .blockchain_bridge_config
@@ -263,11 +263,11 @@ pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
             }
         };
     unprivileged_config.mapping_protocol_opt =
-            compute_mapping_protocol_opt(multi_config, persistent_config, logger);
-        let mnc_result = {
-            get_wallets(multi_config, persistent_config, unprivileged_config)?;
-            make_neighborhood_config(multi_config, Some(persistent_config), unprivileged_config)
-        };
+        compute_mapping_protocol_opt(multi_config, persistent_config, logger);
+    let mnc_result = {
+        get_wallets(multi_config, persistent_config, unprivileged_config)?;
+        make_neighborhood_config(multi_config, Some(persistent_config), unprivileged_config)
+    };
 
     mnc_result.map(|config| unprivileged_config.neighborhood_config = config)
 }
@@ -332,12 +332,12 @@ pub fn get_wallets(
         }
     }
     config.consuming_wallet_opt = consuming_wallet_opt;
-        config.earning_wallet = match earning_wallet_opt {
-            Some(earning_wallet) => earning_wallet,
-            None => DEFAULT_EARNING_WALLET.clone(),
-        };
-        Ok(())
-    }
+    config.earning_wallet = match earning_wallet_opt {
+        Some(earning_wallet) => earning_wallet,
+        None => DEFAULT_EARNING_WALLET.clone(),
+    };
+    Ok(())
+}
 
 pub fn make_neighborhood_config(
     multi_config: &MultiConfig,
@@ -491,105 +491,107 @@ pub fn get_past_neighbors(
 }
 
 fn validate_testing_parameters(
-        mnemonic_seed_exists: bool,
-        multi_config: &MultiConfig,
-    ) -> Result<(), ConfiguratorError> {
-        let consuming_wallet_specified =
-            value_m!(multi_config, "consuming-private-key", String).is_some();
-        let earning_wallet_specified = value_m!(multi_config, "earning-wallet", String).is_some();
-        if mnemonic_seed_exists && (consuming_wallet_specified || earning_wallet_specified) {
-            let parameter = match (consuming_wallet_specified, earning_wallet_specified) {
-                (true, false) => "consuming-private-key",
-                (false, true) => "earning-wallet",
-                (true, true) => "consuming-private-key, earning-wallet",
-                (false, false) => panic!("The if statement in Rust no longer works"),
-            };
-            Err(ConfiguratorError::required(parameter, "Cannot use --consuming-private-key or --earning-wallet when database contains wallet information"))
-        } else {
-            Ok(())
-        }
+    mnemonic_seed_exists: bool,
+    multi_config: &MultiConfig,
+) -> Result<(), ConfiguratorError> {
+    let consuming_wallet_specified =
+        value_m!(multi_config, "consuming-private-key", String).is_some();
+    let earning_wallet_specified = value_m!(multi_config, "earning-wallet", String).is_some();
+    if mnemonic_seed_exists && (consuming_wallet_specified || earning_wallet_specified) {
+        let parameter = match (consuming_wallet_specified, earning_wallet_specified) {
+            (true, false) => "consuming-private-key",
+            (false, true) => "earning-wallet",
+            (true, true) => "consuming-private-key, earning-wallet",
+            (false, false) => panic!("The if statement in Rust no longer works"),
+        };
+        Err(ConfiguratorError::required(parameter, "Cannot use --consuming-private-key or --earning-wallet when database contains wallet information"))
+    } else {
+        Ok(())
     }
+}
 
-    fn compute_mapping_protocol_opt(
-        multi_config: &MultiConfig,
-        persistent_config: &mut dyn PersistentConfiguration,
-        logger: &Logger,
-    ) -> Option<AutomapProtocol> {
-        let persistent_mapping_protocol_opt = match persistent_config.mapping_protocol() {
-            Ok(mp_opt) => mp_opt,
+fn compute_mapping_protocol_opt(
+    multi_config: &MultiConfig,
+    persistent_config: &mut dyn PersistentConfiguration,
+    logger: &Logger,
+) -> Option<AutomapProtocol> {
+    let persistent_mapping_protocol_opt = match persistent_config.mapping_protocol() {
+        Ok(mp_opt) => mp_opt,
+        Err(e) => {
+            warning!(
+                logger,
+                "Could not read mapping protocol from database: {:?}",
+                e
+            );
+            None
+        }
+    };
+    let mapping_protocol_specified = multi_config.occurrences_of("mapping-protocol") > 0;
+    let computed_mapping_protocol_opt = match (
+        value_m!(multi_config, "mapping-protocol", AutomapProtocol),
+        persistent_mapping_protocol_opt,
+        mapping_protocol_specified,
+    ) {
+        (None, Some(persisted_mapping_protocol), false) => Some(persisted_mapping_protocol),
+        (None, _, true) => None,
+        (cmd_line_mapping_protocol_opt, _, _) => cmd_line_mapping_protocol_opt,
+    };
+    if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
+        if computed_mapping_protocol_opt.is_none() {
+            debug!(logger, "Blanking mapping protocol out of the database")
+        }
+        match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
+            Ok(_) => (),
             Err(e) => {
                 warning!(
                     logger,
-                    "Could not read mapping protocol from database: {:?}",
+                    "Could not save mapping protocol to database: {:?}",
                     e
                 );
-                None
-            }
-        };
-        let mapping_protocol_specified = multi_config.occurrences_of("mapping-protocol") > 0;
-        let computed_mapping_protocol_opt = match (
-            value_m!(multi_config, "mapping-protocol", AutomapProtocol),
-            persistent_mapping_protocol_opt,
-            mapping_protocol_specified,
-        ) {
-            (None, Some(persisted_mapping_protocol), false) => Some(persisted_mapping_protocol),
-            (None, _, true) => None,
-            (cmd_line_mapping_protocol_opt, _, _) => cmd_line_mapping_protocol_opt,
-        };
-        if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
-            if computed_mapping_protocol_opt.is_none() {
-                debug!(logger, "Blanking mapping protocol out of the database")
-            }
-            match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
-                Ok(_) => (),
-                Err(e) => {
-                    warning!(
-                        logger,
-                        "Could not save mapping protocol to database: {:?}",
-                        e
-                    );
-                }
             }
         }
-        computed_mapping_protocol_opt
     }
+    computed_mapping_protocol_opt
+}
 
-    fn make_neighborhood_mode(
-        multi_config: &MultiConfig,
-        neighbor_configs: Vec<NodeDescriptor>,
-    ) -> Result<NeighborhoodMode, ConfiguratorError> {
-        let neighborhood_mode_opt = value_m!(multi_config, "neighborhood-mode", String);
-        match neighborhood_mode_opt {
-            Some(ref s) if s == "standard" => {
-                neighborhood_mode_standard(multi_config, neighbor_configs)
+fn make_neighborhood_mode(
+    multi_config: &MultiConfig,
+    neighbor_configs: Vec<NodeDescriptor>,
+) -> Result<NeighborhoodMode, ConfiguratorError> {
+    let neighborhood_mode_opt = value_m!(multi_config, "neighborhood-mode", String);
+    match neighborhood_mode_opt {
+        Some(ref s) if s == "standard" => {
+            neighborhood_mode_standard(multi_config, neighbor_configs)
+        }
+        Some(ref s) if s == "originate-only" => {
+            if neighbor_configs.is_empty() {
+                Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode originate-only without --neighbors specified"))
+            } else {
+                Ok(NeighborhoodMode::OriginateOnly(
+                    neighbor_configs,
+                    DEFAULT_RATE_PACK,
+                ))
             }
-            Some(ref s) if s == "originate-only" => {
-                if neighbor_configs.is_empty() {
-                    Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode originate-only without --neighbors specified"))
-                } else {
-                    Ok(NeighborhoodMode::OriginateOnly(
-                        neighbor_configs,
-                        DEFAULT_RATE_PACK,
-                    ))
-                }
+        }
+        Some(ref s) if s == "consume-only" => {
+            let mut errors = ConfiguratorError::new(vec![]);
+            if neighbor_configs.is_empty() {
+                errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified");
             }
-            Some(ref s) if s == "consume-only" => {
-                let mut errors = ConfiguratorError::new(vec![]);
-                if neighbor_configs.is_empty() {
-                    errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified");
-                }
-                if value_m!(multi_config, "dns-servers", String).is_some() {
-                    errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only if --dns-servers is specified");
-                }
-                if !errors.is_empty() {
-                    Err(errors)
-                } else {
-                    Ok(NeighborhoodMode::ConsumeOnly(neighbor_configs))
-                }
+            if value_m!(multi_config, "dns-servers", String).is_some() {
+                errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only if --dns-servers is specified");
             }
-            Some(ref s) if s == "zero-hop" => {
-                if !neighbor_configs.is_empty() {
-                    Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode zero-hop if --neighbors is specified",
+            if !errors.is_empty() {
+                Err(errors)
+            } else {
+                Ok(NeighborhoodMode::ConsumeOnly(neighbor_configs))
+            }
+        }
+        Some(ref s) if s == "zero-hop" => {
+            if !neighbor_configs.is_empty() {
+                Err(ConfiguratorError::required(
+                    "neighborhood-mode",
+                    "Node cannot run as --neighborhood-mode zero-hop if --neighbors is specified",
                 ))
             } else if value_m!(multi_config, "ip", IpAddr).is_some() {
                 Err(ConfiguratorError::required(
@@ -622,21 +624,21 @@ fn neighborhood_mode_standard(
 }
 
 pub fn get_public_ip(multi_config: &MultiConfig) -> Result<IpAddr, ConfiguratorError> {
-        match value_m!(multi_config, "ip", String) {
-            Some(ip_str) => match IpAddr::from_str(&ip_str) {
-                Ok(ip_addr) => Ok(ip_addr),
-                Err(_) => todo!("Drive in a better error message"), //Err(ConfiguratorError::required("ip", &format! ("blockety blip: '{}'", ip_str),
-            },
-            None => Ok(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))), // sentinel: means "Try Automap"
-        }
+    match value_m!(multi_config, "ip", String) {
+        Some(ip_str) => match IpAddr::from_str(&ip_str) {
+            Ok(ip_addr) => Ok(ip_addr),
+            Err(_) => todo!("Drive in a better error message"), //Err(ConfiguratorError::required("ip", &format! ("blockety blip: '{}'", ip_str),
+        },
+        None => Ok(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))), // sentinel: means "Try Automap"
     }
+}
 
-    fn get_earning_wallet_from_address(
-        multi_config: &MultiConfig,
-        persistent_config: &dyn PersistentConfiguration,
-    ) -> Result<Option<Wallet>, ConfiguratorError> {
-        let earning_wallet_from_command_line_opt = value_m!(multi_config, "earning-wallet", String);
-        let earning_wallet_from_database_opt = match persistent_config.earning_wallet_from_address(){
+fn get_earning_wallet_from_address(
+    multi_config: &MultiConfig,
+    persistent_config: &dyn PersistentConfiguration,
+) -> Result<Option<Wallet>, ConfiguratorError> {
+    let earning_wallet_from_command_line_opt = value_m!(multi_config, "earning-wallet", String);
+    let earning_wallet_from_database_opt = match persistent_config.earning_wallet_from_address() {
         Ok(ewfdo) => ewfdo,
         Err(e) => return Err(e.into_configurator_error("earning-wallet")),
     };
@@ -757,6 +759,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::PersistentConfigError;
+    use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::PlainData;
@@ -773,15 +776,14 @@ mod tests {
     use masq_lib::multi_config::{NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::{running_test, array_of_borrows_to_vec};
+    use masq_lib::utils::{array_of_borrows_to_vec, running_test};
+    use std::convert::TryFrom;
     use std::fs::File;
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
-    use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use std::convert::TryFrom;
 
     #[test]
     fn get_wallets_handles_consuming_private_key_and_earning_wallet_address_when_database_contains_mnemonic_seed(
@@ -1098,8 +1100,7 @@ mod tests {
         let mut persistent_config = make_default_persistent_configuration()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
 
-        let result =
-            compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
         assert_eq!(result, Some(AutomapProtocol::Pmp));
         // No result provided for .set_mapping_protocol; if it's called, the panic will fail this test
@@ -1123,8 +1124,7 @@ mod tests {
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
 
-        let result =
-            compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
         assert_eq!(result, Some(AutomapProtocol::Igdp));
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
@@ -1144,8 +1144,7 @@ mod tests {
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
 
-        let result =
-            compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
         assert_eq!(result, None);
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
@@ -1154,14 +1153,12 @@ mod tests {
 
     #[test]
     fn compute_mapping_protocol_does_not_resave_entry_if_no_change() {
-        let multi_config =
-            make_simplified_multi_config(["MASQNode", "--mapping-protocol", "igdp"]);
+        let multi_config = make_simplified_multi_config(["MASQNode", "--mapping-protocol", "igdp"]);
         let logger = Logger::new("test");
         let mut persistent_config = make_default_persistent_configuration()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)));
 
-        let result =
-            compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
         assert_eq!(result, Some(AutomapProtocol::Igdp));
         // No result provided for .set_mapping_protocol; if it's called, the panic will fail this test
@@ -1175,8 +1172,7 @@ mod tests {
         let mut persistent_config = make_default_persistent_configuration()
             .mapping_protocol_result(Err(PersistentConfigError::NotPresent));
 
-        let result =
-            compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
         assert_eq!(result, None);
         // No result provided for .set_mapping_protocol; if it's called, the panic will fail this test
@@ -1188,15 +1184,13 @@ mod tests {
     #[test]
     fn compute_mapping_protocol_logs_and_moves_on_if_mapping_protocol_cannot_be_saved() {
         init_test_logging();
-        let multi_config =
-            make_simplified_multi_config(["MASQNode", "--mapping-protocol", "IGDP"]);
+        let multi_config = make_simplified_multi_config(["MASQNode", "--mapping-protocol", "IGDP"]);
         let logger = Logger::new("BAD_MP_WRITE");
         let mut persistent_config = make_default_persistent_configuration()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
             .set_mapping_protocol_result(Err(PersistentConfigError::NotPresent));
 
-        let result =
-            compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
         assert_eq!(result, Some(AutomapProtocol::Igdp));
         TestLogHandler::new().exists_log_containing(
@@ -2124,7 +2118,7 @@ mod tests {
             &multi_config,
             &mut config,
             &mut persistent_configuration,
-            &Logger::new ("test")
+            &Logger::new("test"),
         )
         .unwrap();
 

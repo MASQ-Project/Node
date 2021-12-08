@@ -18,8 +18,8 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
-use masq_lib::logger::Logger;
 use itertools::Either;
+use masq_lib::logger::Logger;
 use masq_lib::messages::UiCrashRequest;
 use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
@@ -196,11 +196,11 @@ mod tests {
     };
     use actix::System;
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
     use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use masq_lib::utils::find_free_port;
     use std::sync::{Arc, Mutex};
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     #[test]
     fn inbound_ui_message_is_disseminated_properly() {

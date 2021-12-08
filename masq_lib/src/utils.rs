@@ -3,11 +3,11 @@
 use lazy_static::lazy_static;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
-use std::io::{ErrorKind};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
-use std::sync::{Arc, Mutex};
 use std::io;
+use std::io::ErrorKind;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 #[cfg(not(target_os = "windows"))]
 mod not_win_cfg {
