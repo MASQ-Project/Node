@@ -64,6 +64,7 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperNull {
     }
 }
 
+//TODO this might be moved to somewhere else
 pub trait NotifyLaterHandle<T> {
     fn notify_later<'a>(
         &'a self,
@@ -73,19 +74,19 @@ pub trait NotifyLaterHandle<T> {
     ) -> SpawnHandle;
 }
 
-pub struct NotifyLaterReal<T> {
+pub struct NotifyLaterHandleReal<T> {
     phantom: PhantomData<T>,
 }
 
 impl<T: Message + 'static> Default for Box<dyn NotifyLaterHandle<T>> {
     fn default() -> Self {
-        Box::new(NotifyLaterReal {
+        Box::new(NotifyLaterHandleReal {
             phantom: PhantomData::default(),
         })
     }
 }
 
-impl<T: Message> NotifyLaterHandle<T> for NotifyLaterReal<T> {
+impl<T: Message> NotifyLaterHandle<T> for NotifyLaterHandleReal<T> {
     fn notify_later<'a>(
         &'a self,
         msg: T,
@@ -93,6 +94,28 @@ impl<T: Message> NotifyLaterHandle<T> for NotifyLaterReal<T> {
         mut closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
     ) -> SpawnHandle {
         closure(msg, interval)
+    }
+}
+
+pub trait NotifyHandle<T> {
+    fn notify<'a>(&'a self, msg: T, closure: Box<dyn FnMut(T) + 'a>);
+}
+
+impl<T: Message + 'static> Default for Box<dyn NotifyHandle<T>> {
+    fn default() -> Self {
+        Box::new(NotifyHandleReal {
+            phantom: PhantomData::default(),
+        })
+    }
+}
+
+pub struct NotifyHandleReal<T> {
+    phantom: PhantomData<T>,
+}
+
+impl<T: Message> NotifyHandle<T> for NotifyHandleReal<T> {
+    fn notify<'a>(&'a self, msg: T, closure: Box<dyn FnMut(T) + 'a>) {
+        todo!()
     }
 }
 

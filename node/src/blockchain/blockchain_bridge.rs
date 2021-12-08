@@ -19,11 +19,11 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::handle_ui_crash_request;
 use crate::sub_lib::wallet::Wallet;
+use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::{Actor, MessageResult};
 use actix::{Addr, Recipient};
-use actix::{AsyncContext, Context};
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -307,6 +307,7 @@ impl BlockchainBridge {
                                 amount,
                                 hash,
                                 payable.last_paid_timestamp,
+                                payable.rowid,
                             )),
                             Err(e) => Err(e),
                         }
@@ -498,12 +499,14 @@ mod tests {
                     balance: 42,
                     last_paid_timestamp: now,
                     pending_payment_transaction: None,
+                    rowid: 1,
                 },
                 PayableAccount {
                     wallet: make_wallet("foo"),
                     balance: 21,
                     last_paid_timestamp: now,
                     pending_payment_transaction: None,
+                    rowid: 2,
                 },
             ],
         });
@@ -539,6 +542,7 @@ mod tests {
             42,
             H256::from("sometransactionhash".keccak256()),
             earlier_in_seconds(1000),
+            1,
         );
         if let Ok(zero) = result.clone().get(0).unwrap().clone() {
             assert!(
@@ -563,6 +567,7 @@ mod tests {
             21,
             H256::from("someothertransactionhash".keccak256()),
             earlier_in_seconds(1000),
+            2,
         );
 
         if let Ok(one) = result.clone().get(1).unwrap().clone() {
@@ -615,6 +620,7 @@ mod tests {
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payment_transaction: None,
+                rowid: 1,
             }],
         };
 
@@ -646,6 +652,7 @@ mod tests {
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payment_transaction: None,
+                rowid: 1,
             }],
         };
 
@@ -673,6 +680,7 @@ mod tests {
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payment_transaction: None,
+                rowid: 1,
             }],
         };
 

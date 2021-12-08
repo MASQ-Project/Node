@@ -3,7 +3,9 @@
 #![cfg(test)]
 
 use crate::blockchain::blockchain_interface::REQUESTS_IN_PARALLEL;
-use crate::blockchain::tool_wrappers::{NotifyLaterHandle, SendTransactionToolWrapper};
+use crate::blockchain::tool_wrappers::{
+    NotifyHandle, NotifyLaterHandle, SendTransactionToolWrapper,
+};
 use actix::{Message, SpawnHandle};
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::H256;
@@ -167,11 +169,11 @@ pub fn make_default_signed_transaction() -> SignedTransaction {
     }
 }
 
-pub struct NotifyLaterMock<T> {
+pub struct NotifyLaterHandleMock<T> {
     notify_later_params: Arc<Mutex<Vec<(T, Duration)>>>, //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself
 }
 
-impl<T: Message> Default for NotifyLaterMock<T> {
+impl<T: Message> Default for NotifyLaterHandleMock<T> {
     fn default() -> Self {
         Self {
             notify_later_params: Arc::new(Mutex::new(vec![])),
@@ -179,14 +181,14 @@ impl<T: Message> Default for NotifyLaterMock<T> {
     }
 }
 
-impl<T: Message> NotifyLaterMock<T> {
+impl<T: Message> NotifyLaterHandleMock<T> {
     pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(T, Duration)>>>) -> Self {
         self.notify_later_params = params.clone();
         self
     }
 }
 
-impl<T: Message + Clone> NotifyLaterHandle<T> for NotifyLaterMock<T> {
+impl<T: Message + Clone> NotifyLaterHandle<T> for NotifyLaterHandleMock<T> {
     fn notify_later<'a>(
         &'a self,
         msg: T,
@@ -201,5 +203,34 @@ impl<T: Message + Clone> NotifyLaterHandle<T> for NotifyLaterMock<T> {
             panic!("this shouldn't run outside a test")
         }
         closure(msg, interval)
+    }
+}
+
+pub struct NotifyHandleMock<T> {
+    notify_params: Arc<Mutex<Vec<T>>>, //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself
+}
+
+impl<T: Message> Default for NotifyHandleMock<T> {
+    fn default() -> Self {
+        Self {
+            notify_params: Arc::new(Mutex::new(vec![])),
+        }
+    }
+}
+
+impl<T: Message> NotifyHandleMock<T> {
+    pub fn notify_params(mut self, params: &Arc<Mutex<Vec<T>>>) -> Self {
+        self.notify_params = params.clone();
+        self
+    }
+}
+
+impl<T: Message + Clone> NotifyHandle<T> for NotifyHandleMock<T> {
+    fn notify<'a>(&'a self, msg: T, mut closure: Box<dyn FnMut(T) + 'a>) {
+        self.notify_params.lock().unwrap().push(msg.clone());
+        if !cfg!(test) {
+            panic!("this shouldn't run outside a test")
+        }
+        closure(msg)
     }
 }

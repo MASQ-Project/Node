@@ -50,6 +50,7 @@ pub fn make_payable_account(n: u64) -> PayableAccount {
         balance: (n * 1_000_000_000) as i64,
         last_paid_timestamp: from_time_t(now - (n as i64)),
         pending_payment_transaction: None,
+        rowid: 1,
     }
 }
 
@@ -338,14 +339,16 @@ pub fn bc_from_ac_plus_wallets(
 pub struct PendingPaymentsDaoMock {
     insert_record_params: Arc<Mutex<Vec<PendingPaymentRecord>>>,
     insert_record_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
+    delete_record_params: Arc<Mutex<Vec<u16>>>,
+    delete_record_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
 }
 
 impl PendingPaymentsDao for PendingPaymentsDaoMock {
-    fn read_record(&self, id: u16) -> Result<PendingPaymentRecord, PendingPaymentDaoError> {
+    fn read_backup_record(&self, id: u16) -> Result<PendingPaymentRecord, PendingPaymentDaoError> {
         todo!()
     }
 
-    fn insert_record(
+    fn insert_backup_record(
         &self,
         pending_payment: PendingPaymentRecord,
     ) -> Result<(), PendingPaymentDaoError> {
@@ -356,22 +359,33 @@ impl PendingPaymentsDao for PendingPaymentsDaoMock {
         self.insert_record_results.borrow_mut().remove(0)
     }
 
-    fn delete_record(
-        &self,
-        id: u16,
-    ) -> Result<(), crate::accountant::pending_payments_dao::PendingPaymentDaoError> {
-        todo!()
+    fn delete_backup_record(&self, id: u16) -> Result<(), PendingPaymentDaoError> {
+        self.delete_record_params.lock().unwrap().push(id);
+        self.delete_record_results.borrow_mut().remove(0)
     }
 }
 
 impl PendingPaymentsDaoMock {
-    pub fn insert_record_params(mut self, params: &Arc<Mutex<Vec<PendingPaymentRecord>>>) -> Self {
+    pub fn insert_backup_record_params(
+        mut self,
+        params: &Arc<Mutex<Vec<PendingPaymentRecord>>>,
+    ) -> Self {
         self.insert_record_params = params.clone();
         self
     }
 
-    pub fn insert_record_result(self, result: Result<(), PendingPaymentDaoError>) -> Self {
+    pub fn insert_backup_record_result(self, result: Result<(), PendingPaymentDaoError>) -> Self {
         self.insert_record_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn delete_backup_record_params(mut self, params: &Arc<Mutex<Vec<u16>>>) -> Self {
+        self.delete_record_params = params.clone();
+        self
+    }
+
+    pub fn delete_backup_record_result(self, result: Result<(), PendingPaymentDaoError>) -> Self {
+        self.delete_record_results.borrow_mut().push(result);
         self
     }
 }
