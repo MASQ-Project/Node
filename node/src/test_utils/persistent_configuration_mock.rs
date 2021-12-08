@@ -31,7 +31,9 @@ pub struct PersistentConfigurationMock {
     mnemonic_seed_results: RefCell<Vec<Result<Option<PlainData>, PersistentConfigError>>>,
     mnemonic_seed_exists_params: Arc<Mutex<Vec<()>>>,
     mnemonic_seed_exists_results: RefCell<Vec<Result<bool, PersistentConfigError>>>,
+    #[allow(dead_code)]
     set_mnemonic_seed_params: Arc<Mutex<Vec<(PlainData, String)>>>,
+    #[allow(dead_code)]
     set_mnemonic_seed_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     consuming_wallet_derivation_path_results:
         RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,

@@ -49,13 +49,8 @@ pub trait DbInitializer {
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 }
 
+#[derive(Default)]
 pub struct DbInitializerReal {}
-
-impl Default for DbInitializerReal {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 impl DbInitializer for DbInitializerReal {
     fn initialize(
