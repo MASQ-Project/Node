@@ -1,18 +1,21 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod payable_dao;
+pub mod pending_payments_dao;
 pub mod receivable_dao;
 
 #[cfg(test)]
 pub mod test_utils;
 
 use crate::accountant::payable_dao::{PayableAccount, PayableDaoFactory, Payment};
+use crate::accountant::pending_payments_dao::{PendingPaymentsDao, PendingPaymentsDaoFactory};
 use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDaoFactory};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{
-    CancelFailedPendingTransaction, ConfirmPendingTransaction, RetrieveTransactions,
+    PaymentBackup, ReportTransactionReceipts, RetrieveTransactions,
 };
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
+use crate::blockchain::tool_wrappers::NotifyLaterHandle;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
@@ -31,13 +34,13 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-use actix::Actor;
 use actix::Addr;
 use actix::AsyncContext;
 use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::Recipient;
+use actix::{Actor, SpawnHandle};
 use futures::future::Future;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -52,13 +55,11 @@ use std::ops::Add;
 use std::path::Path;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use web3::types::H256;
+use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
-
-const TX_CANCELLATION_RETRY_MS: u16 = 10_000;
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
@@ -73,10 +74,33 @@ lazy_static! {
     };
 }
 
-#[derive(PartialEq, Debug, Clone)]
-pub enum PaymentError {
+//TODO this might become chain specific later on
+pub const DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS: u64 = 5_000;
+
+//TODO I may need to have two types for both payable and receivable
+#[derive(Debug, PartialEq)]
+pub enum DebtRecordingError {
     SignConversion(u64),
     RusqliteError(String),
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum PaymentError {
+    PreTransaction(PaymentErrorKind, H256),
+    PostTransaction(PaymentErrorKind, H256),
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum PaymentErrorKind {
+    SignConversion(u64),
+    RusqliteError(String),
+    BlockchainError(String),
+}
+
+impl From<BlockchainError> for PaymentError {
+    fn from(error: BlockchainError) -> Self {
+        todo!()
+    }
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -105,9 +129,10 @@ pub struct Accountant {
     earning_wallet: Wallet,
     payable_dao: Box<dyn PayableDao>,
     receivable_dao: Box<dyn ReceivableDao>,
+    pending_payments_dao: Box<dyn PendingPaymentsDao>,
     banned_dao: Box<dyn BannedDao>,
     crashable: bool,
-    tx_cancellation_retry_ms: u16,
+    transaction_confirmation_tools: TransactionConfirmationTools,
     persistent_configuration: Box<dyn PersistentConfiguration>,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
@@ -115,6 +140,23 @@ pub struct Accountant {
     report_sent_payments_sub: Option<Recipient<SentPayments>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     logger: Logger,
+}
+
+struct TransactionConfirmationTools {
+    pending_transaction_check_interval_ms: u64,
+    request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
+    notify_handle_request_transaction_receipts:
+        Box<dyn NotifyLaterHandle<RequestTransactionReceipts>>,
+}
+
+impl TransactionConfirmationTools {
+    fn new(pending_transaction_check_interval_ms: u64) -> Self {
+        Self {
+            pending_transaction_check_interval_ms,
+            request_transaction_receipts_subs_opt: None,
+            notify_handle_request_transaction_receipts: Default::default(),
+        }
+    }
 }
 
 impl Actor for Accountant {
@@ -126,9 +168,9 @@ pub struct ReceivedPayments {
     payments: Vec<Transaction>,
 }
 
-#[derive(Debug, Eq, Message, PartialEq)]
+#[derive(Debug, Message, PartialEq)]
 pub struct SentPayments {
-    pub payments: Vec<Result<Payment, BlockchainError>>,
+    pub payments: Vec<Result<Payment, PaymentError>>,
 }
 
 impl Handler<BindMessage> for Accountant {
@@ -171,8 +213,42 @@ impl Handler<ReceivedPayments> for Accountant {
 impl Handler<SentPayments> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, sent_payments: SentPayments, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_sent_payments(sent_payments);
+    fn handle(&mut self, sent_payments: SentPayments, ctx: &mut Self::Context) -> Self::Result {
+        let (ok, err) = self.handle_sent_payments(sent_payments);
+        if !ok.is_empty() {
+            let closure = |msg: RequestTransactionReceipts, dur: Duration| -> SpawnHandle {
+                ctx.notify_later(msg, dur)
+            };
+            let _ = self
+                .transaction_confirmation_tools
+                .notify_handle_request_transaction_receipts
+                .notify_later(
+                    RequestTransactionReceipts {
+                        pending_payments: ok,
+                        attempt: 1,
+                    },
+                    Duration::from_millis(
+                        self.transaction_confirmation_tools
+                            .pending_transaction_check_interval_ms,
+                    ),
+                    Box::new(closure),
+                );
+        }
+        if !err.is_empty() {
+            unimplemented!() // self.handle_tx_cancellation(cancellations);
+        }
+        // if !still_pending_turned_into_actor_msg.hashes.is_empty() {
+        //     let closure = |msg: CheckPendingTransactionForConfirmation,
+        //                    dur: Duration|
+        //                    -> SpawnHandle { ctx.notify_later(msg, dur) };
+        //     let _ = self
+        //         .payment_confirmation
+        //         .notify_later_handle_for_check_msg
+        //         .notify_later(
+        //             still_pending_turned_into_actor_msg,
+        //             Duration::from_millis(unimplemented!()),
+        //             Box::new(closure),
+        //         );
     }
 }
 
@@ -224,6 +300,66 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
     }
 }
 
+#[derive(Debug, PartialEq, Message, Clone)]
+pub struct RequestTransactionReceipts {
+    pub pending_payments: Vec<Payment>,
+    pub attempt: u16,
+}
+
+impl Handler<RequestTransactionReceipts> for Accountant {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: RequestTransactionReceipts,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        self.handle_rely_request_transaction_receipts(msg)
+    }
+}
+
+impl Handler<ReportTransactionReceipts> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReportTransactionReceipts, ctx: &mut Self::Context) -> Self::Result {
+        let attempt = msg.attempt;
+        let statuses = self.handle_pending_txs_check(msg);
+        let (cancellations, all_still_pending_as_a_new_actor_msg) =
+            PendingTransactionStatus::merge_still_pending_and_separate_from_others(
+                statuses, attempt,
+            );
+        if !cancellations.is_empty() {
+            unimplemented!() //self.handle_tx_cancellation(cancellations);
+        }
+        if !all_still_pending_as_a_new_actor_msg
+            .pending_payments
+            .is_empty()
+        {
+            let closure = |msg: RequestTransactionReceipts, dur: Duration| -> SpawnHandle {
+                ctx.notify_later(msg, dur)
+            };
+            let _ = self
+                .transaction_confirmation_tools
+                .notify_handle_request_transaction_receipts
+                .notify_later(
+                    all_still_pending_as_a_new_actor_msg,
+                    Duration::from_millis(
+                        self.transaction_confirmation_tools
+                            .pending_transaction_check_interval_ms,
+                    ),
+                    Box::new(closure),
+                );
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Message, Clone)]
+pub struct CancelFailedPendingTransaction {
+    pub invalid_payment: Payment,
+    pub attempt: u8,
+}
+
+//TODO discard
 impl Handler<CancelFailedPendingTransaction> for Accountant {
     type Result = ();
 
@@ -232,20 +368,28 @@ impl Handler<CancelFailedPendingTransaction> for Accountant {
         msg: CancelFailedPendingTransaction,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        if let Some(msg) = self.handle_cancel_pending_transaction(msg) {
-            ctx.notify_later(
-                msg,
-                Duration::from_millis(self.tx_cancellation_retry_ms as u64),
-            );
-        }
+        if let Some(msg) = self.handle_cancel_pending_transaction(msg) {}
     }
 }
 
+#[derive(Debug, PartialEq, Message, Clone)]
+pub struct ConfirmPendingTransaction {
+    pub hash: H256,
+}
+
+//TODO discard
 impl Handler<ConfirmPendingTransaction> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ConfirmPendingTransaction, _ctx: &mut Self::Context) -> Self::Result {
         self.handle_confirm_pending_transaction(msg.hash)
+    }
+}
+
+impl Handler<PaymentBackup> for Accountant {
+    type Result = ();
+    fn handle(&mut self, msg: PaymentBackup, _ctx: &mut Self::Context) -> Self::Result {
+        unimplemented!()
     }
 }
 
@@ -262,11 +406,14 @@ impl Handler<NodeFromUiMessage> for Accountant {
     }
 }
 
+type SentPaymentReturnType = (Vec<Payment>, Vec<PaymentError>);
+
 impl Accountant {
     pub fn new(
         config: &BootstrapperConfig,
         payable_dao_factory: Box<dyn PayableDaoFactory>,
         receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
+        pending_payments_dao_factory: Box<dyn PendingPaymentsDaoFactory>,
         banned_dao_factory: Box<dyn BannedDaoFactory>,
         config_dao_factory: Box<dyn ConfigDaoFactory>,
     ) -> Accountant {
@@ -276,9 +423,14 @@ impl Accountant {
             earning_wallet: config.earning_wallet.clone(),
             payable_dao: payable_dao_factory.make(),
             receivable_dao: receivable_dao_factory.make(),
+            pending_payments_dao: pending_payments_dao_factory.make(),
             banned_dao: banned_dao_factory.make(),
             crashable: config.crash_point == CrashPoint::Message,
-            tx_cancellation_retry_ms: TX_CANCELLATION_RETRY_MS,
+            transaction_confirmation_tools: TransactionConfirmationTools::new(
+                config
+                    .accountant_config
+                    .pending_transaction_check_interval_ms,
+            ),
             persistent_configuration: Box::new(PersistentConfigurationReal::new(
                 config_dao_factory.make(),
             )),
@@ -300,8 +452,8 @@ impl Accountant {
             report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
             report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
             report_new_payments: recipient!(addr, ReceivedPayments),
-            cancel_pending_tx: recipient!(addr, CancelFailedPendingTransaction),
-            confirm_pending_tx: recipient!(addr, ConfirmPendingTransaction),
+            transaction_backup: recipient!(addr, PaymentBackup),
+            report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
             report_sent_payments: recipient!(addr, SentPayments),
             ui_message_sub: recipient!(addr, NodeFromUiMessage),
         }
@@ -350,9 +502,15 @@ impl Accountant {
                 })
                 .then(move |results| match results {
                     Ok(Ok(results)) => {
+                        let results_converted = results
+                            .into_iter()
+                            .map(|item| item.map_err(PaymentError::from))
+                            .collect();
                         report_sent_payments
                             .expect("Accountant is unbound")
-                            .try_send(SentPayments { payments: results })
+                            .try_send(SentPayments {
+                                payments: results_converted,
+                            })
                             .expect("Accountant is dead");
                         Ok(())
                     }
@@ -527,7 +685,7 @@ impl Accountant {
                 .as_ref()
                 .more_money_receivable(wallet, total_charge) {
                 Ok(_) => (),
-                Err(PaymentError::SignConversion(_)) => error! (
+                Err(DebtRecordingError::SignConversion(_)) => error! (
                     self.logger,
                     "Overflow error trying to record service provided to Node with consuming wallet {}: service rate {}, byte rate {}, payload size {}. Skipping",
                     wallet,
@@ -535,7 +693,7 @@ impl Accountant {
                     byte_rate,
                     payload_size
                 ),
-                Err(PaymentError::RusqliteError(e))=> unimplemented!("{}",e)
+                Err(DebtRecordingError::RusqliteError(e))=> unimplemented!("{}",e)
             };
         } else {
             info!(
@@ -559,7 +717,7 @@ impl Accountant {
                 .as_ref()
                 .more_money_payable(wallet, total_charge) {
                 Ok(_) => (),
-                Err(PaymentError::SignConversion(_)) => error! (
+                Err(DebtRecordingError::SignConversion(_)) => error! (
                     self.logger,
                     "Overflow error trying to record service consumed from Node with earning wallet {}: service rate {}, byte rate {}, payload size {}. Skipping",
                     wallet,
@@ -567,7 +725,7 @@ impl Accountant {
                     byte_rate,
                     payload_size
                 ),
-                Err(PaymentError::RusqliteError(e)) => unimplemented!("{}",e)
+                Err(DebtRecordingError::RusqliteError(e)) => unimplemented!("{}",e)
             };
         } else {
             info!(
@@ -666,6 +824,12 @@ impl Accountant {
         self.report_new_payments_sub = Some(msg.peer_actors.accountant.report_new_payments);
         self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
         self.ui_message_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
+        self.transaction_confirmation_tools
+            .request_transaction_receipts_subs_opt = Some(
+            msg.peer_actors
+                .blockchain_bridge
+                .request_transaction_receipts,
+        );
 
         info!(self.logger, "Accountant bound");
     }
@@ -682,28 +846,17 @@ impl Accountant {
             .more_money_received(received_payments.payments);
     }
 
-    fn handle_sent_payments(&mut self, sent_payments: SentPayments) {
-        sent_payments
-            .payments
-            .iter()
-            .for_each(|payment| match payment {
-                Ok(payment) => match self.payable_dao.as_mut().payment_sent(payment) {
-                    Ok(()) => (),
-                    Err(PaymentError::SignConversion(_)) => error! (
-                        self.logger,
-                        "Overflow error trying to record payment of {} sent to earning wallet {} (transaction {}). Skipping",
-                        payment.amount,
-                        payment.to,
-                        payment.transaction,
-                    ),
-                    Err(PaymentError::RusqliteError(e)) => unimplemented!("{}",e)
-                },
-                Err(e) => warning!(
-                    self.logger,
-                    "{} Please check your blockchain service URL configuration.",
-                    e
-                ),
-            })
+    fn handle_sent_payments(
+        &mut self,
+        sent_payments: SentPayments,
+    ) -> (Vec<Payment>, Vec<PaymentError>) {
+        let (ok, err) = self.mark_pending_payments_and_separate_failures(sent_payments);
+        (
+            ok.into_iter().flatten().collect(),
+            err.into_iter()
+                .map(|val| val.expect_err("all the items ought to be errors"))
+                .collect(),
+        )
     }
 
     fn handle_report_routing_service_provided_message(
@@ -838,8 +991,8 @@ impl Accountant {
             Ok(balance) => info!(self.logger,"Transaction {} for wallet {} was successfully canceled; state of the creditor's account was reverted back to balance {}",msg.invalid_payment.transaction,msg.invalid_payment.to,balance),
             Err(e) => {
                 match msg.attempt {
-                    1 => {warning!(self.logger,"First attempt to cancel pending transaction '{}' failed on: {:?}; will retry in {}ms",msg.invalid_payment.transaction,e,self.tx_cancellation_retry_ms); return Some(CancelFailedPendingTransaction{attempt: msg.attempt + 1, ..msg})}
-                    //TODO I'll need to change this, it's not going to change anything to retry, hopeless
+                    1 => {warning!(self.logger,"First attempt to cancel pending transaction '{}' failed on: {:?}",msg.invalid_payment.transaction,e); return Some(CancelFailedPendingTransaction{attempt: msg.attempt + 1, ..msg})}
+                    //TODO I'll need to change this, it's not going to become better if we retry, hopeless
                     2 => error!(self.logger,"We have failed to revert a record of your invalid payment; record for this wallet's account: {} has stayed inconsistent with the reality; this is going to result in a (probably) permanent ban from the creditor; debt balance faultily subtracted for: {}", msg.invalid_payment.to, msg.invalid_payment.amount),
                     _ => unreachable!("this option isn't allowed")
                 };
@@ -855,16 +1008,219 @@ impl Accountant {
             info!(self.logger, "Transaction {:x} was confirmed", hash)
         }
     }
+
+    fn mark_pending_payments_and_separate_failures(
+        &mut self,
+        sent_payments: SentPayments,
+    ) -> (
+        Vec<Result<Payment, PaymentError>>,
+        Vec<Result<Payment, PaymentError>>,
+    ) {
+        sent_payments
+            .payments
+            .into_iter()
+            .map(|payment| match payment {
+                Ok(payment) => match self.payable_dao.as_mut().mark_pending_payment(&payment.to, payment.transaction) {
+                    Ok(()) => Ok(payment),
+                    Err(e) => Err(e)
+                },
+                Err(e) => Err(e)//warning!(
+                //     self.logger,
+                //     "{} Please check your blockchain service URL configuration.",
+                //     e
+                // ),
+            }).partition(|val| val.is_ok())
+    }
+
+    fn handle_rely_request_transaction_receipts(&self, msg: RequestTransactionReceipts) {
+        self.transaction_confirmation_tools
+            .request_transaction_receipts_subs_opt
+            .as_ref()
+            .expect("BlockchainBridge is unbound")
+            .try_send(msg)
+            .expect("BlockchainBridge is dead")
+    }
+
+    fn handle_pending_txs_check(
+        &self,
+        msg: ReportTransactionReceipts,
+    ) -> Vec<PendingTransactionStatus> {
+        msg.payments_with_tx_receipts
+            .into_iter()
+            .map(|(tx_receipt_result, payment)| {
+                match tx_receipt_result {
+                Ok(receipt_opt) => match receipt_opt {
+                    Some(receipt) =>
+                                    self.receipt_check_for_pending_tx(
+                                        receipt,
+                                        payment,
+                                        msg.attempt,
+                                        &self.logger,
+                                    ),
+                    None => PendingTransactionStatus::StillPending {
+                                payment,
+                                attempt: msg.attempt
+                            }
+                },
+                Err(e) => unimplemented!()
+                // {
+                //     error!(self.logger, "Failed to fetch transaction receipt for this pending tx: {} due to '{:?}'; transaction may need to be resolved appropriately with the user's assistance",format!("{:x}",pending_payment.transaction),e);
+                //     PendingTransactionStatus::ConfirmationProcessCrashed(pending_payment.transaction)
+                // },
+            }
+            })
+            .collect()
+    }
+
+    fn receipt_check_for_pending_tx(
+        &self,
+        receipt: TransactionReceipt,
+        payment: Payment,
+        attempt: u16,
+        logger: &Logger,
+    ) -> PendingTransactionStatus {
+        fn elapsed_in_sec(payment: &Payment) -> u64 {
+            payment
+                .previous_timestamp
+                .elapsed()
+                .expect("time counts for elapsed failed")
+                .as_secs()
+        }
+        fn handle_none_receipt(
+            payment: Payment,
+            attempt: u16,
+            logger: &Logger,
+        ) -> PendingTransactionStatus {
+            info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}s after its sending",payment.transaction, attempt, elapsed_in_sec(&payment));
+            PendingTransactionStatus::StillPending { payment, attempt }
+        }
+        fn handle_status_with_success(
+            payment: &Payment,
+            attempt: u16,
+            logger: &Logger,
+        ) -> PendingTransactionStatus {
+            info!(
+                logger,
+                "Transaction '{}' has been confirmed at attempt {} at {}s after its sending",
+                payment.transaction,
+                attempt,
+                elapsed_in_sec(payment)
+            );
+            PendingTransactionStatus::Confirmed(payment.transaction)
+        }
+        fn handle_status_with_failure(
+            payment: &Payment,
+            attempt: u16,
+            logger: &Logger,
+        ) -> PendingTransactionStatus {
+            warning!(logger,"Pending transaction '{}' announced as a failure on the check of attempt {} at {}s after its sending",payment.transaction,attempt,elapsed_in_sec(payment));
+            PendingTransactionStatus::Failure(payment.transaction)
+        }
+        match receipt.status{
+                None => handle_none_receipt(payment,attempt,logger),
+                Some(status_code) =>
+                    match status_code.as_u64(){
+                    0 => unimplemented!(), // handle_status_with_success(&payment,attempt,logger),
+                    1 => handle_status_with_failure(&payment,attempt,logger),
+                    _ => unreachable!("tx receipt for pending '{}' - tx status: code other than 0 or 1 shouldn't be possible",payment.transaction)
+                }
+            }
+    }
+
+    fn handle_tx_cancellation(&self, cancellations: Vec<PendingTransactionStatus>) {
+        unimplemented!()
+        // cancellations.iter().for_each(|status| {
+        //     let hash = status.tx_hash();
+        //     let removed_payment = self.remove_tx_from_list_of_pending_tx(hash);
+        //     if let PendingTransactionStatus::Failure(_) = status {
+        //         self.payment_confirmation
+        //             .cancel_failed_pending_tx_subs_opt
+        //             .as_ref()
+        //             .expect("Accountant is unbound")
+        //             .try_send(CancelFailedPendingTransaction {
+        //                 invalid_payment: removed_payment,
+        //                 attempt: 1,
+        //             })
+        //             .expect("Accountant is dead");
+        //     } else if let PendingTransactionStatus::Confirmed(_) = status {
+        //         self.payment_confirmation
+        //             .confirm_pending_tx_subs_opt
+        //             .as_ref()
+        //             .expect("Accountant is unbound")
+        //             .try_send(ConfirmPendingTransaction { hash })
+        //             .expect("Accountant is dead")
+        //     }
+        // });
+    }
 }
 
 // At the time of this writing, Rust 1.44.0 was unpredictably producing
 // segfaults on the Mac when using u64::try_from (i64). This is an attempt to
 // work around that.
-pub fn jackass_unsigned_to_signed(unsigned: u64) -> Result<i64, PaymentError> {
+pub fn jackass_unsigned_to_signed(unsigned: u64) -> Result<i64, u64> {
     if unsigned <= (std::i64::MAX as u64) {
         Ok(unsigned as i64)
     } else {
-        Err(PaymentError::SignConversion(unsigned))
+        Err(unsigned)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+enum PendingTransactionStatus {
+    StillPending { payment: Payment, attempt: u16 }, //will go back, waiting an interval, and start a new round
+    Failure(H256),                                   //will send a message to Accountant
+    Confirmed(H256),                                 //will send a message to Accountant
+    ConfirmationProcessCrashed(H256), //other failure than an official tx failure status
+}
+
+impl PendingTransactionStatus {
+    fn merge_still_pending_and_separate_from_others(
+        vec: Vec<Self>,
+        attempt: u16,
+    ) -> (Vec<Self>, RequestTransactionReceipts) {
+        let (not_pending, pending): (Vec<PendingTransactionStatus>, Vec<PendingTransactionStatus>) =
+            vec.into_iter()
+                .filter(|item| {
+                    !matches!(
+                        item,
+                        PendingTransactionStatus::ConfirmationProcessCrashed(_)
+                    )
+                })
+                .partition(|item| item.is_non_pending());
+
+        let init = RequestTransactionReceipts {
+            pending_payments: vec![],
+            attempt: attempt + 1,
+        };
+        let recollected = pending.into_iter().fold(init, |mut so_far, now| {
+            if let PendingTransactionStatus::StillPending {
+                payment,
+                attempt: attempt_from_tx_info,
+            } = now
+            {
+                if attempt_from_tx_info != attempt {
+                   panic!("incompatible attempts of tx confirmations, something is broken; should be {} but was {}", attempt, attempt_from_tx_info)
+                };
+                so_far.pending_payments.push(payment)
+            } else {
+               unimplemented!() // panic!("previous measures failed")
+            }
+            so_far
+        });
+        (not_pending, recollected)
+    }
+
+    fn is_non_pending(&self) -> bool {
+        !matches!(self, Self::StillPending { .. })
+    }
+
+    fn tx_hash(&self) -> H256 {
+        match self {
+            PendingTransactionStatus::Failure(hash) => *hash,
+            PendingTransactionStatus::Confirmed(hash) => *hash,
+            PendingTransactionStatus::StillPending { payment, .. } => payment.transaction,
+            PendingTransactionStatus::ConfirmationProcessCrashed(hash) => *hash,
+        }
     }
 }
 
@@ -873,13 +1229,18 @@ pub mod tests {
     use super::*;
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::test_utils::{
-        bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_accountant,
-        make_receivable_account, BannedDaoFactoryMock, ConfigDaoFactoryMock, PayableDaoFactoryMock,
-        ReceivableDaoFactoryMock,
+        bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, earlier_in_seconds,
+        make_accountant, make_receivable_account, BannedDaoFactoryMock, BlockchainInterfaceMock,
+        ConfigDaoFactoryMock, PayableDaoFactoryMock, PendingPaymentsDaoFactoryMock,
+        PendingPaymentsDaoMock, ReceivableDaoFactoryMock,
     };
-    use crate::accountant::test_utils::{earlier_in_seconds, AccountantBuilder, BannedDaoMock};
+    use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
+    use crate::accountant::PaymentErrorKind::SignConversion;
+    use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::blockchain_interface::Transaction;
+    use crate::blockchain::test_utils::NotifyLaterMock;
+    use crate::blockchain::tool_wrappers::SendTransactionToolWrapperNull;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -890,7 +1251,6 @@ pub mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::{
         prove_that_crash_request_handler_is_hooked_up, CleanUpMessage, DummyActor,
@@ -898,8 +1258,9 @@ pub mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::{Arbiter, System};
-    use ethereum_types::BigEndianHash;
+    use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessagePath::Conversation;
@@ -915,18 +1276,18 @@ pub mod tests {
     use std::thread;
     use std::time::Duration;
     use std::time::SystemTime;
-    use web3::types::H256;
     use web3::types::U256;
+    use web3::types::{TransactionReceipt, H256};
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
         account_status_parameters: Arc<Mutex<Vec<Wallet>>>,
         account_status_results: RefCell<Vec<Option<PayableAccount>>>,
         more_money_payable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
-        more_money_payable_results: RefCell<Vec<Result<(), PaymentError>>>,
+        more_money_payable_results: RefCell<Vec<Result<(), DebtRecordingError>>>,
         non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
-        payment_sent_parameters: Arc<Mutex<Vec<Payment>>>,
-        payment_sent_results: RefCell<Vec<Result<(), PaymentError>>>,
+        mark_pending_payment_parameters: Arc<Mutex<Vec<(Wallet, H256)>>>,
+        mark_pending_payment_results: RefCell<Vec<Result<(), PaymentError>>>,
         transaction_confirmed_params: Arc<Mutex<Vec<H256>>>,
         transaction_confirmed_results: RefCell<Vec<Result<(), PaymentError>>>,
         transaction_canceled_params: Arc<Mutex<Vec<Payment>>>,
@@ -937,7 +1298,11 @@ pub mod tests {
     }
 
     impl PayableDao for PayableDaoMock {
-        fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError> {
+        fn more_money_payable(
+            &self,
+            wallet: &Wallet,
+            amount: u64,
+        ) -> Result<(), DebtRecordingError> {
             self.more_money_payable_parameters
                 .lock()
                 .unwrap()
@@ -945,12 +1310,12 @@ pub mod tests {
             self.more_money_payable_results.borrow_mut().remove(0)
         }
 
-        fn payment_sent(&self, sent_payment: &Payment) -> Result<(), PaymentError> {
-            self.payment_sent_parameters
+        fn mark_pending_payment(&self, wallet: &Wallet, hash: H256) -> Result<(), PaymentError> {
+            self.mark_pending_payment_parameters
                 .lock()
                 .unwrap()
-                .push(sent_payment.clone());
-            self.payment_sent_results.borrow_mut().remove(0)
+                .push((wallet.clone(), hash));
+            self.mark_pending_payment_results.borrow_mut().remove(0)
         }
 
         fn transaction_confirmed(&self, hash: H256) -> Result<(), PaymentError> {
@@ -1008,7 +1373,7 @@ pub mod tests {
             self
         }
 
-        fn more_money_payable_result(self, result: Result<(), PaymentError>) -> Self {
+        fn more_money_payable_result(self, result: Result<(), DebtRecordingError>) -> Self {
             self.more_money_payable_results.borrow_mut().push(result);
             self
         }
@@ -1018,13 +1383,16 @@ pub mod tests {
             self
         }
 
-        pub fn payment_sent_params(mut self, parameters: &Arc<Mutex<Vec<Payment>>>) -> Self {
-            self.payment_sent_parameters = parameters.clone();
+        pub fn mark_pending_payment_params(
+            mut self,
+            parameters: &Arc<Mutex<Vec<(Wallet, H256)>>>,
+        ) -> Self {
+            self.mark_pending_payment_parameters = parameters.clone();
             self
         }
 
-        pub fn payment_sent_result(self, result: Result<(), PaymentError>) -> Self {
-            self.payment_sent_results.borrow_mut().push(result);
+        pub fn mark_pending_payment_result(self, result: Result<(), PaymentError>) -> Self {
+            self.mark_pending_payment_results.borrow_mut().push(result);
             self
         }
 
@@ -1069,7 +1437,7 @@ pub mod tests {
         account_status_parameters: Arc<Mutex<Vec<Wallet>>>,
         account_status_results: RefCell<Vec<Option<ReceivableAccount>>>,
         more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
-        more_money_receivable_results: RefCell<Vec<Result<(), PaymentError>>>,
+        more_money_receivable_results: RefCell<Vec<Result<(), DebtRecordingError>>>,
         more_money_received_parameters: Arc<Mutex<Vec<Vec<Transaction>>>>,
         more_money_received_results: RefCell<Vec<Result<(), PaymentError>>>,
         receivables_results: RefCell<Vec<Vec<ReceivableAccount>>>,
@@ -1083,7 +1451,11 @@ pub mod tests {
     }
 
     impl ReceivableDao for ReceivableDaoMock {
-        fn more_money_receivable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError> {
+        fn more_money_receivable(
+            &self,
+            wallet: &Wallet,
+            amount: u64,
+        ) -> Result<(), DebtRecordingError> {
             self.more_money_receivable_parameters
                 .lock()
                 .unwrap()
@@ -1165,7 +1537,7 @@ pub mod tests {
             self
         }
 
-        fn more_money_receivable_result(self, result: Result<(), PaymentError>) -> Self {
+        fn more_money_receivable_result(self, result: Result<(), DebtRecordingError>) -> Self {
             self.more_money_receivable_results.borrow_mut().push(result);
             self
         }
@@ -1236,6 +1608,10 @@ pub mod tests {
         let receivable_dao = ReceivableDaoMock::new();
         let receivable_dao_factory =
             ReceivableDaoFactoryMock::new(receivable_dao).called(&receivable_dao_factory_called);
+        let payment_recover_dao_factory_called = Rc::new(RefCell::new(false));
+        let payment_recover_dao = PendingPaymentsDaoMock::default();
+        let payment_recover_dao_factory = PendingPaymentsDaoFactoryMock::new(payment_recover_dao)
+            .called(&payment_recover_dao_factory_called);
         let banned_dao_factory_called = Rc::new(RefCell::new(false));
         let banned_dao = BannedDaoMock::new();
         let banned_dao_factory =
@@ -1249,12 +1625,17 @@ pub mod tests {
             &config,
             Box::new(payable_dao_factory),
             Box::new(receivable_dao_factory),
+            Box::new(payment_recover_dao_factory),
             Box::new(banned_dao_factory),
             Box::new(config_dao_factory),
         );
 
         assert_eq!(payable_dao_factory_called.as_ref(), &RefCell::new(true));
         assert_eq!(receivable_dao_factory_called.as_ref(), &RefCell::new(true));
+        assert_eq!(
+            payment_recover_dao_factory_called.as_ref(),
+            &RefCell::new(true)
+        );
         assert_eq!(banned_dao_factory_called.as_ref(), &RefCell::new(true));
         assert_eq!(config_dao_factory_called.as_ref(), &RefCell::new(true));
     }
@@ -1301,11 +1682,13 @@ pub mod tests {
                 AccountantConfig {
                     payable_scan_interval: Duration::from_millis(10_000),
                     payment_received_scan_interval: Duration::from_millis(10_000),
+                    pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
                 },
                 make_wallet("some_wallet_address"),
             )),
             Some(payable_dao),
             Some(receivable_dao),
+            None,
             None,
             None,
         );
@@ -1377,51 +1760,56 @@ pub mod tests {
         );
     }
 
+    //TODO this test might go away
     #[test]
-    fn accountant_calls_payable_dao_payment_sent_when_sent_payments() {
-        let payment_sent_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao = PayableDaoMock::new()
-            .non_pending_payables_result(vec![])
-            .payment_sent_params(&payment_sent_parameters_arc)
-            .payment_sent_result(Ok(()));
-        let system = System::new("accountant_calls_payable_dao_payment_sent_when_sent_payments");
-        let accountant = make_accountant(
-            Some(bc_from_ac_plus_earning_wallet(
-                AccountantConfig {
-                    payable_scan_interval: Duration::from_millis(100),
-                    payment_received_scan_interval: Duration::from_secs(10_000),
-                },
-                make_wallet("some_wallet_address"),
-            )),
-            Some(payable_dao),
-            None,
-            None,
-            None,
-        );
-        let expected_wallet = make_wallet("paying_you");
-        let expected_amount = 1;
-        let expected_hash = H256::from("transaction_hash".keccak256());
-        let mut expected_payment = Payment::new(
-            expected_wallet.clone(),
-            expected_amount,
-            expected_hash.clone(),
-            earlier_in_seconds(5000),
-        );
-        let send_payments = SentPayments {
-            payments: vec![Ok(expected_payment.clone())],
-        };
-        let subject = accountant.start();
-
-        subject
-            .try_send(send_payments)
-            .expect("unexpected actix error");
-        System::current().stop();
-        system.run();
-
-        let sent_payment_to = payment_sent_parameters_arc.lock().unwrap();
-        let actual = sent_payment_to.get(0).unwrap();
-        expected_payment.timestamp = actual.timestamp;
-        assert_eq!(actual, &expected_payment);
+    fn accountant_records_in_payables_and_pending_payments_tables_when_sent_payments() {
+        //     let payment_sent_parameters_arc = Arc::new(Mutex::new(vec![]));
+        //     let payable_dao = PayableDaoMock::new()
+        //         .non_pending_payables_result(vec![])
+        //         .payment_sent_params(&payment_sent_parameters_arc)
+        //         .payment_sent_result(Ok(2));
+        //     let system = System::new(
+        //         "accountant_records_in_payables_and_pending_payments_tables_when_sent_payments",
+        //     );
+        //     let pending_payments_dao =
+        //     let accountant = make_accountant(
+        //         Some(bc_from_ac_plus_earning_wallet(
+        //             AccountantConfig {
+        //                 payable_scan_interval: Duration::from_millis(100),
+        //                 payment_received_scan_interval: Duration::from_secs(10_000),
+        //                 pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
+        //             },
+        //             make_wallet("some_wallet_address"),
+        //         )),
+        //         Some(payable_dao),
+        //         None,
+        //         None,
+        //         None,
+        //         None,
+        //     );
+        //     let expected_wallet = make_wallet("paying_you");
+        //     let expected_amount = 1;
+        //     let expected_hash = H256::from("transaction_hash".keccak256());
+        //     let mut expected_payment = Payment::new(
+        //         expected_wallet.clone(),
+        //         expected_amount,
+        //         expected_hash.clone(),
+        //     );
+        //     let send_payments = SentPayments {
+        //         payments: vec![Ok(expected_payment.clone())],
+        //     };
+        //     let subject = accountant.start();
+        //
+        //     subject
+        //         .try_send(send_payments)
+        //         .expect("unexpected actix error");
+        //     System::current().stop();
+        //     system.run();
+        //
+        //     let sent_payment_to = payment_sent_parameters_arc.lock().unwrap();
+        //     let actual = sent_payment_to.get(0).unwrap();
+        //     expected_payment.timestamp = actual.timestamp;
+        //     assert_eq!(actual, &expected_payment);
     }
 
     #[test]
@@ -1434,6 +1822,7 @@ pub mod tests {
                 AccountantConfig {
                     payable_scan_interval: Duration::from_millis(100),
                     payment_received_scan_interval: Duration::from_secs(10_000),
+                    pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1441,10 +1830,12 @@ pub mod tests {
             None,
             None,
             None,
+            None,
         );
         let send_payments = SentPayments {
-            payments: vec![Err(BlockchainError::TransactionFailed(
-                "Payment attempt failed".to_string(),
+            payments: vec![Err(PaymentError::PreTransaction(
+                PaymentErrorKind::BlockchainError("Payment attempt failed".to_string()),
+                H256::from_uint(&U256::from(12345)),
             ))],
         };
         let subject = accountant.start();
@@ -1472,7 +1863,6 @@ pub mod tests {
         let expected_pending_payment_transaction = H256::from("transaction_hash".keccak256());
         let expected_pending_payment_transaction_inner =
             expected_pending_payment_transaction.clone();
-        let earlier_in_seconds = earlier_in_seconds(5000);
         let payable_dao = PayableDaoMock::new()
             .non_pending_payables_result(vec![PayableAccount {
                 wallet: expected_wallet.clone(),
@@ -1488,7 +1878,7 @@ pub mod tests {
                 expected_wallet_inner,
                 expected_amount,
                 expected_pending_payment_transaction_inner,
-                earlier_in_seconds,
+                earlier_in_seconds(1000),
             ))]))
             .retrieve_transactions_response(Ok(vec![]));
         let (accountant_mock, accountant_mock_awaiter, accountant_recording_arc) = make_recorder();
@@ -1506,10 +1896,13 @@ pub mod tests {
                     AccountantConfig {
                         payable_scan_interval: Duration::from_millis(100),
                         payment_received_scan_interval: Duration::from_secs(10_000),
+                        pending_transaction_check_interval_ms:
+                            DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
                     },
                     earning_wallet.clone(),
                 )),
                 Some(payable_dao),
+                None,
                 None,
                 None,
                 None,
@@ -1530,7 +1923,7 @@ pub mod tests {
             expected_wallet,
             expected_amount,
             expected_pending_payment_transaction,
-            earlier_in_seconds,
+            earlier_in_seconds(1000),
         );
         let payments = actual_payments.payments.clone();
         let maybe_payment = payments.get(0).clone();
@@ -1582,10 +1975,13 @@ pub mod tests {
                     AccountantConfig {
                         payable_scan_interval: Duration::from_millis(100),
                         payment_received_scan_interval: Duration::from_secs(10_000),
+                        pending_transaction_check_interval_ms:
+                            DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
                     },
                     earning_wallet.clone(),
                 )),
                 Some(payable_dao),
+                None,
                 None,
                 None,
                 None,
@@ -1625,6 +2021,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(10_000),
                 payment_received_scan_interval: Duration::from_millis(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             earning_wallet.clone(),
         );
@@ -1642,6 +2039,7 @@ pub mod tests {
                 Some(config),
                 Some(payable_dao),
                 Some(receivable_dao),
+                None,
                 None,
                 Some(config_mock),
             );
@@ -1694,6 +2092,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(10_000),
                 payment_received_scan_interval: Duration::from_millis(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             earning_wallet.clone(),
         );
@@ -1709,6 +2108,7 @@ pub mod tests {
                 Some(config),
                 Some(payable_dao),
                 Some(receivable_dao),
+                None,
                 None,
                 Some(config_mock),
             );
@@ -1756,6 +2156,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(10_000),
                 payment_received_scan_interval: Duration::from_millis(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             earning_wallet.clone(),
         );
@@ -1772,6 +2173,7 @@ pub mod tests {
                 Some(config),
                 Some(payable_dao),
                 Some(receivable_dao),
+                None,
                 None,
                 Some(config_mock),
             );
@@ -1818,11 +2220,13 @@ pub mod tests {
                 AccountantConfig {
                     payable_scan_interval: Duration::from_secs(10_000),
                     payment_received_scan_interval: Duration::from_secs(10_000),
+                    pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
                 },
                 earning_wallet.clone(),
             )),
             Some(PayableDaoMock::new().non_pending_payables_result(vec![])),
             Some(receivable_dao),
+            None,
             None,
             None,
         );
@@ -1866,6 +2270,7 @@ pub mod tests {
                 AccountantConfig {
                     payable_scan_interval: Duration::from_millis(100),
                     payment_received_scan_interval: Duration::from_secs(100),
+                    pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
                 },
                 make_wallet("hi"),
             );
@@ -1890,7 +2295,7 @@ pub mod tests {
             let payable_dao = PayableDaoMock::new()
                 .non_pending_payables_result(vec![account0, account1])
                 .non_pending_payables_result(vec![]);
-            let subject = make_accountant(Some(config), Some(payable_dao), None, None, None);
+            let subject = make_accountant(Some(config), Some(payable_dao), None, None, None, None);
             let peer_actors = peer_actors_builder()
                 .blockchain_bridge(blockchain_bridge)
                 .build();
@@ -1917,11 +2322,12 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(1000),
                 payment_received_scan_interval: Duration::from_secs(1000),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             make_wallet("buy"),
             make_wallet("hi"),
         );
-        let subject = make_accountant(Some(config), None, None, None, None);
+        let subject = make_accountant(Some(config), None, None, None, None, None);
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();
@@ -1950,6 +2356,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(1000),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             make_wallet("mine"),
         );
@@ -1993,7 +2400,7 @@ pub mod tests {
         let blockchain_bridge_addr: Addr<Recorder> = blockchain_bridge.start();
         let report_accounts_payable_sub =
             blockchain_bridge_addr.recipient::<ReportAccountsPayable>();
-        let mut subject = make_accountant(Some(config), Some(payable_dao), None, None, None);
+        let mut subject = make_accountant(Some(config), Some(payable_dao), None, None, None, None);
         subject.report_accounts_payable_sub = Some(report_accounts_payable_sub);
 
         subject.scan_for_payables();
@@ -2012,6 +2419,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_millis(100),
                 payment_received_scan_interval: Duration::from_millis(1_000),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             make_wallet("mine"),
         );
@@ -2053,7 +2461,7 @@ pub mod tests {
             let peer_actors = peer_actors_builder()
                 .blockchain_bridge(blockchain_bridge)
                 .build();
-            let subject = make_accountant(Some(config), Some(payable_dao), None, None, None);
+            let subject = make_accountant(Some(config), Some(payable_dao), None, None, None, None);
             let subject_addr = subject.start();
             let accountant_subs = Accountant::make_subs_from(&subject_addr);
 
@@ -2082,6 +2490,7 @@ pub mod tests {
                 AccountantConfig {
                     payable_scan_interval: Duration::from_secs(10_000),
                     payment_received_scan_interval: Duration::from_millis(100),
+                    pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
                 },
                 make_wallet("hi"),
             );
@@ -2097,6 +2506,7 @@ pub mod tests {
                 Some(config),
                 Some(payable_dao),
                 Some(receivable_dao),
+                None,
                 Some(banned_dao),
                 None,
             );
@@ -2126,7 +2536,7 @@ pub mod tests {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Err(PersistentConfigError::NotPresent));
-        let mut subject = make_accountant(None, None, None, None, Some(persistent_config));
+        let mut subject = make_accountant(None, None, None, None, None, Some(persistent_config));
 
         subject.scan_for_received_payments();
 
@@ -2141,6 +2551,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(1000),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             make_wallet("mine"),
         );
@@ -2166,6 +2577,7 @@ pub mod tests {
             Some(config),
             Some(payable_dao),
             Some(receivable_dao),
+            None,
             Some(banned_dao),
             None,
         );
@@ -2200,6 +2612,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             make_wallet("hi"),
         );
@@ -2212,6 +2625,7 @@ pub mod tests {
             Some(config),
             Some(payable_dao_mock),
             Some(receivable_dao_mock),
+            None,
             None,
             None,
         );
@@ -2254,6 +2668,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             consuming_wallet.clone(),
             make_wallet("our earning wallet"),
@@ -2266,6 +2681,7 @@ pub mod tests {
             Some(config),
             Some(payable_dao_mock),
             Some(receivable_dao_mock),
+            None,
             None,
             None,
         );
@@ -2307,6 +2723,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             earning_wallet.clone(),
         );
@@ -2318,6 +2735,7 @@ pub mod tests {
             Some(config),
             Some(payable_dao_mock),
             Some(receivable_dao_mock),
+            None,
             None,
             None,
         );
@@ -2358,6 +2776,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             make_wallet("hi"),
         );
@@ -2366,7 +2785,7 @@ pub mod tests {
             .non_pending_payables_result(vec![])
             .more_money_payable_parameters(more_money_payable_parameters_arc.clone())
             .more_money_payable_result(Ok(()));
-        let subject = make_accountant(Some(config), Some(payable_dao_mock), None, None, None);
+        let subject = make_accountant(Some(config), Some(payable_dao_mock), None, None, None, None);
         let system = System::new("report_routing_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -2405,6 +2824,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             consuming_wallet.clone(),
             make_wallet("the earning wallet"),
@@ -2413,7 +2833,7 @@ pub mod tests {
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
             .more_money_payable_parameters(more_money_payable_parameters_arc.clone());
-        let subject = make_accountant(Some(config), Some(payable_dao_mock), None, None, None);
+        let subject = make_accountant(Some(config), Some(payable_dao_mock), None, None, None, None);
         let system = System::new("report_routing_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -2449,6 +2869,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             earning_wallet.clone(),
         );
@@ -2456,7 +2877,7 @@ pub mod tests {
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
             .more_money_payable_parameters(more_money_payable_parameters_arc.clone());
-        let subject = make_accountant(Some(config), Some(payable_dao_mock), None, None, None);
+        let subject = make_accountant(Some(config), Some(payable_dao_mock), None, None, None, None);
         let system = System::new("report_routing_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -2491,6 +2912,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             make_wallet("hi"),
         );
@@ -2503,6 +2925,7 @@ pub mod tests {
             Some(config),
             Some(payable_dao_mock),
             Some(receivable_dao_mock),
+            None,
             None,
             None,
         );
@@ -2545,6 +2968,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             consuming_wallet.clone(),
             make_wallet("my earning wallet"),
@@ -2557,6 +2981,7 @@ pub mod tests {
             Some(config),
             Some(payable_dao_mock),
             Some(receivable_dao_mock),
+            None,
             None,
             None,
         );
@@ -2598,6 +3023,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             earning_wallet.clone(),
         );
@@ -2609,6 +3035,7 @@ pub mod tests {
             Some(config),
             Some(payable_dao_mock),
             Some(receivable_dao_mock),
+            None,
             None,
             None,
         );
@@ -2649,6 +3076,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             make_wallet("hi"),
         );
@@ -2657,7 +3085,7 @@ pub mod tests {
             .non_pending_payables_result(vec![])
             .more_money_payable_parameters(more_money_payable_parameters_arc.clone())
             .more_money_payable_result(Ok(()));
-        let subject = make_accountant(Some(config), Some(payable_dao_mock), None, None, None);
+        let subject = make_accountant(Some(config), Some(payable_dao_mock), None, None, None, None);
         let system = System::new("report_exit_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -2697,6 +3125,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             consuming_wallet.clone(),
             make_wallet("own earning wallet"),
@@ -2705,7 +3134,7 @@ pub mod tests {
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
             .more_money_payable_parameters(more_money_payable_parameters_arc.clone());
-        let subject = make_accountant(Some(config), Some(payable_dao_mock), None, None, None);
+        let subject = make_accountant(Some(config), Some(payable_dao_mock), None, None, None, None);
         let system = System::new("report_exit_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -2741,6 +3170,7 @@ pub mod tests {
             AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             earning_wallet.clone(),
         );
@@ -2748,7 +3178,7 @@ pub mod tests {
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
             .more_money_payable_parameters(more_money_payable_parameters_arc.clone());
-        let subject = make_accountant(Some(config), Some(payable_dao_mock), None, None, None);
+        let subject = make_accountant(Some(config), Some(payable_dao_mock), None, None, None, None);
         let system = System::new("report_exit_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -2785,8 +3215,9 @@ pub mod tests {
             None,
             Some(
                 ReceivableDaoMock::new()
-                    .more_money_receivable_result(Err(PaymentError::SignConversion(1234))),
+                    .more_money_receivable_result(Err(DebtRecordingError::SignConversion(1234))),
             ),
+            None,
             None,
             None,
         );
@@ -2808,8 +3239,9 @@ pub mod tests {
             None,
             Some(
                 PayableDaoMock::new()
-                    .more_money_payable_result(Err(PaymentError::SignConversion(1234))),
+                    .more_money_payable_result(Err(DebtRecordingError::SignConversion(1234))),
             ),
+            None,
             None,
             None,
             None,
@@ -2825,22 +3257,123 @@ pub mod tests {
     }
 
     #[test]
-    fn handle_sent_payments_handles_overflow() {
-        init_test_logging();
-        let wallet = make_wallet("booga");
+    fn handle_sent_payments_receives_successful_payments_but_soon_fails_at_its_own_place_and_then_separates_successes_from_failures(
+    ) {
+        let payment_sent_params_arc = Arc::new(Mutex::new(vec![]));
+        let payment_1_hash = H256::from_uint(&U256::from(123));
+        let payment_2_hash = H256::from_uint(&U256::from(789));
+        let wallet_1 = make_wallet("booga");
+        let wallet_2 = make_wallet("booga_booga");
+        let payment_1 = Payment::new(
+            wallet_1.clone(),
+            6789,
+            payment_1_hash,
+            earlier_in_seconds(1000),
+        );
+        let payment_2 = Payment::new(
+            wallet_2.clone(),
+            5500,
+            payment_2_hash,
+            earlier_in_seconds(2000),
+        );
         let payments = SentPayments {
-            payments: vec![Ok(Payment::new(
-                wallet.clone(),
-                std::u64::MAX,
-                H256::from_uint(&U256::from(1)),
-                earlier_in_seconds(5000),
-            ))],
+            payments: vec![Ok(payment_1), Ok(payment_2.clone())],
         };
         let mut subject = make_accountant(
             None,
             Some(
-                PayableDaoMock::new().payment_sent_result(Err(PaymentError::SignConversion(1234))),
+                PayableDaoMock::new()
+                    .mark_pending_payment_params(&payment_sent_params_arc)
+                    .mark_pending_payment_result(Err(PaymentError::PostTransaction(
+                        PaymentErrorKind::SignConversion(99999),
+                        payment_1_hash,
+                    )))
+                    .mark_pending_payment_result(Ok(())),
             ),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let (ok_payments, mut errors) = subject.handle_sent_payments(payments);
+
+        assert_eq!(ok_payments, vec![payment_2]);
+        assert_eq!(
+            errors,
+            vec![PaymentError::PostTransaction(
+                SignConversion(99999),
+                payment_1_hash
+            )]
+        );
+        let mark_pending_payment_params = payment_sent_params_arc.lock().unwrap();
+        assert_eq!(
+            *mark_pending_payment_params,
+            vec![(wallet_1, payment_1_hash), (wallet_2, payment_2_hash)]
+        )
+    }
+
+    #[test]
+    fn handle_sent_payments_receives_one_payment_being_incorrect_and_one_correct() {
+        let payment_hash_1 = H256::from_uint(&U256::from(789));
+        let payment_1 = Err(PaymentError::PreTransaction(
+            PaymentErrorKind::BlockchainError("wrong wallet".to_string()),
+            payment_hash_1,
+        ));
+        let payment_hash_2 = H256::from_uint(&U256::from(123));
+        let payment_2 = Payment::new(
+            make_wallet("booga"),
+            6789,
+            payment_hash_2,
+            earlier_in_seconds(1000),
+        );
+        let rowid_assigned_for_payment_2 = 4;
+        let payments = SentPayments {
+            payments: vec![payment_1, Ok(payment_2.clone())],
+        };
+        let pending_payments_dao = PendingPaymentsDaoMock::default()
+            //one seems to be missing, not really, the execution short-circuited at the outer error
+            .insert_record_result(Ok(()));
+        let mut subject = make_accountant(
+            None,
+            Some(PayableDaoMock::new().mark_pending_payment_result(Ok(()))),
+            None,
+            Some(pending_payments_dao),
+            None,
+            None,
+        );
+
+        let (ok_payments, mut errors) = subject.handle_sent_payments(payments);
+
+        assert_eq!(ok_payments, vec![payment_2]);
+        assert_eq!(
+            errors,
+            vec![PaymentError::PreTransaction(
+                PaymentErrorKind::BlockchainError("wrong wallet".to_string()),
+                payment_hash_1
+            )]
+        )
+    }
+
+    #[test]
+    fn handle_sent_payments_handles_overflow() {
+        init_test_logging();
+        let wallet = make_wallet("booga");
+        let tx_hash = H256::from_uint(&U256::from(1));
+        let payments = SentPayments {
+            payments: vec![Ok(Payment::new(
+                wallet.clone(),
+                u64::MAX,
+                tx_hash,
+                earlier_in_seconds(1000),
+            ))],
+        };
+        let mut subject = make_accountant(
+            None,
+            Some(PayableDaoMock::new().mark_pending_payment_result(Err(
+                PaymentError::PostTransaction(PaymentErrorKind::SignConversion(1234), tx_hash),
+            ))),
+            None,
             None,
             None,
             None,
@@ -2850,7 +3383,7 @@ pub mod tests {
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error trying to record payment of {} sent to earning wallet {} (transaction {}). Skipping",
-            std::u64::MAX,
+            u64::MAX,
             wallet,
             H256::from_uint(&U256::from(1))
         ));
@@ -2871,12 +3404,11 @@ pub mod tests {
         let recipient_wallet = make_wallet("wallet");
         let amount = 4567;
         let timestamp_from_time_of_payment = SystemTime::now();
-        let timestamp_from_previously = earlier_in_seconds(6000);
         let invalid_payment = Payment {
             to: recipient_wallet.clone(),
             amount,
             timestamp: timestamp_from_time_of_payment,
-            previous_timestamp: timestamp_from_previously,
+            previous_timestamp: earlier_in_seconds(1000),
             transaction: tx_hash,
         };
         let sent_payment_msg = SentPayments {
@@ -2920,67 +3452,10 @@ pub mod tests {
         let (wallet, balance, timestamp, hash) = res;
         assert_eq!(wallet, recipient_wallet.to_string());
         assert_eq!(balance, 0);
-        assert_eq!(timestamp, to_time_t(timestamp_from_previously));
         assert_eq!(hash, None);
         TestLogHandler::new().exists_log_containing("INFO: Accountant: Transaction 0x051a…8c19 \
          for wallet 0x000000000000000000000000000077616c6c6574 was successfully canceled; state of the \
           creditor's account was reverted back to balance 0");
-    }
-
-    #[test]
-    fn handle_cancel_pending_transaction_tries_second_attempt_a_bit_later_on_failure_and_fails_again(
-    ) {
-        init_test_logging();
-        let transaction_canceled_params_arc = Arc::new(Mutex::new(vec![]));
-        let transaction_canceled_params_arc_clone = transaction_canceled_params_arc.clone();
-        let payment = Payment {
-            to: make_wallet("wallet"),
-            amount: 4565,
-            timestamp: SystemTime::now(),
-            previous_timestamp: earlier_in_seconds(5000),
-            transaction: H256::from_uint(&U256::from(4545)),
-        };
-        let dummy_actor = DummyActor::new(None);
-        let system = System::new("cancel_pending_transaction");
-        let addr = Arbiter::builder()
-            .stop_system_on_panic(true)
-            .start(move |_| {
-                let payable_dao = PayableDaoMock::new()
-                    //this err doesn't make sense but I expect there might be more error variants later
-                    .transaction_canceled_params(&transaction_canceled_params_arc_clone)
-                    .transaction_canceled_result(Err(PaymentError::SignConversion(45)))
-                    .transaction_canceled_result(Err(PaymentError::SignConversion(45)));
-                let mut subject = AccountantBuilder::default()
-                    .payable_dao_factory(Box::new(PayableDaoFactoryMock::new(Box::new(
-                        payable_dao,
-                    ))))
-                    .build();
-                subject.tx_cancellation_retry_ms = 2;
-                subject
-            });
-        let subs = Accountant::make_subs_from(&addr);
-
-        let _ = subs
-            .cancel_pending_tx
-            .try_send(CancelFailedPendingTransaction {
-                invalid_payment: payment.clone(),
-                attempt: 1,
-            })
-            .unwrap();
-
-        let dummy_actor_addr = Arbiter::builder()
-            .stop_system_on_panic(true)
-            .start(move |_| dummy_actor);
-        dummy_actor_addr
-            .try_send(CleanUpMessage { sleep_ms: 3000 })
-            .unwrap();
-        assert_eq!(system.run(), 0);
-        let transaction_canceled_params = transaction_canceled_params_arc.lock().unwrap();
-        assert_eq!(*transaction_canceled_params, vec![payment.clone(), payment]);
-        let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("WARN: Accountant: First attempt to cancel pending transaction '0x0000…11c1' failed on: SignConversion(45); will retry in 2ms");
-        log_handler.exists_log_containing("ERROR: Accountant: We have failed to revert a record of your invalid payment; record for this wallet's account: 0x000000000000000000000000000077616c6c6574 \
-         has stayed inconsistent with the reality; this is going to result in a (probably) permanent ban from the creditor; debt balance faultily subtracted for: 4565");
     }
 
     #[test]
@@ -2998,12 +3473,11 @@ pub mod tests {
         let recipient_wallet = make_wallet("wallet");
         let amount = 4567;
         let timestamp_from_time_of_payment = SystemTime::now();
-        let timestamp_from_previously = earlier_in_seconds(6000);
         let payment = Payment {
             to: recipient_wallet.clone(),
             amount,
             timestamp: timestamp_from_time_of_payment,
-            previous_timestamp: timestamp_from_previously,
+            previous_timestamp: earlier_in_seconds(1000),
             transaction: tx_hash,
         };
         let sent_payment_msg = SentPayments {
@@ -3059,7 +3533,7 @@ pub mod tests {
     fn accountant_can_be_crashed_properly_but_not_improperly() {
         let mut config = BootstrapperConfig::default();
         config.crash_point = CrashPoint::Message;
-        let accountant = make_accountant(Some(config), None, None, None, None);
+        let accountant = make_accountant(Some(config), None, None, None, None, None);
 
         prove_that_crash_request_handler_is_hooked_up(accountant, CRASH_KEY);
     }
@@ -3135,6 +3609,746 @@ pub mod tests {
     }
 
     #[test]
+    fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
+        //TODO repair this description
+        //we send a list of creditor accounts with mature debts to BlockchainBridge
+        //he acts like he's sending transactions for paying the debts (transacting is mocked),
+        //next BlockchainBridge registers Hashes and payment backups of the pending transactions and also prepares himself
+        //a self-notification to be sent later on letting him know he should check whether the transactions have been confirmed
+        // - this message will go over back repeatedly in intervals; when it finds a confirmation of the transaction
+        //it sends a message to Accountant to update the state of the database (mocked) by blanking out the column for pending
+        //transactions for the given confirmed transaction;
+        //along with the previous, right away when we get hashes of the new pending transactions Accountant is given a message
+        //and writes a record for the respective account belonging to the wallet where the transaction was sent to.
+        //One transaction is canceled after failure detected and the other is successfully confirmed.
+        //On failure state of the account is reverted back to the state how it was before the stimulus to pay came up.
+        let mark_pending_payment_params_arc = Arc::new(Mutex::new(vec![]));
+        let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
+        let transaction_canceled_params_arc = Arc::new(Mutex::new(vec![]));
+        let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
+        let notify_later_check_for_confirmation_params_arc = Arc::new(Mutex::new(vec![]));
+        let notify_later_check_for_confirmation_params_arc_cloned =
+            notify_later_check_for_confirmation_params_arc.clone(); //because it moves into a closure
+        let insert_record_params_arc = Arc::new(Mutex::new(vec![]));
+        let pending_tx_hash_1 = H256::from_uint(&U256::from(123));
+        let pending_tx_hash_2 = H256::from_uint(&U256::from(567));
+        let transaction_receipt_tx_2_first_round = TransactionReceipt::default();
+        let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
+        let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
+        let mut transaction_receipt_tx_1_third_round = TransactionReceipt::default();
+        transaction_receipt_tx_1_third_round.status = Some(U64::from(1)); //failure
+        let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
+        let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
+        transaction_receipt_tx_2_fourth_round.status = Some(U64::from(0)); // confirmed
+        let blockchain_interface = BlockchainInterfaceMock::default()
+            .get_transaction_count_result(Ok(web3::types::U256::from(1)))
+            .get_transaction_count_result(Ok(web3::types::U256::from(2)))
+            .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
+            .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
+            .send_transaction_result(Ok(pending_tx_hash_1))
+            .send_transaction_result(Ok(pending_tx_hash_2))
+            .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
+            .get_transaction_receipt_result(Ok(None))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_first_round)))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_1_second_round)))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_second_round)))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_1_third_round)))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_third_round)))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_fourth_round)));
+        let consuming_wallet = make_paying_wallet(b"wallet");
+        let system = System::new("pending_transaction");
+        let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(130));
+        let pending_tx_checkout_interval_ms = 10;
+        let blockchain_bridge = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Box::new(persistent_config),
+            false,
+            Some(consuming_wallet),
+        );
+        let payable_dao = PayableDaoMock::new()
+            .mark_pending_payment_params(&mark_pending_payment_params_arc)
+            .mark_pending_payment_result(Ok(()))
+            .mark_pending_payment_result(Ok(()))
+            .transaction_confirmed_params(&transaction_confirmed_params_arc)
+            .transaction_confirmed_result(Ok(()))
+            .transaction_canceled_params(&transaction_canceled_params_arc)
+            .transaction_canceled_result(Ok(5000));
+        let bootstrapper_config = bc_from_ac_plus_earning_wallet(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(1_000_000), //we don't care about the scan
+                payment_received_scan_interval: Duration::from_secs(1_000_000), //we don't care about the scan
+                pending_transaction_check_interval_ms: pending_tx_checkout_interval_ms,
+            },
+            make_wallet("some_wallet_address"),
+        );
+        let pending_payments_dao = PendingPaymentsDaoMock::default()
+            .insert_record_params(&insert_record_params_arc)
+            .insert_record_result(Ok(()))
+            .insert_record_result(Ok(()));
+        let accountant_addr = Arbiter::builder()
+            .stop_system_on_panic(true)
+            .start(move |_| {
+                let mut subject = make_accountant(
+                    Some(bootstrapper_config),
+                    Some(payable_dao),
+                    None,
+                    Some(pending_payments_dao),
+                    None,
+                    None,
+                );
+                let notify_later_half_mock = NotifyLaterMock::default()
+                    .notify_later_params(&notify_later_check_for_confirmation_params_arc_cloned);
+                subject
+                    .transaction_confirmation_tools
+                    .notify_handle_request_transaction_receipts = Box::new(notify_later_half_mock);
+                subject
+            });
+        let mut peer_actors = peer_actors_builder().build();
+        let accountant_subs = Accountant::make_subs_from(&accountant_addr);
+        let cloned_recipient_for_sent_payments = accountant_subs.report_sent_payments.clone();
+        peer_actors.accountant = accountant_subs.clone();
+        let blockchain_bridge_addr = blockchain_bridge.start();
+        let blockchain_bridge_subs = BlockchainBridge::make_subs_from(&blockchain_bridge_addr);
+        peer_actors.blockchain_bridge = blockchain_bridge_subs.clone();
+        let wallet_account_1 = make_wallet("creditor1");
+        let account_1 = PayableAccount {
+            wallet: wallet_account_1.clone(),
+            balance: 5500,
+            last_paid_timestamp: from_time_t(16548475),
+            pending_payment_transaction: None,
+        };
+        let wallet_account_2 = make_wallet("creditor2");
+        let account_2 = PayableAccount {
+            wallet: wallet_account_2.clone(),
+            balance: 123456,
+            last_paid_timestamp: from_time_t(16546300),
+            pending_payment_transaction: None,
+        };
+        let creditor_message = ReportAccountsPayable {
+            accounts: vec![account_1, account_2],
+        };
+        let dummy_actor = DummyActor::new(None);
+        let dummy_actor_addr = Arbiter::builder()
+            .stop_system_on_panic(true)
+            .start(move |_| dummy_actor);
+        send_bind_message!(accountant_subs, peer_actors);
+        send_bind_message!(blockchain_bridge_subs, peer_actors);
+
+        let response = blockchain_bridge_addr.send(creditor_message);
+
+        let future = response.then(move |results| match results {
+            Ok(Ok(results)) => {
+                let results_converted = results
+                    .into_iter()
+                    .map(|item| item.map_err(PaymentError::from))
+                    .collect();
+                cloned_recipient_for_sent_payments
+                    .try_send(SentPayments {
+                        payments: results_converted,
+                    })
+                    .expect("Accountant is dead");
+                Ok(())
+            }
+            x => panic!("{:?}", x),
+        });
+        actix::spawn(future);
+
+        //I need one more actor on an Arbiter's thread (able to invoke a panic if something's wrong);
+        //the main subject - BlockchainBridge - is clumsy regarding combining its creation and an Arbiter, so I used this solution
+        dummy_actor_addr
+            .try_send(CleanUpMessage { sleep_ms: 3000 })
+            .unwrap();
+        assert_eq!(system.run(), 0);
+        let mut mark_pending_payment_parameters = mark_pending_payment_params_arc.lock().unwrap();
+        let first_payment = mark_pending_payment_parameters.remove(0);
+        assert_eq!(first_payment.0, wallet_account_1);
+        assert_eq!(first_payment.1, pending_tx_hash_1);
+        let second_payment = mark_pending_payment_parameters.remove(0);
+        assert!(
+            mark_pending_payment_parameters.is_empty(),
+            "{:?}",
+            mark_pending_payment_parameters
+        );
+        assert_eq!(second_payment.0, wallet_account_2);
+        assert_eq!(second_payment.1, pending_tx_hash_2);
+        let expected_params_for_payment_1 = Payment {
+            to: wallet_account_1,
+            amount: 5500,
+            timestamp: SystemTime::now(), //we cannot say what exactly it should be, ignoring
+            previous_timestamp: earlier_in_seconds(1000),
+            transaction: pending_tx_hash_1,
+        };
+        let mut transaction_canceled_params = transaction_canceled_params_arc.lock().unwrap();
+        let cancellation_param_for_tx_1 = transaction_canceled_params.remove(0);
+        assert!(transaction_canceled_params.is_empty());
+        assert_eq!(
+            cancellation_param_for_tx_1.amount,
+            expected_params_for_payment_1.amount
+        );
+        assert_eq!(
+            cancellation_param_for_tx_1.to,
+            expected_params_for_payment_1.to
+        );
+        assert_eq!(
+            cancellation_param_for_tx_1.transaction,
+            expected_params_for_payment_1.transaction
+        );
+        let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
+        assert_eq!(*transaction_confirmed_params, vec![pending_tx_hash_2]);
+        let get_transaction_receipt_params = get_transaction_receipt_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_transaction_receipt_params,
+            vec![
+                pending_tx_hash_1,
+                pending_tx_hash_2,
+                pending_tx_hash_1,
+                pending_tx_hash_2,
+                pending_tx_hash_1,
+                pending_tx_hash_2,
+                pending_tx_hash_2
+            ]
+        );
+        let notify_later_check_for_confirmation = notify_later_check_for_confirmation_params_arc
+            .lock()
+            .unwrap();
+        let expected_params_for_payment_2 = Payment {
+            to: wallet_account_2,
+            amount: 123456,
+            timestamp: from_time_t(16546300),
+            previous_timestamp: earlier_in_seconds(1000),
+            transaction: pending_tx_hash_2,
+        };
+        let first_expected_request_tx_receipts_msg_and_interval = (
+            RequestTransactionReceipts {
+                pending_payments: vec![
+                    expected_params_for_payment_1,
+                    expected_params_for_payment_2.clone(),
+                ],
+                attempt: unimplemented!(),
+            },
+            Duration::from_millis(pending_tx_checkout_interval_ms),
+        );
+        let second_expected_request_tx_receipts_msg_and_interval =
+            first_expected_request_tx_receipts_msg_and_interval.clone();
+        let third_expected_request_tx_receipts_msg_and_interval =
+            first_expected_request_tx_receipts_msg_and_interval.clone();
+        let fourth_expected_request_tx_msg_and_interval = (
+            RequestTransactionReceipts {
+                pending_payments: vec![expected_params_for_payment_2],
+                attempt: unimplemented!(),
+            },
+            Duration::from_millis(pending_tx_checkout_interval_ms),
+        );
+        assert_eq!(
+            *notify_later_check_for_confirmation,
+            vec![
+                first_expected_request_tx_receipts_msg_and_interval,
+                second_expected_request_tx_receipts_msg_and_interval,
+                third_expected_request_tx_receipts_msg_and_interval,
+                fourth_expected_request_tx_msg_and_interval
+            ]
+        )
+    }
+
+    #[test]
+    //TODO finish this test later by adding code and assertions for coping with errors
+    fn check_message_is_not_emitted_if_we_got_no_ok_payments_from_processed_transactions() {
+        let notify_later_check_for_confirmation_params_arc = Arc::new(Mutex::new(vec![]));
+        let notify_later_check_for_confirmation_params_arc_cloned =
+            notify_later_check_for_confirmation_params_arc.clone(); //because it moves into a closure
+        let mark_pending_payment_params_arc = Arc::new(Mutex::new(vec![]));
+        let tx_hash = H256::from_uint(&U256::from(78888));
+        let payable_dao = PayableDaoMock::new()
+            .mark_pending_payment_params(&mark_pending_payment_params_arc)
+            .mark_pending_payment_result(Err(PaymentError::PostTransaction(
+                PaymentErrorKind::RusqliteError("database on fire".to_string()),
+                tx_hash,
+            )));
+        let pending_tx_checkout_interval_ms = 2;
+        let bootstrapper_config = bc_from_ac_plus_earning_wallet(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(1_000_000), //we don't care about the scan
+                payment_received_scan_interval: Duration::from_secs(1_000_000), //we don't care about the scan
+                pending_transaction_check_interval_ms: pending_tx_checkout_interval_ms,
+            },
+            make_wallet("some_wallet_address"),
+        );
+        let system = System::new("no pending tx");
+        let accountant_addr = Arbiter::builder()
+            .stop_system_on_panic(true)
+            .start(move |_| {
+                let mut subject = make_accountant(
+                    Some(bootstrapper_config),
+                    Some(payable_dao),
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+                let notify_later_half_mock = NotifyLaterMock::default()
+                    .notify_later_params(&notify_later_check_for_confirmation_params_arc_cloned);
+                subject
+                    .transaction_confirmation_tools
+                    .notify_handle_request_transaction_receipts = Box::new(notify_later_half_mock);
+                subject
+            });
+        let mut peer_actors = peer_actors_builder().build();
+        let accountant_subs = Accountant::make_subs_from(&accountant_addr);
+        peer_actors.accountant = accountant_subs.clone();
+        let dummy_actor = DummyActor::new(None);
+        let dummy_actor_addr = Arbiter::builder()
+            .stop_system_on_panic(true)
+            .start(move |_| dummy_actor);
+        let wallet = make_wallet("creditor1");
+        let mut payment = make_payment();
+        payment.to = wallet.clone();
+        payment.transaction = tx_hash;
+        send_bind_message!(accountant_subs, peer_actors);
+
+        let _ = accountant_subs
+            .report_sent_payments
+            .try_send(SentPayments {
+                payments: vec![Ok(payment.clone())],
+            })
+            .unwrap();
+
+        dummy_actor_addr
+            .try_send(CleanUpMessage { sleep_ms: 1 })
+            .unwrap();
+        system.run();
+        let mark_pending_params = mark_pending_payment_params_arc.lock().unwrap();
+        assert_eq!(*mark_pending_params, vec![(wallet, tx_hash)]);
+        let notify_later_check_for_confirmation_params =
+            notify_later_check_for_confirmation_params_arc
+                .lock()
+                .unwrap();
+        assert_eq!(*notify_later_check_for_confirmation_params, vec![])
+    }
+
+    //TODO already fixed
+    #[test]
+    fn the_first_message_introducing_the_pending_confirmation_process_marks_with_an_attempt_1() {
+        let mark_pending_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let mark_pending_transaction_params_arc_cloned =
+            mark_pending_transaction_params_arc.clone(); //because it moves into a closure
+        let notify_later_params_arc = Arc::new(Mutex::new(vec![]));
+        let notify_later_params_arc_cloned = notify_later_params_arc.clone(); //because it moves into a closure
+        let system = System::new("attempt of the first check message");
+        let short_interval_to_speed_up_the_test_ms = 2;
+        let blockchain_bridge_arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let accountant_addr = blockchain_bridge_arbiter.start(move |_| {
+            let payable_dao = PayableDaoMock::default()
+                .mark_pending_payment_params(&mark_pending_transaction_params_arc_cloned)
+                .mark_pending_payment_result(Ok(()));
+            let mut subject = AccountantBuilder::default()
+                .payable_dao_factory(Box::new(PayableDaoFactoryMock::new(Box::new(payable_dao))))
+                .build();
+            let notify_later_check_message_handle =
+                NotifyLaterMock::default().notify_later_params(&notify_later_params_arc_cloned);
+            subject
+                .transaction_confirmation_tools
+                .notify_handle_request_transaction_receipts =
+                Box::new(notify_later_check_message_handle);
+            subject
+                .transaction_confirmation_tools
+                .pending_transaction_check_interval_ms = short_interval_to_speed_up_the_test_ms;
+            subject
+        });
+        let accountant_subs = Accountant::make_subs_from(&accountant_addr);
+        let peer_actors = peer_actors_builder().build();
+        let wallet = make_wallet("creditor1");
+        let tx_hash = H256::from_uint(&U256::from(4568));
+        let mut payment = make_payment();
+        payment.to = wallet.clone();
+        payment.transaction = tx_hash;
+        send_bind_message!(accountant_subs, peer_actors);
+
+        let _ = accountant_subs
+            .report_sent_payments
+            .try_send(SentPayments {
+                payments: vec![Ok(payment.clone())],
+            })
+            .unwrap();
+
+        let dummy_actor = DummyActor::new(None);
+        let dummy_actor_addr = Arbiter::builder()
+            .stop_system_on_panic(true)
+            .start(move |_| dummy_actor);
+        dummy_actor_addr
+            .try_send(CleanUpMessage { sleep_ms: 1 })
+            .unwrap();
+        assert_eq!(system.run(), 0);
+        let mark_pending_transaction_params = mark_pending_transaction_params_arc.lock().unwrap();
+        assert_eq!(*mark_pending_transaction_params, vec![(wallet, tx_hash)]);
+        let notify_later_params = notify_later_params_arc.lock().unwrap();
+        assert_eq!(
+            *notify_later_params,
+            [(
+                RequestTransactionReceipts {
+                    pending_payments: vec![payment],
+                    attempt: 1
+                },
+                Duration::from_millis(short_interval_to_speed_up_the_test_ms)
+            )]
+        )
+    }
+
+    #[test]
+    fn handle_pending_tx_checkout_handles_none_returned_for_tx_receipt() {
+        unimplemented!()
+        // let blockchain_interface =
+        //     BlockchainInterfaceMock::default().get_transaction_receipt_result(Ok(None));
+        // let subject = BlockchainBridge::new(
+        //     Box::new(blockchain_interface),
+        //     Box::new(PersistentConfigurationMock::default()),
+        //     false,
+        //     None,
+        // );
+        // let hash = H256::from_uint(&U256::from(789));
+        // let msg = CheckForConfirmation {
+        //     hashes: vec![hash],
+        //     attempt: 3,
+        // };
+        //
+        // let result = subject.handle_pending_txs_check(msg.clone());
+        //
+        // assert_eq!(
+        //     result,
+        //     vec![PendingTransactionStatus::StillPending { hash, attempt: 3 }]
+        // )
+    }
+
+    #[test]
+    fn receipt_check_for_pending_tx_when_tx_status_is_a_failure() {
+        unimplemented!()
+        // init_test_logging();
+        // let hash = H256::from_uint(&U256::from(789));
+        // let mut tx_receipt = TransactionReceipt::default();
+        // tx_receipt.transaction_hash = hash;
+        // tx_receipt.status = Some(U64::from(1)); //failure
+        // let when_sent = SystemTime::now()
+        //     .checked_sub(Duration::from_secs(150))
+        //     .unwrap();
+        // let attempt = 5;
+        // let subject = make_subject();
+        // let payment = Payment {
+        //     to: make_wallet("blah"),
+        //     amount: 123,
+        //     timestamp: when_sent,
+        //     transaction: hash,
+        // };
+        // assert!(subject
+        //     .payment_confirmation
+        //     .list_of_pending_txs
+        //     .borrow_mut()
+        //     .insert(hash, payment)
+        //     .is_none());
+        //
+        // let result = subject.receipt_check_for_pending_tx(
+        //     tx_receipt,
+        //     hash,
+        //     attempt,
+        //     &Logger::new("receipt_check_logger"),
+        // );
+        //
+        // assert_eq!(result, PendingTransactionStatus::Failure(hash));
+        // TestLogHandler::new().exists_log_containing("WARN: receipt_check_logger: Pending transaction '0x0000…0315' announced as a failure on the check of attempt 5 at 150s after its sending");
+    }
+
+    #[test]
+    fn receipt_check_for_pending_tx_when_tx_status_is_none() {
+        unimplemented!()
+        // init_test_logging();
+        // let hash = H256::from_uint(&U256::from(567));
+        // let mut tx_receipt = TransactionReceipt::default();
+        // tx_receipt.transaction_hash = hash;
+        // let when_sent = SystemTime::now()
+        //     .checked_sub(Duration::from_secs(5))
+        //     .unwrap();
+        // let attempt = 1;
+        // let subject = make_subject();
+        // let payment = Payment {
+        //     to: make_wallet("blah"),
+        //     amount: 123,
+        //     timestamp: when_sent,
+        //     transaction: hash,
+        // };
+        // assert!(subject
+        //     .payment_confirmation
+        //     .list_of_pending_txs
+        //     .borrow_mut()
+        //     .insert(hash, payment)
+        //     .is_none());
+        //
+        // let result = subject.receipt_check_for_pending_tx(
+        //     tx_receipt,
+        //     hash,
+        //     attempt,
+        //     &Logger::new("receipt_check_logger"),
+        // );
+        //
+        // assert_eq!(
+        //     result,
+        //     PendingTransactionStatus::StillPending { hash, attempt }
+        // );
+        // TestLogHandler::new().exists_log_containing("INFO: receipt_check_logger: Pending transaction '0x0000…0237' couldn't be confirmed at attempt 1 at 5s after its sending");
+    }
+
+    #[test]
+    fn receipt_check_for_pending_tx_when_tx_confirmed() {
+        unimplemented!()
+        // init_test_logging();
+        // let hash = H256::from_uint(&U256::from(789));
+        // let mut tx_receipt = TransactionReceipt::default();
+        // tx_receipt.transaction_hash = hash;
+        // tx_receipt.status = Some(U64::from(0)); //success
+        // let when_sent = SystemTime::now()
+        //     .checked_sub(Duration::from_secs(150))
+        //     .unwrap();
+        // let attempt = 5;
+        // let subject = make_subject();
+        // let payment = Payment {
+        //     to: make_wallet("blah"),
+        //     amount: 123,
+        //     timestamp: when_sent,
+        //     transaction: hash,
+        // };
+        // assert!(subject
+        //     .payment_confirmation
+        //     .list_of_pending_txs
+        //     .borrow_mut()
+        //     .insert(hash, payment)
+        //     .is_none());
+        //
+        // let result = subject.receipt_check_for_pending_tx(
+        //     tx_receipt,
+        //     hash,
+        //     attempt,
+        //     &Logger::new("receipt_check_logger"),
+        // );
+        //
+        // assert_eq!(result, PendingTransactionStatus::Confirmed(hash));
+        // TestLogHandler::new().exists_log_containing("INFO: receipt_check_logger: Transaction '0x0000…0315' has been confirmed at attempt 5 at 150s after its sending");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "tx receipt for pending '0x0000…007b' - tx status: code other than 0 or 1 shouldn't be possible"
+    )]
+    fn receipt_check_for_pending_tx_panics_at_undefined_status_code() {
+        unimplemented!()
+        // let hash = H256::from_uint(&U256::from(123));
+        // let mut tx_receipt = TransactionReceipt::default();
+        // tx_receipt.status = Some(U64::from(456));
+        // tx_receipt.transaction_hash = hash;
+        // let subject = make_subject();
+        //
+        // let _ = subject.receipt_check_for_pending_tx(
+        //     tx_receipt,
+        //     hash,
+        //     1,
+        //     &Logger::new("receipt_check_logger"),
+        // );
+    }
+
+    #[test]
+    fn handle_pending_tx_checkout_handles_error_from_tx_receipt() {
+        unimplemented!()
+        // init_test_logging();
+        // let blockchain_interface = BlockchainInterfaceMock::default()
+        //     .get_transaction_receipt_result(Err(BlockchainError::RpcRequestFailure(
+        //         "we couldn't fetch the data".to_string(),
+        //     )));
+        // let subject = BlockchainBridge::new(
+        //     Box::new(blockchain_interface),
+        //     Box::new(PersistentConfigurationMock::default()),
+        //     false,
+        //     None,
+        // );
+        // let hash = H256::from_uint(&U256::from(789));
+        // let msg = CheckPendingTransactionForConfirmation {
+        //     hashes: vec![hash],
+        //     attempt: 3,
+        // };
+        //
+        // let result = subject.handle_pending_txs_check(msg);
+        //
+        // assert_eq!(
+        //     result,
+        //     vec![PendingTransactionStatus::ConfirmationProcessCrashed(hash)]
+        // );
+        // TestLogHandler::new().exists_log_containing("ERROR: BlockchainBridge: Failed to \
+        //  fetch transaction receipt for this pending tx: 0000000000000000000000000000000000000000000000000000000000000315 \
+        //  due to 'RpcRequestFailure(\"we couldn't fetch the data\")'; transaction may need to be resolved appropriately with the user's assistance");
+    }
+
+    #[test]
+    fn merging_pending_tx_works_including_incrementing_the_attempt_number() {
+        let confirmed_status =
+            PendingTransactionStatus::Confirmed(H256::from_uint(&U256::from(123)));
+        let failure_status = PendingTransactionStatus::Failure(H256::from_uint(&U256::from(456)));
+        let attempt = 4;
+        let first_payment = Payment {
+            to: make_wallet("hohoho"),
+            amount: 456,
+            timestamp: from_time_t(150_000_000),
+            previous_timestamp: from_time_t(140_000_000),
+            transaction: H256::from_uint(&U256::from(123)),
+        };
+        let first_pending_tx_status = PendingTransactionStatus::StillPending {
+            payment: first_payment.clone(),
+            attempt,
+        };
+        let second_payment = make_payment();
+        let second_pending_tx_status = PendingTransactionStatus::StillPending {
+            payment: second_payment.clone(),
+            attempt,
+        };
+        let statuses = vec![
+            first_pending_tx_status,
+            confirmed_status.clone(),
+            second_pending_tx_status,
+            failure_status.clone(),
+        ];
+
+        let result = PendingTransactionStatus::merge_still_pending_and_separate_from_others(
+            statuses, attempt,
+        );
+
+        let (to_cancel, to_repeat) = result;
+        assert_eq!(to_cancel, vec![confirmed_status, failure_status]);
+        assert_eq!(
+            to_repeat,
+            RequestTransactionReceipts {
+                pending_payments: vec![first_payment, second_payment],
+                attempt: 5
+            }
+        )
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "incompatible attempts of tx confirmations, something is broken; should be 2 but was 5"
+    )]
+    fn merging_pending_tx_info_panics_at_pending_records_with_incompatible_attempt_numbers() {
+        let first_tx_hash = H256::from_uint(&U256::from(123));
+        let believed_attempt = 2;
+        let attempt_1 = 2;
+        let mut payment_1 = make_payment();
+        payment_1.transaction = first_tx_hash;
+        let first_pending_tx_status = PendingTransactionStatus::StillPending {
+            payment: payment_1,
+            attempt: attempt_1,
+        };
+        let second_tx_hash = H256::from_uint(&U256::from(578));
+        let mut payment_2 = make_payment();
+        payment_2.transaction = second_tx_hash;
+        let attempt_2 = 5;
+        let second_pending_tx_status = PendingTransactionStatus::StillPending {
+            payment: payment_2,
+            attempt: attempt_2,
+        };
+        let statuses = vec![first_pending_tx_status, second_pending_tx_status];
+
+        let _ = PendingTransactionStatus::merge_still_pending_and_separate_from_others(
+            statuses,
+            believed_attempt,
+        );
+    }
+
+    #[test]
+    fn is_non_pending_is_properly_set() {
+        assert_eq!(
+            PendingTransactionStatus::Failure(H256::from_uint(&U256::from(123))).is_non_pending(),
+            true
+        );
+        assert_eq!(
+            PendingTransactionStatus::Confirmed(H256::from_uint(&U256::from(123))).is_non_pending(),
+            true
+        );
+        assert_eq!(
+            PendingTransactionStatus::StillPending {
+                payment: make_payment(),
+                attempt: 4
+            }
+            .is_non_pending(),
+            false
+        );
+    }
+
+    #[test]
+    //TODO this may not be needed
+    fn tx_hash_returns_hash() {
+        unimplemented!()
+        // let hash1 = H256::from_uint(&U256::from(123));
+        // assert_eq!(PendingTransactionStatus::Failure(hash1).tx_hash(), hash1);
+        // let hash2 = H256::from_uint(&U256::from(456));
+        // assert_eq!(PendingTransactionStatus::Confirmed(hash2).tx_hash(), hash2);
+        // let hash3 = H256::from_uint(&U256::from(789));
+        // assert_eq!(
+        //     PendingTransactionStatus::StillPending {
+        //         payment: hash3,
+        //         attempt: 1
+        //     }
+        //         .tx_hash(),
+        //     hash3
+        // );
+        // let hash4 = H256::from_uint(&U256::from(653));
+        // assert_eq!(
+        //     PendingTransactionStatus::ConfirmationProcessCrashed(hash4).tx_hash(),
+        //     hash4
+        // );
+    }
+
+    #[test]
+    fn remove_tx_from_list_of_pending_tx_works() {
+        unimplemented!()
+        // let transaction1_hash = H256::from_uint(&U256::from(123));
+        // let transaction2_hash = H256::from_uint(&U256::from(345));
+        // let subject = BlockchainBridge::new(
+        //     Box::new(BlockchainInterfaceMock::default()),
+        //     Box::new(PersistentConfigurationMock::default()),
+        //     false,
+        //     None,
+        //     DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
+        // );
+        // let payment_1 = Payment {
+        //     to: make_wallet("blah"),
+        //     amount: 897,
+        //     timestamp: SystemTime::now(),
+        //     previous_timestamp: earlier_in_seconds(5000),
+        //     transaction: transaction1_hash,
+        // };
+        // let payment_2 = Payment {
+        //     to: make_wallet("bababoo"),
+        //     amount: 345,
+        //     timestamp: SystemTime::now(),
+        //     previous_timestamp: earlier_in_seconds(5000),
+        //     transaction: transaction2_hash,
+        // };
+        // let _ = subject.add_new_pending_transactions_on_list(vec![payment_1, payment_2]);
+        // assert_eq!(
+        //     subject.tx_confirmation.list_of_pending_txs.borrow().len(),
+        //     2
+        // );
+        //
+        // subject.remove_tx_from_list_of_pending_tx(transaction1_hash);
+        //
+        // assert_eq!(
+        //     subject
+        //         .tx_confirmation
+        //         .list_of_pending_txs
+        //         .borrow()
+        //         .contains_key(&transaction1_hash),
+        //     false
+        // );
+        // assert_eq!(
+        //     subject.tx_confirmation.list_of_pending_txs.borrow().len(),
+        //     1
+        // );
+    }
+
+    #[test]
     fn jackass_unsigned_to_signed_handles_zero() {
         let result = jackass_unsigned_to_signed(0u64);
 
@@ -3143,16 +4357,26 @@ pub mod tests {
 
     #[test]
     fn jackass_unsigned_to_signed_handles_max_allowable() {
-        let result = jackass_unsigned_to_signed(std::i64::MAX as u64);
+        let result = jackass_unsigned_to_signed(i64::MAX as u64);
 
-        assert_eq!(result, Ok(std::i64::MAX));
+        assert_eq!(result, Ok(i64::MAX));
     }
 
     #[test]
     fn jackass_unsigned_to_signed_handles_max_plus_one() {
-        let attempt = (std::i64::MAX as u64) + 1;
-        let result = jackass_unsigned_to_signed((std::i64::MAX as u64) + 1);
+        let attempt = (i64::MAX as u64) + 1;
+        let result = jackass_unsigned_to_signed((i64::MAX as u64) + 1);
 
-        assert_eq!(result, Err(PaymentError::SignConversion(attempt)));
+        assert_eq!(result, Err(attempt));
+    }
+
+    fn make_payment() -> Payment {
+        Payment {
+            to: make_wallet("booga"),
+            amount: 1000,
+            timestamp: SystemTime::now(),
+            previous_timestamp: earlier_in_seconds(1000),
+            transaction: H256::from_uint(&U256::from(456)),
+        }
     }
 }

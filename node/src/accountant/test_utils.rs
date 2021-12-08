@@ -3,10 +3,18 @@
 #![cfg(test)]
 
 use crate::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoFactory};
+use crate::accountant::pending_payments_dao::{
+    PendingPaymentDaoError, PendingPaymentRecord, PendingPaymentsDao, PendingPaymentsDaoFactory,
+};
 use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoFactory};
 use crate::accountant::tests::{PayableDaoMock, ReceivableDaoMock};
 use crate::accountant::Accountant;
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
+use crate::blockchain::blockchain_interface::{
+    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, Transaction,
+    Transactions, TxReceipt,
+};
+use crate::blockchain::tool_wrappers::SendTransactionToolWrapper;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
@@ -15,10 +23,12 @@ use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+use ethereum_types::{H256, U256};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
+use web3::types::Address;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -48,6 +58,7 @@ pub fn make_accountant(
     config_opt: Option<BootstrapperConfig>,
     payable_dao_opt: Option<PayableDaoMock>,
     receivable_dao_opt: Option<ReceivableDaoMock>,
+    pending_payments_dao_opt: Option<PendingPaymentsDaoMock>,
     banned_dao_opt: Option<BannedDaoMock>,
     persistent_config_opt: Option<PersistentConfigurationMock>,
 ) -> Accountant {
@@ -55,12 +66,16 @@ pub fn make_accountant(
         PayableDaoFactoryMock::new(Box::new(payable_dao_opt.unwrap_or(PayableDaoMock::new())));
     let receivable_dao_factory =
         ReceivableDaoFactoryMock::new(receivable_dao_opt.unwrap_or(ReceivableDaoMock::new()));
+    let pending_payments_dao_factory = PendingPaymentsDaoFactoryMock::new(
+        pending_payments_dao_opt.unwrap_or(PendingPaymentsDaoMock::default()),
+    );
     let banned_dao_factory =
         BannedDaoFactoryMock::new(banned_dao_opt.unwrap_or(BannedDaoMock::new()));
     let mut subject = Accountant::new(
         &config_opt.unwrap_or(BootstrapperConfig::new()),
         Box::new(payable_dao_factory),
         Box::new(receivable_dao_factory),
+        Box::new(pending_payments_dao_factory),
         Box::new(banned_dao_factory),
         Box::new(ConfigDaoFactoryMock::new(ConfigDaoMock::new())),
     );
@@ -76,6 +91,7 @@ pub struct AccountantBuilder {
     config: BootstrapperConfig,
     payable_dao_factory: Box<dyn PayableDaoFactory>,
     receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
+    pending_payments_dao_factory: Box<dyn PendingPaymentsDaoFactory>,
     banned_dao_factory: Box<dyn BannedDaoFactory>,
     config_dao_factory: Box<dyn ConfigDaoFactory>,
 }
@@ -89,6 +105,9 @@ impl Default for AccountantBuilder {
             ))),
             receivable_dao_factory: Box::new(ReceivableDaoFactoryMock::new(
                 ReceivableDaoMock::new(),
+            )),
+            pending_payments_dao_factory: Box::new(PendingPaymentsDaoFactoryMock::new(
+                PendingPaymentsDaoMock::default(),
             )),
             banned_dao_factory: Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new())),
             config_dao_factory: Box::new(ConfigDaoFactoryMock::new(ConfigDaoMock::new())),
@@ -109,6 +128,14 @@ impl AccountantBuilder {
         self.receivable_dao_factory = receivable_dao;
         self
     }
+
+    pub fn pending_payments_dao_factory(
+        mut self,
+        _pending_payments_dao: Box<dyn PendingPaymentsDaoFactory>,
+    ) -> Self {
+        unimplemented!()
+    }
+
     pub fn banned_dao_factory(mut self, banned_dao: Box<dyn BannedDaoFactory>) -> Self {
         self.banned_dao_factory = banned_dao;
         self
@@ -125,6 +152,7 @@ impl AccountantBuilder {
             &self.config,
             self.payable_dao_factory,
             self.receivable_dao_factory,
+            self.pending_payments_dao_factory,
             self.banned_dao_factory,
             self.config_dao_factory,
         )
@@ -304,6 +332,214 @@ pub fn bc_from_ac_plus_wallets(
     bc.consuming_wallet = Some(consuming_wallet);
     bc.earning_wallet = earning_wallet;
     bc
+}
+
+#[derive(Default)]
+pub struct PendingPaymentsDaoMock {
+    insert_record_params: Arc<Mutex<Vec<PendingPaymentRecord>>>,
+    insert_record_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
+}
+
+impl PendingPaymentsDao for PendingPaymentsDaoMock {
+    fn read_record(&self, id: u16) -> Result<PendingPaymentRecord, PendingPaymentDaoError> {
+        todo!()
+    }
+
+    fn insert_record(
+        &self,
+        pending_payment: PendingPaymentRecord,
+    ) -> Result<(), PendingPaymentDaoError> {
+        self.insert_record_params
+            .lock()
+            .unwrap()
+            .push(pending_payment);
+        self.insert_record_results.borrow_mut().remove(0)
+    }
+
+    fn delete_record(
+        &self,
+        id: u16,
+    ) -> Result<(), crate::accountant::pending_payments_dao::PendingPaymentDaoError> {
+        todo!()
+    }
+}
+
+impl PendingPaymentsDaoMock {
+    pub fn insert_record_params(mut self, params: &Arc<Mutex<Vec<PendingPaymentRecord>>>) -> Self {
+        self.insert_record_params = params.clone();
+        self
+    }
+
+    pub fn insert_record_result(self, result: Result<(), PendingPaymentDaoError>) -> Self {
+        self.insert_record_results.borrow_mut().push(result);
+        self
+    }
+}
+
+pub struct PendingPaymentsDaoFactoryMock {
+    called: Rc<RefCell<bool>>,
+    mock: RefCell<Option<PendingPaymentsDaoMock>>,
+}
+
+impl PendingPaymentsDaoFactory for PendingPaymentsDaoFactoryMock {
+    fn make(&self) -> Box<dyn PendingPaymentsDao> {
+        *self.called.borrow_mut() = true;
+        Box::new(self.mock.borrow_mut().take().unwrap())
+    }
+}
+
+impl PendingPaymentsDaoFactoryMock {
+    pub fn new(mock: PendingPaymentsDaoMock) -> Self {
+        Self {
+            called: Rc::new(RefCell::new(false)),
+            mock: RefCell::new(Some(mock)),
+        }
+    }
+
+    pub fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
+        self.called = called.clone();
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct BlockchainInterfaceMock {
+    retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
+    retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
+    send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
+    send_transaction_results: RefCell<Vec<BlockchainResult<H256>>>,
+    get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
+    get_transaction_receipt_results: RefCell<Vec<TxReceipt>>,
+    send_transaction_tools_results: RefCell<Vec<Box<dyn SendTransactionToolWrapper>>>,
+    contract_address_results: RefCell<Vec<Address>>,
+    get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
+    get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
+}
+
+impl BlockchainInterfaceMock {
+    pub fn retrieve_transactions_params(mut self, params: &Arc<Mutex<Vec<(u64, Wallet)>>>) -> Self {
+        self.retrieve_transactions_parameters = params.clone();
+        self
+    }
+
+    pub fn retrieve_transactions_result(
+        self,
+        result: Result<Vec<Transaction>, BlockchainError>,
+    ) -> Self {
+        self.retrieve_transactions_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn send_transaction_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
+    ) -> Self {
+        self.send_transaction_parameters = params.clone();
+        self
+    }
+
+    pub fn send_transaction_result(self, result: BlockchainResult<H256>) -> Self {
+        self.send_transaction_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn contract_address_result(self, address: Address) -> Self {
+        self.contract_address_results.borrow_mut().push(address);
+        self
+    }
+
+    pub fn get_transaction_count_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
+        self.get_transaction_count_parameters = params.clone();
+        self
+    }
+
+    pub fn get_transaction_count_result(self, result: BlockchainResult<U256>) -> Self {
+        self.get_transaction_count_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn get_transaction_receipt_params(mut self, params: &Arc<Mutex<Vec<H256>>>) -> Self {
+        self.get_transaction_receipt_params = params.clone();
+        self
+    }
+
+    pub fn get_transaction_receipt_result(self, result: TxReceipt) -> Self {
+        self.get_transaction_receipt_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn send_transaction_tools_result(
+        self,
+        result: Box<dyn SendTransactionToolWrapper>,
+    ) -> Self {
+        self.send_transaction_tools_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+}
+
+impl BlockchainInterface for BlockchainInterfaceMock {
+    fn contract_address(&self) -> Address {
+        self.contract_address_results.borrow_mut().remove(0)
+    }
+
+    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
+        self.retrieve_transactions_parameters
+            .lock()
+            .unwrap()
+            .push((start_block, recipient.clone()));
+        self.retrieve_transactions_results.borrow_mut().remove(0)
+    }
+
+    fn send_transaction<'a>(
+        &self,
+        consuming_wallet: &Wallet,
+        recipient: &Wallet,
+        amount: u64,
+        nonce: U256,
+        gas_price: u64,
+        _send_transaction_tools: &'a dyn SendTransactionToolWrapper,
+    ) -> BlockchainResult<H256> {
+        self.send_transaction_parameters.lock().unwrap().push((
+            consuming_wallet.clone(),
+            recipient.clone(),
+            amount,
+            nonce,
+            gas_price,
+        ));
+        self.send_transaction_results.borrow_mut().remove(0)
+    }
+
+    fn get_eth_balance(&self, _address: &Wallet) -> Balance {
+        unimplemented!()
+    }
+
+    fn get_token_balance(&self, _address: &Wallet) -> Balance {
+        unimplemented!()
+    }
+
+    fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
+        self.get_transaction_count_parameters
+            .lock()
+            .unwrap()
+            .push(wallet.clone());
+        self.get_transaction_count_results.borrow_mut().remove(0)
+    }
+
+    fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
+        self.get_transaction_receipt_params
+            .lock()
+            .unwrap()
+            .push(hash);
+        self.get_transaction_receipt_results.borrow_mut().remove(0)
+    }
+
+    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolWrapper + 'a> {
+        self.send_transaction_tools_results.borrow_mut().remove(0)
+    }
 }
 
 pub fn earlier_in_seconds(seconds: u64) -> SystemTime {

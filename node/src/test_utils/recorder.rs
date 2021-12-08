@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::payable_dao::Payment;
-use crate::accountant::{ReceivedPayments, SentPayments};
-use crate::blockchain::blockchain_bridge::CancelFailedPendingTransaction;
-use crate::blockchain::blockchain_bridge::{ConfirmPendingTransaction, RetrieveTransactions};
+use crate::accountant::{ReceivedPayments, RequestTransactionReceipts, SentPayments};
+use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+use crate::blockchain::blockchain_bridge::{PaymentBackup, ReportTransactionReceipts};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainResult, Transaction};
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
@@ -129,8 +129,9 @@ recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
-recorder_message_handler!(CancelFailedPendingTransaction);
-recorder_message_handler!(ConfirmPendingTransaction);
+recorder_message_handler!(PaymentBackup);
+recorder_message_handler!(RequestTransactionReceipts);
+recorder_message_handler!(ReportTransactionReceipts);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -402,8 +403,8 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
         report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
         report_new_payments: recipient!(addr, ReceivedPayments),
-        cancel_pending_tx: recipient!(addr, CancelFailedPendingTransaction),
-        confirm_pending_tx: recipient!(addr, ConfirmPendingTransaction),
+        transaction_backup: recipient!(addr, PaymentBackup),
+        report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
         report_sent_payments: recipient!(addr, SentPayments),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),
     }
@@ -423,6 +424,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
         report_accounts_payable: recipient!(addr, ReportAccountsPayable),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
+        request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
     }
 }
 

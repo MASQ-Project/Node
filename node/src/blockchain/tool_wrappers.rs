@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_bridge::CheckPendingTransactionForConfirmation;
-use actix::SpawnHandle;
+use actix::{Message, SpawnHandle};
 use ethereum_types::H256;
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::time::Duration;
 use web3::futures::Future;
 use web3::types::{Bytes, SignedTransaction, TransactionParameters};
@@ -64,27 +64,33 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperNull {
     }
 }
 
-pub trait NotifyLaterCheckMsgHandle {
+pub trait NotifyLaterHandle<T> {
     fn notify_later<'a>(
         &'a self,
-        msg: CheckPendingTransactionForConfirmation,
+        msg: T,
         interval: Duration,
-        closure: Box<
-            dyn FnMut(CheckPendingTransactionForConfirmation, Duration) -> SpawnHandle + 'a,
-        >,
+        closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
     ) -> SpawnHandle;
 }
 
-pub struct NotifyLaterCheckMsgHandleReal;
+pub struct NotifyLaterReal<T> {
+    phantom: PhantomData<T>,
+}
 
-impl NotifyLaterCheckMsgHandle for NotifyLaterCheckMsgHandleReal {
+impl<T: Message + 'static> Default for Box<dyn NotifyLaterHandle<T>> {
+    fn default() -> Self {
+        Box::new(NotifyLaterReal {
+            phantom: PhantomData::default(),
+        })
+    }
+}
+
+impl<T: Message> NotifyLaterHandle<T> for NotifyLaterReal<T> {
     fn notify_later<'a>(
         &'a self,
-        msg: CheckPendingTransactionForConfirmation,
+        msg: T,
         interval: Duration,
-        mut closure: Box<
-            dyn FnMut(CheckPendingTransactionForConfirmation, Duration) -> SpawnHandle + 'a,
-        >,
+        mut closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
     ) -> SpawnHandle {
         closure(msg, interval)
     }

@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{jackass_unsigned_to_signed, PaymentCurves, PaymentError};
+use crate::accountant::{jackass_unsigned_to_signed, DebtRecordingError, PaymentCurves};
 use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -40,7 +40,8 @@ pub struct ReceivableAccount {
 }
 
 pub trait ReceivableDao: Send {
-    fn more_money_receivable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError>;
+    fn more_money_receivable(&self, wallet: &Wallet, amount: u64)
+        -> Result<(), DebtRecordingError>;
 
     fn more_money_received(&mut self, transactions: Vec<Transaction>);
 
@@ -77,8 +78,13 @@ pub struct ReceivableDaoReal {
 }
 
 impl ReceivableDao for ReceivableDaoReal {
-    fn more_money_receivable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError> {
-        let signed_amount = jackass_unsigned_to_signed(amount)?;
+    fn more_money_receivable(
+        &self,
+        wallet: &Wallet,
+        amount: u64,
+    ) -> Result<(), DebtRecordingError> {
+        let signed_amount = jackass_unsigned_to_signed(amount)
+            .map_err(|err_num| DebtRecordingError::SignConversion(err_num))?;
         match self.try_update(wallet, signed_amount) {
             Ok(true) => Ok(()),
             Ok(false) => match self.try_insert(wallet, signed_amount) {
@@ -438,7 +444,7 @@ mod tests {
         assert_eq!(
             result,
             Err(ReceivableDaoError::Other(
-                "Amount too large: SignConversion(18446744073709551615)".to_string()
+                "Amount too large: 18446744073709551615".to_string()
             ))
         )
     }
@@ -585,9 +591,9 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_receivable(&make_wallet("booga"), std::u64::MAX);
+        let result = subject.more_money_receivable(&make_wallet("booga"), u64::MAX);
 
-        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
+        assert_eq!(result, Err(DebtRecordingError::SignConversion(u64::MAX)))
     }
 
     #[test]

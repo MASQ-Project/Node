@@ -2,10 +2,9 @@
 
 #![cfg(test)]
 
-use crate::blockchain::blockchain_bridge::CheckPendingTransactionForConfirmation;
 use crate::blockchain::blockchain_interface::REQUESTS_IN_PARALLEL;
-use crate::blockchain::tool_wrappers::{NotifyLaterCheckMsgHandle, SendTransactionToolWrapper};
-use actix::SpawnHandle;
+use crate::blockchain::tool_wrappers::{NotifyLaterHandle, SendTransactionToolWrapper};
+use actix::{Message, SpawnHandle};
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::H256;
 use jsonrpc_core as rpc;
@@ -168,34 +167,39 @@ pub fn make_default_signed_transaction() -> SignedTransaction {
     }
 }
 
-#[derive(Default)]
-pub struct NotifyLaterCheckMsgHandleHalfMock {
-    notify_later_params: Arc<Mutex<Vec<(CheckPendingTransactionForConfirmation, Duration)>>>, //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself
+pub struct NotifyLaterMock<T> {
+    notify_later_params: Arc<Mutex<Vec<(T, Duration)>>>, //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself
 }
 
-impl NotifyLaterCheckMsgHandleHalfMock {
-    pub fn notify_later_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(CheckPendingTransactionForConfirmation, Duration)>>>,
-    ) -> Self {
+impl<T: Message> Default for NotifyLaterMock<T> {
+    fn default() -> Self {
+        Self {
+            notify_later_params: Arc::new(Mutex::new(vec![])),
+        }
+    }
+}
+
+impl<T: Message> NotifyLaterMock<T> {
+    pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(T, Duration)>>>) -> Self {
         self.notify_later_params = params.clone();
         self
     }
 }
 
-impl NotifyLaterCheckMsgHandle for NotifyLaterCheckMsgHandleHalfMock {
+impl<T: Message + Clone> NotifyLaterHandle<T> for NotifyLaterMock<T> {
     fn notify_later<'a>(
         &'a self,
-        msg: CheckPendingTransactionForConfirmation,
+        msg: T,
         interval: Duration,
-        mut closure: Box<
-            dyn FnMut(CheckPendingTransactionForConfirmation, Duration) -> SpawnHandle + 'a,
-        >,
+        mut closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
     ) -> SpawnHandle {
         self.notify_later_params
             .lock()
             .unwrap()
             .push((msg.clone(), interval.clone()));
+        if !cfg!(test) {
+            panic!("this shouldn't run outside a test")
+        }
         closure(msg, interval)
     }
 }

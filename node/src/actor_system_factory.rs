@@ -312,6 +312,7 @@ impl ActorFactory for ActorFactoryReal {
         let cloned_config = config.clone();
         let payable_dao_factory = Accountant::dao_factory(data_directory);
         let receivable_dao_factory = Accountant::dao_factory(data_directory);
+        let payment_recover_dao_factory = Accountant::dao_factory(data_directory);
         let banned_dao_factory = Accountant::dao_factory(data_directory);
         banned_cache_loader.load(connection_or_panic(
             db_initializer,
@@ -326,6 +327,7 @@ impl ActorFactory for ActorFactoryReal {
                 &cloned_config,
                 Box::new(payable_dao_factory),
                 Box::new(receivable_dao_factory),
+                Box::new(payment_recover_dao_factory),
                 Box::new(banned_dao_factory),
                 Box::new(config_dao_factory),
             )
@@ -372,8 +374,6 @@ impl ActorFactory for ActorFactoryReal {
         let wallet_opt = config.consuming_wallet.clone();
         let data_directory = config.data_directory.clone();
         let chain_id = config.blockchain_bridge_config.chain;
-        let pending_tx_checkout_interval =
-            config.blockchain_bridge_config.pending_tx_checkout_interval;
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
             let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
@@ -387,7 +387,6 @@ impl ActorFactory for ActorFactoryReal {
                 persistent_config,
                 crashable,
                 wallet_opt,
-                pending_tx_checkout_interval,
             )
         });
         BlockchainBridge::make_subs_from(&addr)
@@ -415,6 +414,7 @@ impl ActorFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::node_test_utils::{
@@ -834,6 +834,7 @@ mod tests {
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -841,7 +842,6 @@ mod tests {
                 blockchain_service_url_opt: None,
                 chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
-                pending_tx_checkout_interval: 100,
             },
             port_configurations: HashMap::new(),
             db_password_opt: None,
@@ -905,6 +905,7 @@ mod tests {
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -912,7 +913,6 @@ mod tests {
                 blockchain_service_url_opt: None,
                 chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
-                pending_tx_checkout_interval: 100,
             },
             port_configurations: HashMap::new(),
             db_password_opt: None,
@@ -998,8 +998,7 @@ mod tests {
             BlockchainBridgeConfig {
                 blockchain_service_url_opt: None,
                 chain: TEST_DEFAULT_CHAIN,
-                gas_price: 1,
-                pending_tx_checkout_interval: 100
+                gas_price: 1
             }
         );
         assert_eq!(
@@ -1019,6 +1018,7 @@ mod tests {
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1026,7 +1026,6 @@ mod tests {
                 blockchain_service_url_opt: None,
                 chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
-                pending_tx_checkout_interval: 100,
             },
             port_configurations: HashMap::new(),
             db_password_opt: None,
@@ -1077,6 +1076,7 @@ mod tests {
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
+                pending_transaction_check_interval_ms: DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1084,7 +1084,6 @@ mod tests {
                 blockchain_service_url_opt: None,
                 chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
-                pending_tx_checkout_interval: 100,
             },
             port_configurations: HashMap::new(),
             db_password_opt: None,
