@@ -469,16 +469,22 @@ impl ConfiguredByPrivilege for Bootstrapper {
             &alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
-        if let NeighborhoodMode::Standard(node_addr, _, _) = &self.config.neighborhood_config.mode {
-            let node_descriptor = Bootstrapper::make_local_descriptor(
-                cryptde_ref,
-                self.config.neighborhood_config.mode.node_addr_opt(),
-                self.config.blockchain_bridge_config.chain,
-            );
-            self.config.node_descriptor = node_descriptor;
-            if node_addr.ip_addr() != Ipv4Addr::new(0, 0, 0, 0) {
-                Bootstrapper::report_local_descriptor(cryptde_ref, &self.config.node_descriptor);
-            }
+        let node_descriptor = Bootstrapper::make_local_descriptor(
+            cryptde_ref,
+            self.config.neighborhood_config.mode.node_addr_opt(),
+            self.config.blockchain_bridge_config.chain,
+        );
+        self.config.node_descriptor = node_descriptor;
+        // Before you remove local-descriptor reporting for non-Standard neighborhood modes, make
+        // sure you modify the multinode tests so that they can tell A) when a Node has started up,
+        // and B) what its public key is.
+        match &self.config.neighborhood_config.mode {
+            NeighborhoodMode::Standard(node_addr, _, _)
+                if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) =>
+            {
+                ()
+            } // node_addr still coming
+            _ => Bootstrapper::report_local_descriptor(cryptde_ref, &self.config.node_descriptor), // here or not coming
         }
         let stream_handler_pool_subs = self.actor_system_factory.make_and_start_actors(
             self.config.clone(),
