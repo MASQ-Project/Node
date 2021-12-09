@@ -2,7 +2,7 @@
 use crate::accountant::payable_dao::Payment;
 use crate::accountant::{ReceivedPayments, RequestTransactionReceipts, SentPayments};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use crate::blockchain::blockchain_bridge::{PaymentBackup, ReportTransactionReceipts};
+use crate::blockchain::blockchain_bridge::{PendingPaymentBackup, ReportTransactionReceipts};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainResult, Transaction};
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
@@ -129,7 +129,7 @@ recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
-recorder_message_handler!(PaymentBackup);
+recorder_message_handler!(PendingPaymentBackup);
 recorder_message_handler!(RequestTransactionReceipts);
 recorder_message_handler!(ReportTransactionReceipts);
 
@@ -403,7 +403,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
         report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
         report_new_payments: recipient!(addr, ReceivedPayments),
-        transaction_backup: recipient!(addr, PaymentBackup),
+        transaction_backup: recipient!(addr, PendingPaymentBackup),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
         report_sent_payments: recipient!(addr, SentPayments),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),

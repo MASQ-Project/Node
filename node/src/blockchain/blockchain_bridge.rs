@@ -49,7 +49,7 @@ pub struct BlockchainBridge {
 }
 
 struct TransactionConfirmationTools {
-    transaction_backup_tx_subs_opt: Option<Recipient<PaymentBackup>>,
+    transaction_backup_tx_subs_opt: Option<Recipient<PendingPaymentBackup>>,
     report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
 }
 
@@ -128,6 +128,7 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
             .expect("Accountant is unbound")
             .try_send(ReportTransactionReceipts {
                 payments_with_tx_receipts: results,
+                receipt_failure_count: 0,
                 attempt: msg.attempt,
             })
             .expect("Accountant is dead")
@@ -140,8 +141,8 @@ pub struct ReportTransactionReceipts {
     pub attempt: u16,
 }
 
-#[derive(Debug, PartialEq, Message, Clone)]
-pub struct PaymentBackup {
+#[derive(Debug, PartialEq, Message, Clone, Copy)]
+pub struct PendingPaymentBackup {
     pub rowid: u16,
     pub payment_timestamp: SystemTime,
     pub amount: u64,

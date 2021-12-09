@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_bridge::PaymentBackup;
+use crate::blockchain::blockchain_bridge::PendingPaymentBackup;
 use crate::blockchain::tool_wrappers::{
     PaymentBackupRecipientWrapper, SendTransactionToolWrapper, SendTransactionToolWrapperReal,
 };
@@ -61,7 +61,6 @@ pub enum BlockchainError {
     UnusableWallet(String),
     QueryFailed(String),
     TransactionFailed(String),
-    RpcRequestFailure(String),
 }
 
 impl Display for BlockchainError {
@@ -873,7 +872,7 @@ mod tests {
         ));
         let (recorder, _, recording_arc) = make_recorder();
         let actor_addr = recorder.start();
-        let recipient_of_payment_backup = recipient!(actor_addr, PaymentBackup);
+        let recipient_of_payment_backup = recipient!(actor_addr, PendingPaymentBackup);
         let payment_backup_recipient_wrapper =
             PaymentBackupRecipientWrapperReal::new(&recipient_of_payment_backup);
         let subject = BlockchainInterfaceNonClandestine::new(
@@ -915,8 +914,8 @@ mod tests {
             comparable_now
         );
         let recording = recording_arc.lock().unwrap();
-        let sent_backup = recording.get_record::<PaymentBackup>(0);
-        let expected_payment_backup = PaymentBackup {
+        let sent_backup = recording.get_record::<PendingPaymentBackup>(0);
+        let expected_payment_backup = PendingPaymentBackup {
             rowid,
             payment_timestamp: sent_backup.payment_timestamp,
             amount,

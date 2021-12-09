@@ -287,15 +287,15 @@ impl DbInitializerReal {
         .expect("Can't create payable wallet_address index");
     }
 
-    fn create_pending_payments_table(&self,conn: &Connection){
+    fn create_pending_payments_table(&self, conn: &Connection) {
         conn.execute(
-                "create table if not exists pending_payments (\
+            "create table if not exists pending_payments (
                 payables_rowid integer primary key,
                 amount integer not null,
                 payment_timestamp integer not null,
                 process_error text null
             )",
-            NO_PARAMS
+            NO_PARAMS,
         )
         .expect("Can't create pending_payments table");
         conn.execute(

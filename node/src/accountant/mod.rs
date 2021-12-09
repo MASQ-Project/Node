@@ -12,7 +12,7 @@ use crate::accountant::pending_payments_dao::{PendingPaymentsDao, PendingPayment
 use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDaoFactory};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{
-    PaymentBackup, ReportTransactionReceipts, RetrieveTransactions,
+    PendingPaymentBackup, ReportTransactionReceipts, RetrieveTransactions,
 };
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::blockchain::tool_wrappers::{NotifyHandle, NotifyLaterHandle};
@@ -392,10 +392,10 @@ impl Handler<ConfirmPendingTransaction> for Accountant {
     }
 }
 
-impl Handler<PaymentBackup> for Accountant {
+impl Handler<PendingPaymentBackup> for Accountant {
     type Result = ();
-    fn handle(&mut self, msg: PaymentBackup, _ctx: &mut Self::Context) -> Self::Result {
-        unimplemented!()
+    fn handle(&mut self, msg: PendingPaymentBackup, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_payment_backup_insertion(msg)
     }
 }
 
@@ -456,7 +456,7 @@ impl Accountant {
             report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
             report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
             report_new_payments: recipient!(addr, ReceivedPayments),
-            transaction_backup: recipient!(addr, PaymentBackup),
+            transaction_backup: recipient!(addr, PendingPaymentBackup),
             report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
             report_sent_payments: recipient!(addr, SentPayments),
             ui_message_sub: recipient!(addr, NodeFromUiMessage),
@@ -1087,14 +1087,26 @@ impl Accountant {
                                     ),
                     None => PendingTransactionStatus::StillPending {
                                 payment,
-                                attempt: msg.attempt
-                            }
+                                attempt: msg.attempt,
+                    }
                 },
-                Err(e) => unimplemented!()
-                // {
-                //     error!(self.logger, "Failed to fetch transaction receipt for this pending tx: {} due to '{:?}'; transaction may need to be resolved appropriately with the user's assistance",format!("{:x}",pending_payment.transaction),e);
-                //     PendingTransactionStatus::ConfirmationProcessCrashed(pending_payment.transaction)
-                // },
+                Err(e) => {
+                    match self.pending_payments_dao.read_backup_record(payment.rowid){
+                        Ok(_) =>{
+                        warning!(self.logger, "Failed to fetch transaction receipt for pending transaction {} due to '{:?}'; given the backup of this payment is all right the confirmation process is now terminating but will be renewed with another scan cycle",
+                        format!("{:x}",payment.transaction),e);
+                        PendingTransactionStatus::ConfirmationProcessCrashed((&payment).into())
+                        }
+                        Err(e) => match payment.receipt_failures {
+                            0..=1 => unimplemented!(),
+
+                            //     PendingTransactionStatus::StillPending{
+                            //
+                            // },
+                            _ => unimplemented!(),
+                        }
+                    }
+                },
             }
             })
             .collect()
@@ -1174,6 +1186,13 @@ impl Accountant {
             }
         });
     }
+
+    fn handle_payment_backup_insertion(&self, msg: PendingPaymentBackup) {
+        match self.pending_payments_dao.insert_backup_record(msg){
+            Ok(_) => debug!(self.logger, "Processed a backup for payment created with referential rowid {} and balance change {}",msg.rowid, msg.amount),
+            Err(e) => warning!(self.logger, "Failure on a backup for pending payment with referential rowid {} and balance change {}, the underlying error: '{:?}'; this could result in potential data loss if the payment did not finish correctly",msg.rowid,msg.amount,e)
+        }
+    }
 }
 
 // At the time of this writing, Rust 1.44.0 was unpredictably producing
@@ -1217,7 +1236,7 @@ impl PendingTransactionStatus {
         let recollected = pending.into_iter().fold(init, |mut so_far, now| {
             if let PendingTransactionStatus::StillPending {
                 payment,
-                attempt: attempt_from_tx_info,
+                attempt: attempt_from_tx_info
             } = now
             {
                 if attempt_from_tx_info != attempt {
@@ -1234,15 +1253,6 @@ impl PendingTransactionStatus {
 
     fn is_non_pending(&self) -> bool {
         !matches!(self, Self::StillPending { .. })
-    }
-
-    fn tx_hash(&self) -> H256 {
-        match self {
-            PendingTransactionStatus::Failure(tx_id) => tx_id.hash,
-            PendingTransactionStatus::Confirmed(payment) => payment.transaction,
-            PendingTransactionStatus::StillPending { payment, .. } => payment.transaction,
-            PendingTransactionStatus::ConfirmationProcessCrashed(tx_id) => tx_id.hash,
-        }
     }
 }
 
@@ -1266,7 +1276,7 @@ impl From<&Payment> for TxTripleId {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::accountant::pending_payments_dao::PendingPaymentsDaoReal;
+    use crate::accountant::pending_payments_dao::{PendingPaymentDaoError, PendingPaymentsDaoReal};
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::test_utils::{
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, earlier_in_seconds,
@@ -1277,8 +1287,8 @@ pub mod tests {
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::PaymentErrorKind::SignConversion;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
-    use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::blockchain_interface::Transaction;
+    use crate::blockchain::blockchain_interface::{BlockchainError, TxReceipt};
     use crate::blockchain::test_utils::{NotifyHandleMock, NotifyLaterHandleMock};
     use crate::blockchain::tool_wrappers::SendTransactionToolWrapperNull;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
@@ -3553,6 +3563,7 @@ pub mod tests {
             previous_timestamp: earlier_in_seconds(1000),
             transaction: tx_hash,
             rowid: 1,
+            receipt_failures: 0,
         };
         let sent_payment_msg = SentPayments {
             payments: vec![Ok(payment.clone())],
@@ -3717,7 +3728,6 @@ pub mod tests {
         let notify_confirm_transaction_params_arc_cloned =
             notify_confirm_transaction_params_arc.clone(); //because it moves into a closure
                                                            //these belongs to 'pending_payment' table
-                                                           //TODO still unused
         let insert_record_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_record_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_tx_hash_1 = H256::from_uint(&U256::from(123));
@@ -3888,6 +3898,7 @@ pub mod tests {
             previous_timestamp: last_paid_timestamp_1,
             transaction: pending_tx_hash_1,
             rowid: rowid_for_account_1,
+            receipt_failures: 0,
         };
         let mut transaction_canceled_params = transaction_canceled_params_arc.lock().unwrap();
         let cancellation_param_for_tx_1 = transaction_canceled_params.remove(0);
@@ -3922,6 +3933,7 @@ pub mod tests {
             previous_timestamp: last_paid_timestamp_2,
             transaction: pending_tx_hash_2,
             rowid: rowid_for_account_2,
+            receipt_failures: 0,
         };
         let mut transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
         let payment_confirmed = transaction_confirmed_params.remove(0);
@@ -4126,7 +4138,6 @@ pub mod tests {
         let mut payment = make_payment();
         payment.to = wallet.clone();
         payment.transaction = tx_hash;
-        send_bind_message!(accountant_subs, peer_actors);
 
         let _ = accountant_subs
             .report_sent_payments
@@ -4317,34 +4328,150 @@ pub mod tests {
     }
 
     #[test]
-    fn handle_pending_tx_checkout_handles_error_from_tx_receipt() {
-        unimplemented!()
-        // init_test_logging();
-        // let blockchain_interface = BlockchainInterfaceMock::default()
-        //     .get_transaction_receipt_result(Err(BlockchainError::RpcRequestFailure(
-        //         "we couldn't fetch the data".to_string(),
-        //     )));
-        // let subject = BlockchainBridge::new(
-        //     Box::new(blockchain_interface),
-        //     Box::new(PersistentConfigurationMock::default()),
-        //     false,
-        //     None,
-        // );
-        // let hash = H256::from_uint(&U256::from(789));
-        // let msg = CheckPendingTransactionForConfirmation {
-        //     hashes: vec![hash],
-        //     attempt: 3,
-        // };
-        //
-        // let result = subject.handle_pending_txs_check(msg);
-        //
-        // assert_eq!(
-        //     result,
-        //     vec![PendingTransactionStatus::ConfirmationProcessCrashed(hash)]
-        // );
-        // TestLogHandler::new().exists_log_containing("ERROR: BlockchainBridge: Failed to \
-        //  fetch transaction receipt for this pending tx: 0000000000000000000000000000000000000000000000000000000000000315 \
-        //  due to 'RpcRequestFailure(\"we couldn't fetch the data\")'; transaction may need to be resolved appropriately with the user's assistance");
+    fn handle_pending_tx_checkout_handles_error_from_tx_receipt_but_payment_backup_is_okay_so_it_just_terminates(
+    ) {
+        init_test_logging();
+        let read_backup_record_params_arc = Arc::new(Mutex::new(vec![]));
+        let rowid = 7;
+        let recipient_wallet = make_wallet("creditor");
+        let hash = H256::from_uint(&U256::from(789));
+        let payment_timestamp = from_time_t(200_000_000);
+        let payment_backup = PendingPaymentBackup {
+            rowid,
+            payment_timestamp,
+            amount: 100, //irrelevant
+        };
+        let pending_payments_dao_factory = PendingPaymentsDaoFactoryMock::new(
+            PendingPaymentsDaoMock::default()
+                .read_backup_record_params(&read_backup_record_params_arc)
+                .read_backup_record_result(Ok(payment_backup)),
+        );
+        let subject = AccountantBuilder::default()
+            .pending_payments_dao_factory(Box::new(pending_payments_dao_factory))
+            .build();
+        let mut payment = make_payment();
+        payment.to = recipient_wallet.clone();
+        payment.transaction = hash;
+        payment.rowid = rowid;
+        let tx_receipt: TxReceipt = Err(BlockchainError::QueryFailed(
+            "we couldn't fetch the data".to_string(),
+        ));
+        let msg = ReportTransactionReceipts {
+            payments_with_tx_receipts: vec![(tx_receipt, payment)],
+            receipt_failure_count: 0,
+            attempt: 1,
+        };
+
+        let result = subject.handle_pending_txs_check(msg);
+
+        let expected_tx_tripleid = TxTripleId {
+            recipient_wallet,
+            hash,
+            rowid,
+        };
+        assert_eq!(
+            result,
+            vec![PendingTransactionStatus::ConfirmationProcessCrashed(
+                expected_tx_tripleid
+            )]
+        );
+        let read_backup_params = read_backup_record_params_arc.lock().unwrap();
+        assert_eq!(*read_backup_params, vec![rowid]);
+        TestLogHandler::new().exists_log_containing("WARN: Accountant: Failed to fetch transaction \
+         receipt for pending transaction 0000000000000000000000000000000000000000000000000000000000000315 due \
+         to 'QueryFailed(\"we couldn't fetch the data\")'; given the backup of this payment is all right the \
+         confirmation process is now terminating but will be renewed with another scan cycle");
+    }
+
+    #[test]
+    fn handle_pending_tx_checkout_handles_error_from_tx_receipt_but_payment_backup_is_also_wrong_so_it_commands_a_retry_twice_and_succeeds_in_the_last_run(
+    ) {
+        init_test_logging();
+        let read_backup_record_params_arc = Arc::new(Mutex::new(vec![]));
+        let read_backup_record_params_arc_cloned = read_backup_record_params_arc.clone(); //because it moves into closure
+        let rowid = 7;
+        let recipient_wallet = make_wallet("creditor");
+        let hash = H256::from_uint(&U256::from(789));
+        let payment_timestamp = from_time_t(200_000_000);
+        let mut transaction_receipt = TransactionReceipt::default();
+        transaction_receipt.status = Some(U64::from(0)); //Success
+        let blockchain_interface = BlockchainInterfaceMock::default()
+            .get_transaction_receipt_result(Err(BlockchainError::QueryFailed("So bad".to_string())))
+            .get_transaction_receipt_result(Err(BlockchainError::TransactionFailed(
+                "weird".to_string(),
+            )))
+            .get_transaction_receipt_result(Ok(Some(transaction_receipt)));
+        let consuming_wallet = make_paying_wallet(b"wallet");
+        let system = System::new("pending_transaction");
+        let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(130));
+        let pending_tx_checkout_interval_ms = 10;
+        let blockchain_bridge = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Box::new(persistent_config),
+            false,
+            Some(consuming_wallet),
+        );
+        let blockchain_bridge_addr = blockchain_bridge.start();
+        let blockchain_bridge_subs = BlockchainBridge::make_subs_from(&blockchain_bridge_addr);
+        let system = System::new("fetching tx receipt with failure and retry");
+        let bootstrapper_config = bc_from_ac_plus_earning_wallet(
+            AccountantConfig {
+                payable_scan_interval: Duration::from_secs(1_000_000), //we don't care about the scan
+                payment_received_scan_interval: Duration::from_secs(1_000_000), //we don't care about the scan
+                pending_transaction_check_interval_ms: pending_tx_checkout_interval_ms,
+            },
+            make_wallet("some_wallet_address"),
+        );
+        let payable_dao = PayableDaoMock::new()
+            .mark_pending_payment_result(Ok(()))
+            .transaction_confirmed_result(Ok(()));
+        let accountant_addr = Arbiter::builder()
+            .stop_system_on_panic(true)
+            .start(move |_| {
+                let payment_backup = PendingPaymentBackup {
+                    rowid,
+                    payment_timestamp,
+                    amount: 0,
+                };
+                let pending_payments_dao_factory = PendingPaymentsDaoFactoryMock::new(
+                    PendingPaymentsDaoMock::default()
+                        .read_backup_record_params(&read_backup_record_params_arc_cloned)
+                        .read_backup_record_result(Err(PendingPaymentDaoError::RecordCannotBeRead)),
+                );
+                let payable_dao_factory = PayableDaoFactoryMock::new(Box::new(payable_dao));
+                let subject = AccountantBuilder::default()
+                    .pending_payments_dao_factory(Box::new(pending_payments_dao_factory))
+                    .payable_dao_factory(Box::new(payable_dao_factory))
+                    .bootstrapper_config(bootstrapper_config)
+                    .build();
+                subject
+            });
+        let accountant_subs = Accountant::make_subs_from(&accountant_addr);
+        let mut payment = make_payment();
+        payment.to = recipient_wallet.clone();
+        payment.transaction = hash;
+        payment.rowid = rowid;
+        let dummy_actor = DummyActor::new(None);
+        let dummy_addr = Arbiter::builder()
+            .stop_system_on_panic(true)
+            .start(move |_| dummy_actor);
+        let mut peer_actors = peer_actors_builder().build();
+        peer_actors.accountant = accountant_subs.clone();
+        peer_actors.blockchain_bridge = blockchain_bridge_subs.clone();
+        send_bind_message!(accountant_subs, peer_actors);
+        send_bind_message!(blockchain_bridge_subs, peer_actors);
+        let msg = SentPayments {
+            payments: vec![Ok(payment)],
+        };
+
+        let _ = accountant_subs.report_sent_payments.try_send(msg).unwrap();
+
+        let _ = dummy_addr.try_send(CleanUpMessage { sleep_ms: 1 });
+        assert_eq!(system.run(), 0);
+        TestLogHandler::new().exists_log_containing("WARN: Accountant: Failed to fetch transaction \
+         receipt for pending transaction 0000000000000000000000000000000000000000000000000000000000000315 due \
+         to 'QueryFailed(\"we couldn't fetch the data\")'; since the backup of this payment is all right the \
+         confirmation process is now terminating but will be renewed with another scan cycle");
     }
 
     #[test]
@@ -4355,6 +4482,7 @@ pub mod tests {
             timestamp: from_time_t(300_000_000),
             previous_timestamp: from_time_t(290_000_000),
             transaction: H256::from_uint(&U256::from(1111111)),
+            receipt_failures: 0,
             rowid: 10,
         });
         let wallet_1 = make_wallet("hohoho");
@@ -4366,6 +4494,7 @@ pub mod tests {
             timestamp: from_time_t(150_000_000),
             previous_timestamp: from_time_t(140_000_000),
             transaction: H256::from_uint(&U256::from(123)),
+            receipt_failures: 0,
             rowid: 2,
         };
         let first_pending_tx_status = PendingTransactionStatus::StillPending {
@@ -4450,30 +4579,6 @@ pub mod tests {
     }
 
     #[test]
-    //TODO this may not be needed
-    fn tx_hash_returns_hash() {
-        unimplemented!()
-        // let hash1 = H256::from_uint(&U256::from(123));
-        // assert_eq!(PendingTransactionStatus::Failure(hash1).tx_hash(), hash1);
-        // let hash2 = H256::from_uint(&U256::from(456));
-        // assert_eq!(PendingTransactionStatus::Confirmed(hash2).tx_hash(), hash2);
-        // let hash3 = H256::from_uint(&U256::from(789));
-        // assert_eq!(
-        //     PendingTransactionStatus::StillPending {
-        //         payment: hash3,
-        //         attempt: 1
-        //     }
-        //         .tx_hash(),
-        //     hash3
-        // );
-        // let hash4 = H256::from_uint(&U256::from(653));
-        // assert_eq!(
-        //     PendingTransactionStatus::ConfirmationProcessCrashed(hash4).tx_hash(),
-        //     hash4
-        // );
-    }
-
-    #[test]
     fn remove_tx_from_list_of_pending_tx_works() {
         unimplemented!()
         // let transaction1_hash = H256::from_uint(&U256::from(123));
@@ -4523,6 +4628,7 @@ pub mod tests {
 
     #[test]
     fn accountant_handles_payment_backup_real_test() {
+        init_test_logging();
         let home_dir = ensure_node_home_directory_exists(
             "accountant/mod",
             "accountant_handles_payment_backup_real_test",
@@ -4543,7 +4649,7 @@ pub mod tests {
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let timestamp_secs = 150_000_000;
-        let backup_message = PaymentBackup {
+        let backup_message = PendingPaymentBackup {
             rowid: 5,
             payment_timestamp: from_time_t(timestamp_secs),
             amount: 556677,
@@ -4576,7 +4682,38 @@ pub mod tests {
                 backup_message.amount as i64,
                 timestamp_secs
             )]
-        )
+        );
+        TestLogHandler::new().exists_log_containing("DEBUG: Accountant: Processed a backup for payment created with referential rowid 5 and balance change 556677");
+    }
+
+    #[test]
+    fn inserting_payment_backup_failed_nevertheless_payment_still_could_succeed() {
+        init_test_logging();
+        let insert_backup_params_arc = Arc::new(Mutex::new(vec![]));
+        let pending_payment_dao_factory = PendingPaymentsDaoFactoryMock::new(
+            PendingPaymentsDaoMock::default()
+                .insert_backup_record_params(&insert_backup_params_arc)
+                .insert_backup_record_result(Err(PendingPaymentDaoError::InsertionFailed(
+                    "Crashed".to_string(),
+                ))),
+        );
+        let subject = AccountantBuilder::default()
+            .pending_payments_dao_factory(Box::new(pending_payment_dao_factory))
+            .build();
+        let timestamp_secs = 150_000_000;
+        let backup_message = PendingPaymentBackup {
+            rowid: 5,
+            payment_timestamp: from_time_t(timestamp_secs),
+            amount: 556677,
+        };
+
+        let _ = subject.handle_payment_backup_insertion(backup_message);
+
+        let insert_backup_params = insert_backup_params_arc.lock().unwrap();
+        assert_eq!(*insert_backup_params, vec![backup_message]);
+        TestLogHandler::new().exists_log_containing("WARN: Accountant: Failure on a backup for pending payment \
+         with referential rowid 5 and balance change 556677, the underlying error: 'InsertionFailed(\"Crashed\")'; this could \
+         result in potential data loss if the payment did not finish correctly");
     }
 
     #[test]
@@ -4609,6 +4746,7 @@ pub mod tests {
             previous_timestamp: earlier_in_seconds(1000),
             transaction: H256::from_uint(&U256::from(456)),
             rowid: 1,
+            receipt_failures: 0,
         }
     }
 

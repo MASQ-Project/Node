@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_bridge::PaymentBackup;
+use crate::blockchain::blockchain_bridge::PendingPaymentBackup;
 use crate::blockchain::blockchain_interface::BlockchainResult;
 use actix::prelude::SendError;
 use actix::{Message, Recipient, SpawnHandle};
@@ -57,7 +57,7 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
     fn order_payment_backup(&self, rowid: u16, amount: u64) -> SystemTime {
         let payment_timestamp = SystemTime::now();
         self.payment_backup_sub
-            .try_send(PaymentBackup {
+            .try_send(PendingPaymentBackup {
                 rowid,
                 payment_timestamp,
                 amount,
@@ -147,21 +147,21 @@ impl<T: Message> NotifyHandle<T> for NotifyHandleReal<T> {
 }
 
 pub trait PaymentBackupRecipientWrapper {
-    fn try_send(&self, msg: PaymentBackup) -> Result<(), SendError<PaymentBackup>>;
+    fn try_send(&self, msg: PendingPaymentBackup) -> Result<(), SendError<PendingPaymentBackup>>;
 }
 
 pub struct PaymentBackupRecipientWrapperReal<'a> {
-    recipient: &'a Recipient<PaymentBackup>,
+    recipient: &'a Recipient<PendingPaymentBackup>,
 }
 
 impl<'a> PaymentBackupRecipientWrapperReal<'a> {
-    pub fn new(recipient: &'a Recipient<PaymentBackup>) -> Self {
+    pub fn new(recipient: &'a Recipient<PendingPaymentBackup>) -> Self {
         Self { recipient }
     }
 }
 
 impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperReal<'_> {
-    fn try_send(&self, msg: PaymentBackup) -> Result<(), SendError<PaymentBackup>> {
+    fn try_send(&self, msg: PendingPaymentBackup) -> Result<(), SendError<PendingPaymentBackup>> {
         self.recipient.try_send(msg)
     }
 }
@@ -169,14 +169,14 @@ impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperReal<'_> {
 pub struct PaymentBackupRecipientWrapperNull;
 
 impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperNull {
-    fn try_send(&self, _msg: PaymentBackup) -> Result<(), SendError<PaymentBackup>> {
+    fn try_send(&self, _msg: PendingPaymentBackup) -> Result<(), SendError<PendingPaymentBackup>> {
         panic!("try_send() for a null object - should never be called")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_bridge::PaymentBackup;
+    use crate::blockchain::blockchain_bridge::PendingPaymentBackup;
     use crate::blockchain::tool_wrappers::{
         PaymentBackupRecipientWrapper, PaymentBackupRecipientWrapperNull,
         SendTransactionToolWrapper, SendTransactionToolWrapperNull,
@@ -225,7 +225,7 @@ mod tests {
         expected = "try_send() for PaymentBackupRecipientWrapper should never be called on the null object"
     )]
     fn null_try_send_stops_the_run() {
-        let msg = PaymentBackup {
+        let msg = PendingPaymentBackup {
             rowid: 1,
             payment_timestamp: SystemTime::now(),
             amount: 123,

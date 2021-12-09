@@ -4,12 +4,13 @@
 
 use crate::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoFactory};
 use crate::accountant::pending_payments_dao::{
-    PendingPaymentDaoError, PendingPaymentRecord, PendingPaymentsDao, PendingPaymentsDaoFactory,
+    PendingPaymentDaoError, PendingPaymentsDao, PendingPaymentsDaoFactory,
 };
 use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoFactory};
 use crate::accountant::tests::{PayableDaoMock, ReceivableDaoMock};
 use crate::accountant::Accountant;
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
+use crate::blockchain::blockchain_bridge::PendingPaymentBackup;
 use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, Transaction,
     Transactions, TxReceipt,
@@ -338,20 +339,23 @@ pub fn bc_from_ac_plus_wallets(
 
 #[derive(Default)]
 pub struct PendingPaymentsDaoMock {
-    insert_record_params: Arc<Mutex<Vec<PendingPaymentRecord>>>,
+    insert_record_params: Arc<Mutex<Vec<PendingPaymentBackup>>>,
     insert_record_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
     delete_record_params: Arc<Mutex<Vec<u16>>>,
     delete_record_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
+    read_record_params: Arc<Mutex<Vec<u16>>>,
+    read_record_results: RefCell<Vec<Result<PendingPaymentBackup, PendingPaymentDaoError>>>,
 }
 
 impl PendingPaymentsDao for PendingPaymentsDaoMock {
-    fn read_backup_record(&self, id: u16) -> Result<PendingPaymentRecord, PendingPaymentDaoError> {
-        todo!()
+    fn read_backup_record(&self, id: u16) -> Result<PendingPaymentBackup, PendingPaymentDaoError> {
+        self.read_record_params.lock().unwrap().push(id);
+        self.read_record_results.borrow_mut().remove(0)
     }
 
     fn insert_backup_record(
         &self,
-        pending_payment: PendingPaymentRecord,
+        pending_payment: PendingPaymentBackup,
     ) -> Result<(), PendingPaymentDaoError> {
         self.insert_record_params
             .lock()
@@ -369,7 +373,7 @@ impl PendingPaymentsDao for PendingPaymentsDaoMock {
 impl PendingPaymentsDaoMock {
     pub fn insert_backup_record_params(
         mut self,
-        params: &Arc<Mutex<Vec<PendingPaymentRecord>>>,
+        params: &Arc<Mutex<Vec<PendingPaymentBackup>>>,
     ) -> Self {
         self.insert_record_params = params.clone();
         self
@@ -387,6 +391,19 @@ impl PendingPaymentsDaoMock {
 
     pub fn delete_backup_record_result(self, result: Result<(), PendingPaymentDaoError>) -> Self {
         self.delete_record_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn read_backup_record_params(mut self, params: &Arc<Mutex<Vec<u16>>>) -> Self {
+        self.read_record_params = params.clone();
+        self
+    }
+
+    pub fn read_backup_record_result(
+        self,
+        result: Result<PendingPaymentBackup, PendingPaymentDaoError>,
+    ) -> Self {
+        self.read_record_results.borrow_mut().push(result);
         self
     }
 }

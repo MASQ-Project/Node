@@ -1,50 +1,52 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::Payment;
+use crate::accountant::jackass_unsigned_to_signed;
+use crate::blockchain::blockchain_bridge::PendingPaymentBackup;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::dao_utils::DaoFactoryReal;
-use std::time::SystemTime;
+use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
+use rusqlite::types::Value::Null;
+use rusqlite::ToSql;
 
 #[derive(Debug)]
 pub enum PendingPaymentDaoError {
     InsertionFailed(String),
-}
-
-pub struct PendingPaymentRecord {
-    pub payable_account_rowid: u16,
-    pub balance_decrease: u64,
-    pub timestamp_of_payment_order: SystemTime,
-}
-
-impl PendingPaymentRecord {
-    pub fn new(payment: &Payment, rowid: u16) -> Self {
-        Self {
-            payable_account_rowid: rowid,
-            balance_decrease: payment.amount,
-            timestamp_of_payment_order: payment.timestamp,
-        }
-    }
+    SignConversionError(u64),
+    RecordCannotBeRead,
 }
 
 pub trait PendingPaymentsDao {
-    fn read_backup_record(&self, id: u16) -> Result<PendingPaymentRecord, PendingPaymentDaoError>;
+    fn read_backup_record(&self, id: u16) -> Result<PendingPaymentBackup, PendingPaymentDaoError>;
     fn insert_backup_record(
         &self,
-        payment: PendingPaymentRecord,
+        payment: PendingPaymentBackup,
     ) -> Result<(), PendingPaymentDaoError>;
     fn delete_backup_record(&self, id: u16) -> Result<(), PendingPaymentDaoError>;
 }
 
 impl PendingPaymentsDao for PendingPaymentsDaoReal {
-    fn read_backup_record(&self, id: u16) -> Result<PendingPaymentRecord, PendingPaymentDaoError> {
+    fn read_backup_record(&self, id: u16) -> Result<PendingPaymentBackup, PendingPaymentDaoError> {
         todo!()
     }
 
     fn insert_backup_record(
         &self,
-        payment: PendingPaymentRecord,
+        payment: PendingPaymentBackup,
     ) -> Result<(), PendingPaymentDaoError> {
-        todo!()
+        let signed_amount = jackass_unsigned_to_signed(payment.amount)
+            .map_err(|e| PendingPaymentDaoError::SignConversionError(e))?;
+        let mut stm = self.conn.prepare("insert into pending_payments (payables_rowid, amount, payment_timestamp, process_error) values (?,?,?,?)").expect("Internal error");
+        let params: &[&dyn ToSql] = &[
+            &payment.rowid,
+            &signed_amount,
+            &to_time_t(payment.payment_timestamp),
+            &Null,
+        ];
+        match stm.execute(params) {
+            Ok(0) => unimplemented!(),
+            Ok(1) => Ok(()),
+            Ok(x) => unimplemented!(),
+            Err(e) => unimplemented!(),
+        }
     }
 
     fn delete_backup_record(&self, id: u16) -> Result<(), PendingPaymentDaoError> {
