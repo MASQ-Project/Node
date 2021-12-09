@@ -212,7 +212,6 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         //after we've bound all the actors, send start messages to any actors that need it
         send_start_message!(peer_actors.neighborhood);
 
-        //send out the stream handler pool subs (to be bound to listeners)
         stream_handler_pool_subs
     }
 
@@ -546,20 +545,6 @@ impl AutomapControlFactory for AutomapControlFactoryNull {
         _change_handler: ChangeHandler,
     ) -> Box<dyn AutomapControl> {
         panic!("Should never call make() on an AutomapControlFactoryNull.");
-    }
-}
-
-fn _validate_database_chain_correctness(
-    chain: Chain,
-    persistent_config: &dyn PersistentConfiguration,
-) {
-    let required_chain = chain.rec().literal_identifier.to_string();
-    let chain_in_db = persistent_config.chain_name();
-    if required_chain != chain_in_db {
-        panic!(
-            "Database with the wrong chain name detected; expected: {}, was: {}",
-            required_chain, chain_in_db
-        )
     }
 }
 
@@ -1309,7 +1294,6 @@ mod tests {
                 rate_pack(100),
             ),
         };
-        // config.node_descriptor_opt = Some(NodeDescriptor::from_str (main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342").unwrap());
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ActorSystemFactoryToolsReal::new();
         subject.automap_control_factory = Box::new(

@@ -122,7 +122,7 @@ impl SetupReporter for SetupReporterReal {
             ),
         };
         let (configured_setup, error_opt) =
-            self.calculate_configured_setup(&all_but_configured, &data_directory, chain);
+            self.calculate_configured_setup(&all_but_configured, &data_directory);
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
@@ -275,7 +275,6 @@ impl SetupReporterReal {
         &self,
         combined_setup: &SetupCluster,
         data_directory: &Path,
-        _chain: BlockChain, // TODO: Maybe remove this parameter?
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
@@ -2131,7 +2130,7 @@ mod tests {
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
         let result = subject
-            .calculate_configured_setup(&setup, &data_directory, Blockchain::default())
+            .calculate_configured_setup(&setup, &data_directory)
             .0;
 
         assert_eq!(
@@ -2172,7 +2171,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(&setup, &data_directory, Blockchain::EthMainnet)
+            .calculate_configured_setup(&setup, &data_directory)
             .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
@@ -2207,7 +2206,7 @@ mod tests {
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
         let result = subject
-            .calculate_configured_setup(&setup, &data_directory, Blockchain::default())
+            .calculate_configured_setup(&setup, &data_directory)
             .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
@@ -2235,7 +2234,7 @@ mod tests {
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
         let result = subject
-            .calculate_configured_setup(&setup, &data_directory, Blockchain::default())
+            .calculate_configured_setup(&setup, &data_directory)
             .1
             .unwrap();
 
@@ -2272,9 +2271,7 @@ mod tests {
         .collect();
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
-        let result = subject
-            .calculate_configured_setup(&setup, &data_dir, Blockchain::default())
-            .0;
+        let result = subject.calculate_configured_setup(&setup, &data_dir).0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
@@ -2308,7 +2305,7 @@ mod tests {
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
         let result = subject
-            .calculate_configured_setup(&setup, &data_directory, Blockchain::default())
+            .calculate_configured_setup(&setup, &data_directory)
             .1
             .unwrap();
 
