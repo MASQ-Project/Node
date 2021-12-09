@@ -58,11 +58,17 @@ pub trait PendingPaymentsDaoFactory {
 
 impl PendingPaymentsDaoFactory for DaoFactoryReal {
     fn make(&self) -> Box<dyn PendingPaymentsDao> {
-        unimplemented!() // Box::new(RecoverDaoReal::new(self.make_connection()))
+        Box::new(PendingPaymentsDaoReal::new(self.make_connection()))
     }
 }
 
 #[derive(Debug)]
 pub struct PendingPaymentsDaoReal {
     conn: Box<dyn ConnectionWrapper>,
+}
+
+impl PendingPaymentsDaoReal {
+    pub fn new(conn: Box<dyn ConnectionWrapper>) -> Self {
+        Self { conn }
+    }
 }

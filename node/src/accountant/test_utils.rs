@@ -132,9 +132,10 @@ impl AccountantBuilder {
 
     pub fn pending_payments_dao_factory(
         mut self,
-        _pending_payments_dao: Box<dyn PendingPaymentsDaoFactory>,
+        pending_payments_dao: Box<dyn PendingPaymentsDaoFactory>,
     ) -> Self {
-        unimplemented!()
+        self.pending_payments_dao_factory = pending_payments_dao;
+        self
     }
 
     pub fn banned_dao_factory(mut self, banned_dao: Box<dyn BannedDaoFactory>) -> Self {
@@ -421,7 +422,7 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
     send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
-    send_transaction_results: RefCell<Vec<BlockchainResult<(H256,SystemTime)>>>,
+    send_transaction_results: RefCell<Vec<BlockchainResult<(H256, SystemTime)>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<TxReceipt>>,
     send_transaction_tools_results: RefCell<Vec<Box<dyn SendTransactionToolWrapper>>>,
@@ -452,7 +453,7 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn send_transaction_result(self, result: BlockchainResult<(H256,SystemTime)>) -> Self {
+    pub fn send_transaction_result(self, result: BlockchainResult<(H256, SystemTime)>) -> Self {
         self.send_transaction_results.borrow_mut().push(result);
         self
     }
@@ -517,7 +518,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         gas_price: u64,
         rowid_payables: u16,
         _send_transaction_tools: &'a dyn SendTransactionToolWrapper,
-    ) -> BlockchainResult<(H256,SystemTime)> {
+    ) -> BlockchainResult<(H256, SystemTime)> {
         self.send_transaction_parameters.lock().unwrap().push((
             consuming_wallet.clone(),
             recipient.clone(),
@@ -552,7 +553,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.get_transaction_receipt_results.borrow_mut().remove(0)
     }
 
-    fn send_transaction_tools<'a>(&'a self,backup_recipient: &dyn PaymentBackupRecipientWrapper) -> Box<dyn SendTransactionToolWrapper + 'a> {
+    fn send_transaction_tools<'a>(
+        &'a self,
+        backup_recipient: &dyn PaymentBackupRecipientWrapper,
+    ) -> Box<dyn SendTransactionToolWrapper + 'a> {
         self.send_transaction_tools_results.borrow_mut().remove(0)
     }
 }

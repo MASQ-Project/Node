@@ -6,6 +6,7 @@ use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
     BlockchainInterfaceNonClandestine, BlockchainResult, Transaction, TxReceipt,
 };
+use crate::blockchain::tool_wrappers::PaymentBackupRecipientWrapperReal;
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
 use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -33,7 +34,6 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::Http;
 use web3::types::H256;
-use crate::blockchain::tool_wrappers::PaymentBackupRecipientWrapperReal;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -144,7 +144,7 @@ pub struct ReportTransactionReceipts {
 pub struct PaymentBackup {
     pub rowid: u16,
     pub payment_timestamp: SystemTime,
-    pub amount: u64
+    pub amount: u64,
 }
 
 impl Handler<ReportAccountsPayable> for BlockchainBridge {
@@ -303,9 +303,16 @@ impl BlockchainBridge {
                             nonce,
                             gas_price,
                             payable.rowid,
-                            self.blockchain_interface.send_transaction_tools(&PaymentBackupRecipientWrapperReal::new(self.payment_confirmation.transaction_backup_tx_subs_opt.as_ref().expect("Accountant is unbound"))).as_ref(),
+                            self.blockchain_interface
+                                .send_transaction_tools(&PaymentBackupRecipientWrapperReal::new(
+                                    self.payment_confirmation
+                                        .transaction_backup_tx_subs_opt
+                                        .as_ref()
+                                        .expect("Accountant is unbound"),
+                                ))
+                                .as_ref(),
                         ) {
-                            Ok((hash,timestamp)) => Ok(Payment::new(
+                            Ok((hash, timestamp)) => Ok(Payment::new(
                                 payable.wallet.clone(),
                                 amount,
                                 hash,
@@ -338,6 +345,7 @@ mod tests {
     use crate::blockchain::blockchain_bridge::Payment;
     use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
     use crate::blockchain::tool_wrappers::SendTransactionToolWrapperNull;
+    use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::logging::init_test_logging;
@@ -358,7 +366,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{H256, U256};
-    use crate::database::dao_utils::{from_time_t, to_time_t};
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -483,8 +490,14 @@ mod tests {
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
             .send_transaction_params(&send_transaction_params_arc)
-            .send_transaction_result(Ok((H256::from("sometransactionhash".keccak256()), payment_timestamp_0)))
-            .send_transaction_result(Ok((H256::from("someothertransactionhash".keccak256()), payment_timestamp_1)))
+            .send_transaction_result(Ok((
+                H256::from("sometransactionhash".keccak256()),
+                payment_timestamp_0,
+            )))
+            .send_transaction_result(Ok((
+                H256::from("someothertransactionhash".keccak256()),
+                payment_timestamp_1,
+            )))
             .contract_address_result(TEST_DEFAULT_CHAIN.rec().contract);
         let expected_gas_price = 5u64;
         let persistent_configuration_mock =

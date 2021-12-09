@@ -372,7 +372,9 @@ impl Handler<CancelFailedPendingTransaction> for Accountant {
         msg: CancelFailedPendingTransaction,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        if let Some(msg) = self.handle_cancel_pending_transaction(msg) {unimplemented!()}
+        if let Some(msg) = self.handle_cancel_pending_transaction(msg) {
+            unimplemented!()
+        }
     }
 }
 
@@ -1264,6 +1266,7 @@ impl From<&Payment> for TxTripleId {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::accountant::pending_payments_dao::PendingPaymentsDaoReal;
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::test_utils::{
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, earlier_in_seconds,
@@ -1278,6 +1281,7 @@ pub mod tests {
     use crate::blockchain::blockchain_interface::Transaction;
     use crate::blockchain::test_utils::{NotifyHandleMock, NotifyLaterHandleMock};
     use crate::blockchain::tool_wrappers::SendTransactionToolWrapperNull;
+    use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -1302,7 +1306,7 @@ pub mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
-    use rusqlite::Row;
+    use rusqlite::{Error, Row, NO_PARAMS};
     use std::cell::RefCell;
     use std::convert::TryFrom;
     use std::ops::Sub;
@@ -3735,8 +3739,8 @@ pub mod tests {
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
-            .send_transaction_result(Ok((pending_tx_hash_1,payment_timestamp_1)))
-            .send_transaction_result(Ok((pending_tx_hash_2,payment_timestamp_2)))
+            .send_transaction_result(Ok((pending_tx_hash_1, payment_timestamp_1)))
+            .send_transaction_result(Ok((pending_tx_hash_2, payment_timestamp_2)))
             .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
             .get_transaction_receipt_result(Ok(None))
             .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_first_round)))
@@ -4515,6 +4519,64 @@ pub mod tests {
         //     subject.tx_confirmation.list_of_pending_txs.borrow().len(),
         //     1
         // );
+    }
+
+    #[test]
+    fn accountant_handles_payment_backup_real_test() {
+        let home_dir = ensure_node_home_directory_exists(
+            "accountant/mod",
+            "accountant_handles_payment_backup_real_test",
+        );
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let mut stm = conn.prepare("select * from pending_payments").unwrap();
+        let res = stm.query_row(NO_PARAMS, |_row| Ok(()));
+        let err = res.unwrap_err();
+        assert_eq!(err, Error::QueryReturnedNoRows);
+        //unfortunately, I have to go through the DB initiation again because of rigid instruments
+        let pending_payment_dao_factory =
+            DaoFactoryReal::new(&home_dir, false, MigratorConfig::test_default());
+        let subject = AccountantBuilder::default()
+            .pending_payments_dao_factory(Box::new(pending_payment_dao_factory))
+            .build();
+        let accountant_addr = subject.start();
+        let accountant_subs = Accountant::make_subs_from(&accountant_addr);
+        let timestamp_secs = 150_000_000;
+        let backup_message = PaymentBackup {
+            rowid: 5,
+            payment_timestamp: from_time_t(timestamp_secs),
+            amount: 556677,
+        };
+
+        let _ = accountant_subs
+            .transaction_backup
+            .try_send(backup_message.clone())
+            .unwrap();
+
+        let system = System::new("real payment backup test");
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        let result: Vec<(u16, i64, i64)> = stm
+            .query_map(NO_PARAMS, |row| {
+                let payables_rowid = row.get(0).unwrap();
+                let amount = row.get(1).unwrap();
+                let timestamp = row.get(2).unwrap();
+                let non: rusqlite::Result<Option<String>> = row.get(3); //an empty column
+                assert_eq!(non.unwrap(), None);
+                Ok((payables_rowid, amount, timestamp))
+            })
+            .unwrap()
+            .flatten()
+            .collect();
+        assert_eq!(
+            result,
+            vec![(
+                backup_message.rowid,
+                backup_message.amount as i64,
+                timestamp_secs
+            )]
+        )
     }
 
     #[test]

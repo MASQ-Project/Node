@@ -1,17 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::blockchain_bridge::PaymentBackup;
+use crate::blockchain::blockchain_interface::BlockchainResult;
+use actix::prelude::SendError;
 use actix::{Message, Recipient, SpawnHandle};
 use ethereum_types::H256;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::time::{Duration, SystemTime};
-use actix::prelude::SendError;
 use web3::futures::Future;
 use web3::types::{Bytes, SignedTransaction, TransactionParameters};
 use web3::Error as Web3Error;
 use web3::{Transport, Web3};
-use crate::blockchain::blockchain_bridge::{PaymentBackup};
-use crate::blockchain::blockchain_interface::BlockchainResult;
 
 pub trait SendTransactionToolWrapper {
     fn sign_transaction(
@@ -19,18 +19,24 @@ pub trait SendTransactionToolWrapper {
         transaction_params: TransactionParameters,
         key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
-    fn order_payment_backup(&self, rowid:u16, amount: u64) ->SystemTime;
+    fn order_payment_backup(&self, rowid: u16, amount: u64) -> SystemTime;
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error>;
 }
 
 pub struct SendTransactionToolWrapperReal<'a, T: Transport + Debug> {
     web3: &'a Web3<T>,
-    payment_backup_sub: &'a dyn PaymentBackupRecipientWrapper
+    payment_backup_sub: &'a dyn PaymentBackupRecipientWrapper,
 }
 
 impl<'a, T: Transport + Debug> SendTransactionToolWrapperReal<'a, T> {
-    pub fn new(web3: &'a Web3<T>,payment_backup_sub:&'a dyn PaymentBackupRecipientWrapper) -> Self {
-        Self { web3,payment_backup_sub}
+    pub fn new(
+        web3: &'a Web3<T>,
+        payment_backup_sub: &'a dyn PaymentBackupRecipientWrapper,
+    ) -> Self {
+        Self {
+            web3,
+            payment_backup_sub,
+        }
     }
 }
 
@@ -50,13 +56,14 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
 
     fn order_payment_backup(&self, rowid: u16, amount: u64) -> SystemTime {
         let payment_timestamp = SystemTime::now();
-        self.payment_backup_sub.try_send(PaymentBackup{
-            rowid,
-            payment_timestamp,
-            amount
-        }).expect("Accountant is dead");
+        self.payment_backup_sub
+            .try_send(PaymentBackup {
+                rowid,
+                payment_timestamp,
+                amount,
+            })
+            .expect("Accountant is dead");
         payment_timestamp
-        
     }
 
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error> {
@@ -140,30 +147,28 @@ impl<T: Message> NotifyHandle<T> for NotifyHandleReal<T> {
 }
 
 pub trait PaymentBackupRecipientWrapper {
-    fn try_send(&self,msg: PaymentBackup)->Result<(), SendError<PaymentBackup>>;
+    fn try_send(&self, msg: PaymentBackup) -> Result<(), SendError<PaymentBackup>>;
 }
 
 pub struct PaymentBackupRecipientWrapperReal<'a> {
-    recipient: &'a Recipient<PaymentBackup>
+    recipient: &'a Recipient<PaymentBackup>,
 }
 
-impl <'a> PaymentBackupRecipientWrapperReal<'a>{
-    pub fn new(recipient:&'a Recipient<PaymentBackup>)-> Self{
-        Self{
-            recipient
-        }
+impl<'a> PaymentBackupRecipientWrapperReal<'a> {
+    pub fn new(recipient: &'a Recipient<PaymentBackup>) -> Self {
+        Self { recipient }
     }
 }
 
 impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperReal<'_> {
-    fn try_send(&self, msg: PaymentBackup)->Result<(), SendError<PaymentBackup>> {
+    fn try_send(&self, msg: PaymentBackup) -> Result<(), SendError<PaymentBackup>> {
         self.recipient.try_send(msg)
     }
 }
 
 pub struct PaymentBackupRecipientWrapperNull;
 
-impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperNull{
+impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperNull {
     fn try_send(&self, _msg: PaymentBackup) -> Result<(), SendError<PaymentBackup>> {
         panic!("try_send() for a null object - should never be called")
     }
@@ -171,10 +176,13 @@ impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperNull{
 
 #[cfg(test)]
 mod tests {
-    use std::time::SystemTime;
-    use crate::blockchain::tool_wrappers::{PaymentBackupRecipientWrapper, PaymentBackupRecipientWrapperNull, SendTransactionToolWrapper, SendTransactionToolWrapperNull};
-    use web3::types::{Bytes, TransactionParameters};
     use crate::blockchain::blockchain_bridge::PaymentBackup;
+    use crate::blockchain::tool_wrappers::{
+        PaymentBackupRecipientWrapper, PaymentBackupRecipientWrapperNull,
+        SendTransactionToolWrapper, SendTransactionToolWrapperNull,
+    };
+    use std::time::SystemTime;
+    use web3::types::{Bytes, TransactionParameters};
 
     #[test]
     #[should_panic(expected = "sing_transaction() should never be called on the null object")]
@@ -213,12 +221,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "try_send() for PaymentBackupRecipientWrapper should never be called on the null object")]
+    #[should_panic(
+        expected = "try_send() for PaymentBackupRecipientWrapper should never be called on the null object"
+    )]
     fn null_try_send_stops_the_run() {
-        let msg = PaymentBackup{
+        let msg = PaymentBackup {
             rowid: 1,
             payment_timestamp: SystemTime::now(),
-            amount: 123
+            amount: 123,
         };
 
         let _ = PaymentBackupRecipientWrapperNull.try_send(msg);

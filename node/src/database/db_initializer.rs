@@ -155,6 +155,7 @@ impl DbInitializerReal {
         self.create_config_table(conn);
         self.initialize_config(conn, external_params);
         self.create_payable_table(conn);
+        self.create_pending_payments_table(conn);
         self.create_receivable_table(conn);
         self.create_banned_table(conn);
     }
@@ -284,6 +285,24 @@ impl DbInitializerReal {
             NO_PARAMS,
         )
         .expect("Can't create payable wallet_address index");
+    }
+
+    fn create_pending_payments_table(&self,conn: &Connection){
+        conn.execute(
+                "create table if not exists pending_payments (\
+                payables_rowid integer primary key,
+                amount integer not null,
+                payment_timestamp integer not null,
+                process_error text null
+            )",
+            NO_PARAMS
+        )
+        .expect("Can't create pending_payments table");
+        conn.execute(
+            "create unique index if not exists idx_pending_payments_payables_rowid on pending_payments (payables_rowid)",
+            NO_PARAMS,
+        )
+        .expect("Can't create pending_payments rowid index");
     }
 
     fn create_receivable_table(&self, conn: &Connection) {
