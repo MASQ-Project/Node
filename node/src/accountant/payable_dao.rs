@@ -37,13 +37,14 @@ impl Payment {
         to: Wallet,
         amount: u64,
         txn: H256,
+        timestamp: SystemTime,
         previous_timestamp: SystemTime,
         rowid: u16,
     ) -> Self {
         Self {
             to,
             amount,
-            timestamp: SystemTime::now(),
+            timestamp,
             previous_timestamp,
             transaction: txn,
             rowid,

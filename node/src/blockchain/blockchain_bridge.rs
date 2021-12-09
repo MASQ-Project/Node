@@ -33,6 +33,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::Http;
 use web3::types::H256;
+use crate::blockchain::tool_wrappers::PaymentBackupRecipientWrapperReal;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -141,7 +142,9 @@ pub struct ReportTransactionReceipts {
 
 #[derive(Debug, PartialEq, Message, Clone)]
 pub struct PaymentBackup {
-    pub new_payments: Vec<Payment>,
+    pub rowid: u16,
+    pub payment_timestamp: SystemTime,
+    pub amount: u64
 }
 
 impl Handler<ReportAccountsPayable> for BlockchainBridge {
@@ -246,7 +249,6 @@ impl BlockchainBridge {
                         )))
                     }
                 };
-                //TODO consider to make a DB mark also before we come up to sending the transaction
                 Ok(self.process_payments(creditors_msg, gas_price, consuming_wallet))
             }
             None => Err(String::from("No consuming wallet specified")),
@@ -300,12 +302,14 @@ impl BlockchainBridge {
                             amount,
                             nonce,
                             gas_price,
-                            self.blockchain_interface.send_transaction_tools().as_ref(),
+                            payable.rowid,
+                            self.blockchain_interface.send_transaction_tools(&PaymentBackupRecipientWrapperReal::new(self.payment_confirmation.transaction_backup_tx_subs_opt.as_ref().expect("Accountant is unbound"))).as_ref(),
                         ) {
-                            Ok(hash) => Ok(Payment::new(
+                            Ok((hash,timestamp)) => Ok(Payment::new(
                                 payable.wallet.clone(),
                                 amount,
                                 hash,
+                                timestamp,
                                 payable.last_paid_timestamp,
                                 payable.rowid,
                             )),
@@ -354,6 +358,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{H256, U256};
+    use crate::database::dao_utils::{from_time_t, to_time_t};
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -467,6 +472,8 @@ mod tests {
     fn report_accounts_payable_sends_transactions_to_blockchain_interface() {
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
         let send_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let payment_timestamp_0 = from_time_t(to_time_t(SystemTime::now()) - 2);
+        let payment_timestamp_1 = SystemTime::now();
         let system =
             System::new("report_accounts_payable_sends_transactions_to_blockchain_interface");
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
@@ -476,8 +483,8 @@ mod tests {
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
             .send_transaction_params(&send_transaction_params_arc)
-            .send_transaction_result(Ok(H256::from("sometransactionhash".keccak256())))
-            .send_transaction_result(Ok(H256::from("someothertransactionhash".keccak256())))
+            .send_transaction_result(Ok((H256::from("sometransactionhash".keccak256()), payment_timestamp_0)))
+            .send_transaction_result(Ok((H256::from("someothertransactionhash".keccak256()), payment_timestamp_1)))
             .contract_address_result(TEST_DEFAULT_CHAIN.rec().contract);
         let expected_gas_price = 5u64;
         let persistent_configuration_mock =
@@ -541,6 +548,7 @@ mod tests {
             make_wallet("blah"),
             42,
             H256::from("sometransactionhash".keccak256()),
+            payment_timestamp_0,
             earlier_in_seconds(1000),
             1,
         );
@@ -566,6 +574,7 @@ mod tests {
             make_wallet("foo"),
             21,
             H256::from("someothertransactionhash".keccak256()),
+            payment_timestamp_1,
             earlier_in_seconds(1000),
             2,
         );

@@ -14,7 +14,7 @@ use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, Transaction,
     Transactions, TxReceipt,
 };
-use crate::blockchain::tool_wrappers::SendTransactionToolWrapper;
+use crate::blockchain::tool_wrappers::{PaymentBackupRecipientWrapper, SendTransactionToolWrapper};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
@@ -421,7 +421,7 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
     send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
-    send_transaction_results: RefCell<Vec<BlockchainResult<H256>>>,
+    send_transaction_results: RefCell<Vec<BlockchainResult<(H256,SystemTime)>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<TxReceipt>>,
     send_transaction_tools_results: RefCell<Vec<Box<dyn SendTransactionToolWrapper>>>,
@@ -452,7 +452,7 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn send_transaction_result(self, result: BlockchainResult<H256>) -> Self {
+    pub fn send_transaction_result(self, result: BlockchainResult<(H256,SystemTime)>) -> Self {
         self.send_transaction_results.borrow_mut().push(result);
         self
     }
@@ -515,8 +515,9 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         amount: u64,
         nonce: U256,
         gas_price: u64,
+        rowid_payables: u16,
         _send_transaction_tools: &'a dyn SendTransactionToolWrapper,
-    ) -> BlockchainResult<H256> {
+    ) -> BlockchainResult<(H256,SystemTime)> {
         self.send_transaction_parameters.lock().unwrap().push((
             consuming_wallet.clone(),
             recipient.clone(),
@@ -551,7 +552,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.get_transaction_receipt_results.borrow_mut().remove(0)
     }
 
-    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolWrapper + 'a> {
+    fn send_transaction_tools<'a>(&'a self,backup_recipient: &dyn PaymentBackupRecipientWrapper) -> Box<dyn SendTransactionToolWrapper + 'a> {
         self.send_transaction_tools_results.borrow_mut().remove(0)
     }
 }

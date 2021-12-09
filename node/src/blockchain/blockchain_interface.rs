@@ -1,17 +1,16 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::tool_wrappers::{
-    SendTransactionToolWrapper, SendTransactionToolWrapperReal,
-};
+use crate::blockchain::tool_wrappers::{PaymentBackupRecipientWrapper, SendTransactionToolWrapper, SendTransactionToolWrapperReal};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
-use actix::Message;
+use actix::{Message};
 use futures::{future, Future};
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::constants::DEFAULT_CHAIN;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::time::SystemTime;
 use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
 use web3::types::{
@@ -19,6 +18,7 @@ use web3::types::{
     TransactionReceipt, H256, U256,
 };
 use web3::{Transport, Web3};
+use crate::blockchain::blockchain_bridge::PaymentBackup;
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -86,8 +86,9 @@ pub trait BlockchainInterface {
         amount: u64,
         nonce: U256,
         gas_price: u64,
+        payables_rowid: u16,
         send_transaction_tools: &'a dyn SendTransactionToolWrapper,
-    ) -> BlockchainResult<H256>;
+    ) -> BlockchainResult<(H256,SystemTime)>;
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
 
@@ -104,7 +105,7 @@ pub trait BlockchainInterface {
 
     fn get_transaction_receipt(&self, hash: H256) -> TxReceipt;
 
-    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolWrapper + 'a> {
+    fn send_transaction_tools<'a>(&'a self,backup_recipient: &'a dyn PaymentBackupRecipientWrapper) -> Box<dyn SendTransactionToolWrapper + 'a> {
         intentionally_blank!()
     }
 }
@@ -148,8 +149,9 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _amount: u64,
         _nonce: U256,
         _gas_price: u64,
+        _rowid_payables: u16,
         _send_transaction_tools: &'a dyn SendTransactionToolWrapper,
-    ) -> BlockchainResult<H256> {
+    ) -> BlockchainResult<(H256,SystemTime)> {
         let msg = "Can't send transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
         Err(BlockchainError::TransactionFailed(msg))
@@ -185,7 +187,7 @@ pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     web3: Web3<T>,
-    contract: Contract<T>,
+    contract: Contract<T>
 }
 
 const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
@@ -273,8 +275,9 @@ where
         amount: u64,
         nonce: U256,
         gas_price: u64,
+        rowid_payables: u16,
         send_transaction_tools: &'a dyn SendTransactionToolWrapper,
-    ) -> BlockchainResult<H256> {
+    ) -> BlockchainResult<(H256,SystemTime)> {
         debug!(
             self.logger,
             "Sending transaction for {} Gwei to {} from {}: (chain_id: {} contract: {:#x})",
@@ -292,8 +295,9 @@ where
             gas_price,
             send_transaction_tools,
         )?;
+        let payment_timestamp = send_transaction_tools.order_payment_backup(rowid_payables,amount);
         match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
-            Ok(hash) => Ok(hash),
+            Ok(hash) => Ok((hash,payment_timestamp)),
             Err(e) => Err(BlockchainError::TransactionFailed(e.to_string())),
         }
     }
@@ -335,8 +339,8 @@ where
             .wait()
     }
 
-    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolWrapper + 'a> {
-        Box::new(SendTransactionToolWrapperReal::new(&self.web3))
+    fn send_transaction_tools<'a>(&'a self, backup_recipient:&'a dyn PaymentBackupRecipientWrapper) -> Box<dyn SendTransactionToolWrapper + 'a> {
+        Box::new(SendTransactionToolWrapperReal::new(&self.web3,backup_recipient))
     }
 }
 
@@ -448,9 +452,13 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use actix::{Actor, System};
     use web3::transports::Http;
     use web3::types::H2048;
     use web3::Error as Web3Error;
+    use crate::blockchain::tool_wrappers::{PaymentBackupRecipientWrapperNull, PaymentBackupRecipientWrapperReal};
+    use crate::database::dao_utils::{to_time_t};
+    use crate::test_utils::recorder::make_recorder;
 
     #[test]
     fn blockchain_interface_non_clandestine_retrieves_transactions() {
@@ -844,31 +852,53 @@ mod tests {
         assert_eq!(token_balance, U256::from(1))
     }
 
-    //test with real web3
     #[test]
     fn blockchain_interface_non_clandestine_can_transfer_tokens() {
         let mut transport = TestTransport::default();
         transport.add_response(json!(
             "0x0000000000000000000000000000000000000000000000000000000000000001"
         ));
+        let (recorder,_, recording_arc) = make_recorder();
+        let actor_addr = recorder.start();
+        let recipient_of_payment_backup = recipient!(actor_addr,PaymentBackup);
+        let payment_backup_recipient_wrapper = PaymentBackupRecipientWrapperReal::new(&recipient_of_payment_backup);
         let subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
         );
+        let rowid = 1;
+        let amount = 9000;
 
         let result = subject.send_transaction(
             &make_paying_wallet(b"gdasgsa"),
             &make_wallet("blah123"),
-            9000,
+            amount,
             U256::from(1),
             2u64,
-            subject.send_transaction_tools().as_ref(),
-        );
+            rowid,
+            subject
+                .send_transaction_tools(&payment_backup_recipient_wrapper).as_ref(),
+        ).unwrap();
 
+        let system = System::new("can transfer tokens test");
+        System::current().stop();
+        assert_eq!(system.run(),0);
         transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0b8e83e714af8bf1685b496912ee4aeff7007ba0f4c29ae50f513bc71ce6a18f4a06a923088306b4ee9cbfcdc62c9b396385f9b1c380134bf046d6c9ae47dea6578""#)]);
         transport.assert_no_more_requests();
-        assert_eq!(result, Ok(H256::from_uint(&U256::from(1))));
+        let (hash, timestamp) = result;
+        assert_eq!(hash, H256::from_uint(&U256::from(1)));
+        let comparable_now = to_time_t(SystemTime::now());
+        let result_as_better_comparable_in_secs = to_time_t(timestamp);
+        assert!((result_as_better_comparable_in_secs + 5) >= comparable_now && comparable_now >= result_as_better_comparable_in_secs, "{} is not smaller than {}", result_as_better_comparable_in_secs, comparable_now);
+        let recording = recording_arc.lock().unwrap();
+        let sent_backup = recording.get_record::<PaymentBackup>(0);
+        let expected_payment_backup = PaymentBackup{
+            rowid,
+            payment_timestamp: sent_backup.payment_timestamp,
+            amount
+        };
+        assert_eq!(sent_backup,&expected_payment_backup)
     }
 
     #[test]
@@ -880,7 +910,9 @@ mod tests {
             Chain::EthMainnet,
         );
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let order_payment_backup_params_arc = Arc::new(Mutex::new(vec![]));
         let send_raw_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let payment_timestamp = SystemTime::now();
         let transaction_parameters_expected = TransactionParameters {
             nonce: Some(U256::from(5)),
             to: Some(subject.contract_address()),
@@ -909,20 +941,25 @@ mod tests {
         let send_transaction_tools = &SendTransactionToolWrapperMock::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             .sign_transaction_result(Ok(signed_transaction.clone()))
+            .order_payment_backup_params(&order_payment_backup_params_arc)
+            .order_payment_backup_result(payment_timestamp)
             .send_raw_transaction_params(&send_raw_transaction_params_arc)
             .send_raw_transaction_result(Ok(H256::from_uint(&U256::from(5))));
         let recipient_wallet = make_wallet("blah123");
+        let rowid_from_payables = 6;
+        let amount = 50_000;
 
         let result = subject.send_transaction(
             &make_paying_wallet(consuming_wallet_secret_raw_bytes),
             &recipient_wallet,
-            50000,
+            amount,
             U256::from(5),
             123u64,
+            rowid_from_payables,
             send_transaction_tools,
         );
 
-        assert_eq!(result, Ok(H256::from_uint(&U256::from(5))));
+        assert_eq!(result, Ok((H256::from_uint(&U256::from(5)),payment_timestamp)));
         let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
         let (transaction_params, secret) = sign_transaction_params.remove(0);
         assert!(sign_transaction_params.is_empty());
@@ -934,6 +971,8 @@ mod tests {
                 .secret()
                 .secp256k1_secret
         );
+        let order_payment_backup_params = order_payment_backup_params_arc.lock().unwrap();
+        assert_eq!(*order_payment_backup_params,vec![(rowid_from_payables,amount)]);
         let send_raw_transaction = send_raw_transaction_params_arc.lock().unwrap();
         assert_eq!(
             *send_raw_transaction,
@@ -1020,6 +1059,7 @@ mod tests {
             50000,
             U256::from(5),
             123u64,
+            1,
             send_transaction_tools,
         );
 
@@ -1054,7 +1094,8 @@ mod tests {
             9000,
             U256::from(1),
             2u64,
-            subject.send_transaction_tools().as_ref(),
+            2,
+            subject.send_transaction_tools(&PaymentBackupRecipientWrapperNull).as_ref(),
         );
 
         assert_eq!(result,
@@ -1084,6 +1125,7 @@ mod tests {
             9000,
             U256::from(1),
             2u64,
+            3,
             send_transaction_tools,
         );
 
@@ -1117,6 +1159,7 @@ mod tests {
             5000,
             U256::from(1),
             2u64,
+            1,
             send_transaction_tools,
         );
 
@@ -1156,7 +1199,8 @@ mod tests {
         let transport = TestTransport::default();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
-        let send_transaction_tools = subject.send_transaction_tools();
+        let send_transaction_tools = subject
+            .send_transaction_tools(&PaymentBackupRecipientWrapperNull);
         let consuming_wallet = test_consuming_wallet_with_secret();
         let recipient_wallet = test_recipient_wallet();
         let nonce_of_the_real_transaction = U256::from(nonce);

@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::blockchain::blockchain_interface::REQUESTS_IN_PARALLEL;
+use crate::blockchain::blockchain_interface::{BlockchainResult, REQUESTS_IN_PARALLEL};
 use crate::blockchain::tool_wrappers::{
     NotifyHandle, NotifyLaterHandle, SendTransactionToolWrapper,
 };
@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Bytes, SignedTransaction, TransactionParameters};
 use web3::Error as Web3Error;
@@ -113,6 +113,8 @@ pub struct SendTransactionToolWrapperMock {
     sign_transaction_params:
         Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
     sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
+    order_payment_backup_params: Arc<Mutex<Vec<(u16,u64)>>>,
+    order_payment_backup_results: RefCell<Vec<SystemTime>>,
     send_raw_transaction_params: Arc<Mutex<Vec<Bytes>>>,
     send_raw_transaction_results: RefCell<Vec<Result<H256, Web3Error>>>,
 }
@@ -128,6 +130,11 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperMock {
             .unwrap()
             .push((transaction_params.clone(), key.clone()));
         self.sign_transaction_results.borrow_mut().remove(0)
+    }
+
+    fn order_payment_backup(&self, rowid: u16, amount: u64) -> SystemTime {
+        self.order_payment_backup_params.lock().unwrap().push((rowid, amount));
+        self.order_payment_backup_results.borrow_mut().remove(0)
     }
 
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error> {
@@ -148,6 +155,17 @@ impl SendTransactionToolWrapperMock {
         self.sign_transaction_results.borrow_mut().push(result);
         self
     }
+
+    pub fn order_payment_backup_params(mut self, params: &Arc<Mutex<Vec<(u16,u64)>>>)->Self{
+        self.order_payment_backup_params = params.clone();
+        self
+    }
+
+    pub fn order_payment_backup_result(self, result: SystemTime) ->Self{
+        self.order_payment_backup_results.borrow_mut().push(result);
+        self
+    }
+
     pub fn send_raw_transaction_params(mut self, params: &Arc<Mutex<Vec<Bytes>>>) -> Self {
         self.send_raw_transaction_params = params.clone();
         self

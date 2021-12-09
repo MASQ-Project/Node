@@ -370,9 +370,9 @@ impl Handler<CancelFailedPendingTransaction> for Accountant {
     fn handle(
         &mut self,
         msg: CancelFailedPendingTransaction,
-        ctx: &mut Self::Context,
+        _ctx: &mut Self::Context,
     ) -> Self::Result {
-        if let Some(msg) = self.handle_cancel_pending_transaction(msg) {}
+        if let Some(msg) = self.handle_cancel_pending_transaction(msg) {unimplemented!()}
     }
 }
 
@@ -409,8 +409,6 @@ impl Handler<NodeFromUiMessage> for Accountant {
         }
     }
 }
-
-type SentPaymentReturnType = (Vec<Payment>, Vec<PaymentError>);
 
 impl Accountant {
     pub fn new(
@@ -1902,7 +1900,8 @@ pub mod tests {
     #[test]
     fn accountant_reports_sent_payments_when_blockchain_bridge_reports_account_payable() {
         let earning_wallet = make_wallet("earner3000");
-        let now = to_time_t(SystemTime::now());
+        let now_system = SystemTime::now();
+        let now = to_time_t(now_system);
         let expected_wallet = make_wallet("blah");
         let expected_wallet_inner = expected_wallet.clone();
         let expected_amount =
@@ -1926,6 +1925,7 @@ pub mod tests {
                 expected_wallet_inner,
                 expected_amount,
                 expected_pending_payment_transaction_inner,
+                now_system,
                 earlier_in_seconds(1000),
                 1,
             ))]))
@@ -1968,17 +1968,17 @@ pub mod tests {
         accountant_mock_awaiter.await_message_count(1);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let actual_payments = accountant_recording.get_record::<SentPayments>(0);
-        let mut expected_payment = Payment::new(
+        let expected_payment = Payment::new(
             expected_wallet,
             expected_amount,
             expected_pending_payment_transaction,
+            now_system,
             earlier_in_seconds(1000),
             1,
         );
         let payments = actual_payments.payments.clone();
         let maybe_payment = payments.get(0).clone();
         let result_payment = maybe_payment.unwrap().clone();
-        expected_payment.timestamp = result_payment.unwrap().timestamp;
         assert_eq!(
             actual_payments,
             &SentPayments {
@@ -3322,10 +3322,12 @@ pub mod tests {
         let payment_2_hash = H256::from_uint(&U256::from(789));
         let wallet_1 = make_wallet("booga");
         let wallet_2 = make_wallet("booga_booga");
+        let now_system = SystemTime::now();
         let payment_1 = Payment::new(
             wallet_1.clone(),
             6789,
             payment_1_hash,
+            now_system,
             earlier_in_seconds(1000),
             1,
         );
@@ -3333,6 +3335,7 @@ pub mod tests {
             wallet_2.clone(),
             5500,
             payment_2_hash,
+            now_system,
             earlier_in_seconds(2000),
             2,
         );
@@ -3375,6 +3378,7 @@ pub mod tests {
 
     #[test]
     fn handle_sent_payments_receives_one_payment_being_incorrect_and_one_correct() {
+        let now_system = SystemTime::now();
         let payment_hash_1 = H256::from_uint(&U256::from(789));
         let payment_1 = Err(PaymentError::PreTransaction(
             PaymentErrorKind::BlockchainError("wrong wallet".to_string()),
@@ -3385,6 +3389,7 @@ pub mod tests {
             make_wallet("booga"),
             6789,
             payment_hash_2,
+            now_system,
             earlier_in_seconds(1000),
             2,
         );
@@ -3419,6 +3424,7 @@ pub mod tests {
     #[test]
     fn handle_sent_payments_handles_overflow() {
         init_test_logging();
+        let now_system = SystemTime::now();
         let wallet = make_wallet("booga");
         let tx_hash = H256::from_uint(&U256::from(1));
         let payments = SentPayments {
@@ -3426,6 +3432,7 @@ pub mod tests {
                 wallet.clone(),
                 u64::MAX,
                 tx_hash,
+                now_system,
                 earlier_in_seconds(1000),
                 1,
             ))],
@@ -3713,6 +3720,8 @@ pub mod tests {
         let pending_tx_hash_2 = H256::from_uint(&U256::from(567));
         let rowid_for_account_1 = 3;
         let rowid_for_account_2 = 5;
+        let payment_timestamp_1 = from_time_t(to_time_t(SystemTime::now()) - 2);
+        let payment_timestamp_2 = SystemTime::now();
         let transaction_receipt_tx_2_first_round = TransactionReceipt::default();
         let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
         let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
@@ -3726,8 +3735,8 @@ pub mod tests {
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
-            .send_transaction_result(Ok(pending_tx_hash_1))
-            .send_transaction_result(Ok(pending_tx_hash_2))
+            .send_transaction_result(Ok((pending_tx_hash_1,payment_timestamp_1)))
+            .send_transaction_result(Ok((pending_tx_hash_2,payment_timestamp_2)))
             .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
             .get_transaction_receipt_result(Ok(None))
             .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_first_round)))
