@@ -480,10 +480,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         // and B) what its public key is.
         match &self.config.neighborhood_config.mode {
             NeighborhoodMode::Standard(node_addr, _, _)
-                if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) =>
-            {
-                ()
-            } // node_addr still coming
+                if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) => {} // node_addr still coming
             _ => Bootstrapper::report_local_descriptor(cryptde_ref, &self.config.node_descriptor), // here or not coming
         }
         let stream_handler_pool_subs = self.actor_system_factory.make_and_start_actors(
