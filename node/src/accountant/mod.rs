@@ -49,8 +49,6 @@ use std::ops::Add;
 use std::path::Path;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use actix::dev::MessageResponse;
-use regex::internal::Input;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 300; // 5 minutes
@@ -298,65 +296,12 @@ impl Accountant {
     }
 
     fn scan_for_payables(&mut self) {
-        debug!(self.logger, "Scanning for payables");
-        let future_logger = self.logger.clone();
-
-        let all_non_pending_payables = self.payable_dao.non_pending_payables();
-        debug!(
-            self.logger,
-            "{}",
-            Self::investigate_debt_extremes(&all_non_pending_payables)
-        );
-        let qualified_payables = all_non_pending_payables
-            .into_iter()
-            .filter(Accountant::should_pay)
-            .collect::<Vec<PayableAccount>>();
-        info!(
-            self.logger,
-            "Chose {} qualified debts to pay",
-            qualified_payables.len()
-        );
-        debug!(
-            self.logger,
-            "{}",
-            Self::payments_debug_summary(&qualified_payables)
-        );
-        if !qualified_payables.is_empty() {
-            let report_sent_payments = self.report_sent_payments_sub.clone();
-            // TODO: This is bad code. The ReportAccountsPayable message should have no result;
-            // instead, when the BlockchainBridge completes processing the ReportAccountsPayable
-            // message, it should send a SentPayments message back to the Accountant. There should
-            // be no future here: mixing futures and Actors is a bad idea.
-            let future = self
-                .report_accounts_payable_sub
-                .as_ref()
-                .expect("BlockchainBridge is unbound")
-                .send(ReportAccountsPayable {
-                    accounts: qualified_payables,
-                })
-                .then(move |results| match results {
-                    Ok(Ok(results)) => {
-                        report_sent_payments
+        self
+                            .report_sent_payments_sub
+                            .clone()
                             .expect("Accountant is unbound")
-                            .try_send(SentPayments { payments: results })
+                            .try_send(SentPayments { payments: sent_payments })
                             .expect("Accountant is dead");
-                        Ok(())
-                    }
-                    Ok(Err(e)) => {
-                        warning!(future_logger, "{}", e);
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!(
-                            future_logger,
-                            "Unable to send ReportAccountsPayable: {:?}", e
-                        );
-                        thread::sleep(Duration::from_secs(1));
-                        panic!("Unable to send ReportAccountsPayable: {:?}", e);
-                    }
-                });
-            actix::spawn(future);
-        }
     }
 
     fn scan_for_delinquencies(&mut self) {
@@ -395,69 +340,14 @@ impl Accountant {
     }
 
     fn scan_for_received_payments(&mut self) {
-        let future_logger = self.logger.clone();
-        debug!(
-            self.logger,
-            "Scanning for payments to {}", self.earning_wallet
-        );
-        let future_report_new_payments_sub = self.report_new_payments_sub.clone();
-        let start_block = match self.persistent_configuration.start_block() {
-            Ok(start_block) => start_block,
-            Err(pce) => {
-                error!(
-                    self.logger,
-                    "Could not retrieve start block: {:?} - aborting received-payment scan", pce
-                );
-                return;
-            }
-        };
-            self
-            .retrieve_transactions_sub
-            .as_ref()
-            .expect("BlockchainBridge is unbound")
-            .try_send(RetrieveTransactions {
-                start_block,
-                recipient: self.earning_wallet.clone(),
-            });
-            let transactions_possibly = self
-            .retrieve_transactions_sub
-            .as_ref()
-            .expect("BlockchainBridge is unbound")
-            .try_send(RetrieveTransactions {
-                start_block,
-                recipient: self.earning_wallet.clone(),
-            })
-                .into_result(move |transactions_possibly| match transactions_possibly {
-                Ok(Ok(ref vec)) if vec.is_empty() => {
-                    debug!(future_logger, "No payments detected");
-                    Ok(())
-                }
-                Ok(Ok(transactions)) => {
-                    future_report_new_payments_sub
-                        .expect("Accountant is unbound")
-                        .try_send(ReceivedPayments {
-                            payments: transactions,
-                        })
-                        .expect("Accountant is dead.");
-                    Ok(())
-                }
-                Ok(Err(e)) => {
-                    warning!(
-                        future_logger,
-                        "Unable to retrieve transactions from Blockchain Bridge: {:?}",
-                        e
-                    );
-                    Err(())
-                }
-                Err(e) => {
-                    error!(
-                        future_logger,
-                        "Unable to send to Blockchain Bridge: {:?}", e
-                    );
-                    thread::sleep(Duration::from_secs(1));
-                    panic!("Unable to send to Blockchain Bridge: {:?}", e);
-                }
-            });
+        self
+                .report_new_payments_sub
+                .clone()
+                .expect("Accountant is unbound")
+                .try_send(ReceivedPayments {
+                    payments: transactions,
+                })
+                .expect("Accountant is dead.");
     }
 
     fn balance_and_age(account: &ReceivableAccount) -> (String, Duration) {
@@ -668,7 +558,35 @@ impl Accountant {
     }
 
     fn handle_scan_for_payables(&mut self) {
-        self.scan_for_payables();
+        debug!(self.logger, "Scanning for payables");
+        let all_non_pending_payables = self.payable_dao.non_pending_payables();
+        debug!(
+            self.logger,
+            "{}",
+            Self::investigate_debt_extremes(&all_non_pending_payables)
+        );
+        let qualified_payables = all_non_pending_payables
+            .into_iter()
+            .filter(Accountant::should_pay)
+            .collect::<Vec<PayableAccount>>();
+        info!(
+            self.logger,
+            "Chose {} qualified debts to pay",
+            qualified_payables.len()
+        );
+        debug!(
+            self.logger,
+            "{}",
+            Self::payments_debug_summary(&qualified_payables)
+        );
+        if !qualified_payables.is_empty() { self
+                .report_accounts_payable_sub
+                .as_ref()
+                .expect("BlockchainBridge is unbound")
+                .try_send(ReportAccountsPayable {
+                    accounts: qualified_payables,
+                });
+        }
     }
 
     fn handle_scan_for_receivables(&mut self) {

@@ -729,23 +729,15 @@ mod tests {
             AccountantSubs {
                 bind: recipient!(addr, BindMessage),
                 start: recipient!(addr, StartMessage),
-                report_routing_service_provided: addr
-                    .clone()
-                    .recipient::<ReportRoutingServiceProvidedMessage>(),
-                report_exit_service_provided: addr
-                    .clone()
-                    .recipient::<ReportExitServiceProvidedMessage>(),
-                report_routing_service_consumed: addr
-                    .clone()
-                    .recipient::<ReportRoutingServiceConsumedMessage>(),
-                report_exit_service_consumed: addr
-                    .clone()
-                    .recipient::<ReportExitServiceConsumedMessage>(),
+                report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
+                report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
+                report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
+                report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
                 report_new_payments: recipient!(addr, ReceivedPayments),
                 report_sent_payments: recipient!(addr, SentPayments),
-                ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
-                scan_for_payables: addr.clone().recipient::<ScanForPayables>(),
-                scan_for_receivables: addr.clone().recipient::<ScanForReceivables>(),
+                ui_message_sub: recipient!(addr, NodeFromUiMessage),
+                scan_for_payables: recipient!(addr, ScanForPayables),
+                scan_for_receivables: recipient!(addr, ScanForReceivables),
             }
         }
 
