@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::blockchain::blockchain_interface::{BlockchainResult, REQUESTS_IN_PARALLEL};
+use crate::blockchain::blockchain_interface::REQUESTS_IN_PARALLEL;
 use crate::blockchain::tool_wrappers::{
     NotifyHandle, NotifyLaterHandle, SendTransactionToolWrapper,
 };

@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_bridge::PendingPaymentBackup;
-use crate::blockchain::blockchain_interface::BlockchainResult;
 use actix::prelude::SendError;
 use actix::{Message, Recipient, SpawnHandle};
 use ethereum_types::H256;
@@ -141,8 +140,8 @@ pub struct NotifyHandleReal<T> {
 }
 
 impl<T: Message> NotifyHandle<T> for NotifyHandleReal<T> {
-    fn notify<'a>(&'a self, msg: T, closure: Box<dyn FnMut(T) + 'a>) {
-        todo!()
+    fn notify<'a>(&'a self, msg: T, mut closure: Box<dyn FnMut(T) + 'a>) {
+        closure(msg)
     }
 }
 

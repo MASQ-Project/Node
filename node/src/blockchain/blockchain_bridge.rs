@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::Payment;
-use crate::accountant::RequestTransactionReceipts;
+use crate::accountant::{PaymentWithMetadata, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
     BlockchainInterfaceNonClandestine, BlockchainResult, Transaction, TxReceipt,
@@ -112,13 +112,17 @@ impl Handler<RetrieveTransactions> for BlockchainBridge {
 impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: RequestTransactionReceipts, ctx: &mut Self::Context) -> Self::Result {
-        let results: Vec<(TxReceipt, Payment)> = msg
+    fn handle(
+        &mut self,
+        msg: RequestTransactionReceipts,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let results: Vec<(TxReceipt, PaymentWithMetadata)> = msg
             .pending_payments
             .iter()
             .map(|pending_payment| {
                 self.blockchain_interface
-                    .get_transaction_receipt(pending_payment.transaction)
+                    .get_transaction_receipt(pending_payment.payment.transaction)
             })
             .zip(msg.pending_payments.iter().cloned())
             .collect_vec();
@@ -128,7 +132,6 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
             .expect("Accountant is unbound")
             .try_send(ReportTransactionReceipts {
                 payments_with_tx_receipts: results,
-                receipt_failure_count: 0,
                 attempt: msg.attempt,
             })
             .expect("Accountant is dead")
@@ -137,7 +140,7 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
 
 #[derive(Debug, PartialEq, Message, Clone)]
 pub struct ReportTransactionReceipts {
-    pub payments_with_tx_receipts: Vec<(TxReceipt, Payment)>,
+    pub payments_with_tx_receipts: Vec<(TxReceipt, PaymentWithMetadata)>,
     pub attempt: u16,
 }
 

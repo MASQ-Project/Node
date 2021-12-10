@@ -31,9 +31,6 @@ pub struct Payment {
     pub transaction: H256,
     //gotten from payables which also fills a referential column in pending_payments
     pub rowid: u16,
-    //for later discussion - I considered this structured as metadata but Payment
-    //is actually used just in the payment confirmation process so this may belong here
-    pub receipt_failures: u8,
 }
 
 impl Payment {
@@ -52,7 +49,6 @@ impl Payment {
             previous_timestamp,
             transaction: txn,
             rowid,
-            receipt_failures: 0,
         }
     }
 }
@@ -652,7 +648,6 @@ mod tests {
             previous_timestamp: from_time_t(189_000_000),
             transaction: H256::from_uint(&U256::from(16)),
             rowid: 1,
-            receipt_failures: 0,
         };
         let hash = H256::from_uint(&U256::from(12345));
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
