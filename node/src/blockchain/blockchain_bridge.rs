@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::Payment;
+use crate::accountant::payable_dao::{PayableAccount, Payment};
 use crate::accountant::{PaymentWithMetadata, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
@@ -260,23 +260,6 @@ impl BlockchainBridge {
         MessageResult(result)
     }
 
-    //TODO delete this
-    // fn collect_hashes_and_payments_from_sent_payments(
-    //     result: &Result<Vec<BlockchainResult<Payment>>, String>,
-    // ) -> (Vec<H256>, Vec<Payment>) {
-    //     let mut hashes_of_pending_tx = vec![];
-    //     let mut payments = vec![];
-    //     let _ = result.as_ref().map(|collection| {
-    //         collection.iter().for_each(|result| {
-    //             let _ = result.as_ref().map(|payment| {
-    //                 hashes_of_pending_tx.push(payment.transaction);
-    //                 payments.push(payment.clone())
-    //             });
-    //         })
-    //     });
-    //     (hashes_of_pending_tx, payments)
-    // }
-
     fn process_payments(
         &self,
         creditors_msg: ReportAccountsPayable,
@@ -286,51 +269,47 @@ impl BlockchainBridge {
         creditors_msg
             .accounts
             .iter()
-            .map(|payable| {
-                match self
-                    .blockchain_interface
-                    .get_transaction_count(consuming_wallet)
-                {
-                    Ok(nonce) => {
-                        let amount = u64::try_from(payable.balance).unwrap_or_else(|_| {
-                            unimplemented!() //   panic!("Lost payable amount precision: {}", payable.balance)
-                        });
-                        //TODO this needs to go inside send_transaction()
-                        // Ok(()) => match self.pending_payments_dao.as_mut().insert_record(PendingPaymentRecord::new(&payment,rowid)){
-                        //     Ok(_) => Ok((payment.transaction,rowid)),
-                        //     Err(e) => Err(PaymentError::PostTransaction(PaymentErrorKind::RusqliteError(format!("Failed to finish a record insertion of pending transaction: {}; rowid: {}",payment.transaction,rowid)),payment.transaction))
-                        // },
-                        match self.blockchain_interface.send_transaction(
-                            consuming_wallet,
-                            &payable.wallet,
-                            amount,
-                            nonce,
-                            gas_price,
-                            payable.rowid,
-                            self.blockchain_interface
-                                .send_transaction_tools(&PaymentBackupRecipientWrapperReal::new(
-                                    self.payment_confirmation
-                                        .transaction_backup_tx_subs_opt
-                                        .as_ref()
-                                        .expect("Accountant is unbound"),
-                                ))
-                                .as_ref(),
-                        ) {
-                            Ok((hash, timestamp)) => Ok(Payment::new(
-                                payable.wallet.clone(),
-                                amount,
-                                hash,
-                                timestamp,
-                                payable.last_paid_timestamp,
-                                payable.rowid,
-                            )),
-                            Err(e) => Err(e),
-                        }
-                    }
-                    Err(e) => Err(e),
-                }
-            })
+            .map(|payable| self.process_payments_inner_body(payable, gas_price, consuming_wallet))
             .collect::<Vec<BlockchainResult<Payment>>>()
+    }
+
+    fn process_payments_inner_body(
+        &self,
+        payable: &PayableAccount,
+        gas_price: u64,
+        consuming_wallet: &Wallet,
+    ) -> BlockchainResult<Payment> {
+        let nonce = self
+            .blockchain_interface
+            .get_transaction_count(consuming_wallet)?;
+        let unsigned_amount = u64::try_from(payable.balance)
+            .expect("account with a negative balance should never get here");
+        match self.blockchain_interface.send_transaction(
+            consuming_wallet,
+            &payable.wallet,
+            unsigned_amount,
+            nonce,
+            gas_price,
+            payable.rowid,
+            self.blockchain_interface
+                .send_transaction_tools(&PaymentBackupRecipientWrapperReal::new(
+                    self.payment_confirmation
+                        .transaction_backup_tx_subs_opt
+                        .as_ref()
+                        .expect("Accountant is unbound"),
+                ))
+                .as_ref(),
+        ) {
+            Ok((hash, timestamp)) => Ok(Payment::new(
+                payable.wallet.clone(),
+                unsigned_amount,
+                hash,
+                timestamp,
+                payable.last_paid_timestamp,
+                payable.rowid,
+            )),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -719,128 +698,6 @@ mod tests {
             ))
         );
     }
-
-    //TODO remove this
-    // #[test]
-    // fn blockchain_bridge_lists_hashes_of_active_pending_txs() {
-    //     let tx_hash1 = H256::from_uint(&U256::from(456));
-    //     let tx_hash2 = H256::from_uint(&U256::from(123));
-    //     let blockchain_interface_mock = BlockchainInterfaceMock::default()
-    //         .get_transaction_count_result(Ok(web3::types::U256::from(1)))
-    //         .get_transaction_count_result(Ok(web3::types::U256::from(2)))
-    //         .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
-    //         .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
-    //         .send_transaction_result(Ok(tx_hash1))
-    //         .send_transaction_result(Ok(tx_hash2));
-    //     //injecting results is quite specific...they come in with "send_transaction_tool_wrapper_factory"
-    //     let persistent_configuration_mock =
-    //         PersistentConfigurationMock::new().gas_price_result(Ok(150));
-    //     let subject = BlockchainBridge::new(
-    //         Box::new(blockchain_interface_mock),
-    //         Box::new(persistent_configuration_mock),
-    //         false,
-    //         Some(make_wallet("ourWallet"))
-    //     );
-    //     let wallet1 = make_wallet("blah");
-    //     let timestamp1 = from_time_t(456000);
-    //     let balance1 = 45_000;
-    //     let wallet2 = make_wallet("hurrah");
-    //     let timestamp2 = from_time_t(300000);
-    //     let balance2 = 111;
-    //     let account1 = PayableAccount {
-    //         wallet: wallet1.clone(),
-    //         balance: balance1,
-    //         last_paid_timestamp: timestamp1,
-    //         pending_payment_transaction: None,
-    //     };
-    //     let account2 = PayableAccount {
-    //         wallet: wallet2.clone(),
-    //         balance: balance2,
-    //         last_paid_timestamp: timestamp2,
-    //         pending_payment_transaction: None,
-    //     };
-    //     let request = ReportAccountsPayable {
-    //         accounts: vec![account1, account2],
-    //     };
-    //
-    //     let result = subject.handle_report_accounts_payable(request);
-    //
-    //     let (result, hashes) = result;
-    //     let mut vec_of_payments = result.0.unwrap();
-    //     let processed_payment_1 = vec_of_payments.remove(0).unwrap();
-    //     assert_eq!(processed_payment_1.amount, balance1 as u64);
-    //     assert_eq!(processed_payment_1.to, wallet1);
-    //     assert_eq!(processed_payment_1.transaction, tx_hash1);
-    //     assert!(to_time_t(processed_payment_1.timestamp) > (to_time_t(SystemTime::now()) - 10));
-    //     let processed_payment_2 = vec_of_payments.remove(0).unwrap();
-    //     assert_eq!(processed_payment_2.amount, balance2 as u64);
-    //     assert_eq!(processed_payment_2.to, wallet2);
-    //     assert_eq!(processed_payment_2.transaction, tx_hash2);
-    //     assert!(to_time_t(processed_payment_2.timestamp) > (to_time_t(SystemTime::now()) - 10));
-    //     assert_eq!(hashes.len(), 2);
-    //     assert!(vec_of_payments.is_empty());
-    //     assert_eq!(
-    //         subject.payment_confirmation.list_of_pending_txs.borrow().len(),
-    //         2
-    //     );
-    //     assert!(subject
-    //         .payment_confirmation
-    //         .list_of_pending_txs
-    //         .borrow()
-    //         .contains_key(&tx_hash1));
-    //     assert!(subject
-    //         .payment_confirmation
-    //         .list_of_pending_txs
-    //         .borrow()
-    //         .contains_key(&tx_hash2));
-    // }
-
-    // #[test]
-    // fn add_new_pending_transaction_on_list_returns_error_on_double_insertion() {
-    //     let pending_tx_hash = H256::from_uint(&U256::from(123));
-    //     let blockchain_interface_mock = BlockchainInterfaceMock::default()
-    //         .get_transaction_count_result(Ok(web3::types::U256::from(1)))
-    //         .send_transaction_result(Ok(pending_tx_hash))
-    //         .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull));
-    //     let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(150));
-    //     let subject = BlockchainBridge::new(
-    //         Box::new(blockchain_interface_mock),
-    //         Box::new(persistent_config),
-    //         false,
-    //         Some(make_wallet("blahBlah"))
-    //     );
-    //     let wallet = make_wallet("blah");
-    //     let timestamp = from_time_t(456000);
-    //     let balance = 45_000;
-    //     let account = PayableAccount {
-    //         wallet: wallet.clone(),
-    //         balance,
-    //         last_paid_timestamp: timestamp,
-    //         pending_payment_transaction: None,
-    //     };
-    //     let request = ReportAccountsPayable {
-    //         accounts: vec![account],
-    //     };
-    //     let payment = Payment {
-    //         to: wallet,
-    //         amount: balance as u64,
-    //         timestamp,
-    //         previous_timestamp: earlier_in_seconds(5000),
-    //         transaction: pending_tx_hash,
-    //     };
-    //     assert!(subject
-    //         .payment_confirmation
-    //         .list_of_pending_txs
-    //         .borrow_mut()
-    //         .insert(pending_tx_hash, payment)
-    //         .is_none());
-    //
-    //     let result = subject.handle_report_accounts_payable(request);
-    //
-    //     let (result, hashes) = result;
-    //     assert!(hashes.is_empty());
-    //     assert_eq!(result.0,Err("ReportAccountPayable: Repeated attempt for an insertion of the same hash of a pending transaction: 0x0000…007b".to_string()))
-    // }
 
     #[test]
     #[should_panic(

@@ -61,6 +61,7 @@ pub enum BlockchainError {
     UnusableWallet(String),
     QueryFailed(String),
     TransactionFailed(String),
+    UnsupportedSignValue(i64),
 }
 
 impl Display for BlockchainError {

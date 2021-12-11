@@ -242,18 +242,6 @@ impl Handler<SentPayments> for Accountant {
         if !err.is_empty() {
             unimplemented!() // self.handle_tx_cancellation(cancellations);
         }
-        // if !still_pending_turned_into_actor_msg.hashes.is_empty() {
-        //     let closure = |msg: CheckPendingTransactionForConfirmation,
-        //                    dur: Duration|
-        //                    -> SpawnHandle { ctx.notify_later(msg, dur) };
-        //     let _ = self
-        //         .payment_confirmation
-        //         .notify_later_handle_for_check_msg
-        //         .notify_later(
-        //             still_pending_turned_into_actor_msg,
-        //             Duration::from_millis(unimplemented!()),
-        //             Box::new(closure),
-        //         );
     }
 }
 
@@ -1127,45 +1115,42 @@ impl Accountant {
         attempt: u16,
         logger: &Logger,
     ) -> PendingTransactionStatus {
-        fn elapsed_in_sec(payment: &Payment) -> u64 {
+        fn elapsed_in_ms(payment: &Payment) -> u128 {
             payment
-                .previous_timestamp
+                .timestamp
                 .elapsed()
                 .expect("time counts for elapsed failed")
-                .as_secs()
+                .as_millis()
         }
         fn handle_none_receipt(
             payment: PaymentWithMetadata,
             attempt: u16,
             logger: &Logger,
         ) -> PendingTransactionStatus {
-            unimplemented!()
-            // info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}s after its sending",payment.payment.transaction, attempt, elapsed_in_sec(&payment.payment));
-            // PendingTransactionStatus::StillPending { payment, attempt }
+            info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",payment.payment.transaction, attempt, elapsed_in_ms(&payment.payment));
+            PendingTransactionStatus::StillPending { payment, attempt }
         }
         fn handle_status_with_success(
             payment: Payment,
             attempt: u16,
             logger: &Logger,
         ) -> PendingTransactionStatus {
-            unimplemented!()
-            // info!(
-            //     logger,
-            //     "Transaction '{}' has been confirmed at attempt {} at {}s after its sending",
-            //     payment.transaction,
-            //     attempt,
-            //     elapsed_in_sec(&payment)
-            // );
-            // PendingTransactionStatus::Confirmed(payment)
+            info!(
+                logger,
+                "Transaction '{}' has been added to the blockchain; detected locally at attempt {} at {}ms after its sending",
+                payment.transaction,
+                attempt,
+                elapsed_in_ms(&payment)
+            );
+            PendingTransactionStatus::Confirmed(payment)
         }
         fn handle_status_with_failure(
             payment: &Payment,
             attempt: u16,
             logger: &Logger,
         ) -> PendingTransactionStatus {
-            unimplemented!()
-            // warning!(logger,"Pending transaction '{}' announced as a failure on the check of attempt {} at {}s after its sending",payment.transaction,attempt,elapsed_in_sec(payment));
-            // PendingTransactionStatus::Failure(payment.into())
+            warning!(logger,"Pending transaction '{}' announced as a failure on the check of attempt {} at {}ms after its sending",payment.transaction,attempt,elapsed_in_ms(payment));
+            PendingTransactionStatus::Failure(payment.into())
         }
         match receipt.status{
                 None => handle_none_receipt(payment,attempt,logger),
@@ -1332,7 +1317,6 @@ pub mod tests {
     use actix::{Arbiter, System};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
-    use libc::pread;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
@@ -1936,6 +1920,7 @@ pub mod tests {
         let earning_wallet = make_wallet("earner3000");
         let now_system = SystemTime::now();
         let now = to_time_t(now_system);
+        let earlier_system = earlier_in_seconds(1000);
         let expected_wallet = make_wallet("blah");
         let expected_wallet_inner = expected_wallet.clone();
         let expected_amount =
@@ -1960,7 +1945,7 @@ pub mod tests {
                 expected_amount,
                 expected_pending_payment_transaction_inner,
                 now_system,
-                earlier_in_seconds(1000),
+                earlier_system,
                 1,
             ))]))
             .retrieve_transactions_response(Ok(vec![]));
@@ -2007,7 +1992,7 @@ pub mod tests {
             expected_amount,
             expected_pending_payment_transaction,
             now_system,
-            earlier_in_seconds(1000),
+            earlier_system,
             1,
         );
         let payments = actual_payments.payments.clone();
@@ -2633,7 +2618,7 @@ pub mod tests {
         subject.scan_for_received_payments();
 
         let tlh = TestLogHandler::new();
-        tlh.exists_log_matching("ERROR: Accountant: Could not retrieve start block: NotPresent - aborting received-payment scan");
+        tlh.exists_log_containing("ERROR: Accountant: Could not retrieve start block: NotPresent - aborting received-payment scan");
     }
 
     #[test]
@@ -3732,18 +3717,23 @@ pub mod tests {
 
     #[test]
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
-        //TODO repair this description
-        //we send a list of creditor accounts with mature debts to BlockchainBridge
-        //he acts like he's sending transactions for paying the debts (transacting is mocked),
-        //next BlockchainBridge registers Hashes and payment backups of the pending transactions and also prepares himself
-        //a self-notification to be sent later on letting him know he should check whether the transactions have been confirmed
-        // - this message will go over back repeatedly in intervals; when it finds a confirmation of the transaction
-        //it sends a message to Accountant to update the state of the database (mocked) by blanking out the column for pending
-        //transactions for the given confirmed transaction;
-        //along with the previous, right away when we get hashes of the new pending transactions Accountant is given a message
-        //and writes a record for the respective account belonging to the wallet where the transaction was sent to.
+        //We send a list of creditor accounts with mature debts to BlockchainBridge
+        //he acts like he's sending transactions for paying them (the transacting part is mocked),
+        //next BlockchainBridge rely payments to Accountant with PaymentSent message. There we take care of an update
+        //of the payables table, marking a pending tx, after which we register a delayed self-notification
+        //to send a message requesting fetching tx receipts, when we get the receipts we process
+        //them and make and either registr another self-notification to repeat the cycle (that is for a still
+        //pending transaction) or we can demand a cancellation for the reason of either getting a confirmation for
+        //the transaction or for having a failure on that transaction.
         //One transaction is canceled after failure detected and the other is successfully confirmed.
-        //On failure state of the account is reverted back to the state how it was before the stimulus to pay came up.
+        //When a transaction is being clean out, we remove marks from both payables and pending_payments tables.
+        //It's a very similar procedure as for a confirmation or remotely happened failure (not a procedural
+        //error within our code)
+        //Extending beyond the scope of this test: If it were a failure occurred after the moment of sending
+        //a theoretically correct transaction what we also call a post-transaction time and if it stands that
+        //we can reach a solid backup of the payment we will do just a partial clean-up, leaving the confirmation
+        //for another periodical scan for listed but still unconfirmed transactions (but this part is not a part
+        //of this test)
         init_test_logging();
         let mark_pending_payment_params_arc = Arc::new(Mutex::new(vec![]));
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3778,6 +3768,9 @@ pub mod tests {
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
+            //because we cannot have both, resolution on the higher level and also regarding what's inside blockchain interface,
+            //there is (only) one component that is missing in this wholesome test - the part where we send a request to create
+            //a backup for the payment's parameters in the DB - this happens inside send_raw_transaction()
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
             .send_transaction_result(Ok((pending_tx_hash_1, payment_timestamp_1)))
@@ -4062,12 +4055,14 @@ pub mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("DEBUG: Accountant: Transaction 0x0000…007b for wallet 0x00000000000000000000006372656469746f7231 was unmarked as pending due to cancellation");
         log_handler.exists_log_containing("INFO: Accountant: Broken transaction 0x0000…007b for wallet 0x00000000000000000000006372656469746f7231 was successfully canceled");
+        log_handler.exists_log_matching("INFO: Accountant: Transaction '0x0000…0237' has been added to the blockchain; detected locally at attempt 4 at \\d{2,}ms after its sending");
         log_handler.exists_log_containing("INFO: Accountant: Confirmation of transaction 0000000000000000000000000000000000000000000000000000000000000237 was wholly processed");
     }
 
     #[test]
     //TODO finish this test later by adding code and assertions for coping with errors
-    fn check_message_is_not_emitted_if_we_got_no_ok_payments_from_processed_transactions() {
+    fn check_message_is_not_emitted_if_we_got_no_ok_payments_from_processed_transactions_and_testing_the_tx_cancellation_branch(
+    ) {
         let notify_later_check_for_confirmation_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_check_for_confirmation_params_arc_cloned =
             notify_later_check_for_confirmation_params_arc.clone(); //because it moves into a closure
@@ -4107,9 +4102,9 @@ pub mod tests {
                     .notify_handle_request_transaction_receipts = Box::new(notify_later_half_mock);
                 subject
             });
-        let mut peer_actors = peer_actors_builder().build();
+        //let mut peer_actors = peer_actors_builder().build();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
-        peer_actors.accountant = accountant_subs.clone();
+        //peer_actors.accountant = accountant_subs.clone();
         let dummy_actor = DummyActor::new(None);
         let dummy_actor_addr = Arbiter::builder()
             .stop_system_on_panic(true)
@@ -4118,7 +4113,7 @@ pub mod tests {
         let mut payment = make_payment();
         payment.to = wallet.clone();
         payment.transaction = tx_hash;
-        send_bind_message!(accountant_subs, peer_actors);
+        //send_bind_message!(accountant_subs, peer_actors);
 
         let _ = accountant_subs
             .report_sent_payments
@@ -4128,9 +4123,9 @@ pub mod tests {
             .unwrap();
 
         dummy_actor_addr
-            .try_send(CleanUpMessage { sleep_ms: 1 })
+            .try_send(CleanUpMessage { sleep_ms: 400 })
             .unwrap();
-        system.run();
+        assert_eq!(system.run(), 0);
         let mark_pending_params = mark_pending_payment_params_arc.lock().unwrap();
         assert_eq!(*mark_pending_params, vec![(wallet, tx_hash)]);
         let notify_later_check_for_confirmation_params =
@@ -4150,8 +4145,9 @@ pub mod tests {
         let notify_later_params_arc_cloned = notify_later_params_arc.clone(); //because it moves into a closure
         let system = System::new("attempt of the first check message");
         let short_interval_to_speed_up_the_test_ms = 2;
-        let blockchain_bridge_arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let accountant_addr = blockchain_bridge_arbiter.start(move |_| {
+        let (blockchain_bridge, _, recording_arc) = make_recorder();
+        let accountant_arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let accountant_addr = accountant_arbiter.start(move |_| {
             let payable_dao = PayableDaoMock::default()
                 .mark_pending_payment_params(&mark_pending_transaction_params_arc_cloned)
                 .mark_pending_payment_result(Ok(()));
@@ -4170,12 +4166,15 @@ pub mod tests {
             subject
         });
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
-        let peer_actors = peer_actors_builder().build();
+        let peer_actors = peer_actors_builder()
+            .blockchain_bridge(blockchain_bridge)
+            .build();
         let wallet = make_wallet("creditor1");
         let tx_hash = H256::from_uint(&U256::from(4568));
         let mut payment = make_payment();
         payment.to = wallet.clone();
         payment.transaction = tx_hash;
+        send_bind_message!(accountant_subs, peer_actors);
 
         let _ = accountant_subs
             .report_sent_payments
@@ -4216,7 +4215,6 @@ pub mod tests {
         let blockchain_interface =
             BlockchainInterfaceMock::default().get_transaction_receipt_result(Ok(None));
         let subject = AccountantBuilder::default().build();
-        let hash = H256::from_uint(&U256::from(789));
         let tx_receipt = Ok(None);
         let payment = make_payment();
         let meta_payment = PaymentWithMetadata {
@@ -4242,47 +4240,50 @@ pub mod tests {
 
     #[test]
     fn receipt_check_for_pending_tx_when_tx_status_is_a_failure() {
-        unimplemented!()
-        // init_test_logging();
-        // let hash = H256::from_uint(&U256::from(789));
-        // let mut tx_receipt = TransactionReceipt::default();
-        // tx_receipt.transaction_hash = hash;
-        // tx_receipt.status = Some(U64::from(1)); //failure
-        // let when_sent = SystemTime::now()
-        //     .checked_sub(Duration::from_secs(150))
-        //     .unwrap();
-        // let attempt = 5;
-        // let subject = make_subject();
-        // let payment = Payment {
-        //     to: make_wallet("blah"),
-        //     amount: 123,
-        //     timestamp: when_sent,
-        //     transaction: hash,
-        // };
-        // assert!(subject
-        //     .payment_confirmation
-        //     .list_of_pending_txs
-        //     .borrow_mut()
-        //     .insert(hash, payment)
-        //     .is_none());
-        //
-        // let result = subject.receipt_check_for_pending_tx(
-        //     tx_receipt,
-        //     hash,
-        //     attempt,
-        //     &Logger::new("receipt_check_logger"),
-        // );
-        //
-        // assert_eq!(result, PendingTransactionStatus::Failure(hash));
-        // TestLogHandler::new().exists_log_containing("WARN: receipt_check_logger: Pending transaction '0x0000…0315' announced as a failure on the check of attempt 5 at 150s after its sending");
+        init_test_logging();
+        let blockchain_interface =
+            BlockchainInterfaceMock::default().get_transaction_receipt_result(Ok(None));
+        let subject = AccountantBuilder::default().build();
+        let mut tx_receipt = TransactionReceipt::default();
+        tx_receipt.status = Some(U64::from(1)); //failure
+        let wallet = make_wallet("blah");
+        let hash = H256::from_uint(&U256::from(4567));
+        let mut payment = make_payment();
+        payment.transaction = hash;
+        payment.to = wallet.clone();
+        payment.timestamp = SystemTime::now().sub(Duration::from_secs(150));
+
+        let meta_payment = PaymentWithMetadata {
+            payment,
+            receipt_failure_count: 0,
+        };
+        let attempt = 5;
+
+        let result = subject.receipt_check_for_pending_tx(
+            tx_receipt,
+            meta_payment,
+            attempt,
+            &Logger::new("receipt_check_logger"),
+        );
+
+        assert_eq!(
+            result,
+            PendingTransactionStatus::Failure(TxTripleId {
+                recipient_wallet: wallet,
+                hash,
+                rowid: 1
+            })
+        );
+        TestLogHandler::new().exists_log_containing("WARN: receipt_check_logger: Pending \
+         transaction '0x0000…11d7' announced as a failure on the check of attempt 5 at 150000ms after its sending");
     }
 
     #[test]
     fn receipt_check_for_pending_tx_when_tx_status_is_none() {
         init_test_logging();
         let hash = H256::from_uint(&U256::from(567));
-        let mut tx_receipt = TransactionReceipt::default();
-        let when_sent = SystemTime::now();
+        let tx_receipt = TransactionReceipt::default();
+        let when_sent = SystemTime::now().sub(Duration::from_millis(100));
         let previous_timestamp = when_sent.checked_sub(Duration::from_secs(15)).unwrap();
         let attempt = 1;
         let subject = AccountantBuilder::default().build();
@@ -4313,45 +4314,10 @@ pub mod tests {
                 attempt
             }
         );
-        TestLogHandler::new().exists_log_containing("INFO: receipt_check_logger: Pending transaction '0x0000…0237' couldn't be confirmed at attempt 1 at 15s after its sending");
-    }
-
-    //TODO do we need this again?
-    #[test]
-    fn receipt_check_for_pending_tx_when_tx_confirmed() {
-        unimplemented!()
-        // init_test_logging();
-        // let hash = H256::from_uint(&U256::from(789));
-        // let mut tx_receipt = TransactionReceipt::default();
-        // tx_receipt.transaction_hash = hash;
-        // tx_receipt.status = Some(U64::from(0)); //success
-        // let when_sent = SystemTime::now()
-        //     .checked_sub(Duration::from_secs(150))
-        //     .unwrap();
-        // let attempt = 5;
-        // let subject = make_subject();
-        // let payment = Payment {
-        //     to: make_wallet("blah"),
-        //     amount: 123,
-        //     timestamp: when_sent,
-        //     transaction: hash,
-        // };
-        // assert!(subject
-        //     .payment_confirmation
-        //     .list_of_pending_txs
-        //     .borrow_mut()
-        //     .insert(hash, payment)
-        //     .is_none());
-        //
-        // let result = subject.receipt_check_for_pending_tx(
-        //     tx_receipt,
-        //     hash,
-        //     attempt,
-        //     &Logger::new("receipt_check_logger"),
-        // );
-        //
-        // assert_eq!(result, PendingTransactionStatus::Confirmed(hash));
-        // TestLogHandler::new().exists_log_containing("INFO: receipt_check_logger: Transaction '0x0000…0315' has been confirmed at attempt 5 at 150s after its sending");
+        TestLogHandler::new().exists_log_containing(
+            "INFO: receipt_check_logger: Pending \
+         transaction '0x0000…0237' couldn't be confirmed at attempt 1 at 100ms after its sending",
+        );
     }
 
     #[test]

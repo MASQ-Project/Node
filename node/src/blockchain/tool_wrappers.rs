@@ -169,7 +169,7 @@ pub struct PaymentBackupRecipientWrapperNull;
 
 impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperNull {
     fn try_send(&self, _msg: PendingPaymentBackup) -> Result<(), SendError<PendingPaymentBackup>> {
-        panic!("try_send() for a null object - should never be called")
+        panic!("try_send() for PaymentBackupRecipientWrapper should never be called on the null object")
     }
 }
 
@@ -214,9 +214,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "order_payment_backup() should never be called on the null object")]
     fn null_order_payment_backup_stops_the_run() {
-        let rlp = Bytes(b"data".to_vec());
-
-        let _ = SendTransactionToolWrapperNull.send_raw_transaction(rlp);
+        let _ = SendTransactionToolWrapperNull.order_payment_backup(5, 1000);
     }
 
     #[test]
