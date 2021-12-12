@@ -12,6 +12,8 @@ pub enum PendingPaymentDaoError {
     InsertionFailed(String),
     SignConversionError(u64),
     RecordCannotBeRead,
+    FailMark(String),
+    RecordDeletion(String),
 }
 
 pub trait PendingPaymentsDao {
@@ -21,6 +23,7 @@ pub trait PendingPaymentsDao {
         payment: PendingPaymentBackup,
     ) -> Result<(), PendingPaymentDaoError>;
     fn delete_backup_record(&self, id: u16) -> Result<(), PendingPaymentDaoError>;
+    fn mark_failure(&self, id: u16) -> Result<(), PendingPaymentDaoError>;
 }
 
 impl PendingPaymentsDao for PendingPaymentsDaoReal {
@@ -34,7 +37,7 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal {
     ) -> Result<(), PendingPaymentDaoError> {
         let signed_amount = jackass_unsigned_to_signed(payment.amount)
             .map_err(|e| PendingPaymentDaoError::SignConversionError(e))?;
-        let mut stm = self.conn.prepare("insert into pending_payments (payables_rowid, amount, payment_timestamp, process_error) values (?,?,?,?)").expect("Internal error");
+        let mut stm = self.conn.prepare("insert into pending_payments (payable_rowid, amount, payment_timestamp, process_error) values (?,?,?,?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[
             &payment.rowid,
             &signed_amount,
@@ -42,7 +45,6 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal {
             &Null,
         ];
         match stm.execute(params) {
-            Ok(0) => unimplemented!(),
             Ok(1) => Ok(()),
             Ok(x) => unimplemented!(),
             Err(e) => unimplemented!(),
@@ -50,6 +52,18 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal {
     }
 
     fn delete_backup_record(&self, id: u16) -> Result<(), PendingPaymentDaoError> {
+        let mut stm = self
+            .conn
+            .prepare("delete from pending_payments where payable_rowid = ?")
+            .expect("Internal error");
+        match stm.execute(&[&id]) {
+            Ok(1) => Ok(()),
+            Ok(x) => unimplemented!(),
+            Err(e) => unimplemented!(),
+        }
+    }
+
+    fn mark_failure(&self, id: u16) -> Result<(), PendingPaymentDaoError> {
         todo!()
     }
 }

@@ -280,17 +280,19 @@ where
         amount: u64,
         nonce: U256,
         gas_price: u64,
-        rowid_payables: u16,
+        rowid_in_payable: u16,
         send_transaction_tools: &'a dyn SendTransactionToolWrapper,
     ) -> BlockchainResult<(H256, SystemTime)> {
         debug!(
             self.logger,
-            "Sending transaction for {} Gwei to {} from {}: (chain_id: {} contract: {:#x})",
+            "Preparing transaction for {} Gwei to {} from {} (chain_id: {}, contract: {:#x}, payable rowid: {}, gas price: {})", //TODO fix thi later to Wei
             amount,
             recipient,
             consuming_wallet,
             self.chain.rec().num_chain_id,
-            self.contract_address()
+            self.contract_address(),
+            rowid_in_payable,
+            gas_price
         );
         let signed_transaction = self.prepare_signed_transaction(
             consuming_wallet,
@@ -300,7 +302,9 @@ where
             gas_price,
             send_transaction_tools,
         )?;
-        let payment_timestamp = send_transaction_tools.order_payment_backup(rowid_payables, amount);
+        let payment_timestamp =
+            send_transaction_tools.order_payment_backup(rowid_in_payable, amount);
+        self.logger.info(|| self.log_sending(recipient, amount));
         match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
             Ok(hash) => Ok((hash, payment_timestamp)),
             Err(e) => Err(BlockchainError::TransactionFailed(e.to_string())),
@@ -424,6 +428,19 @@ where
         }
     }
 
+    fn log_sending(&self, recipient: &Wallet, amount: u64) -> String {
+        format!(
+            "About to send transaction:\n\
+        recipient: {},\n\
+        amount: {},\n\
+        (chain: {}, contract: {:#x})",
+            recipient,
+            amount,
+            self.chain.rec().literal_identifier,
+            self.contract_address()
+        )
+    }
+
     fn base_gas_limit(chain: Chain) -> u64 {
         match chain.rec().chain_family {
             ChainFamily::Polygon => 70_000,
@@ -451,6 +468,7 @@ mod tests {
     };
     use crate::database::dao_utils::to_time_t;
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::pure_test_utils::decode_hex;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::{await_value, make_paying_wallet};
@@ -867,6 +885,7 @@ mod tests {
 
     #[test]
     fn blockchain_interface_non_clandestine_can_transfer_tokens() {
+        init_test_logging();
         let mut transport = TestTransport::default();
         transport.add_response(json!(
             "0x0000000000000000000000000000000000000000000000000000000000000001"
@@ -883,6 +902,7 @@ mod tests {
         );
         let rowid = 1;
         let amount = 9000;
+        let gas_price = 120;
 
         let result = subject
             .send_transaction(
@@ -890,7 +910,7 @@ mod tests {
                 &make_wallet("blah123"),
                 amount,
                 U256::from(1),
-                2u64,
+                gas_price,
                 rowid,
                 subject
                     .send_transaction_tools(&payment_backup_recipient_wrapper)
@@ -901,7 +921,7 @@ mod tests {
         let system = System::new("can transfer tokens test");
         System::current().stop();
         assert_eq!(system.run(), 0);
-        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0b8e83e714af8bf1685b496912ee4aeff7007ba0f4c29ae50f513bc71ce6a18f4a06a923088306b4ee9cbfcdc62c9b396385f9b1c380134bf046d6c9ae47dea6578""#)]);
+        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#)]);
         transport.assert_no_more_requests();
         let (hash, timestamp) = result;
         assert_eq!(hash, H256::from_uint(&U256::from(1)));
@@ -921,7 +941,15 @@ mod tests {
             payment_timestamp: sent_backup.payment_timestamp,
             amount,
         };
-        assert_eq!(sent_backup, &expected_payment_backup)
+        assert_eq!(sent_backup, &expected_payment_backup);
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, payable rowid: 1, gas price: 120)" );
+        log_handler.exists_log_containing(
+            "INFO: BlockchainInterface: About to send transaction:\n\
+        recipient: 0x00000000000000000000000000626c6168313233,\n\
+        amount: 9000,\n\
+        (chain: eth-ropsten, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3)",
+        );
     }
 
     #[test]

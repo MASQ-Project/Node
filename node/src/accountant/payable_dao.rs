@@ -6,7 +6,7 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::sub_lib::wallet::Wallet;
-use rusqlite::types::{ToSql, Type};
+use rusqlite::types::{Null, ToSql, Type};
 use rusqlite::{Error, OptionalExtension, NO_PARAMS};
 use serde_json::{self, json};
 use std::fmt::Debug;
@@ -27,26 +27,17 @@ pub struct Payment {
     pub to: Wallet,
     pub amount: u64,
     pub timestamp: SystemTime,
-    pub previous_timestamp: SystemTime,
     pub transaction: H256,
-    //gotten from payables which also fills a referential column in pending_payments
+    //gotten from 'payable' which also fills a referential column in pending_payments
     pub rowid: u16,
 }
 
 impl Payment {
-    pub fn new(
-        to: Wallet,
-        amount: u64,
-        txn: H256,
-        timestamp: SystemTime,
-        previous_timestamp: SystemTime,
-        rowid: u16,
-    ) -> Self {
+    pub fn new(to: Wallet, amount: u64, txn: H256, timestamp: SystemTime, rowid: u16) -> Self {
         Self {
             to,
             amount,
             timestamp,
-            previous_timestamp,
             transaction: txn,
             rowid,
         }
@@ -103,70 +94,51 @@ impl PayableDao for PayableDaoReal {
             .expect("Internal Error");
         let params: &[&dyn ToSql] = &[&format!("0x{:x}", hash), wallet];
         match stm.execute(params) {
-            Ok(0) => unimplemented!(),
             Ok(1) => Ok(()),
-            Ok(_) => unimplemented!(),
+            Ok(num) => unimplemented!(),
             Err(e) => unimplemented!(),
         }
     }
 
     fn transaction_confirmed(&self, payment: &Payment) -> Result<(), PaymentError> {
-        unimplemented!()
-        // //TODO we will need to make the code below work here as it was moved from the old "sent payments"
-        // // let signed_amount = jackass_unsigned_to_signed(payment.amount).map_err(|err_num| {
-        // //     PaymentError::PostTransaction(
-        // //         PaymentErrorKind::SignConversion(err_num),
-        // //         payment.transaction,
-        // //     )
-        // // })?;
-        // // match self.try_decrease_balance(
-        // //     &payment.to,
-        // //     signed_amount,
-        // //     payment.timestamp,
-        // //     payment.transaction,
-        // // ) {
-        // //     Ok(_) => Ok(unimplemented!()),
-        // //     Err(e) => panic!("Database is corrupt: {}", e),
-        // // }
-        // let mut stm = self.conn.prepare("update payable set pending_payment_transaction = ? where pending_payment_transaction = ?").expect("Internal error");
-        // let params: &[&dyn ToSql] = &[&Null, &format!("0x{:x}", hash)];
-        // match stm.execute(params) {
-        //     Ok(1) => Ok(()),
-        //     Ok(x) => panic!("unexpected behaviour; expected just one row, got: {}", x), //technically untested
-        //     Err(e) => Err(PaymentError::PostTransaction(
-        //         PaymentErrorKind::RusqliteError(e.to_string()),
-        //         hash,
-        //     )),
-        // }
+        let signed_amount = jackass_unsigned_to_signed(payment.amount).map_err(|err_num| {
+            PaymentError::PostTransaction(
+                PaymentErrorKind::SignConversion(err_num),
+                payment.transaction,
+            )
+        })?;
+        if let Err(e) = self
+            .try_decrease_balance(&payment.to, signed_amount, payment.timestamp)
+            .map_err(|e| {
+                PaymentError::PostTransaction(
+                    PaymentErrorKind::RusqliteError(e),
+                    payment.transaction,
+                )
+            })
+        {
+            unimplemented!()
+        }
+        Ok(())
     }
 
     fn transaction_canceled(
         &self,
-        invalid_payment: &Wallet,
+        recipient_wallet: &Wallet,
         hash: H256,
     ) -> Result<(), PaymentError> {
-        unimplemented!()
-        // let mut stm = self.conn
-        //     .prepare("update payable set balance = balance + ?, last_paid_timestamp = ?, pending_payment_transaction = ? where wallet_address = ? and pending_payment_transaction = ?").expect("Internal error");
-        // let params: &[&dyn ToSql] = &[
-        //     &amount_signed,
-        //     &to_time_t(unimplemented!()),
-        //     &Null,
-        //     &invalid_payment.to,
-        //     &format!("0x{:x}", invalid_payment.transaction),
-        // ];
-        // match stm.execute(params) {
-        //     Ok(1) => self
-        //         .account_status(&invalid_payment.to)
-        //         .expect("the row just modified somehow disappeared now")
-        //         .balance
-        //         .wrap_to_ok(),
-        //     Ok(x) => panic!("unexpected behaviour; expected just one row, got: {}", x), //technically untested
-        //     Err(e) => Err(PaymentError::PostTransaction(
-        //         PaymentErrorKind::RusqliteError(e.to_string()),
-        //         invalid_payment.transaction,
-        //     )),
-        // }
+        let mut stm = self.conn
+            .prepare("update payable set pending_payment_transaction = ? where wallet_address = ? and pending_payment_transaction = ?").expect("Internal error");
+        let params: &[&dyn ToSql] = &[&Null, &recipient_wallet, &format!("{:#x}", hash)];
+        match stm.execute(params) {
+            Ok(1) => Ok(()),
+            Ok(x) => unimplemented!("{}",x),
+            Err(e) => unimplemented!()
+
+            //     Err(PaymentError::PostTransaction(
+            //     PaymentErrorKind::RusqliteError(e.to_string()),
+            //     hash,
+            // )),
+        }
     }
 
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount> {
@@ -364,21 +336,20 @@ impl PayableDaoReal {
         wallet: &Wallet,
         amount: i64,
         last_paid_timestamp: SystemTime,
-        transaction_hash: H256,
-    ) -> Result<bool, String> {
+    ) -> Result<(), String> {
         let mut stmt = self
             .conn
-            .prepare("insert into payable (balance, last_paid_timestamp, pending_payment_transaction, wallet_address) values (0 - :balance, :last_paid, :transaction, :address) on conflict (wallet_address) do update set balance = balance - :balance, last_paid_timestamp = :last_paid, pending_payment_transaction = :transaction where wallet_address = :address")
+            .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (:address, 0 - :balance, :last_paid, :transaction) on conflict (wallet_address) do update set balance = balance - :balance, last_paid_timestamp = :last_paid, pending_payment_transaction = :transaction where wallet_address = :address")
             .expect("Internal error");
         let params: &[(&str, &dyn ToSql)] = &[
             (":balance", &amount),
             (":last_paid", &dao_utils::to_time_t(last_paid_timestamp)),
-            (":transaction", &format!("{:#x}", &transaction_hash)),
+            (":transaction", &Null),
             (":address", &wallet),
         ];
         match stmt.execute_named(params) {
-            Ok(0) => Ok(false),
-            Ok(_) => Ok(true),
+            Ok(1) => Ok(()),
+            Ok(x) => unimplemented!(),
             Err(e) => Err(format!("{}", e)),
         }
     }
@@ -645,7 +616,6 @@ mod tests {
             to: make_wallet("boooga"),
             amount: 444555,
             timestamp: from_time_t(200_000_000),
-            previous_timestamp: from_time_t(189_000_000),
             transaction: H256::from_uint(&U256::from(16)),
             rowid: 1,
         };

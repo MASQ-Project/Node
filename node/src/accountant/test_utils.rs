@@ -28,7 +28,7 @@ use ethereum_types::{H256, U256};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use web3::types::Address;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
@@ -345,6 +345,8 @@ pub struct PendingPaymentsDaoMock {
     delete_record_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
     read_record_params: Arc<Mutex<Vec<u16>>>,
     read_record_results: RefCell<Vec<Result<PendingPaymentBackup, PendingPaymentDaoError>>>,
+    mark_failure_params: Arc<Mutex<Vec<u16>>>,
+    mark_failure_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
 }
 
 impl PendingPaymentsDao for PendingPaymentsDaoMock {
@@ -367,6 +369,11 @@ impl PendingPaymentsDao for PendingPaymentsDaoMock {
     fn delete_backup_record(&self, id: u16) -> Result<(), PendingPaymentDaoError> {
         self.delete_record_params.lock().unwrap().push(id);
         self.delete_record_results.borrow_mut().remove(0)
+    }
+
+    fn mark_failure(&self, id: u16) -> Result<(), PendingPaymentDaoError> {
+        self.mark_failure_params.lock().unwrap().push(id);
+        self.mark_failure_results.borrow_mut().remove(0)
     }
 }
 
@@ -404,6 +411,16 @@ impl PendingPaymentsDaoMock {
         result: Result<PendingPaymentBackup, PendingPaymentDaoError>,
     ) -> Self {
         self.read_record_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn mark_failure_params(mut self, params: &Arc<Mutex<Vec<u16>>>) -> Self {
+        self.mark_failure_params = params.clone();
+        self
+    }
+
+    pub fn mark_failure_result(self, result: Result<(), PendingPaymentDaoError>) -> Self {
+        self.mark_failure_results.borrow_mut().push(result);
         self
     }
 }
@@ -576,10 +593,4 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     ) -> Box<dyn SendTransactionToolWrapper + 'a> {
         self.send_transaction_tools_results.borrow_mut().remove(0)
     }
-}
-
-pub fn earlier_in_seconds(seconds: u64) -> SystemTime {
-    SystemTime::now()
-        .checked_sub(Duration::from_secs(seconds))
-        .unwrap()
 }

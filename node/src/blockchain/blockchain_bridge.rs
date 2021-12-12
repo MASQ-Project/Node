@@ -305,7 +305,6 @@ impl BlockchainBridge {
                 unsigned_amount,
                 hash,
                 timestamp,
-                payable.last_paid_timestamp,
                 payable.rowid,
             )),
             Err(e) => Err(e),
@@ -323,7 +322,7 @@ struct PendingTxInfo {
 mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
-    use crate::accountant::test_utils::{earlier_in_seconds, BlockchainInterfaceMock};
+    use crate::accountant::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::blockchain_bridge::Payment;
     use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
@@ -545,7 +544,6 @@ mod tests {
             42,
             H256::from("sometransactionhash".keccak256()),
             payment_timestamp_0,
-            earlier_in_seconds(1000),
             1,
         );
         if let Ok(zero) = result.clone().get(0).unwrap().clone() {
@@ -571,7 +569,6 @@ mod tests {
             21,
             H256::from("someothertransactionhash".keccak256()),
             payment_timestamp_1,
-            earlier_in_seconds(1000),
             2,
         );
 
