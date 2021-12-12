@@ -606,7 +606,7 @@ the consuming wallet. By convention, it is "m/44'/60'/0'/0/0", but you can suppl
 you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
 wallet. If you don't supply `consumingDerivationPathOpt`, your consuming wallet will be generated entirely at random.
 
-`earningDerivationPath` is the derivation path from the generated seed number to be used to generate the earning
+`earningDerivationPathOpt` is the derivation path from the generated seed number to be used to generate the earning
 wallet. By convention, it is "m/44'/60'/0'/0/1", but you can supply whatever path you want. Note that if
 you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
 wallet. If you don't supply `earningDerivationPathOpt`, your earning wallet will be generated entirely at random.
@@ -669,41 +669,73 @@ If the UI is remembering the database password, it should forget it when this me
 ```
 "payload": {
     "dbPassword": <string>,
-    "mnemonicPhrase": [
-        <string>,
-        <string>,
-        [...]
-    ],
-    "mnemonicPassphraseOpt": <optional string>,
-    "mnemonicPhraseLanguage": <string>,
-    "consumingDerivationPath": <string>,
-    "earningWallet": <string>
+    "seedSpecOpt": {
+        "mnemonicPhrase": [
+            <string>,
+            <string>,
+            [...]
+        ],
+        "mnemonicPhraseLanguage": <string>,
+        "mnemonicPassphraseOpt": <optional string>
+    },
+    "consumingDerivationPathOpt": <optional string>,
+    "consumingPrivateKeyOpt": <optional string>,
+    "earningDerivationPathOpt": <optional string>,
+    "earningPrivateKeyOpt": <optional string>,
 }
 ```
 ##### Description:
 This message directs the Node to set its wallet pair to a preexisting pair of wallets described in the message.
 If the database already contains a wallet pair, the wallet recovery will fail.
 
+Each wallet can be recovered in one of two ways.
+
+The consuming wallet can be recovered by specifying the mnemonic phrase of its seed and its derivation path, or by
+giving its private key. (The Node needs the private key of the consuming wallet so that it can withdraw funds from it
+to pay bills.)
+
+The earning wallet can be recovered by specifying the mnemonic phrase of its seed and its derivation path, or by
+giving its address. (The Node does not need (and will not accept) the private key of the earning wallet, because all
+it ever has to do is deposit funds in it from other Nodes. The private key can be derived from the seed and the
+derivation path, but the Node does not store it.)
+
+Private key/address are preferred; if you provide both that and the derivation path for either wallet, the derivation
+path will be ignored.
+
+If you expect the derivation path to be used for either wallet, you must also provide the seed specification.
+
 `dbPassword` is the current database password. If this is incorrect, the wallet recovery will fail.
 
-`mnemonicPhrase` is the mnemonic phrase that was used to generate the consuming wallet and possibly the earning
-wallet as well. It must have 12, 15, 18, 21, or 24 words.
+`seedSpecOpt` gives the parameters for generating the seed. This only makes sense if one or more of the
+derivation paths is supplied. If no derivation paths are supplied, this parameter is ignored.
 
-`mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
-(it can be any word; it's not constrained to the official mnemonic-phrase list) that was used along with the
-words of the mnemonic phrase to generate the seed number from which the consuming and possibly earning wallets
-were derived. If no mnemonic passphrase was used to generate the wallets, this value must be absent.
+`mnemonicPhrase` is the mnemonic phrase that represents the seed. It must have 12, 15, 18, 21, or 24 words.
 
 `mnemonicPhraseLanguage` is the language in which the mnemonic phrase is supplied. Acceptable values are
 "English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish".
 
-`consumingDerivationPath` is the derivation path from the mnemonic phrase that was used to generate the consuming
-wallet. By convention, it is "m/60'/44'/0'/0/0", but in this message it is required and no defaulting is performed
-by the Node.
+`mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
+(it can be any word; it's not constrained to the official mnemonic-phrase list) that was used along with the
+words of the mnemonic phrase to generate the seed number from which the consuming and possibly earning wallets
+were derived. If no mnemonic passphrase was used to generate the wallets, this value must be null or absent.
 
-`earningWallet` is either the derivation path from the mnemonic phrase that was used to generate the earning
-wallet, or--if the derivation path is unknown or the earning wallet is not related to the mnemonic phrase--the
-address of the earning wallet.
+`consumingDerivationPathOpt`, if supplied, is the derivation path from the generated seed number to be used to generate
+the consuming wallet. By convention, it is "m/44'/60'/0'/0/0", but you can supply whatever path you want. Note that if
+you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
+wallet. If you don't supply `consumingDerivationPathOpt`, you must supply `consumingPrivateKeyOpt`.
+
+`consumingPrivateKeyOpt`, if specified, is the private key of the consuming wallet, represented as a string of 64
+hexadecimal digits. This value supersedes `consumingDerivationPathOpt`; but if you don't supply that value, you must
+supply this one.
+
+`earningDerivationPathOpt` is the derivation path from the generated seed number to be used to generate the earning
+wallet. By convention, it is "m/44'/60'/0'/0/1", but you can supply whatever path you want. Note that if
+you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
+wallet. If you don't supply `earningDerivationPathOpt`, you must supply `earningAddressOpt`.
+
+`earningAddressOpt`, if specified, is the address of the consuming wallet, represented as a string of 64
+hexadecimal digits. This value supersedes `consumingDerivationPathOpt`; but if you don't supply that value, you must
+supply this one.
 
 The consuming and earning wallet information may evaluate to the same wallet; there's nothing wrong with that.
 
