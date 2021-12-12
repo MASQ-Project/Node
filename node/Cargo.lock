@@ -1547,6 +1547,7 @@ dependencies = [
  "clap",
  "crossbeam-channel 0.5.0",
  "ctrlc",
+ "itertools",
  "lazy_static",
  "linefeed",
  "masq_lib",

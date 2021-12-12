@@ -5,10 +5,10 @@ use actix::{Actor, Context, Handler, Recipient};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
     UiCheckPasswordRequest, UiCheckPasswordResponse, UiConfigurationRequest,
-    UiConfigurationResponse, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
-    UiNewPasswordBroadcast, UiRecoverWalletsRequest, UiRecoverWalletsResponse,
-    UiSetConfigurationRequest, UiSetConfigurationResponse, UiWalletAddressesRequest,
-    UiWalletAddressesResponse,
+    UiConfigurationResponse, UiGenerateSeedSpec, UiGenerateWalletsRequest,
+    UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiRecoverWalletsRequest,
+    UiRecoverWalletsResponse, UiSetConfigurationRequest, UiSetConfigurationResponse,
+    UiWalletAddressesRequest, UiWalletAddressesResponse,
 };
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{
@@ -34,9 +34,11 @@ use bip39::{Language, Mnemonic, MnemonicType, Seed};
 use masq_lib::constants::{
     ALREADY_INITIALIZED_ERROR, BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR,
     CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR, EARLY_QUESTIONING_ABOUT_DATA,
-    ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, KEY_PAIR_CONSTRUCTION_ERROR, MNEMONIC_PHRASE_ERROR,
-    NON_PARSABLE_VALUE, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
+    ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, KEY_PAIR_CONSTRUCTION_ERROR, MISSING_DATA,
+    MNEMONIC_PHRASE_ERROR, NON_PARSABLE_VALUE, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR,
+    UNRECOGNIZED_PARAMETER,
 };
+use masq_lib::utils::derivation_path;
 use rustc_hex::ToHex;
 use std::str::FromStr;
 
@@ -312,25 +314,58 @@ impl Configurator {
         context_id: u64,
         persistent_config: &mut Box<dyn PersistentConfiguration>,
     ) -> Result<MessageBody, MessageError> {
-        Self::check_preconditions(persistent_config, "generate", &msg.db_password)?;
-        let (seed, mnemonic_phrase) = Self::generate_mnemonic(
-            &msg.mnemonic_passphrase_opt,
-            &msg.mnemonic_phrase_language,
-            msg.mnemonic_phrase_size,
+        Self::check_database_preconditions(
+            persistent_config.as_ref(),
+            "generate",
+            &msg.db_password,
         )?;
-        let consuming_wallet = Self::generate_wallet(&seed, &msg.consuming_derivation_path)?;
-        let earning_wallet = Self::generate_wallet(&seed, &msg.earning_derivation_path)?;
+        let seed_spec = msg.seed_spec_opt.clone().unwrap_or(UiGenerateSeedSpec {
+            mnemonic_phrase_size: 24,
+            mnemonic_phrase_language: "English".to_string(),
+            mnemonic_passphrase_opt: None,
+        });
+        let (seed, mnemonic_phrase) = Self::generate_mnemonic(
+            &seed_spec.mnemonic_passphrase_opt,
+            &seed_spec.mnemonic_phrase_language,
+            seed_spec.mnemonic_phrase_size,
+        )?;
+        let consuming_derivation_path = match &msg.consuming_derivation_path_opt {
+            Some(cdp) => {
+                if msg.seed_spec_opt.is_none() {
+                    return Err ((MISSING_DATA, "Cannot generate consuming wallet from derivation path without seed specification".to_string()));
+                }
+                cdp.clone()
+            }
+            None => derivation_path(0, 0),
+        };
+        let consuming_wallet = Self::generate_wallet(&seed, &consuming_derivation_path)?;
+        let consuming_private_key = Self::generate_private_key(&seed, &consuming_derivation_path);
+        let earning_derivation_path = match &msg.earning_derivation_path_opt {
+            Some(edp) => {
+                if msg.seed_spec_opt.is_none() {
+                    return Err ((MISSING_DATA, "Cannot generate earning wallet from derivation path without seed specification".to_string()));
+                }
+                edp.clone()
+            }
+            None => derivation_path(0, 1),
+        };
+        let earning_wallet = Self::generate_wallet(&seed, &earning_derivation_path)?;
+        let earning_private_key = Self::generate_private_key(&seed, &earning_derivation_path);
         Self::set_wallet_info(
             persistent_config,
             &seed,
-            &msg.consuming_derivation_path,
+            msg.consuming_derivation_path_opt
+                .as_ref()
+                .expect("Test-drive me!"),
             &earning_wallet.string_address_from_keypair(),
             &msg.db_password,
         )?;
         Ok(UiGenerateWalletsResponse {
-            mnemonic_phrase,
+            mnemonic_phrase_opt: Some(mnemonic_phrase),
             consuming_wallet_address: consuming_wallet.string_address_from_keypair(),
+            consuming_wallet_private_key: consuming_private_key,
             earning_wallet_address: earning_wallet.string_address_from_keypair(),
+            earning_wallet_private_key: earning_private_key,
         }
         .tmb(context_id))
     }
@@ -340,7 +375,11 @@ impl Configurator {
         context_id: u64,
         persistent_config: &mut Box<dyn PersistentConfiguration>,
     ) -> Result<MessageBody, MessageError> {
-        Self::check_preconditions(persistent_config, "recover", &msg.db_password)?;
+        Self::check_database_preconditions(
+            persistent_config.as_ref(),
+            "recover",
+            &msg.db_password,
+        )?;
         let language = Self::parse_language(&msg.mnemonic_phrase_language)?;
         let mnemonic = match Mnemonic::from_phrase(msg.mnemonic_phrase.join(" "), language) {
             Ok(m) => m,
@@ -369,9 +408,8 @@ impl Configurator {
         Ok(UiRecoverWalletsResponse {}.tmb(context_id))
     }
 
-    #[allow(clippy::borrowed_box)]
-    fn check_preconditions(
-        persistent_config: &Box<dyn PersistentConfiguration>,
+    fn check_database_preconditions(
+        persistent_config: &dyn PersistentConfiguration,
         operation: &str,
         db_password: &str,
     ) -> Result<(), MessageError> {
@@ -478,6 +516,11 @@ impl Configurator {
             )),
             Ok(kp) => Ok(Wallet::from(kp)),
         }
+    }
+
+    fn generate_private_key(seed: &Seed, derivation_path: &str) -> String {
+        let binary = Bip32ECKeyPair::extended_private_key(seed, derivation_path).secret();
+        binary.to_hex::<String>().to_uppercase()
     }
 
     fn handle_configuration(
@@ -737,8 +780,8 @@ mod tests {
     use actix::System;
     use masq_lib::messages::{
         ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
-        UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiStartOrder, UiWalletAddressesRequest,
-        UiWalletAddressesResponse,
+        UiGenerateSeedSpec, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiStartOrder,
+        UiWalletAddressesRequest, UiWalletAddressesResponse,
     };
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
     use std::sync::{Arc, Mutex};
@@ -763,6 +806,7 @@ mod tests {
     use bip39::{Language, Mnemonic};
     use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::MISSING_DATA;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 
@@ -1269,9 +1313,10 @@ mod tests {
         let (generated_wallets, context_id) =
             UiGenerateWalletsResponse::fmb(response.body.clone()).unwrap();
         assert_eq!(context_id, 4321);
-        assert_eq!(generated_wallets.mnemonic_phrase.len(), 24);
-        let mnemonic_phrase = generated_wallets.mnemonic_phrase.join(" ");
-        let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
+        let mnemonic_phrase = generated_wallets.mnemonic_phrase_opt.unwrap();
+        assert_eq!(mnemonic_phrase.len(), 24);
+        let mnemonic_phrase_string = mnemonic_phrase.join(" ");
+        let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase_string, Language::English).unwrap();
         let seed = PlainData::new(Bip39::seed(&mnemonic, "booga").as_ref());
         let consuming_wallet = Wallet::from(
             Bip32ECKeyPair::from_raw(seed.as_slice(), &derivation_path(0, 4)).unwrap(),
@@ -1280,12 +1325,26 @@ mod tests {
             generated_wallets.consuming_wallet_address,
             consuming_wallet.string_address_from_keypair()
         );
+        assert_eq!(
+            generated_wallets.consuming_wallet_private_key,
+            Configurator::generate_private_key(
+                &Bip39::seed(&mnemonic, "booga"),
+                derivation_path(0, 4).as_str()
+            )
+        );
         let earning_wallet = Wallet::from(
             Bip32ECKeyPair::from_raw(seed.as_slice(), &derivation_path(0, 5)).unwrap(),
         );
         assert_eq!(
             generated_wallets.earning_wallet_address,
             earning_wallet.string_address_from_keypair()
+        );
+        assert_eq!(
+            generated_wallets.earning_wallet_private_key,
+            Configurator::generate_private_key(
+                &Bip39::seed(&mnemonic, "booga"),
+                derivation_path(0, 5).as_str()
+            )
         );
         let check_password_params = check_password_params_arc.lock().unwrap();
         assert_eq!(*check_password_params, vec![Some("password".to_string())]);
@@ -1373,11 +1432,13 @@ mod tests {
         let mut subject = make_subject(Some(persistent_config));
         let msg = UiGenerateWalletsRequest {
             db_password: "blabla".to_string(),
-            mnemonic_phrase_size: 24,
-            mnemonic_phrase_language: "SuperSpecial".to_string(),
-            mnemonic_passphrase_opt: None,
-            consuming_derivation_path: derivation_path(0, 4),
-            earning_derivation_path: derivation_path(0, 5),
+            seed_spec_opt: Some(UiGenerateSeedSpec {
+                mnemonic_phrase_size: 24,
+                mnemonic_phrase_language: "SuperSpecial".to_string(),
+                mnemonic_passphrase_opt: None,
+            }),
+            consuming_derivation_path_opt: Some(derivation_path(0, 4)),
+            earning_derivation_path_opt: Some(derivation_path(0, 5)),
         };
 
         let result = subject.handle_generate_wallets(msg, 4321);
@@ -1440,6 +1501,64 @@ mod tests {
                         .to_string()
                 ))
             }
+        )
+    }
+
+    #[test]
+    fn unfriendly_handle_generate_wallets_handles_consuming_path_without_seed_spec() {
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
+            PersistentConfigurationMock::new()
+                .check_password_result(Ok(true))
+                .mnemonic_seed_exists_result(Ok(false)),
+        );
+        let msg = UiGenerateWalletsRequest {
+            db_password: "password".to_string(),
+            seed_spec_opt: None,
+            consuming_derivation_path_opt: Some("doesn't matter".to_string()),
+            earning_derivation_path_opt: None,
+        };
+
+        let result =
+            Configurator::unfriendly_handle_generate_wallets(msg, 1234, &mut persistent_config)
+                .err()
+                .unwrap();
+
+        assert_eq!(
+            result,
+            (
+                MISSING_DATA,
+                "Cannot generate consuming wallet from derivation path without seed specification"
+                    .to_string()
+            )
+        )
+    }
+
+    #[test]
+    fn unfriendly_handle_generate_wallets_handles_earning_path_without_seed_spec() {
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
+            PersistentConfigurationMock::new()
+                .check_password_result(Ok(true))
+                .mnemonic_seed_exists_result(Ok(false)),
+        );
+        let msg = UiGenerateWalletsRequest {
+            db_password: "password".to_string(),
+            seed_spec_opt: None,
+            consuming_derivation_path_opt: None,
+            earning_derivation_path_opt: Some("doesn't matter".to_string()),
+        };
+
+        let result =
+            Configurator::unfriendly_handle_generate_wallets(msg, 1234, &mut persistent_config)
+                .err()
+                .unwrap();
+
+        assert_eq!(
+            result,
+            (
+                MISSING_DATA,
+                "Cannot generate earning wallet from derivation path without seed specification"
+                    .to_string()
+            )
         )
     }
 
@@ -2133,11 +2252,13 @@ mod tests {
     fn make_example_generate_wallets_request() -> UiGenerateWalletsRequest {
         UiGenerateWalletsRequest {
             db_password: "password".to_string(),
-            mnemonic_phrase_size: 24,
-            mnemonic_phrase_language: "English".to_string(),
-            mnemonic_passphrase_opt: Some("booga".to_string()),
-            consuming_derivation_path: derivation_path(0, 4),
-            earning_derivation_path: derivation_path(0, 5),
+            seed_spec_opt: Some(UiGenerateSeedSpec {
+                mnemonic_phrase_size: 24,
+                mnemonic_phrase_language: "English".to_string(),
+                mnemonic_passphrase_opt: Some("booga".to_string()),
+            }),
+            consuming_derivation_path_opt: Some(derivation_path(0, 4)),
+            earning_derivation_path_opt: Some(derivation_path(0, 5)),
         }
     }
 

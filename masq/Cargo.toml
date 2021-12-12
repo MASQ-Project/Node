@@ -13,6 +13,7 @@ workspace = "../node"
 [dependencies]
 clap = "2.33.1"
 crossbeam-channel = "0.5.0"
+itertools = "0.8.0"
 lazy_static = "1.4.0"
 linefeed = "0.6.0"
 masq_lib = { path = "../masq_lib" }
