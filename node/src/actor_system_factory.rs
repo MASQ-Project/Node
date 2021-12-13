@@ -729,9 +729,15 @@ mod tests {
             AccountantSubs {
                 bind: recipient!(addr, BindMessage),
                 start: recipient!(addr, StartMessage),
-                report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
+                report_routing_service_provided: recipient!(
+                    addr,
+                    ReportRoutingServiceProvidedMessage
+                ),
                 report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
-                report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
+                report_routing_service_consumed: recipient!(
+                    addr,
+                    ReportRoutingServiceConsumedMessage
+                ),
                 report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
                 report_new_payments: recipient!(addr, ReceivedPayments),
                 report_sent_payments: recipient!(addr, SentPayments),
