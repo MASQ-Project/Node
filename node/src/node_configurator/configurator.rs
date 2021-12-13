@@ -380,8 +380,8 @@ impl Configurator {
             "recover",
             &msg.db_password,
         )?;
-        let language = Self::parse_language(&msg.mnemonic_phrase_language)?;
-        let mnemonic = match Mnemonic::from_phrase(msg.mnemonic_phrase.join(" "), language) {
+        let language = Self::parse_language(&msg.seed_spec_opt.as_ref().unwrap().mnemonic_phrase_language)?;
+        let mnemonic = match Mnemonic::from_phrase(msg.seed_spec_opt.as_ref().unwrap().mnemonic_phrase.join(" "), language) {
             Ok(m) => m,
             Err(e) => {
                 return Err((
@@ -390,18 +390,23 @@ impl Configurator {
                 ))
             }
         };
-        let passphrase = msg.mnemonic_passphrase_opt.unwrap_or_default();
-        let seed = Seed::new(&mnemonic, &passphrase);
-        let _ = Self::generate_wallet(&seed, &msg.consuming_derivation_path)?;
-        let earning_wallet = match Wallet::from_str(&msg.earning_wallet) {
-            Ok(w) => w,
-            Err(WalletError::InvalidAddress) => Self::generate_wallet(&seed, &msg.earning_wallet)?,
-            Err(e) => panic!("Unexpected error making Wallet from address: {:?}", e),
+        let seed_spec = msg.seed_spec_opt.as_ref().expect("Test-drive me!");
+        let passphrase_opt = seed_spec.mnemonic_passphrase_opt.as_ref();
+        let seed = Seed::new(&mnemonic, passphrase_opt.unwrap_or (&String::new()));
+        let _ = Self::generate_wallet(&seed, msg.consuming_derivation_path_opt.as_ref().expect("Test-drive me!"))?;
+        let earning_wallet = match (&msg.earning_derivation_path_opt, &msg.earning_address_opt) {
+            (_, Some (earning_address)) => match Wallet::from_str (earning_address) {
+                Ok(wallet) => wallet,
+                Err (WalletError::InvalidAddress) => todo! (),
+                Err(e) => panic!("Unexpected error making Wallet from address: {:?}", e),
+            },
+            (Some (earning_derivation_path), None) => Self::generate_wallet(&seed, earning_derivation_path)?,
+            (None, None) => todo! (),
         };
         Self::set_wallet_info(
             persistent_config,
             &seed,
-            &msg.consuming_derivation_path,
+            msg.consuming_derivation_path_opt.as_ref().expect("Test-drive me!"),
             &earning_wallet.string_address_from_keypair(),
             &msg.db_password,
         )?;
@@ -778,11 +783,7 @@ impl Configurator {
 #[cfg(test)]
 mod tests {
     use actix::System;
-    use masq_lib::messages::{
-        ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
-        UiGenerateSeedSpec, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiStartOrder,
-        UiWalletAddressesRequest, UiWalletAddressesResponse,
-    };
+    use masq_lib::messages::{ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiGenerateSeedSpec, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiStartOrder, UiWalletAddressesRequest, UiWalletAddressesResponse, UiRecoverSeedSpec};
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
     use std::sync::{Arc, Mutex};
 
@@ -1577,7 +1578,9 @@ mod tests {
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let request = make_example_recover_wallets_request();
+        let mut request = make_example_recover_wallets_request_with_paths();
+        request.earning_derivation_path_opt = None;
+        request.earning_address_opt = Some ("0x005e288d713a5fb3d7c9cf1b43810a98688c7223".to_string());
 
         subject_addr
             .try_send(NodeFromUiMessage {
@@ -1593,10 +1596,10 @@ mod tests {
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         let (_, context_id) = UiRecoverWalletsResponse::fmb(response.body.clone()).unwrap();
         assert_eq!(context_id, 4321);
-        let mnemonic_phrase = request.mnemonic_phrase.join(" ");
+        let mnemonic_phrase = request.seed_spec_opt.as_ref().unwrap().mnemonic_phrase.join(" ");
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
         let seed = PlainData::new(
-            Bip39::seed(&mnemonic, &request.mnemonic_passphrase_opt.unwrap()).as_ref(),
+            Bip39::seed(&mnemonic, request.seed_spec_opt.as_ref().unwrap().mnemonic_passphrase_opt.as_ref().unwrap()).as_ref(),
         );
         let check_password_params = check_password_params_arc.lock().unwrap();
         assert_eq!(
@@ -1609,8 +1612,8 @@ mod tests {
             *set_wallet_info_params,
             vec![(
                 seed,
-                request.consuming_derivation_path,
-                request.earning_wallet,
+                request.consuming_derivation_path_opt.unwrap(),
+                request.earning_address_opt.unwrap(),
                 request.db_password,
             )]
         );
@@ -1625,22 +1628,22 @@ mod tests {
             .set_wallet_info_params(&set_wallet_info_params_arc)
             .set_wallet_info_result(Ok(()));
         let mut subject = make_subject(Some(persistent_config));
-        let mut request = make_example_recover_wallets_request();
-        request.earning_wallet = derivation_path(0, 5);
+        let mut request = make_example_recover_wallets_request_with_paths();
+        request.earning_derivation_path_opt = Some (derivation_path(0, 5));
 
         let result = subject.handle_recover_wallets(request.clone(), 1234);
 
         assert_eq!(result, UiRecoverWalletsResponse {}.tmb(1234));
-        let mnemonic_phrase = request.mnemonic_phrase.join(" ");
+        let mnemonic_phrase = request.seed_spec_opt.as_ref().unwrap().mnemonic_phrase.join(" ");
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
-        let seed = Bip39::seed(&mnemonic, &request.mnemonic_passphrase_opt.unwrap());
-        let earning_wallet = Configurator::generate_wallet(&seed, &request.earning_wallet).unwrap();
+        let seed = Bip39::seed(&mnemonic, request.seed_spec_opt.as_ref().unwrap().mnemonic_passphrase_opt.as_ref().unwrap());
+        let earning_wallet = Configurator::generate_wallet(&seed, request.earning_derivation_path_opt.as_ref().unwrap()).unwrap();
         let set_wallet_info_params = set_wallet_info_params_arc.lock().unwrap();
         assert_eq!(
             *set_wallet_info_params,
             vec![(
                 PlainData::new(&seed.as_ref()),
-                request.consuming_derivation_path,
+                request.consuming_derivation_path_opt.unwrap(),
                 earning_wallet.string_address_from_keypair(),
                 request.db_password,
             )]
@@ -1656,22 +1659,24 @@ mod tests {
             .set_wallet_info_params(&set_wallet_info_params_arc)
             .set_wallet_info_result(Ok(()));
         let mut subject = make_subject(Some(persistent_config));
-        let mut request = make_example_recover_wallets_request();
-        request.mnemonic_passphrase_opt = None;
+        let mut request = make_example_recover_wallets_request_with_paths();
+        request.seed_spec_opt.as_mut().unwrap().mnemonic_passphrase_opt = None;
 
         let result = subject.handle_recover_wallets(request.clone(), 1234);
 
         assert_eq!(result, UiRecoverWalletsResponse {}.tmb(1234));
-        let mnemonic_phrase = request.mnemonic_phrase.join(" ");
+        let mnemonic_phrase = request.seed_spec_opt.as_ref().unwrap().mnemonic_phrase.join(" ");
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
         let seed = Bip39::seed(&mnemonic, "");
+        let earning_keypair = Bip32ECKeyPair::from_raw(seed.as_bytes(), request.earning_derivation_path_opt.as_ref().unwrap()).unwrap();
+        let earning_wallet = Wallet::from (earning_keypair);
         let set_wallet_info_params = set_wallet_info_params_arc.lock().unwrap();
         assert_eq!(
             *set_wallet_info_params,
             vec![(
                 PlainData::new(&seed.as_ref()),
-                request.consuming_derivation_path,
-                request.earning_wallet,
+                request.consuming_derivation_path_opt.unwrap(),
+                format! ("0x{}", earning_wallet.address().as_bytes().to_hex::<String>()),
                 request.db_password,
             )]
         );
@@ -1682,7 +1687,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Err(PersistentConfigError::NotPresent));
         let mut subject = make_subject(Some(persistent_config));
-        let request = make_example_recover_wallets_request();
+        let request = make_example_recover_wallets_request_with_paths();
 
         let result = subject.handle_recover_wallets(request, 1234);
 
@@ -1703,7 +1708,7 @@ mod tests {
     fn handle_recover_wallets_works_with_incorrect_password() {
         let persistent_config = PersistentConfigurationMock::new().check_password_result(Ok(false));
         let mut subject = make_subject(Some(persistent_config));
-        let request = make_example_recover_wallets_request();
+        let request = make_example_recover_wallets_request_with_paths();
 
         let result = subject.handle_recover_wallets(request, 1234);
 
@@ -1726,7 +1731,7 @@ mod tests {
             .check_password_result(Ok(true))
             .mnemonic_seed_exists_result(Err(PersistentConfigError::NotPresent));
         let mut subject = make_subject(Some(persistent_config));
-        let request = make_example_recover_wallets_request();
+        let request = make_example_recover_wallets_request_with_paths();
 
         let result = subject.handle_recover_wallets(request, 1234);
 
@@ -1750,7 +1755,7 @@ mod tests {
             .mnemonic_seed_exists_result(Ok(true));
         let mut subject = make_subject(Some(persistent_config));
 
-        let result = subject.handle_recover_wallets(make_example_recover_wallets_request(), 4321);
+        let result = subject.handle_recover_wallets(make_example_recover_wallets_request_with_paths(), 4321);
 
         assert_eq!(
             result,
@@ -1771,8 +1776,8 @@ mod tests {
             .check_password_result(Ok(true))
             .mnemonic_seed_exists_result(Ok(false));
         let mut subject = make_subject(Some(persistent_config));
-        let mut request = make_example_recover_wallets_request();
-        request.mnemonic_phrase = vec!["ooga".to_string(), "booga".to_string()];
+        let mut request = make_example_recover_wallets_request_with_paths();
+        request.seed_spec_opt.as_mut().unwrap().mnemonic_phrase = vec!["ooga".to_string(), "booga".to_string()];
 
         let result = subject.handle_recover_wallets(request, 4321);
 
@@ -1800,7 +1805,7 @@ mod tests {
             )));
         let mut subject = make_subject(Some(persistent_config));
 
-        let result = subject.handle_recover_wallets(make_example_recover_wallets_request(), 4321);
+        let result = subject.handle_recover_wallets(make_example_recover_wallets_request_with_paths(), 4321);
 
         assert_eq!(
             result,
@@ -2262,21 +2267,26 @@ mod tests {
         }
     }
 
-    fn make_example_recover_wallets_request() -> UiRecoverWalletsRequest {
+    fn make_example_recover_wallets_request_with_paths() -> UiRecoverWalletsRequest {
         UiRecoverWalletsRequest {
             db_password: "password".to_string(),
-            mnemonic_phrase: vec![
-                "parent", "prevent", "vehicle", "tooth", "crazy", "cruel", "update", "mango",
-                "female", "mad", "spread", "plunge", "tiny", "inch", "under", "engine", "enforce",
-                "film", "awesome", "plunge", "cloud", "spell", "empower", "pipe",
-            ]
-            .into_iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>(),
-            mnemonic_passphrase_opt: Some("ebullient".to_string()),
-            mnemonic_phrase_language: "English".to_string(),
-            consuming_derivation_path: derivation_path(0, 4),
-            earning_wallet: "0x005e288d713a5fb3d7c9cf1b43810a98688c7223".to_string(),
+            seed_spec_opt: Some (UiRecoverSeedSpec {
+                mnemonic_phrase: vec![
+                    "parent", "prevent", "vehicle", "tooth", "crazy", "cruel", "update", "mango",
+                    "female", "mad", "spread", "plunge", "tiny", "inch", "under", "engine", "enforce",
+                    "film", "awesome", "plunge", "cloud", "spell", "empower", "pipe",
+                ]
+                    .into_iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>(),
+                mnemonic_passphrase_opt: Some("ebullient".to_string()),
+                mnemonic_phrase_language: "English".to_string(),
+            }),
+            consuming_derivation_path_opt: Some (derivation_path(0, 4)),
+            consuming_private_key_opt: None,
+            earning_derivation_path_opt: Some (derivation_path(0, 5)),
+            // earning_wallet: "0x005e288d713a5fb3d7c9cf1b43810a98688c7223".to_string(),
+            earning_address_opt: None
         }
     }
 
