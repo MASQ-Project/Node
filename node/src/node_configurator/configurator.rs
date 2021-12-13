@@ -15,7 +15,7 @@ use masq_lib::ui_gateway::{
     MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
 };
 
-use crate::blockchain::bip32::Bip32ECKeyPair;
+use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::Bip39;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
@@ -266,7 +266,7 @@ impl Configurator {
         seed: PlainData,
         derivation_path: String,
     ) -> Result<Wallet, String> {
-        match Bip32ECKeyPair::from_raw(seed.as_ref(), &derivation_path) {
+        match Bip32ECKeyProvider::from_raw(seed.as_ref(), &derivation_path) {
             Err(e) => Err(format!(
                 "Consuming wallet address error during generation: {}",
                 e
@@ -471,7 +471,7 @@ impl Configurator {
     }
 
     fn generate_wallet(seed: &Seed, derivation_path: &str) -> Result<Wallet, MessageError> {
-        match Bip32ECKeyPair::from_raw(seed.as_bytes(), derivation_path) {
+        match Bip32ECKeyProvider::from_raw(seed.as_bytes(), derivation_path) {
             Err(e) => Err((
                 DERIVATION_PATH_ERROR,
                 format!("Bad derivation-path syntax: {}: {}", e, derivation_path),
@@ -751,7 +751,7 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
 
     use super::*;
-    use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::bip39::Bip39;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::sub_lib::cryptde::PublicKey as PK;
@@ -1274,14 +1274,14 @@ mod tests {
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
         let seed = PlainData::new(Bip39::seed(&mnemonic, "booga").as_ref());
         let consuming_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(seed.as_slice(), &derivation_path(0, 4)).unwrap(),
+            Bip32ECKeyProvider::from_raw(seed.as_slice(), &derivation_path(0, 4)).unwrap(),
         );
         assert_eq!(
             generated_wallets.consuming_wallet_address,
             consuming_wallet.string_address_from_keypair()
         );
         let earning_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(seed.as_slice(), &derivation_path(0, 5)).unwrap(),
+            Bip32ECKeyProvider::from_raw(seed.as_slice(), &derivation_path(0, 5)).unwrap(),
         );
         assert_eq!(
             generated_wallets.earning_wallet_address,

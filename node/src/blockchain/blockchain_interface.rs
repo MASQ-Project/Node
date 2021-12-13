@@ -406,7 +406,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::test_utils::TestTransport;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::pure_test_utils::decode_hex;
@@ -930,7 +930,7 @@ mod tests {
         };
         let consuming_wallet_secret_raw_bytes = b"my-wallet";
         let secret =
-            Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
+            Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
                 .unwrap()
                 .secret_secp256k1();
         let signed_transaction = subject
@@ -962,7 +962,7 @@ mod tests {
         assert_eq!(transaction_params, transaction_parameters_expected);
         assert_eq!(
             secret,
-            Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
+            Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
                 .unwrap()
                 .secret_secp256k1()
         );
@@ -1062,7 +1062,7 @@ mod tests {
         assert!(transaction_params.gas < U256::from(not_above_this_value));
         assert_eq!(
             secret,
-            Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
+            Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
                 .unwrap()
                 .secret_secp256k1()
         );
@@ -1167,12 +1167,12 @@ mod tests {
     }
 
     fn test_consuming_wallet_with_secret() -> Wallet {
-        let key_pair = Bip32ECKeyPair::from_raw_secret(
+        let key_provider = Bip32ECKeyProvider::from_raw_secret(
             &decode_hex("97923d8fd8de4a00f912bfb77ef483141dec551bd73ea59343ef5c4aac965d04")
                 .unwrap(),
         )
         .unwrap();
-        Wallet::from(key_pair)
+        Wallet::from(key_provider)
     }
 
     fn test_recipient_wallet() -> Wallet {
@@ -1408,7 +1408,7 @@ mod tests {
             .zip(constant_parts)
         {
             let secret = Wallet::from(
-                Bip32ECKeyPair::from_raw_secret(&signed.private_key.0.as_ref()).unwrap(),
+                Bip32ECKeyProvider::from_raw_secret(&signed.private_key.0.as_ref()).unwrap(),
             )
             .prepare_secp256k1_secret()
             .unwrap();

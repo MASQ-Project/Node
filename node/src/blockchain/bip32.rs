@@ -14,11 +14,11 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
-pub struct Bip32ECKeyPair {
+pub struct Bip32ECKeyProvider {
     secret_raw: Vec<u8>,
 }
 
-impl Bip32ECKeyPair {
+impl Bip32ECKeyProvider {
     const SECRET_KEY_LENGTH: usize = 32;
 
     pub fn from_raw(seed: &[u8], derivation_path: &str) -> Result<Self, String> {
@@ -31,7 +31,7 @@ impl Bip32ECKeyPair {
 
     pub fn from_raw_secret(secret_raw: &[u8]) -> Result<Self, String> {
         Self::validate_raw_input(secret_raw)?;
-        Ok(Bip32ECKeyPair {
+        Ok(Bip32ECKeyProvider {
             secret_raw: secret_raw.to_vec(),
         })
     }
@@ -88,7 +88,7 @@ impl Bip32ECKeyPair {
     }
 }
 
-impl TryFrom<(&[u8], &str)> for Bip32ECKeyPair {
+impl TryFrom<(&[u8], &str)> for Bip32ECKeyProvider {
     type Error = String;
 
     fn try_from(seed_path: (&[u8], &str)) -> Result<Self, Self::Error> {
@@ -104,7 +104,7 @@ impl TryFrom<(&[u8], &str)> for Bip32ECKeyPair {
     }
 }
 
-impl<'de> Deserialize<'de> for Bip32ECKeyPair {
+impl<'de> Deserialize<'de> for Bip32ECKeyProvider {
     fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
     where
         D: Deserializer<'de>,
@@ -117,7 +117,7 @@ impl<'de> Deserialize<'de> for Bip32ECKeyPair {
     }
 }
 
-impl Serialize for Bip32ECKeyPair {
+impl Serialize for Bip32ECKeyProvider {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
     where
         S: Serializer,
@@ -133,15 +133,15 @@ impl Serialize for Bip32ECKeyPair {
     }
 }
 
-impl PartialEq<Bip32ECKeyPair> for Bip32ECKeyPair {
-    fn eq(&self, other: &Bip32ECKeyPair) -> bool {
+impl PartialEq<Bip32ECKeyProvider> for Bip32ECKeyProvider {
+    fn eq(&self, other: &Bip32ECKeyProvider) -> bool {
         self.public_key().bytes().as_ref() == other.public_key().bytes().as_ref()
     }
 }
 
-impl Eq for Bip32ECKeyPair {}
+impl Eq for Bip32ECKeyProvider {}
 
-impl Hash for Bip32ECKeyPair {
+impl Hash for Bip32ECKeyProvider {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.public_key().bytes().hash(state);
     }
@@ -157,7 +157,7 @@ mod tests {
     use std::collections::hash_map::DefaultHasher;
 
     #[test]
-    fn bip32_derivation_path_0_produces_a_keypair_with_correct_address() {
+    fn bip32_derivation_path_0_produces_a_key_with_correct_address() {
         let mnemonic = Mnemonic::from_phrase(
             "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle lamp \
              absent write kind term toddler sphere ripple idle dragon curious hold",
@@ -165,10 +165,12 @@ mod tests {
         )
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
-        let bip32eckey_pair =
-            Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH.as_str()))
-                .unwrap();
-        let address: Address = bip32eckey_pair.address();
+        let bip32eckey_provider = Bip32ECKeyProvider::try_from((
+            seed.as_ref(),
+            DEFAULT_CONSUMING_DERIVATION_PATH.as_str(),
+        ))
+        .unwrap();
+        let address: Address = bip32eckey_provider.address();
         let expected_address: Address =
             serde_json::from_str::<Address>("\"0x2DCfb0B4c2515Ae04dCB2A36e9d7d4251B3611BC\"")
                 .unwrap();
@@ -176,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn bip32_derivation_path_1_produces_a_keypair_with_correct_address() {
+    fn bip32_derivation_path_1_produces_a_key_with_correct_address() {
         let mnemonic = Mnemonic::from_phrase(
             "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle lamp \
              absent write kind term toddler sphere ripple idle dragon curious hold",
@@ -184,10 +186,10 @@ mod tests {
         )
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
-        let bip32eckey_pair =
-            Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_EARNING_DERIVATION_PATH.as_str()))
+        let bip32eckey_provider =
+            Bip32ECKeyProvider::try_from((seed.as_ref(), DEFAULT_EARNING_DERIVATION_PATH.as_str()))
                 .unwrap();
-        let address: Address = bip32eckey_pair.address();
+        let address: Address = bip32eckey_provider.address();
         let expected_address: Address =
             serde_json::from_str::<Address>("\"0x20eF925bBbFca786bd426BaED8c6Ae45e4284e12\"")
                 .unwrap();
@@ -205,13 +207,15 @@ mod tests {
         let mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
         let seed = Seed::new(&mnemonic, "");
 
-        let key_pair =
-            Bip32ECKeyPair::try_from((seed.as_bytes(), DEFAULT_CONSUMING_DERIVATION_PATH.as_str()))
-                .unwrap();
+        let key_provider = Bip32ECKeyProvider::try_from((
+            seed.as_bytes(),
+            DEFAULT_CONSUMING_DERIVATION_PATH.as_str(),
+        ))
+        .unwrap();
 
         assert_eq!(
             format!("{:?}", SecretKey::from_raw(expected_secret_key).unwrap()),
-            format!("{:?}", key_pair.secret_ethsign())
+            format!("{:?}", key_provider.secret_ethsign())
         );
 
         let account =
@@ -240,7 +244,7 @@ mod tests {
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
         assert_eq!(
-            Bip32ECKeyPair::try_from((seed.as_ref(), "")).unwrap_err(),
+            Bip32ECKeyProvider::try_from((seed.as_ref(), "")).unwrap_err(),
             "InvalidDerivationPath".to_string()
         );
     }
@@ -248,23 +252,23 @@ mod tests {
     #[test]
     fn bip32_try_from_errors_with_empty_seed() {
         assert_eq!(
-            Bip32ECKeyPair::try_from(("".as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH.as_str()))
+            Bip32ECKeyProvider::try_from(("".as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH.as_str()))
                 .unwrap_err(),
             "Invalid Seed Length: 0".to_string()
         );
     }
 
-    fn keypair_a() -> Bip32ECKeyPair {
+    fn keypair_a() -> Bip32ECKeyProvider {
         let numbers = (0u8..32u8).collect::<Vec<u8>>();
-        Bip32ECKeyPair::from_raw_secret(&numbers).unwrap()
+        Bip32ECKeyProvider::from_raw_secret(&numbers).unwrap()
     }
 
-    fn keypair_b() -> Bip32ECKeyPair {
+    fn keypair_b() -> Bip32ECKeyProvider {
         let numbers = (1u8..33u8).collect::<Vec<u8>>();
-        Bip32ECKeyPair::from_raw_secret(&numbers).unwrap()
+        Bip32ECKeyProvider::from_raw_secret(&numbers).unwrap()
     }
 
-    fn hash(keypair: &Bip32ECKeyPair) -> u64 {
+    fn hash(keypair: &Bip32ECKeyProvider) -> u64 {
         let mut hasher = DefaultHasher::new();
         keypair.hash(&mut hasher);
         hasher.finish()
@@ -296,7 +300,7 @@ mod tests {
     fn from_raw_secret_validates_correct_length_happy_path() {
         let secret_raw: Vec<u8> = (0..32u8).collect();
 
-        let result = Bip32ECKeyPair::validate_raw_input(secret_raw.as_slice());
+        let result = Bip32ECKeyProvider::validate_raw_input(secret_raw.as_slice());
 
         assert_eq!(result, Ok(()))
     }
@@ -305,7 +309,7 @@ mod tests {
     fn from_raw_secret_validates_correct_length_too_long() {
         let secret_raw: Vec<u8> = (0..33u8).collect();
 
-        let result = Bip32ECKeyPair::validate_raw_input(secret_raw.as_slice());
+        let result = Bip32ECKeyProvider::validate_raw_input(secret_raw.as_slice());
 
         assert_eq!(
             result,
@@ -317,7 +321,7 @@ mod tests {
     fn from_raw_secret_validates_correct_length_too_short() {
         let secret_raw: Vec<u8> = (0..31u8).collect();
 
-        let result = Bip32ECKeyPair::validate_raw_input(secret_raw.as_slice());
+        let result = Bip32ECKeyProvider::validate_raw_input(secret_raw.as_slice());
 
         assert_eq!(
             result,
