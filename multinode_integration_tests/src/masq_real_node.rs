@@ -12,7 +12,7 @@ use masq_lib::constants::CURRENT_LOGFILE_NAME;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
-use node_lib::blockchain::bip32::{Bip32ECKeyPair, Bip32ECKeyPairToolsWrapperReal};
+use node_lib::blockchain::bip32::Bip32ECKeyPair;
 use node_lib::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -331,7 +331,6 @@ impl NodeStartupConfig {
                 let keypair = Bip32ECKeyPair::from_raw(
                     Seed::new(&mnemonic, "passphrase").as_ref(),
                     derivation_path,
-                    Bip32ECKeyPairToolsWrapperReal,
                 )
                 .unwrap();
                 Wallet::from(keypair)
@@ -353,7 +352,6 @@ impl NodeStartupConfig {
                 let keypair = Bip32ECKeyPair::from_raw(
                     Seed::new(&mnemonic, "passphrase").as_ref(),
                     derivation_path,
-                    Bip32ECKeyPairToolsWrapperReal,
                 )
                 .unwrap();
                 Some(Wallet::from(keypair))

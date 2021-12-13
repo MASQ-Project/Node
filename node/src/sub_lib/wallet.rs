@@ -46,9 +46,10 @@ impl Clone for WalletKind {
     fn clone(&self) -> Self {
         match self {
             WalletKind::Address(address) => WalletKind::Address(Address { 0: address.0 }),
-            WalletKind::KeyPair(keypair) => {
-                WalletKind::KeyPair(Bip32ECKeyPair::from(keypair.clone_secrets()))
-            }
+            WalletKind::KeyPair(keypair) => WalletKind::KeyPair(
+                Bip32ECKeyPair::from_raw_secret(keypair.clone_secret().as_ref())
+                    .expect("failed to clone once checked secret"),
+            ),
             WalletKind::PublicKey(public) => WalletKind::PublicKey(
                 PublicKey::from_slice(public.bytes()).expect("Failed to clone from PublicKey"),
             ),
@@ -152,10 +153,7 @@ impl Wallet {
         &self,
     ) -> Result<secp256k1secrets::key::SecretKey, WalletError> {
         match self.kind {
-            WalletKind::KeyPair(ref key_pair) => {
-                let (_, secp256k1) = key_pair.clone_secrets();
-                Ok(secp256k1)
-            }
+            WalletKind::KeyPair(ref key_pair) => Ok(key_pair.secret_secp256k1()),
             _ => Err(WalletError::Signature(format!(
                 "Cannot sign with non-keypair wallet: {:?}.",
                 self.kind
@@ -448,7 +446,6 @@ impl Serialize for Wallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::bip32::Bip32ECKeyPairToolsWrapperReal;
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::test_utils::make_paying_wallet;
@@ -507,12 +504,7 @@ mod tests {
         let derivation_path = derivation_path(0, 5);
         let expected_seed = make_meaningless_seed();
         let wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(
-                expected_seed.as_bytes(),
-                &derivation_path,
-                Bip32ECKeyPairToolsWrapperReal,
-            )
-            .unwrap(),
+            Bip32ECKeyPair::from_raw(expected_seed.as_bytes(), &derivation_path).unwrap(),
         );
 
         let result = wallet.string_address_from_keypair();
@@ -747,13 +739,13 @@ mod tests {
             kind: WalletKind::KeyPair(keypair_b()),
         };
         let public_key_a1 = Wallet {
-            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+            kind: WalletKind::PublicKey(keypair_a().public_key()),
         };
         let public_key_a2 = Wallet {
-            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+            kind: WalletKind::PublicKey(keypair_a().public_key()),
         };
         let public_key_b1 = Wallet {
-            kind: WalletKind::PublicKey(keypair_b().secret().public()),
+            kind: WalletKind::PublicKey(keypair_b().public_key()),
         };
         let uninitialized_a1 = Wallet {
             kind: WalletKind::Uninitialized,
@@ -800,13 +792,13 @@ mod tests {
             kind: WalletKind::KeyPair(keypair_b()),
         };
         let public_key_a1 = Wallet {
-            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+            kind: WalletKind::PublicKey(keypair_a().public_key()),
         };
         let public_key_a2 = Wallet {
-            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+            kind: WalletKind::PublicKey(keypair_a().public_key()),
         };
         let public_key_b1 = Wallet {
-            kind: WalletKind::PublicKey(keypair_b().secret().public()),
+            kind: WalletKind::PublicKey(keypair_b().public_key()),
         };
         let uninitialized_a1 = Wallet {
             kind: WalletKind::Uninitialized,
@@ -866,13 +858,13 @@ mod tests {
             kind: WalletKind::KeyPair(keypair_b()),
         };
         let public_key_a1 = Wallet {
-            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+            kind: WalletKind::PublicKey(keypair_a().public_key()),
         };
         let public_key_a2 = Wallet {
-            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+            kind: WalletKind::PublicKey(keypair_a().public_key()),
         };
         let public_key_b1 = Wallet {
-            kind: WalletKind::PublicKey(keypair_b().secret().public()),
+            kind: WalletKind::PublicKey(keypair_b().public_key()),
         };
         let uninitialized_a1 = Wallet {
             kind: WalletKind::Uninitialized,

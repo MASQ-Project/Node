@@ -932,8 +932,7 @@ mod tests {
         let secret =
             Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
                 .unwrap()
-                .secret()
-                .secp256k1_secret;
+                .secret_secp256k1();
         let signed_transaction = subject
             .web3
             .accounts()
@@ -965,8 +964,7 @@ mod tests {
             secret,
             Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
                 .unwrap()
-                .secret()
-                .secp256k1_secret
+                .secret_secp256k1()
         );
         let send_raw_transaction = send_raw_transaction_params_arc.lock().unwrap();
         assert_eq!(
@@ -1066,8 +1064,7 @@ mod tests {
             secret,
             Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
                 .unwrap()
-                .secret()
-                .secp256k1_secret
+                .secret_secp256k1()
         );
     }
 
