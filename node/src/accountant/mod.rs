@@ -52,6 +52,7 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
+//TODO evaluate if these should be configurable by user in UI and/or CLI
 pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 300; // 5 minutes
 pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 300; // 5 minutes
 
