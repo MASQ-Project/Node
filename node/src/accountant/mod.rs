@@ -297,11 +297,11 @@ impl Accountant {
 
     fn scan_for_payables(&mut self) {
         self
-                            .report_sent_payments_sub
-                            .clone()
-                            .expect("Accountant is unbound")
-                            .try_send(SentPayments { payments: sent_payments })
-                            .expect("Accountant is dead");
+            .report_sent_payments_sub
+            .clone()
+            .expect("Accountant is unbound")
+            .try_send(SentPayments { payments: sent_payments })
+            .expect("Accountant is dead");
     }
 
     fn scan_for_delinquencies(&mut self) {
