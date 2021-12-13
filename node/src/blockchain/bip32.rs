@@ -328,32 +328,4 @@ mod tests {
             Err("Number of bytes of the secret differs from 32: 31".to_string())
         )
     }
-
-    // #[test]
-    // fn bip32eckeypair_from_raw_catches_error_on_creating_dual_secret() {
-    //     let generate_extended_key_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let create_dual_secret_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let seed = b"new seed";
-    //     let derivation_path = derivation_path(0, 1);
-    //     let extended_private_key = ExtendedPrivKey::derive(seed, &*derivation_path).unwrap();
-    //     let tools = Bip32ECKeyPairToolsWrapperMock::default()
-    //         .generate_extended_private_key_params(&generate_extended_key_params_arc)
-    //         .generate_extended_private_key_result(Ok(extended_private_key.clone()))
-    //         .create_dual_secret_params(&create_dual_secret_params_arc)
-    //         .create_dual_secret_result(Err("preparing secretes failed".to_string()));
-    //
-    //     let result = Bip32ECKeyPair::from_raw(&seed[..], &derivation_path, tools);
-    //
-    //     assert_eq!(result, Err("preparing secretes failed".to_string()));
-    //     let generate_extended_key_params = generate_extended_key_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *generate_extended_key_params,
-    //         vec![(seed.to_vec(), derivation_path.to_string())]
-    //     );
-    //     let create_dual_secret_params = create_dual_secret_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *create_dual_secret_params,
-    //         vec![extended_private_key.secret().to_vec()]
-    //     )
-    // }
 }
