@@ -463,7 +463,7 @@ impl PersistentConfigurationReal {
     fn validate_derivation_path(derivation_path: &str) -> bool {
         let mnemonic = Bip39::mnemonic(MnemonicType::Words12, Language::English);
         let seed = Bip39::seed(&mnemonic, "");
-        Bip32ECKeyProvider::from_raw(seed.as_bytes(), derivation_path).is_ok()
+        Bip32ECKeyProvider::try_from((seed.as_bytes(), derivation_path)).is_ok()
     }
 
     fn validate_wallet_address(address: &str) -> bool {
@@ -1049,7 +1049,7 @@ mod tests {
         let (seed_bytes, encrypted_seed) = make_seed_info(db_password);
         let consuming_wallet_derivation_path = "m/66'/40'/0'/0/0".to_string();
         let key_provider =
-            Bip32ECKeyProvider::from_raw(seed_bytes.as_slice(), "m/66'/40'/0'/0/1").unwrap();
+            Bip32ECKeyProvider::try_from((seed_bytes.as_slice(), "m/66'/40'/0'/0/1")).unwrap();
         let earning_wallet = Wallet::from(key_provider);
         let earning_wallet_address = earning_wallet.to_string();
         (

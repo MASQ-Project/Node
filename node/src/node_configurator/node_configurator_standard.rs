@@ -628,14 +628,16 @@ fn get_consuming_wallet_opt_from_derivation_path(
         Ok(Some(derivation_path)) => match persistent_config.mnemonic_seed(db_password) {
             Ok(None) => Ok(None),
             Ok(Some(mnemonic_seed)) => {
-                let keypair =
-                    Bip32ECKeyProvider::from_raw(mnemonic_seed.as_ref(), &derivation_path)
-                        .unwrap_or_else(|_| {
-                            panic!(
-                                "Error making keypair from mnemonic seed and derivation path {}",
-                                derivation_path
-                            )
-                        });
+                let keypair = Bip32ECKeyProvider::try_from((
+                    mnemonic_seed.as_ref(),
+                    derivation_path.as_str(),
+                ))
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Error making keypair from mnemonic seed and derivation path {}",
+                        derivation_path
+                    )
+                });
                 Ok(Some(Wallet::from(keypair)))
             }
             Err(e) => match e {
@@ -2161,7 +2163,7 @@ mod tests {
 
         let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
         let expected_consuming_wallet = Wallet::from(
-            Bip32ECKeyProvider::from_raw(mnemonic_seed.as_ref(), "m/44'/60'/1'/2/3").unwrap(),
+            Bip32ECKeyProvider::try_from((mnemonic_seed.as_ref(), "m/44'/60'/1'/2/3")).unwrap(),
         );
         assert_eq!(config.consuming_wallet, Some(expected_consuming_wallet));
         assert_eq!(

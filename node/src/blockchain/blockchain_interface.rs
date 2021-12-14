@@ -930,9 +930,9 @@ mod tests {
         };
         let consuming_wallet_secret_raw_bytes = b"my-wallet";
         let secret =
-            Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
-                .unwrap()
-                .secret_secp256k1();
+            (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
+                .unwrap())
+                .into();
         let signed_transaction = subject
             .web3
             .accounts()
@@ -962,9 +962,9 @@ mod tests {
         assert_eq!(transaction_params, transaction_parameters_expected);
         assert_eq!(
             secret,
-            Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
-                .unwrap()
-                .secret_secp256k1()
+            (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
+                .unwrap())
+                .into()
         );
         let send_raw_transaction = send_raw_transaction_params_arc.lock().unwrap();
         assert_eq!(
@@ -1062,9 +1062,9 @@ mod tests {
         assert!(transaction_params.gas < U256::from(not_above_this_value));
         assert_eq!(
             secret,
-            Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
-                .unwrap()
-                .secret_secp256k1()
+            (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
+                .unwrap())
+                .into()
         );
     }
 

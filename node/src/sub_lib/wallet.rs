@@ -37,7 +37,7 @@ impl Display for WalletError {
 #[derive(Debug)]
 pub enum WalletKind {
     Address(Address),
-    AllKeys(Bip32ECKeyProvider),
+    SecretKey(Bip32ECKeyProvider),
     PublicKey(PublicKey),
     Uninitialized,
 }
@@ -46,7 +46,7 @@ impl Clone for WalletKind {
     fn clone(&self) -> Self {
         match self {
             WalletKind::Address(address) => WalletKind::Address(Address { 0: address.0 }),
-            WalletKind::AllKeys(keypair) => WalletKind::AllKeys(
+            WalletKind::SecretKey(keypair) => WalletKind::SecretKey(
                 Bip32ECKeyProvider::from_raw_secret(keypair.clone_secret().as_ref())
                     .expect("failed to clone once checked secret"),
             ),
@@ -65,8 +65,8 @@ impl PartialEq<WalletKind> for WalletKind {
                 WalletKind::Address(self_address) => self_address == other_address,
                 _ => false,
             },
-            WalletKind::AllKeys(other_keypair) => match self {
-                WalletKind::AllKeys(self_keypair) => self_keypair == other_keypair,
+            WalletKind::SecretKey(other_keypair) => match self {
+                WalletKind::SecretKey(self_keypair) => self_keypair == other_keypair,
                 _ => false,
             },
             WalletKind::PublicKey(other_public) => match self {
@@ -90,7 +90,7 @@ impl Hash for WalletKind {
                 1.hash(state);
                 address.hash(state)
             }
-            WalletKind::AllKeys(keypair) => {
+            WalletKind::SecretKey(keypair) => {
                 2.hash(state);
                 keypair.hash(state)
             }
@@ -128,7 +128,7 @@ impl Wallet {
             WalletKind::PublicKey(public) => Address {
                 0: *public.address(),
             },
-            WalletKind::AllKeys(key_provider) => key_provider.address(),
+            WalletKind::SecretKey(key_provider) => key_provider.address(),
             WalletKind::Uninitialized => panic!("No address for an uninitialized wallet!"),
         }
     }
@@ -139,7 +139,7 @@ impl Wallet {
 
     pub fn sign(&self, msg: &dyn AsRef<[u8]>) -> Result<Signature, WalletError> {
         match self.kind {
-            WalletKind::AllKeys(ref key_provider) => key_provider
+            WalletKind::SecretKey(ref key_provider) => key_provider
                 .sign(msg.as_ref())
                 .map_err(|e| WalletError::Signature(format!("{:?}", e))),
             _ => Err(WalletError::Signature(format!(
@@ -153,7 +153,7 @@ impl Wallet {
         &self,
     ) -> Result<secp256k1secrets::key::SecretKey, WalletError> {
         match self.kind {
-            WalletKind::AllKeys(ref key_provider) => Ok(key_provider.secret_secp256k1()),
+            WalletKind::SecretKey(ref key_provider) => Ok(key_provider.into()),
             _ => Err(WalletError::Signature(format!(
                 "Cannot sign with non-keypair wallet: {:?}.",
                 self.kind
@@ -163,7 +163,7 @@ impl Wallet {
 
     pub fn verify(&self, signature: &Signature, msg: &dyn AsRef<[u8]>) -> bool {
         match self.kind {
-            WalletKind::AllKeys(ref key_provider) => {
+            WalletKind::SecretKey(ref key_provider) => {
                 match &key_provider.verify(signature, msg.as_ref()) {
                     Ok(result) => *result,
                     Err(_log_this) => false,
@@ -237,7 +237,7 @@ impl From<PublicKey> for Wallet {
 impl From<Bip32ECKeyProvider> for Wallet {
     fn from(keypair: Bip32ECKeyProvider) -> Self {
         Self {
-            kind: WalletKind::AllKeys(keypair),
+            kind: WalletKind::SecretKey(keypair),
         }
     }
 }
@@ -271,7 +271,7 @@ impl TryInto<Bip32ECKeyProvider> for Wallet {
 
     fn try_into(self) -> Result<Bip32ECKeyProvider, Self::Error> {
         match self.kind {
-            WalletKind::AllKeys(keypair) => Ok(keypair),
+            WalletKind::SecretKey(keypair) => Ok(keypair),
             _ => Err("Wallet contains no secret key: can't convert to Bip32KeyPair".to_string()),
         }
     }
@@ -506,7 +506,8 @@ mod tests {
         let derivation_path = derivation_path(0, 5);
         let expected_seed = make_meaningless_seed();
         let wallet = Wallet::from(
-            Bip32ECKeyProvider::from_raw(expected_seed.as_bytes(), &derivation_path).unwrap(),
+            Bip32ECKeyProvider::try_from((expected_seed.as_bytes(), derivation_path.as_str()))
+                .unwrap(),
         );
 
         let result = wallet.string_address_from_keypair();
@@ -736,13 +737,13 @@ mod tests {
         };
         let address_b1 = make_wallet("address");
         let keypair_a1 = Wallet {
-            kind: WalletKind::AllKeys(keypair_a()),
+            kind: WalletKind::SecretKey(keypair_a()),
         };
         let keypair_a2 = Wallet {
-            kind: WalletKind::AllKeys(keypair_a()),
+            kind: WalletKind::SecretKey(keypair_a()),
         };
         let keypair_b1 = Wallet {
-            kind: WalletKind::AllKeys(keypair_b()),
+            kind: WalletKind::SecretKey(keypair_b()),
         };
         let public_key_a1 = Wallet {
             kind: WalletKind::PublicKey(keypair_a().public_key()),
@@ -789,13 +790,13 @@ mod tests {
         };
         let address_b1 = make_wallet("address");
         let keypair_a1 = Wallet {
-            kind: WalletKind::AllKeys(keypair_a()),
+            kind: WalletKind::SecretKey(keypair_a()),
         };
         let keypair_a2 = Wallet {
-            kind: WalletKind::AllKeys(keypair_a()),
+            kind: WalletKind::SecretKey(keypair_a()),
         };
         let keypair_b1 = Wallet {
-            kind: WalletKind::AllKeys(keypair_b()),
+            kind: WalletKind::SecretKey(keypair_b()),
         };
         let public_key_a1 = Wallet {
             kind: WalletKind::PublicKey(keypair_a().public_key()),
@@ -855,13 +856,13 @@ mod tests {
         };
         let address_b1 = make_wallet("address");
         let keypair_a1 = Wallet {
-            kind: WalletKind::AllKeys(keypair_a()),
+            kind: WalletKind::SecretKey(keypair_a()),
         };
         let keypair_a2 = Wallet {
-            kind: WalletKind::AllKeys(keypair_a()),
+            kind: WalletKind::SecretKey(keypair_a()),
         };
         let keypair_b1 = Wallet {
-            kind: WalletKind::AllKeys(keypair_b()),
+            kind: WalletKind::SecretKey(keypair_b()),
         };
         let public_key_a1 = Wallet {
             kind: WalletKind::PublicKey(keypair_a().public_key()),

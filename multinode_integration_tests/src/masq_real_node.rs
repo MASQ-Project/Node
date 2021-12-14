@@ -328,10 +328,10 @@ impl NodeStartupConfig {
             EarningWalletInfo::Address(address) => Wallet::from_str(address).unwrap(),
             EarningWalletInfo::DerivationPath(phrase, derivation_path) => {
                 let mnemonic = Mnemonic::from_phrase(phrase.as_str(), Language::English).unwrap();
-                let keypair = Bip32ECKeyProvider::from_raw(
+                let keypair = Bip32ECKeyProvider::try_from((
                     Seed::new(&mnemonic, "passphrase").as_ref(),
-                    derivation_path,
-                )
+                    derivation_path.as_str(),
+                ))
                 .unwrap();
                 Wallet::from(keypair)
             }
@@ -349,10 +349,10 @@ impl NodeStartupConfig {
             ConsumingWalletInfo::DerivationPath(phrase, derivation_path) => {
                 let mnemonic =
                     Mnemonic::from_phrase(phrase.to_string(), Language::English).unwrap();
-                let keypair = Bip32ECKeyProvider::from_raw(
+                let keypair = Bip32ECKeyProvider::try_from((
                     Seed::new(&mnemonic, "passphrase").as_ref(),
-                    derivation_path,
-                )
+                    derivation_path.as_str(),
+                ))
                 .unwrap();
                 Some(Wallet::from(keypair))
             }

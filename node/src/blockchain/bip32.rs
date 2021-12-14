@@ -1,9 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use ethereum_types::Address;
 use ethsign::keyfile::Crypto;
-use ethsign::{Protected, PublicKey, SecretKey, Signature};
-use masq_lib::utils::WrapResult;
-use secp256k1secrets::key::SecretKey as Secp256k1Secret;
+use ethsign::{Protected, PublicKey, SecretKey as EthsignSecretKey, Signature};
+use secp256k1secrets::key::SecretKey as Secp256k1SecretKey;
 use serde::de;
 use serde::ser;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -18,16 +17,22 @@ pub struct Bip32ECKeyProvider {
     secret_raw: Vec<u8>,
 }
 
+#[allow(clippy::from_over_into)]
+impl Into<Secp256k1SecretKey> for &Bip32ECKeyProvider {
+    fn into(self) -> Secp256k1SecretKey {
+        secp256k1secrets::key::SecretKey::from_slice(&self.secret_raw).expect("internal error")
+    }
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<EthsignSecretKey> for &Bip32ECKeyProvider {
+    fn into(self) -> EthsignSecretKey {
+        EthsignSecretKey::from_raw(self.secret_raw.as_ref()).expect("internal error")
+    }
+}
+
 impl Bip32ECKeyProvider {
     const SECRET_KEY_LENGTH: usize = 32;
-
-    pub fn from_raw(seed: &[u8], derivation_path: &str) -> Result<Self, String> {
-        let extended_private_key =
-            ExtendedPrivKey::derive(seed, derivation_path).map_err(|e| format!("{:?}", e))?;
-        Ok(Self {
-            secret_raw: extended_private_key.secret().to_vec(),
-        })
-    }
 
     pub fn from_raw_secret(secret_raw: &[u8]) -> Result<Self, String> {
         Self::validate_raw_input(secret_raw)?;
@@ -49,21 +54,13 @@ impl Bip32ECKeyProvider {
     }
 
     pub fn public_key(&self) -> PublicKey {
-        self.secret_ethsign().public()
-    }
-
-    pub fn secret_ethsign(&self) -> SecretKey {
-        SecretKey::from_raw(self.secret_raw.as_ref()).expect("internal error")
-    }
-
-    pub fn secret_secp256k1(&self) -> Secp256k1Secret {
-        secp256k1secrets::key::SecretKey::from_slice(&self.secret_raw).expect("internal error")
+        let secret: EthsignSecretKey = self.into();
+        secret.public()
     }
 
     pub fn sign(&self, msg: &[u8]) -> Result<Signature, String> {
-        self.secret_ethsign()
-            .sign(msg)
-            .map_err(|e| format!("{:?}", e))
+        let secret: EthsignSecretKey = self.into();
+        secret.sign(msg).map_err(|e| format!("{:?}", e))
     }
 
     pub fn verify(&self, signature: &Signature, msg: &[u8]) -> Result<bool, String> {
@@ -97,7 +94,7 @@ impl TryFrom<(&[u8], &str)> for Bip32ECKeyProvider {
             Err(format!("Invalid Seed Length: {}", seed.len()))
         } else {
             match ExtendedPrivKey::derive(seed, derivation_path) {
-                Ok(extended_priv_key) => Self::from_key(extended_priv_key).wrap_to_ok(),
+                Ok(extended_priv_key) => Ok(Self::from_key(extended_priv_key)),
                 Err(e) => Err(format!("{:?}", e)),
             }
         }
@@ -122,8 +119,8 @@ impl Serialize for Bip32ECKeyProvider {
     where
         S: Serializer,
     {
-        let result = self
-            .secret_ethsign()
+        let secret: EthsignSecretKey = self.into();
+        let result = secret
             .to_crypto(
                 &Protected::from("secret"),
                 NonZeroU32::new(1).expect("Could not create"),
@@ -213,9 +210,13 @@ mod tests {
         ))
         .unwrap();
 
+        let secret: EthsignSecretKey = (&key_provider).into();
         assert_eq!(
-            format!("{:?}", SecretKey::from_raw(expected_secret_key).unwrap()),
-            format!("{:?}", key_provider.secret_ethsign())
+            format!(
+                "{:?}",
+                EthsignSecretKey::from_raw(expected_secret_key).unwrap()
+            ),
+            format!("{:?}", secret)
         );
 
         let account =
@@ -228,7 +229,7 @@ mod tests {
             "Secret key is invalid"
         );
 
-        let secret = SecretKey::from_raw(&account.secret()).unwrap();
+        let secret = EthsignSecretKey::from_raw(&account.secret()).unwrap();
         let public = secret.public();
 
         assert_eq!(expected_address, public.address(), "Address is invalid");
@@ -300,16 +301,16 @@ mod tests {
     fn from_raw_secret_validates_correct_length_happy_path() {
         let secret_raw: Vec<u8> = (0..32u8).collect();
 
-        let result = Bip32ECKeyProvider::validate_raw_input(secret_raw.as_slice());
+        let result = Bip32ECKeyProvider::from_raw_secret(secret_raw.as_slice()).unwrap();
 
-        assert_eq!(result, Ok(()))
+        assert_eq!(result.secret_raw, secret_raw)
     }
 
     #[test]
-    fn from_raw_secret_validates_correct_length_too_long() {
+    fn from_raw_secret_complains_about_input_too_long() {
         let secret_raw: Vec<u8> = (0..33u8).collect();
 
-        let result = Bip32ECKeyProvider::validate_raw_input(secret_raw.as_slice());
+        let result = Bip32ECKeyProvider::from_raw_secret(secret_raw.as_slice());
 
         assert_eq!(
             result,
@@ -318,10 +319,10 @@ mod tests {
     }
 
     #[test]
-    fn from_raw_secret_validates_correct_length_too_short() {
+    fn from_raw_secret_complains_about_input_too_short() {
         let secret_raw: Vec<u8> = (0..31u8).collect();
 
-        let result = Bip32ECKeyProvider::validate_raw_input(secret_raw.as_slice());
+        let result = Bip32ECKeyProvider::from_raw_secret(secret_raw.as_slice());
 
         assert_eq!(
             result,
