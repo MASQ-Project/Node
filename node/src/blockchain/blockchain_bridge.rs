@@ -28,6 +28,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use web3::transports::Http;
+use crate::accountant::SentPayments;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -37,6 +38,7 @@ pub struct BlockchainBridge {
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
+    sent_payments_subs_opt: Option<Recipient<SentPayments>>,
     crashable: bool,
 }
 
@@ -55,6 +57,7 @@ impl Handler<BindMessage> for BlockchainBridge {
                 .clone(),
             msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         ]);
+        self.sent_payments_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => debug!(
                 self.logger,
@@ -94,7 +97,7 @@ impl Handler<RetrieveTransactions> for BlockchainBridge {
 }
 
 impl Handler<ReportAccountsPayable> for BlockchainBridge {
-    type Result = MessageResult<ReportAccountsPayable>;
+    type Result = ();
 
     fn handle(
         &mut self,
@@ -125,6 +128,7 @@ impl BlockchainBridge {
             blockchain_interface,
             persistent_config,
             set_consuming_wallet_subs_opt: None,
+            sent_payments_subs_opt: None,
             crashable,
             logger: Logger::new("BlockchainBridge"),
         }
@@ -178,22 +182,37 @@ impl BlockchainBridge {
     fn handle_report_accounts_payable(
         &self,
         creditors_msg: ReportAccountsPayable,
-    ) -> MessageResult<ReportAccountsPayable> {
-        MessageResult(match self.consuming_wallet_opt.as_ref() {
+    ){
+        let processed_payments = self.handle_report_accounts_payable_inner(creditors_msg);
+        match processed_payments{
+            Ok(payments) =>  {
+                self.sent_payments_subs_opt
+                    .as_ref()
+                    .expect("Accountant is unbound")
+                    .try_send(SentPayments { payments })
+                    .expect("Accountant is dead");
+            }
+            Err(e) => warning!(self.logger, "{}", e)
+        }
+    }
+
+    fn handle_report_accounts_payable_inner(&self, creditors_msg: ReportAccountsPayable) -> Result<Vec<BlockchainResult<Payment>>, String> {
+        match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => {
-                let gas_price = match self.persistent_config.gas_price() {
-                    Ok(num) => num,
+                match self.persistent_config.gas_price() {
+                    Ok(gas_price) => {
+                        Ok(self.process_payments(creditors_msg, gas_price, consuming_wallet))
+                    }
                     Err(err) => {
-                        return MessageResult(Err(format!(
+                        Err(format!(
                             "ReportAccountPayable: gas-price: {:?}",
                             err
-                        )))
+                        ))
                     }
-                };
-                Ok(self.process_payments(creditors_msg, gas_price, consuming_wallet))
+                }
             }
             None => Err(String::from("No consuming wallet specified")),
-        })
+        }
     }
 
     fn process_payments(
@@ -238,7 +257,7 @@ mod tests {
     use crate::accountant::payable_dao::PayableAccount;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::blockchain_interface::{
-        Balance, BlockchainError, BlockchainResult, Nonce, Transaction, Transactions,
+        BlockchainError, Transaction
     };
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -249,19 +268,16 @@ mod tests {
         make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up,
     };
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::{make_paying_wallet, make_wallet};
+    use crate::test_utils::{make_wallet};
     use actix::Addr;
     use actix::System;
     use ethsign::SecretKey;
-    use ethsign_crypto::Keccak256;
     use futures::future::Future;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::FromHex;
-    use std::cell::RefCell;
-    use std::sync::{Arc, Mutex};
-    use std::time::{Duration, SystemTime};
-    use web3::types::{Address, H256, U256};
+    use std::time::{SystemTime};
+    use crate::blockchain::test_utils::BlockchainInterfaceMock;
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -321,90 +337,6 @@ mod tests {
         );
     }
 
-    #[derive(Debug, Default)]
-    struct BlockchainInterfaceMock {
-        pub retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
-        pub retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
-        pub send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
-        pub send_transaction_results: RefCell<Vec<BlockchainResult<H256>>>,
-        pub contract_address_results: RefCell<Vec<Address>>,
-        pub get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
-        pub get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
-    }
-
-    impl BlockchainInterfaceMock {
-        fn retrieve_transactions_result(
-            self,
-            result: Result<Vec<Transaction>, BlockchainError>,
-        ) -> Self {
-            self.retrieve_transactions_results.borrow_mut().push(result);
-            self
-        }
-
-        fn send_transaction_result(self, result: BlockchainResult<H256>) -> Self {
-            self.send_transaction_results.borrow_mut().push(result);
-            self
-        }
-
-        fn contract_address_result(self, address: Address) -> Self {
-            self.contract_address_results.borrow_mut().push(address);
-            self
-        }
-
-        fn get_transaction_count_result(self, result: BlockchainResult<U256>) -> Self {
-            self.get_transaction_count_results.borrow_mut().push(result);
-            self
-        }
-    }
-
-    impl BlockchainInterface for BlockchainInterfaceMock {
-        fn contract_address(&self) -> Address {
-            self.contract_address_results.borrow_mut().remove(0)
-        }
-
-        fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
-            self.retrieve_transactions_parameters
-                .lock()
-                .unwrap()
-                .push((start_block, recipient.clone()));
-            self.retrieve_transactions_results.borrow_mut().remove(0)
-        }
-
-        fn send_transaction(
-            &self,
-            consuming_wallet: &Wallet,
-            recipient: &Wallet,
-            amount: u64,
-            nonce: U256,
-            gas_price: u64,
-        ) -> BlockchainResult<H256> {
-            self.send_transaction_parameters.lock().unwrap().push((
-                consuming_wallet.clone(),
-                recipient.clone(),
-                amount,
-                nonce,
-                gas_price,
-            ));
-            self.send_transaction_results.borrow_mut().remove(0)
-        }
-
-        fn get_eth_balance(&self, _address: &Wallet) -> Balance {
-            unimplemented!()
-        }
-
-        fn get_token_balance(&self, _address: &Wallet) -> Balance {
-            unimplemented!()
-        }
-
-        fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
-            self.get_transaction_count_parameters
-                .lock()
-                .unwrap()
-                .push(wallet.clone());
-            self.get_transaction_count_results.borrow_mut().remove(0)
-        }
-    }
-
     #[test]
     #[should_panic(expected = "Invalid blockchain node URL")]
     fn invalid_blockchain_url_produces_panic() {
@@ -458,136 +390,6 @@ mod tests {
     }
 
     #[test]
-    fn report_accounts_payable_sends_transactions_to_blockchain_interface() {
-        let system =
-            System::new("report_accounts_payable_sends_transactions_to_blockchain_interface");
-        let blockchain_interface_mock = BlockchainInterfaceMock::default()
-            .get_transaction_count_result(Ok(U256::from(1)))
-            .get_transaction_count_result(Ok(U256::from(2)))
-            .send_transaction_result(Ok(H256::from("sometransactionhash".keccak256())))
-            .send_transaction_result(Ok(H256::from("someothertransactionhash".keccak256())))
-            .contract_address_result(TEST_DEFAULT_CHAIN.rec().contract);
-        let send_parameters = blockchain_interface_mock
-            .send_transaction_parameters
-            .clone();
-        let transaction_count_parameters = blockchain_interface_mock
-            .get_transaction_count_parameters
-            .clone();
-        let expected_gas_price = 5u64;
-        let persistent_configuration_mock =
-            PersistentConfigurationMock::default().gas_price_result(Ok(expected_gas_price));
-
-        let consuming_wallet = make_paying_wallet(b"somewallet");
-        let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
-            Box::new(persistent_configuration_mock),
-            false,
-            Some(consuming_wallet.clone()),
-        );
-        let addr: Addr<BlockchainBridge> = subject.start();
-
-        let request = addr.send(ReportAccountsPayable {
-            accounts: vec![
-                PayableAccount {
-                    wallet: make_wallet("blah"),
-                    balance: 42,
-                    last_paid_timestamp: SystemTime::now(),
-                    pending_payment_transaction: None,
-                },
-                PayableAccount {
-                    wallet: make_wallet("foo"),
-                    balance: 21,
-                    last_paid_timestamp: SystemTime::now(),
-                    pending_payment_transaction: None,
-                },
-            ],
-        });
-        System::current().stop();
-        system.run();
-
-        assert_eq!(
-            send_parameters.lock().unwrap()[0],
-            (
-                consuming_wallet.clone(),
-                make_wallet("blah"),
-                42,
-                U256::from(1),
-                expected_gas_price
-            )
-        );
-        assert_eq!(
-            send_parameters.lock().unwrap()[1],
-            (
-                consuming_wallet.clone(),
-                make_wallet("foo"),
-                21,
-                U256::from(2),
-                expected_gas_price
-            )
-        );
-
-        let result = request.wait().unwrap().unwrap();
-        let mut expected_payment_0 = Payment::new(
-            make_wallet("blah"),
-            42,
-            H256::from("sometransactionhash".keccak256()),
-        );
-
-        if let Ok(zero) = result.clone().get(0).unwrap().clone() {
-            assert!(
-                zero.timestamp
-                    <= expected_payment_0
-                        .timestamp
-                        .checked_add(Duration::from_secs(2))
-                        .unwrap()
-            );
-            assert!(
-                zero.timestamp
-                    >= expected_payment_0
-                        .timestamp
-                        .checked_sub(Duration::from_secs(2))
-                        .unwrap()
-            );
-            expected_payment_0.timestamp = zero.timestamp
-        }
-
-        let mut expected_payment_1 = Payment::new(
-            make_wallet("foo"),
-            21,
-            H256::from("someothertransactionhash".keccak256()),
-        );
-
-        if let Ok(one) = result.clone().get(1).unwrap().clone() {
-            assert!(
-                one.timestamp
-                    <= expected_payment_1
-                        .timestamp
-                        .checked_add(Duration::from_secs(2))
-                        .unwrap()
-            );
-            assert!(
-                one.timestamp
-                    >= expected_payment_1
-                        .timestamp
-                        .checked_sub(Duration::from_secs(2))
-                        .unwrap()
-            );
-            expected_payment_1.timestamp = one.timestamp
-        }
-
-        assert_eq!(result[1], Ok(expected_payment_1));
-
-        assert_eq!(
-            transaction_count_parameters.lock().unwrap()[0],
-            consuming_wallet.clone(),
-        );
-        assert_eq!(
-            transaction_count_parameters.lock().unwrap()[1],
-            consuming_wallet.clone(),
-        );
-    }
-
-    #[test]
     fn report_accounts_payable_returns_error_for_blockchain_error() {
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
@@ -615,10 +417,10 @@ mod tests {
             }],
         };
 
-        let result = subject.handle_report_accounts_payable(request);
+        let result = subject.handle_report_accounts_payable_inner(request);
 
         assert_eq!(
-            result.0,
+            result,
             Ok(vec![Err(BlockchainError::TransactionFailed(String::from(
                 "mock payment failure"
             )))])
@@ -646,13 +448,14 @@ mod tests {
             }],
         };
 
-        let result = subject.handle_report_accounts_payable(request);
+        let result = subject.handle_report_accounts_payable_inner(request);
 
-        assert_eq!(result.0, Err("No consuming wallet specified".to_string()));
+        assert_eq!(result, Err("No consuming wallet specified".to_string()));
     }
 
     #[test]
     fn handle_report_account_payable_manages_gas_price_error() {
+        init_test_logging();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)));
         let persistent_configuration_mock = PersistentConfigurationMock::new()
@@ -673,14 +476,9 @@ mod tests {
             }],
         };
 
-        let result = subject.handle_report_accounts_payable(request);
+        let _ = subject.handle_report_accounts_payable(request);
 
-        assert_eq!(
-            result.0,
-            Err(String::from(
-                "ReportAccountPayable: gas-price: TransactionError"
-            ))
-        )
+        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: ReportAccountPayable: gas-price: TransactionError");
     }
 
     #[test]

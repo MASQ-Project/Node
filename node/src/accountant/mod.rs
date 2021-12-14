@@ -282,7 +282,6 @@ impl Accountant {
 
     fn scan_for_payables(&mut self) {
         debug!(self.logger, "Scanning for payables");
-        let future_logger = self.logger.clone();
 
         let all_non_pending_payables = self.payable_dao.non_pending_payables();
         debug!(
@@ -305,40 +304,13 @@ impl Accountant {
             Self::payments_debug_summary(&qualified_payables)
         );
         if !qualified_payables.is_empty() {
-            let report_sent_payments = self.report_sent_payments_sub.clone();
-            // TODO: This is bad code. The ReportAccountsPayable message should have no result;
-            // instead, when the BlockchainBridge completes processing the ReportAccountsPayable
-            // message, it should send a SentPayments message back to the Accountant. There should
-            // be no future here: mixing futures and Actors is a bad idea.
-            let future = self
+            self
                 .report_accounts_payable_sub
                 .as_ref()
                 .expect("BlockchainBridge is unbound")
-                .send(ReportAccountsPayable {
+                .try_send(ReportAccountsPayable {
                     accounts: qualified_payables,
-                })
-                .then(move |results| match results {
-                    Ok(Ok(results)) => {
-                        report_sent_payments
-                            .expect("Accountant is unbound")
-                            .try_send(SentPayments { payments: results })
-                            .expect("Accountant is dead");
-                        Ok(())
-                    }
-                    Ok(Err(e)) => {
-                        warning!(future_logger, "{}", e);
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!(
-                            future_logger,
-                            "Unable to send ReportAccountsPayable: {:?}", e
-                        );
-                        thread::sleep(Duration::from_secs(1));
-                        panic!("Unable to send ReportAccountsPayable: {:?}", e);
-                    }
-                });
-            actix::spawn(future);
+                }).expect("BlockchainBridge is dead")
         }
     }
 
@@ -829,19 +801,18 @@ pub mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::make_wallet;
+    use crate::test_utils::{make_paying_wallet, make_wallet};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
+    use crate::test_utils::pure_test_utils::{prove_that_crash_request_handler_is_hooked_up};
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use actix::System;
+    use actix::{System};
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
     use std::cell::RefCell;
-    use std::convert::TryFrom;
     use std::ops::Sub;
     use std::rc::Rc;
     use std::sync::Mutex;
@@ -851,6 +822,9 @@ pub mod tests {
     use std::time::SystemTime;
     use web3::types::H256;
     use web3::types::U256;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use crate::blockchain::blockchain_bridge::BlockchainBridge;
+    use crate::blockchain::test_utils::BlockchainInterfaceMock;
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
@@ -1532,151 +1506,107 @@ pub mod tests {
     }
 
     #[test]
-    fn accountant_reports_sent_payments_when_blockchain_bridge_reports_account_payable() {
-        let earning_wallet = make_wallet("earner3000");
-        let now = to_time_t(SystemTime::now());
-        let expected_wallet = make_wallet("blah");
-        let expected_wallet_inner = expected_wallet.clone();
-        let expected_amount =
-            u64::try_from(PAYMENT_CURVES.permanent_debt_allowed_gwub + 1000).unwrap();
+    fn account_sends_report_accounts_payable_msg_to_blockchain_bridge_and_receives_sent_payment_msg_later() {
+        let send_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let send_transaction_params_arc_cloned = send_transaction_params_arc.clone(); //because it moves in closure
+        let expected_gas_price = 150u64;
+        let consuming_wallet = make_paying_wallet(b"somewallet");
+        let consuming_wallet_cloned = consuming_wallet.clone();
+        let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
+        thread::spawn(move|| {
+            let system =
+                System::new("account_sends_report_accounts_payable_msg_to_blockchain_bridge_and_receives_sent_payment_msg_later");
+            let blockchain_interface_mock = BlockchainInterfaceMock::default()
+                .get_transaction_count_result(Ok(U256::from(1)))
+                .get_transaction_count_result(Ok(U256::from(2)))
+                .send_transaction_params(&send_transaction_params_arc_cloned)
+                .send_transaction_result(Ok(H256::from("sometransactionhash".keccak256())))
+                .send_transaction_result(Err(BlockchainError::TransactionFailed("small gas amount".to_string())))
+                .contract_address_result(TEST_DEFAULT_CHAIN.rec().contract)
+                .retrieve_transactions_result(Ok(vec![]));
+            let accounts = vec![
+                PayableAccount {
+                    wallet: make_wallet("blah"),
+                    balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 100,
+                    last_paid_timestamp: from_time_t(PAYMENT_CURVES.payment_suggested_after_sec + 5),
+                    pending_payment_transaction: None,
+                },
+                PayableAccount {
+                    wallet: make_wallet("foo"),
+                    balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 100,
+                    last_paid_timestamp: from_time_t(PAYMENT_CURVES.payment_suggested_after_sec + 5),
+                    pending_payment_transaction: None,
+                },
+            ];
+            let payable_dao = PayableDaoMock::new()
+                .non_pending_payables_result(accounts);
 
-        let expected_pending_payment_transaction = H256::from("transaction_hash".keccak256());
-        let expected_pending_payment_transaction_inner =
-            expected_pending_payment_transaction.clone();
-
-        let payable_dao = PayableDaoMock::new()
-            .non_pending_payables_result(vec![PayableAccount {
-                wallet: expected_wallet.clone(),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1000,
-                last_paid_timestamp: from_time_t(
-                    now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
-                ),
-                pending_payment_transaction: None,
-            }])
-            .non_pending_payables_result(vec![]);
-
-        let blockchain_bridge = Recorder::new()
-            .report_accounts_payable_response(Ok(vec![Ok(Payment::new(
-                expected_wallet_inner,
-                expected_amount,
-                expected_pending_payment_transaction_inner,
-            ))]))
-            .retrieve_transactions_response(Ok(vec![]));
-
-        let (accountant_mock, accountant_mock_awaiter, accountant_recording_arc) = make_recorder();
-
-        thread::spawn(move || {
-            let system = System::new(
-                "accountant_reports_sent_payments_when_blockchain_bridge_reports_account_payable",
-            );
-
-            let peer_actors = peer_actors_builder()
-                .blockchain_bridge(blockchain_bridge)
-                .accountant(accountant_mock)
-                .build();
-            let subject = make_subject(
+            let persistent_configuration_mock =
+                PersistentConfigurationMock::default()
+                    .gas_price_result(Ok(expected_gas_price));
+            let blockchain_bridge_addr = BlockchainBridge::new(
+                Box::new(blockchain_interface_mock),
+                Box::new(persistent_configuration_mock),
+                false,
+                Some(consuming_wallet_cloned),
+            ).start();
+            let blockchain_bridge_subs = BlockchainBridge::make_subs_from(&blockchain_bridge_addr);
+            let accountant_addr = make_subject(
                 Some(bc_from_ac_plus_earning_wallet(
                     AccountantConfig {
-                        payable_scan_interval: Duration::from_millis(100),
-                        payment_received_scan_interval: Duration::from_secs(10_000),
+                        payable_scan_interval: Duration::from_millis(100_000),
+                        payment_received_scan_interval: Duration::from_secs(100_000),
                     },
-                    earning_wallet.clone(),
+                    make_wallet("some_wallet_address"),
                 )),
                 Some(payable_dao),
                 None,
                 None,
                 None,
-            );
-            let subject_addr = subject.start();
-            let accountant_subs = Accountant::make_subs_from(&subject_addr);
+            ).start();
+            let accountant_subs = Accountant::make_subs_from(&accountant_addr);
+            let mut peer_actors = peer_actors_builder().accountant(accountant).build();
+            peer_actors.blockchain_bridge = blockchain_bridge_subs.clone();
+            send_bind_message!(accountant_subs,peer_actors);
+            send_bind_message!(blockchain_bridge_subs,peer_actors);
 
-            send_bind_message!(accountant_subs, peer_actors);
             send_start_message!(accountant_subs);
 
             system.run();
         });
 
-        accountant_mock_awaiter.await_message_count(1);
-
-        let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let actual_payments = accountant_recording.get_record::<SentPayments>(0);
-        let mut expected_payment = Payment::new(
-            expected_wallet,
-            expected_amount,
-            expected_pending_payment_transaction,
-        );
-        let payments = actual_payments.payments.clone();
-        let maybe_payment = payments.get(0).clone();
-        let result_payment = maybe_payment.unwrap().clone();
-        expected_payment.timestamp = result_payment.unwrap().timestamp;
+        accountant_awaiter.await_message_count(1);
+        let send_transaction_params = send_transaction_params_arc.lock().unwrap();
         assert_eq!(
-            actual_payments,
-            &SentPayments {
-                payments: vec![Ok(expected_payment)]
-            }
+            *send_transaction_params,
+            vec![
+            (
+                consuming_wallet.clone(),
+                make_wallet("blah"),
+                (PAYMENT_CURVES.balance_to_decrease_from_gwub + 100) as u64,
+                U256::from(1),
+                expected_gas_price
+            ),
+            (
+                consuming_wallet.clone(),
+                make_wallet("foo"),
+                (PAYMENT_CURVES.balance_to_decrease_from_gwub + 100) as u64,
+                U256::from(2),
+                expected_gas_price
+            )
+            ]
         );
-    }
-
-    #[test]
-    fn accountant_logs_warn_when_blockchain_bridge_report_accounts_payable_errors() {
-        init_test_logging();
-        let earning_wallet = make_wallet("earner3000");
-        let now = to_time_t(SystemTime::now());
-        let expected_wallet = make_wallet("blockchain_bridge_error");
-
-        let payable_dao = PayableDaoMock::new()
-            .non_pending_payables_result(vec![PayableAccount {
-                wallet: expected_wallet.clone(),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1000,
-                last_paid_timestamp: from_time_t(
-                    now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
-                ),
-                pending_payment_transaction: None,
-            }])
-            .non_pending_payables_result(vec![]);
-
-        let blockchain_bridge = Recorder::new()
-            .retrieve_transactions_response(Ok(vec![]))
-            .report_accounts_payable_response(Err("Failed to send transaction".to_string()));
-
-        let (accountant_mock, _, accountant_recording_arc) = make_recorder();
-
-        thread::spawn(move || {
-            let system = System::new(
-                "accountant_reports_sent_payments_when_blockchain_bridge_reports_account_payable",
-            );
-
-            let peer_actors = peer_actors_builder()
-                .blockchain_bridge(blockchain_bridge)
-                .accountant(accountant_mock)
-                .build();
-            let subject = make_subject(
-                Some(bc_from_ac_plus_earning_wallet(
-                    AccountantConfig {
-                        payable_scan_interval: Duration::from_millis(100),
-                        payment_received_scan_interval: Duration::from_secs(10_000),
-                    },
-                    earning_wallet.clone(),
-                )),
-                Some(payable_dao),
-                None,
-                None,
-                None,
-            );
-            let subject_addr = subject.start();
-            let subject_subs = Accountant::make_subs_from(&subject_addr);
-
-            send_bind_message!(subject_subs, peer_actors);
-            send_start_message!(subject_subs);
-
-            system.run();
-        });
-
-        TestLogHandler::new()
-            .await_log_containing("WARN: Accountant: Failed to send transaction", 1000u64);
-
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(0, accountant_recording.len());
+        let sent_payments_to_account = accountant_recording.get_record::<SentPayments>(0);
+        let processed_payment = sent_payments_to_account.payments[0].as_ref().unwrap();
+        assert_eq!(processed_payment.amount,(PAYMENT_CURVES.balance_to_decrease_from_gwub + 100) as u64);
+        assert_eq!(processed_payment.to,make_wallet("blah"));
+        assert_eq!(processed_payment.transaction,H256::from("sometransactionhash".keccak256()));
+        assert_eq!(sent_payments_to_account.payments[1],
+            Err(
+                BlockchainError::TransactionFailed("small gas amount".to_string())
+            )
+        );
     }
 
     #[test]

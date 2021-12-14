@@ -1,8 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::{PayableAccount, Payment};
+use crate::accountant::payable_dao::{PayableAccount};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use crate::blockchain::blockchain_interface::BlockchainResult;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
@@ -32,13 +31,9 @@ impl Debug for BlockchainBridgeSubs {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportAccountsPayable {
     pub accounts: Vec<PayableAccount>,
-}
-
-impl Message for ReportAccountsPayable {
-    type Result = Result<Vec<BlockchainResult<Payment>>, String>;
 }
 
 #[derive(Clone, PartialEq, Debug, Message)]

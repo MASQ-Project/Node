@@ -128,6 +128,7 @@ recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
+recorder_message_handler!(ReportAccountsPayable);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -173,22 +174,6 @@ impl Handler<RetrieveTransactions> for Recorder {
         MessageResult(extract_response(
             &mut self.retrieve_transactions_responses,
             "No RetrieveTransactionsResponses prepared for RetrieveTransactions",
-        ))
-    }
-}
-
-impl Handler<ReportAccountsPayable> for Recorder {
-    type Result = MessageResult<ReportAccountsPayable>;
-
-    fn handle(
-        &mut self,
-        msg: ReportAccountsPayable,
-        _ctx: &mut Self::Context,
-    ) -> <Self as Handler<ReportAccountsPayable>>::Result {
-        self.record(msg);
-        MessageResult(extract_response(
-            &mut self.report_accounts_payable_responses,
-            "No ReportAccountsPayableResponses prepared for ReportAccountsPayable",
         ))
     }
 }
