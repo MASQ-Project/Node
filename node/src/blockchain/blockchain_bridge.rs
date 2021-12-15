@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::Payment;
+use crate::accountant::SentPayments;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
     BlockchainInterfaceNonClandestine, BlockchainResult, Transaction,
@@ -28,7 +29,6 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use web3::transports::Http;
-use crate::accountant::SentPayments;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -179,38 +179,31 @@ impl BlockchainBridge {
         }
     }
 
-    fn handle_report_accounts_payable(
-        &self,
-        creditors_msg: ReportAccountsPayable,
-    ){
+    fn handle_report_accounts_payable(&self, creditors_msg: ReportAccountsPayable) {
         let processed_payments = self.handle_report_accounts_payable_inner(creditors_msg);
-        match processed_payments{
-            Ok(payments) =>  {
+        match processed_payments {
+            Ok(payments) => {
                 self.sent_payments_subs_opt
                     .as_ref()
                     .expect("Accountant is unbound")
                     .try_send(SentPayments { payments })
                     .expect("Accountant is dead");
             }
-            Err(e) => warning!(self.logger, "{}", e)
+            Err(e) => warning!(self.logger, "{}", e),
         }
     }
 
-    fn handle_report_accounts_payable_inner(&self, creditors_msg: ReportAccountsPayable) -> Result<Vec<BlockchainResult<Payment>>, String> {
+    fn handle_report_accounts_payable_inner(
+        &self,
+        creditors_msg: ReportAccountsPayable,
+    ) -> Result<Vec<BlockchainResult<Payment>>, String> {
         match self.consuming_wallet_opt.as_ref() {
-            Some(consuming_wallet) => {
-                match self.persistent_config.gas_price() {
-                    Ok(gas_price) => {
-                        Ok(self.process_payments(creditors_msg, gas_price, consuming_wallet))
-                    }
-                    Err(err) => {
-                        Err(format!(
-                            "ReportAccountPayable: gas-price: {:?}",
-                            err
-                        ))
-                    }
+            Some(consuming_wallet) => match self.persistent_config.gas_price() {
+                Ok(gas_price) => {
+                    Ok(self.process_payments(creditors_msg, gas_price, consuming_wallet))
                 }
-            }
+                Err(err) => Err(format!("ReportAccountPayable: gas-price: {:?}", err)),
+            },
             None => Err(String::from("No consuming wallet specified")),
         }
     }
@@ -256,19 +249,18 @@ mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchain_interface::{
-        BlockchainError, Transaction
-    };
+    use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
+    use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::{
         make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up,
     };
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::{make_wallet};
     use actix::Addr;
     use actix::System;
     use ethsign::SecretKey;
@@ -276,8 +268,7 @@ mod tests {
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::FromHex;
-    use std::time::{SystemTime};
-    use crate::blockchain::test_utils::BlockchainInterfaceMock;
+    use std::time::SystemTime;
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -478,7 +469,9 @@ mod tests {
 
         let _ = subject.handle_report_accounts_payable(request);
 
-        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: ReportAccountPayable: gas-price: TransactionError");
+        TestLogHandler::new().exists_log_containing(
+            "WARN: BlockchainBridge: ReportAccountPayable: gas-price: TransactionError",
+        );
     }
 
     #[test]

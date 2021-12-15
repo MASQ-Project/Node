@@ -412,7 +412,7 @@ impl ActorFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::{ReceivedPayments, SentPayments};
+    use crate::accountant::{ReceivedPayments, ScanForPayables, ScanForReceivables, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
@@ -743,7 +743,9 @@ mod tests {
                     .recipient::<ReportExitServiceConsumedMessage>(),
                 report_new_payments: recipient!(addr, ReceivedPayments),
                 report_sent_payments: recipient!(addr, SentPayments),
-                ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+                ui_message_sub: recipient!(addr, NodeFromUiMessage),
+                scan_for_payables: recipient!(addr, ScanForPayables),
+                scan_for_receivables: recipient!(addr, ScanForReceivables),
             }
         }
 
@@ -924,8 +926,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -994,8 +996,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1106,8 +1108,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1163,8 +1165,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
