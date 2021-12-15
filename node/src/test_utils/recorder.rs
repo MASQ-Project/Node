@@ -42,11 +42,11 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::test_utils::to_millis;
-use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
+use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::Any;
 use std::sync::{Arc, Mutex};
@@ -250,7 +250,10 @@ impl Recording {
         self.len() == 0
     }
 
-    pub fn get<T: Any + Send + Clone>(recording_arc: &Arc<Mutex<Recording>>, index: usize) -> T {
+    pub fn get<T: Any + Send + Clone + Message>(
+        recording_arc: &Arc<Mutex<Recording>>,
+        index: usize,
+    ) -> T {
         let recording_arc_clone = recording_arc.clone();
         let recording = recording_arc_clone.lock().unwrap();
         recording.get_record::<T>(index).clone()
@@ -260,22 +263,36 @@ impl Recording {
     where
         T: Any + Send,
     {
+        self.get_record_inner_body(index)
+            .unwrap_or_else(|e| panic!("{}", e))
+    }
+
+    pub fn get_record_opt<T>(&self, index: usize) -> Option<&T>
+    where
+        T: Any + Send,
+    {
+        self.get_record_inner_body(index).ok()
+    }
+
+    fn get_record_inner_body<T: 'static>(&self, index: usize) -> Result<&T, String> {
         let item_box = match self.messages.get(index) {
             Some(item_box) => item_box,
-            None => panic!(
-                "Only {} messages recorded: no message #{} in the recording",
-                self.messages.len(),
-                index
-            ),
+            None => {
+                return Err(format!(
+                    "Only {} messages recorded: no message #{} in the recording",
+                    self.messages.len(),
+                    index
+                ))
+            }
         };
         let item_opt = item_box.downcast_ref::<T>();
 
         match item_opt {
-            Some(item) => item,
-            None => panic!(
+            Some(item) => Ok(item),
+            None => Err(format!(
                 "Message {:?} could not be downcast to the expected type",
                 item_box
-            ),
+            )),
         }
     }
 }

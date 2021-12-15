@@ -2,12 +2,15 @@
 
 #![cfg(test)]
 
+use crate::blockchain::blockchain_interface::{
+    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, Transaction,
+    Transactions,
+};
+use crate::sub_lib::wallet::Wallet;
+use bip39::{Language, Mnemonic, Seed};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use bip39::{Language, Mnemonic, Seed};
 use web3::types::{Address, H256, U256};
-use crate::blockchain::blockchain_interface::{Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, Transaction, Transactions};
-use crate::sub_lib::wallet::Wallet;
 
 pub fn make_meaningless_phrase() -> String {
     "phrase donate agent satoshi burst end company pear obvious achieve depth advice".to_string()
@@ -38,7 +41,10 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn send_transaction_params(mut self, params: &Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>)->Self{
+    pub fn send_transaction_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
+    ) -> Self {
         self.send_transaction_parameters = params.clone();
         self
     }
@@ -53,7 +59,7 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn get_transaction_count_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>)->Self{
+    pub fn get_transaction_count_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
         self.get_transaction_count_parameters = params.clone();
         self
     }
