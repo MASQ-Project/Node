@@ -220,6 +220,7 @@ impl BlockchainBridge {
                             amount,
                             nonce,
                             gas_price,
+                            self.blockchain_interface.send_transaction_tools().as_ref(),
                         ) {
                             Ok(hash) => Ok(Payment::new(payable.wallet.clone(), amount, hash)),
                             Err(e) => Err(e),
@@ -236,9 +237,12 @@ impl BlockchainBridge {
 mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
-    use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_interface::{
         Balance, BlockchainError, BlockchainResult, Nonce, Transaction, Transactions,
+    };
+    use crate::blockchain::tool_wrappers::{
+        SendTransactionToolsWrapper, SendTransactionToolsWrapperNull,
     };
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -252,7 +256,6 @@ mod tests {
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::Addr;
     use actix::System;
-    use ethsign::SecretKey;
     use ethsign_crypto::Keccak256;
     use futures::future::Future;
     use masq_lib::constants::DEFAULT_CHAIN;
@@ -273,8 +276,7 @@ mod tests {
         let secret: Vec<u8> = "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
             .from_hex()
             .unwrap();
-        let consuming_private_key = SecretKey::from_raw(&secret).unwrap();
-        let consuming_wallet = Wallet::from(Bip32ECKeyPair::from(consuming_private_key));
+        let consuming_wallet = Wallet::from(Bip32ECKeyProvider::from_raw_secret(&secret).unwrap());
         let subject = BlockchainBridge::new(
             stub_bi(),
             Box::new(make_default_persistent_configuration()),
@@ -370,13 +372,14 @@ mod tests {
             self.retrieve_transactions_results.borrow_mut().remove(0)
         }
 
-        fn send_transaction(
+        fn send_transaction<'a>(
             &self,
             consuming_wallet: &Wallet,
             recipient: &Wallet,
             amount: u64,
             nonce: U256,
             gas_price: u64,
+            _send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
         ) -> BlockchainResult<H256> {
             self.send_transaction_parameters.lock().unwrap().push((
                 consuming_wallet.clone(),
@@ -402,6 +405,10 @@ mod tests {
                 .unwrap()
                 .push(wallet.clone());
             self.get_transaction_count_results.borrow_mut().remove(0)
+        }
+
+        fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolsWrapper + 'a> {
+            Box::new(SendTransactionToolsWrapperNull)
         }
     }
 
