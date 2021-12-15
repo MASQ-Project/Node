@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::payable_dao::Payment;
-use crate::accountant::{ReceivedPayments, SentPayments};
+use crate::accountant::{ReceivedPayments, ScanForPayables, ScanForReceivables, SentPayments};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainResult, Transaction};
 use crate::daemon::crash_notification::CrashNotification;
@@ -129,6 +129,8 @@ recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
 recorder_message_handler!(ReportAccountsPayable);
+recorder_message_handler!(ScanForReceivables);
+recorder_message_handler!(ScanForPayables);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;

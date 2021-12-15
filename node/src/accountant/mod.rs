@@ -52,8 +52,9 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
-pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
+//TODO evaluate if these should be configurable by user in UI and/or CLI
+pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 300; // 5 minutes
+pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 300; // 5 minutes
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
@@ -124,6 +125,12 @@ pub struct SentPayments {
     pub payments: Vec<Result<Payment, BlockchainError>>,
 }
 
+#[derive(Debug, Eq, Message, PartialEq)]
+pub struct ScanForPayables {}
+
+#[derive(Debug, Eq, Message, PartialEq)]
+pub struct ScanForReceivables {}
+
 impl Handler<BindMessage> for Accountant {
     type Result = ();
 
@@ -139,27 +146,20 @@ impl Handler<StartMessage> for Accountant {
     fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
         self.handle_start_message();
 
-        ctx.notify_later(ScanForPayables, self.config.payable_scan_interval);
+        ctx.notify_later(ScanForPayables {}, self.config.payables_scan_interval);
 
-        ctx.run_interval(
-            self.config.payment_received_scan_interval,
-            |accountant, _ctx| {
-                accountant.scan_for_received_payments();
-                accountant.scan_for_delinquencies();
-            },
-        );
+        ctx.run_interval(self.config.receivables_scan_interval, |accountant, _ctx| {
+            accountant.handle_scan_for_receivables()
+        });
     }
 }
-
-#[derive(Debug, Eq, Message, PartialEq)]
-struct ScanForPayables;
 
 impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         self.scan_for_payables();
-        let _ = ctx.notify_later(msg, self.config.payable_scan_interval);
+        let _ = ctx.notify_later(msg, self.config.payables_scan_interval);
     }
 }
 
@@ -621,6 +621,11 @@ impl Accountant {
 
     fn handle_start_message(&mut self) {
         self.scan_for_payables();
+        self.scan_for_received_payments();
+        self.scan_for_delinquencies();
+    }
+
+    fn handle_scan_for_receivables(&mut self) {
         self.scan_for_received_payments();
         self.scan_for_delinquencies();
     }
@@ -1350,8 +1355,8 @@ pub mod tests {
         let subject = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
-                    payable_scan_interval: Duration::from_millis(10_000),
-                    payment_received_scan_interval: Duration::from_millis(10_000),
+                    payables_scan_interval: Duration::from_millis(10_000),
+                    receivables_scan_interval: Duration::from_millis(10_000),
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1443,8 +1448,8 @@ pub mod tests {
         let accountant = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
-                    payable_scan_interval: Duration::from_millis(100),
-                    payment_received_scan_interval: Duration::from_secs(10_000),
+                    payables_scan_interval: Duration::from_millis(100),
+                    receivables_scan_interval: Duration::from_secs(10_000),
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1491,8 +1496,8 @@ pub mod tests {
         let accountant = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
-                    payable_scan_interval: Duration::from_millis(100),
-                    payment_received_scan_interval: Duration::from_secs(10_000),
+                    payables_scan_interval: Duration::from_millis(100),
+                    receivables_scan_interval: Duration::from_secs(10_000),
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1546,8 +1551,8 @@ pub mod tests {
         let subject = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
-                    payable_scan_interval: Duration::from_millis(100_000), //scan intervals deliberately big to demonstrate that we don't do the intervals yet
-                    payment_received_scan_interval: Duration::from_secs(100_000),
+                    payables_scan_interval: Duration::from_millis(100_000), //scan intervals deliberately big to demonstrate that we don't do the intervals yet
+                    receivables_scan_interval: Duration::from_secs(100_000),
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1598,8 +1603,8 @@ pub mod tests {
         let (accountant_mock, accountant_awaiter, accountant_recording_arc) = make_recorder();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(10_000),
-                payment_received_scan_interval: Duration::from_millis(100),
+                payables_scan_interval: Duration::from_secs(10_000),
+                receivables_scan_interval: Duration::from_millis(100),
             },
             earning_wallet.clone(),
         );
@@ -1667,8 +1672,8 @@ pub mod tests {
         let (accountant_mock, _, accountant_recording_arc) = make_recorder();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(10_000),
-                payment_received_scan_interval: Duration::from_millis(100),
+                payables_scan_interval: Duration::from_secs(10_000),
+                receivables_scan_interval: Duration::from_millis(100),
             },
             earning_wallet.clone(),
         );
@@ -1729,8 +1734,8 @@ pub mod tests {
         let blockchain_bridge_recording = blockchain_bridge.get_recording();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(10_000),
-                payment_received_scan_interval: Duration::from_millis(100),
+                payables_scan_interval: Duration::from_secs(10_000),
+                receivables_scan_interval: Duration::from_millis(100),
             },
             earning_wallet.clone(),
         );
@@ -1791,8 +1796,8 @@ pub mod tests {
         let accountant = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
-                    payable_scan_interval: Duration::from_secs(10_000),
-                    payment_received_scan_interval: Duration::from_secs(10_000),
+                    payables_scan_interval: Duration::from_secs(10_000),
+                    receivables_scan_interval: Duration::from_secs(10_000),
                 },
                 earning_wallet.clone(),
             )),
@@ -1839,8 +1844,8 @@ pub mod tests {
         let system = System::new("accountant_payable_scan_timer_triggers_scanning_for_payables");
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_millis(100),
-                payment_received_scan_interval: Duration::from_secs(50_000), //deliberately big to refrain from starting off this scanning
+                payables_scan_interval: Duration::from_millis(100),
+                receivables_scan_interval: Duration::from_secs(50_000), //deliberately big to refrain from starting off this scanning
             },
             make_wallet("hi"),
         );
@@ -1906,8 +1911,8 @@ pub mod tests {
         let system = System::new("accountant_scans_after_startup");
         let config = bc_from_ac_plus_wallets(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(1000),
-                payment_received_scan_interval: Duration::from_secs(1000),
+                payables_scan_interval: Duration::from_secs(1000),
+                receivables_scan_interval: Duration::from_secs(1000),
             },
             make_wallet("buy"),
             make_wallet("hi"),
@@ -1940,8 +1945,8 @@ pub mod tests {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(1000),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(1000),
             },
             make_wallet("mine"),
         );
@@ -2002,8 +2007,8 @@ pub mod tests {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_millis(100),
-                payment_received_scan_interval: Duration::from_millis(1_000),
+                payables_scan_interval: Duration::from_millis(100),
+                receivables_scan_interval: Duration::from_millis(1_000),
             },
             make_wallet("mine"),
         );
@@ -2073,8 +2078,8 @@ pub mod tests {
         let system = System::new("payment_received_scan_triggers_scan_for_delinquencies");
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_millis(100),
-                payment_received_scan_interval: Duration::from_millis(100),
+                payables_scan_interval: Duration::from_millis(100),
+                receivables_scan_interval: Duration::from_millis(100),
             },
             make_wallet("hi"),
         );
@@ -2133,8 +2138,8 @@ pub mod tests {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(1000),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(1000),
             },
             make_wallet("mine"),
         );
@@ -2192,8 +2197,8 @@ pub mod tests {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             make_wallet("hi"),
         );
@@ -2246,8 +2251,8 @@ pub mod tests {
         let consuming_wallet = make_wallet("our consuming wallet");
         let config = bc_from_ac_plus_wallets(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             consuming_wallet.clone(),
             make_wallet("our earning wallet"),
@@ -2299,8 +2304,8 @@ pub mod tests {
         let earning_wallet = make_wallet("our earning wallet");
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             earning_wallet.clone(),
         );
@@ -2350,8 +2355,8 @@ pub mod tests {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             make_wallet("hi"),
         );
@@ -2397,8 +2402,8 @@ pub mod tests {
         let consuming_wallet = make_wallet("the consuming wallet");
         let config = bc_from_ac_plus_wallets(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             consuming_wallet.clone(),
             make_wallet("the earning wallet"),
@@ -2441,8 +2446,8 @@ pub mod tests {
         let earning_wallet = make_wallet("the earning wallet");
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             earning_wallet.clone(),
         );
@@ -2483,8 +2488,8 @@ pub mod tests {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             make_wallet("hi"),
         );
@@ -2537,8 +2542,8 @@ pub mod tests {
         let consuming_wallet = make_wallet("my consuming wallet");
         let config = bc_from_ac_plus_wallets(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             consuming_wallet.clone(),
             make_wallet("my earning wallet"),
@@ -2590,8 +2595,8 @@ pub mod tests {
         let earning_wallet = make_wallet("my earning wallet");
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             earning_wallet.clone(),
         );
@@ -2641,8 +2646,8 @@ pub mod tests {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             make_wallet("hi"),
         );
@@ -2689,8 +2694,8 @@ pub mod tests {
         let consuming_wallet = make_wallet("own consuming wallet");
         let config = bc_from_ac_plus_wallets(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             consuming_wallet.clone(),
             make_wallet("own earning wallet"),
@@ -2733,8 +2738,8 @@ pub mod tests {
         let earning_wallet = make_wallet("own earning wallet");
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             earning_wallet.clone(),
         );
