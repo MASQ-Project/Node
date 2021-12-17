@@ -28,13 +28,13 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::handle_ui_crash_request;
-use crate::sub_lib::wallet::{Wallet, WalletError};
+use crate::sub_lib::wallet::{Wallet};
 use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
 use masq_lib::constants::{
     BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR,
     CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR,
-    ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, KEY_PAIR_CONSTRUCTION_ERROR, MISSING_DATA,
+    ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, MISSING_DATA,
     MNEMONIC_PHRASE_ERROR, NON_PARSABLE_VALUE, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR,
     UNRECOGNIZED_PARAMETER,
 };
@@ -201,55 +201,19 @@ impl Configurator {
     }
 
     fn get_wallet_addresses(&self, db_password: String) -> Result<(String, String), (u64, String)> {
-        todo!()
-        // let mnemonic = match Self::process_value_with_dif_treatment_of_none(
-        //     self.persistent_config.mnemonic_seed(&db_password),
-        //     || {
-        //         (
-        //             EARLY_QUESTIONING_ABOUT_DATA,
-        //             "Wallets must exist prior to demanding info \
-        //             on them (recover or generate wallets first)"
-        //                 .to_string(),
-        //         )
-        //     },
-        // ) {
-        //     Ok(val) => val,
-        //     Err(e) => return Err(e),
-        // };
-        //
-        // let derivation_path = match Self::process_value_with_dif_treatment_of_none(
-        //     self.persistent_config.consuming_wallet_derivation_path(),
-        //     || {
-        //         panic!(
-        //             "Database corrupted: consuming derivation path \
-        //              not present despite mnemonic seed in place!"
-        //         )
-        //     },
-        // ) {
-        //     Ok(val) => val,
-        //     Err(e) => return Err(e),
-        // };
-        //
-        // let consuming_wallet_address =
-        //     match Self::recalculate_consuming_wallet(mnemonic, derivation_path) {
-        //         Ok(wallet) => wallet.string_address_from_keypair(),
-        //         Err(e) => return Err((KEY_PAIR_CONSTRUCTION_ERROR, e)),
-        //     };
-        //
-        // let earning_wallet_address = match Self::process_value_with_dif_treatment_of_none(
-        //     self.persistent_config.earning_wallet_address(),
-        //     || {
-        //         panic!(
-        //             "Database corrupted: missing earning wallet address \
-        //               despite other values for wallets in place!"
-        //         )
-        //     },
-        // ) {
-        //     Ok(val) => val,
-        //     Err(e) => return Err(e),
-        // };
-        //
-        // Ok((consuming_wallet_address, earning_wallet_address))
+        let consuming_wallet_opt_result = self.persistent_config.consuming_wallet_from_private_key(&db_password);
+        let earning_wallet_opt_result = self.persistent_config.earning_wallet_from_address();
+        match (consuming_wallet_opt_result, earning_wallet_opt_result) {
+            (Ok(None), Ok(None)) => Err ((MISSING_DATA, "Wallet pair not yet configured".to_string())),
+            (Ok(Some(consuming_wallet)), Ok(Some(earning_wallet))) => Ok((
+                format!("{:?}", consuming_wallet.address()),
+                format!("{:?}", earning_wallet.address()),
+            )),
+            (Ok(None), Ok(Some(_))) => panic! ("Database corrupted: earning wallet exists but consuming wallet does not"),
+            (Ok(Some(_)), Ok(None)) => panic! ("Database corrupted: consuming wallet exists but earning wallet does not"),
+            (Err(ce), _) => Err((CONFIGURATOR_READ_ERROR, format!("{:?}", ce))),
+            (_, Err(ee)) => Err((CONFIGURATOR_READ_ERROR, format!("{:?}", ee))),
+        }
     }
 
     fn process_value_with_dif_treatment_of_none<T>(
@@ -325,7 +289,7 @@ impl Configurator {
             mnemonic_phrase_language: "English".to_string(),
             mnemonic_passphrase_opt: None,
         });
-        let (seed, mnemonic_phrase) = Self::generate_mnemonic(
+        let (seed, mnemonic_phrase) = Self::generate_seed_and_mnemonic_phrase(
             &seed_spec.mnemonic_passphrase_opt,
             &seed_spec.mnemonic_phrase_language,
             seed_spec.mnemonic_phrase_size,
@@ -354,10 +318,7 @@ impl Configurator {
         let earning_private_key = Self::generate_private_key(&seed, &earning_derivation_path);
         Self::set_wallet_info(
             persistent_config,
-            &seed,
-            msg.consuming_derivation_path_opt
-                .as_ref()
-                .expect("Test-drive me!"),
+            consuming_private_key.as_str(),
             &earning_wallet.string_address_from_keypair(),
             &msg.db_password,
         )?;
@@ -381,34 +342,39 @@ impl Configurator {
             "recover",
             &msg.db_password,
         )?;
-        let language = Self::parse_language(&msg.seed_spec_opt.as_ref().unwrap().mnemonic_phrase_language)?;
-        let mnemonic = match Mnemonic::from_phrase(msg.seed_spec_opt.as_ref().unwrap().mnemonic_phrase.join(" "), language) {
-            Ok(m) => m,
-            Err(e) => {
-                return Err((
-                    MNEMONIC_PHRASE_ERROR,
-                    format!("Couldn't make a mnemonic out of the supplied phrase: {}", e),
-                ))
-            }
-        };
-        let seed_spec = msg.seed_spec_opt.as_ref().expect("Test-drive me!");
-        let passphrase_opt = seed_spec.mnemonic_passphrase_opt.as_ref();
-        let seed = Seed::new(&mnemonic, passphrase_opt.unwrap_or (&String::new()));
-        let _ = Self::generate_wallet(&seed, msg.consuming_derivation_path_opt.as_ref().expect("Test-drive me!"))?;
-        let earning_wallet = match (&msg.earning_derivation_path_opt, &msg.earning_address_opt) {
-            (_, Some (earning_address)) => match Wallet::from_str (earning_address) {
-                Ok(wallet) => wallet,
-                Err (WalletError::InvalidAddress) => todo! (),
-                Err(e) => panic!("Unexpected error making Wallet from address: {:?}", e),
+        let (consuming_wallet_private_key, earning_wallet_address) = match msg.seed_spec_opt {
+            None => match (msg.consuming_private_key_opt, msg.earning_address_opt) {
+                (Some (consuming_private_key), Some (earning_address)) => (consuming_private_key, earning_address),
+                _ => todo! ("If you don't send in a seed spec, you must provide both earning address and consuming private key!"),
             },
-            (Some (earning_derivation_path), None) => Self::generate_wallet(&seed, earning_derivation_path)?,
-            (None, None) => todo! (),
+            Some (seed_spec) => {
+                let seed = Self::make_seed(
+                    &seed_spec.mnemonic_passphrase_opt,
+                    &seed_spec.mnemonic_phrase_language,
+                    &seed_spec.mnemonic_phrase,
+                )?;
+                let consuming_private_key = match (msg.consuming_private_key_opt, msg.consuming_derivation_path_opt) {
+                    (Some (consuming_private_key), _) => todo! (),
+                    (None, Some (consuming_derivation_path)) => {
+                        Self::generate_private_key(&seed, consuming_derivation_path.as_str())
+                    },
+                    _ => todo! ("Gotta provide either consuming private key or consuming derivation path"),
+                };
+                let earning_address = match (msg.earning_address_opt, msg.earning_derivation_path_opt) {
+                    (Some (earning_address), _) => earning_address,
+                    (None, Some (earning_derivation_path)) =>  {
+                        let wallet = Self::generate_wallet(&seed, earning_derivation_path.as_str())?;
+                        wallet.string_address_from_keypair()
+                    },
+                    _ => todo! ("Gotta provide either earning address or earning derivation path"),
+                };
+                (consuming_private_key, earning_address)
+            },
         };
         Self::set_wallet_info(
             persistent_config,
-            &seed,
-            msg.consuming_derivation_path_opt.as_ref().expect("Test-drive me!"),
-            &earning_wallet.string_address_from_keypair(),
+            consuming_wallet_private_key.as_str(),
+            earning_wallet_address.as_str(),
             &msg.db_password,
         )?;
         Ok(UiRecoverWalletsResponse {}.tmb(context_id))
@@ -437,7 +403,31 @@ impl Configurator {
         Ok(())
     }
 
-    fn generate_mnemonic(
+    fn make_passphrase (passphrase_opt: &Option<String>) -> String {
+        match passphrase_opt {
+            Some(phrase) => phrase.to_string(),
+            None => "".to_string(),
+        }
+    }
+
+    fn make_seed(
+        passphrase_opt: &Option<String>,
+        language_str: &str,
+        mnemonic_phrase: &Vec<String>,
+    ) -> Result<Seed, MessageError> {
+        let language = Self::parse_language(language_str)?;
+        let mnemonic_passphrase = Self::make_passphrase(passphrase_opt);
+        let mnemonic = match Mnemonic::from_phrase (mnemonic_phrase.join (" "), language) {
+            Ok(m) => m,
+            Err (e) => return Err((
+                MNEMONIC_PHRASE_ERROR,
+                format! ("Couldn't make a mnemonic out of the supplied phrase: {}", e)
+            )),
+        };
+        Ok(Bip39::seed(&mnemonic, &mnemonic_passphrase))
+    }
+
+    fn generate_seed_and_mnemonic_phrase(
         passphrase_opt: &Option<String>,
         language_str: &str,
         word_count: usize,
@@ -445,10 +435,7 @@ impl Configurator {
         let language = Self::parse_language(language_str)?;
         let mnemonic_type = Self::parse_word_count(word_count)?;
         let mnemonic = Bip39::mnemonic(mnemonic_type, language);
-        let mnemonic_passphrase = match passphrase_opt {
-            Some(phrase) => phrase.to_string(),
-            None => "".to_string(),
-        };
+        let mnemonic_passphrase = Self::make_passphrase(passphrase_opt);
         let seed = Bip39::seed(&mnemonic, &mnemonic_passphrase);
         let phrase_words: Vec<String> = mnemonic
             .into_phrase()
@@ -619,7 +606,6 @@ impl Configurator {
 
     fn set_wallet_info(
         persistent_config: &mut Box<dyn PersistentConfiguration>,
-        seed: &dyn AsRef<[u8]>,
         consuming_wallet_private_key: &str,
         earning_wallet_address: &str,
         db_password: &str,
@@ -1027,10 +1013,8 @@ mod tests {
         let system = System::new("test");
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
-            .consuming_wallet_private_key_result(Ok(Some("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string())))
-            .earning_wallet_address_result(Ok(Some(String::from(
-                "0x01234567890aa345678901234567890123456789",
-            ))));
+            .consuming_wallet_from_private_key_result(Ok(Some(Wallet::from_str("0x1234567890123456789012345678901234567890").unwrap())))
+            .earning_wallet_from_address_result(Ok(Some(Wallet::from_str("0x01234567890aa345678901234567890123456789").unwrap())));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
@@ -1055,7 +1039,7 @@ mod tests {
             &NodeToUiMessage {
                 target: MessageTarget::ClientId(1234),
                 body: UiWalletAddressesResponse {
-                    consuming_wallet_address: "0x84646fb4dd69dd12fd779a569f7cdbe1e133b29b"
+                    consuming_wallet_address: "0x1234567890123456789012345678901234567890"
                         .to_string(),
                     earning_wallet_address: "0x01234567890aa345678901234567890123456789"
                         .to_string()
@@ -1070,7 +1054,8 @@ mod tests {
     fn handle_wallet_addresses_works_if_consuming_wallet_private_key_error() {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
-            .consuming_wallet_private_key_result(Ok(Some(String::from("*************"))));
+            .consuming_wallet_from_private_key_result(Err (PersistentConfigError::DatabaseError("Unknown error 3".to_string())))
+            .earning_wallet_from_address_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
             db_password: "some password".to_string(),
@@ -1084,15 +1069,14 @@ mod tests {
                 opcode: "walletAddresses".to_string(),
                 path: MessagePath::Conversation(1234),
                 payload: Err((
-                    KEY_PAIR_CONSTRUCTION_ERROR,
-                    r#"Consuming wallet address error during generation: InvalidDerivationPath"#
+                    CONFIGURATOR_READ_ERROR,
+                    r#"DatabaseError("Unknown error 3")"#
                         .to_string()
                 ))
             }
         );
         TestLogHandler::new().exists_log_containing(
-            "WARN: Configurator: Failed to obtain wallet addresses: 281474976710661, Consuming \
-             wallet address error during generation: InvalidDerivationPath",
+            r#"WARN: Configurator: Failed to obtain wallet addresses: 281474976710657, DatabaseError("Unknown error 3")"#,
         );
     }
 
@@ -1100,8 +1084,8 @@ mod tests {
     fn handle_wallet_addresses_works_if_earning_wallet_address_triggers_database_error() {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
-            .consuming_wallet_private_key_result(Ok(Some("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string())))
-            .earning_wallet_address_result(Err(PersistentConfigError::DatabaseError(
+            .consuming_wallet_from_private_key_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())))
+            .earning_wallet_from_address_result(Err(PersistentConfigError::DatabaseError(
                 "Unknown error 3".to_string(),
             )));
         let subject = make_subject(Some(persistent_config));
@@ -1129,12 +1113,28 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Database corrupted: missing earning wallet address despite other values for wallets in place!"
+        expected = "Database corrupted: consuming wallet exists but earning wallet does not"
     )]
     fn handle_wallet_addresses_panics_if_earning_wallet_address_is_missing() {
         let persistent_config = PersistentConfigurationMock::new()
-            .consuming_wallet_private_key_result(Ok(Some("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string())))
-            .earning_wallet_address_result(Ok(None));
+            .consuming_wallet_from_private_key_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())))
+            .earning_wallet_from_address_result(Ok(None));
+        let subject = make_subject(Some(persistent_config));
+        let msg = UiWalletAddressesRequest {
+            db_password: "some password".to_string(),
+        };
+
+        let _ = subject.handle_wallet_addresses(msg, 1234);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Database corrupted: earning wallet exists but consuming wallet does not"
+    )]
+    fn handle_wallet_addresses_panics_if_consuming_wallet_address_is_missing() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .consuming_wallet_from_private_key_result(Ok(None))
+            .earning_wallet_from_address_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
             db_password: "some password".to_string(),
@@ -1834,9 +1834,9 @@ mod tests {
     }
 
     #[test]
-    fn generate_mnemonic_works_without_passphrase() {
+    fn generate_seed_and_mnemonic_phrase_works_without_passphrase() {
         let (actual_seed, phrase_words) =
-            Configurator::generate_mnemonic(&None, "English", 12).unwrap();
+            Configurator::generate_seed_and_mnemonic_phrase(&None, "English", 12).unwrap();
 
         let mnemonic_phrase = phrase_words.join(" ");
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
@@ -1920,7 +1920,7 @@ mod tests {
             .current_schema_version_result("1.2.3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
-            .consuming_wallet_from_private_key_params(&consuming_wallet_private_key_params_arc)
+            .consuming_wallet_private_key_params(&consuming_wallet_private_key_params_arc)
             .consuming_wallet_private_key_result(Ok(Some(
                 consuming_wallet_private_key.clone(),
             )))

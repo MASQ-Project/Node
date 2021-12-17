@@ -118,10 +118,12 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn consuming_wallet_from_private_key(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError> {
-        todo!()
+        self.consuming_wallet_from_private_key_params.lock().unwrap().push(db_password.to_string());
+        Self::result_from(&self.consuming_wallet_from_private_key_results)
     }
 
     fn consuming_wallet_private_key(&self, db_password: &str) -> Result<Option<String>, PersistentConfigError> {
+        self.consuming_wallet_private_key_params.lock().unwrap().push(db_password.to_string());
         Self::result_from(&self.consuming_wallet_private_key_results)
     }
 
