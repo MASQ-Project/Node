@@ -240,6 +240,7 @@ mod tests {
                     MigratorConfig::create_or_migrate(ExternalData::new(
                         TEST_DEFAULT_CHAIN,
                         NeighborhoodModeLight::ZeroHop,
+                        None,
                     )),
                 )
                 .unwrap();
@@ -247,7 +248,6 @@ mod tests {
             persistent_config.change_password(None, "password").unwrap();
             persistent_config
                 .set_wallet_info(
-                    &seed,
                     &derivation_path(4, 4),
                     "0x0123456789012345678901234567890123456789",
                     "password",
@@ -357,6 +357,7 @@ mod tests {
                     MigratorConfig::create_or_migrate(ExternalData::new(
                         TEST_DEFAULT_CHAIN,
                         NeighborhoodModeLight::ConsumeOnly,
+                        None,
                     )),
                 )
                 .unwrap();
@@ -364,7 +365,6 @@ mod tests {
             persistent_config.change_password(None, "password").unwrap();
             persistent_config
                 .set_wallet_info(
-                    &seed,
                     &derivation_path(4, 4),
                     "0x0123456789012345678901234567890123456789",
                     "password",
@@ -470,6 +470,7 @@ mod tests {
                     MigratorConfig::create_or_migrate(ExternalData::new(
                         TEST_DEFAULT_CHAIN,
                         NeighborhoodModeLight::Standard,
+                        None,
                     )),
                 )
                 .unwrap();
@@ -477,7 +478,6 @@ mod tests {
             persistent_config.change_password(None, "password").unwrap();
             persistent_config
                 .set_wallet_info(
-                    &seed,
                     &derivation_path(4, 4),
                     "0x0123456789012345678901234567890123456789",
                     "password",

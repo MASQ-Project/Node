@@ -20,7 +20,7 @@ use std::path::Path;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: usize = 3;
+pub const CURRENT_SCHEMA_VERSION: usize = 4;
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
