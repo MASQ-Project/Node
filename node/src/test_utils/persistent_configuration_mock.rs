@@ -49,6 +49,7 @@ pub struct PersistentConfigurationMock {
         RefCell<Vec<Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>>>,
     set_past_neighbors_params: Arc<Mutex<Vec<(Option<Vec<NodeDescriptor>>, String)>>>,
     set_past_neighbors_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    start_block_params: Arc<Mutex<Vec<()>>>,
     start_block_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
     set_start_block_params: Arc<Mutex<Vec<u64>>>,
     set_start_block_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
@@ -496,6 +497,11 @@ impl PersistentConfigurationMock {
         self.earning_wallet_address_results
             .borrow_mut()
             .push(result);
+        self
+    }
+
+    pub fn start_block_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.start_block_params = params.clone();
         self
     }
 

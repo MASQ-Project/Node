@@ -2,10 +2,14 @@
 
 #![cfg(test)]
 
-use crate::blockchain::blockchain_interface::REQUESTS_IN_PARALLEL;
-use crate::blockchain::tool_wrappers::{
-    NotifyHandle, NotifyLaterHandle, SendTransactionToolWrapper,
+use crate::blockchain::blockchain_interface::{
+    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, Transaction,
+    Transactions, TxReceipt, REQUESTS_IN_PARALLEL,
 };
+use crate::blockchain::tool_wrappers::{
+    NotifyHandle, NotifyLaterHandle, PaymentBackupRecipientWrapper, SendTransactionToolWrapper,
+};
+use crate::sub_lib::wallet::Wallet;
 use actix::{Message, SpawnHandle};
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::H256;
@@ -16,7 +20,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use web3::transports::{EventLoopHandle, Http};
-use web3::types::{Bytes, SignedTransaction, TransactionParameters};
+use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::Error as Web3Error;
 use web3::{RequestId, Transport};
 
@@ -28,6 +32,252 @@ pub fn make_meaningless_seed() -> Seed {
     let mnemonic = Mnemonic::from_phrase(make_meaningless_phrase(), Language::English).unwrap();
     Seed::new(&mnemonic, "passphrase")
 }
+
+#[derive(Default)]
+pub struct BlockchainInterfaceMock {
+    retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
+    retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
+    send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
+    send_transaction_results: RefCell<Vec<BlockchainResult<(H256, SystemTime)>>>,
+    get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
+    get_transaction_receipt_results: RefCell<Vec<TxReceipt>>,
+    send_transaction_tools_results: RefCell<Vec<Box<dyn SendTransactionToolWrapper>>>,
+    contract_address_results: RefCell<Vec<Address>>,
+    get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
+    get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
+}
+
+impl BlockchainInterfaceMock {
+    pub fn retrieve_transactions_params(mut self, params: &Arc<Mutex<Vec<(u64, Wallet)>>>) -> Self {
+        self.retrieve_transactions_parameters = params.clone();
+        self
+    }
+
+    pub fn retrieve_transactions_result(
+        self,
+        result: Result<Vec<Transaction>, BlockchainError>,
+    ) -> Self {
+        self.retrieve_transactions_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn send_transaction_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
+    ) -> Self {
+        self.send_transaction_parameters = params.clone();
+        self
+    }
+
+    pub fn send_transaction_result(self, result: BlockchainResult<(H256, SystemTime)>) -> Self {
+        self.send_transaction_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn contract_address_result(self, address: Address) -> Self {
+        self.contract_address_results.borrow_mut().push(address);
+        self
+    }
+
+    pub fn get_transaction_count_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
+        self.get_transaction_count_parameters = params.clone();
+        self
+    }
+
+    pub fn get_transaction_count_result(self, result: BlockchainResult<U256>) -> Self {
+        self.get_transaction_count_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn get_transaction_receipt_params(mut self, params: &Arc<Mutex<Vec<H256>>>) -> Self {
+        self.get_transaction_receipt_params = params.clone();
+        self
+    }
+
+    pub fn get_transaction_receipt_result(self, result: TxReceipt) -> Self {
+        self.get_transaction_receipt_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn send_transaction_tools_result(
+        self,
+        result: Box<dyn SendTransactionToolWrapper>,
+    ) -> Self {
+        self.send_transaction_tools_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+}
+
+impl BlockchainInterface for BlockchainInterfaceMock {
+    fn contract_address(&self) -> Address {
+        self.contract_address_results.borrow_mut().remove(0)
+    }
+
+    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
+        self.retrieve_transactions_parameters
+            .lock()
+            .unwrap()
+            .push((start_block, recipient.clone()));
+        self.retrieve_transactions_results.borrow_mut().remove(0)
+    }
+
+    fn send_transaction<'a>(
+        &self,
+        consuming_wallet: &Wallet,
+        recipient: &Wallet,
+        amount: u64,
+        nonce: U256,
+        gas_price: u64,
+        pending_payments_rowid: u64,
+        _send_transaction_tools: &'a dyn SendTransactionToolWrapper,
+    ) -> BlockchainResult<(H256, SystemTime)> {
+        self.send_transaction_parameters.lock().unwrap().push((
+            consuming_wallet.clone(),
+            recipient.clone(),
+            amount,
+            nonce,
+            gas_price,
+        ));
+        self.send_transaction_results.borrow_mut().remove(0)
+    }
+
+    fn get_eth_balance(&self, _address: &Wallet) -> Balance {
+        unimplemented!()
+    }
+
+    fn get_token_balance(&self, _address: &Wallet) -> Balance {
+        unimplemented!()
+    }
+
+    fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
+        self.get_transaction_count_parameters
+            .lock()
+            .unwrap()
+            .push(wallet.clone());
+        self.get_transaction_count_results.borrow_mut().remove(0)
+    }
+
+    fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
+        self.get_transaction_receipt_params
+            .lock()
+            .unwrap()
+            .push(hash);
+        self.get_transaction_receipt_results.borrow_mut().remove(0)
+    }
+
+    fn send_transaction_tools<'a>(
+        &'a self,
+        backup_recipient: &dyn PaymentBackupRecipientWrapper,
+    ) -> Box<dyn SendTransactionToolWrapper + 'a> {
+        self.send_transaction_tools_results.borrow_mut().remove(0)
+    }
+}
+
+//
+// #[derive(Debug, Default)]
+// pub struct BlockchainInterfaceMock {
+//     pub retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
+//     pub retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
+//     pub send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
+//     pub send_transaction_results: RefCell<Vec<BlockchainResult<H256>>>,
+//     pub contract_address_results: RefCell<Vec<Address>>,
+//     pub get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
+//     pub get_transaction_count_results: RefCell<Vec<Nonce>>,
+// }
+//
+// impl BlockchainInterfaceMock {
+//     pub fn retrieve_transactions_result(
+//         self,
+//         result: Result<Vec<Transaction>, BlockchainError>,
+//     ) -> Self {
+//         self.retrieve_transactions_results.borrow_mut().push(result);
+//         self
+//     }
+//
+//     pub fn send_transaction_params(
+//         mut self,
+//         params: &Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
+//     ) -> Self {
+//         self.send_transaction_parameters = params.clone();
+//         self
+//     }
+//
+//     pub fn send_transaction_result(self, result: BlockchainResult<H256>) -> Self {
+//         self.send_transaction_results.borrow_mut().push(result);
+//         self
+//     }
+//
+//     pub fn contract_address_result(self, address: Address) -> Self {
+//         self.contract_address_results.borrow_mut().push(address);
+//         self
+//     }
+//
+//     pub fn get_transaction_count_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
+//         self.get_transaction_count_parameters = params.clone();
+//         self
+//     }
+//
+//     pub fn get_transaction_count_result(self, result: Nonce) -> Self {
+//         self.get_transaction_count_results.borrow_mut().push(result);
+//         self
+//     }
+// }
+//
+// impl BlockchainInterface for BlockchainInterfaceMock {
+//     fn contract_address(&self) -> Address {
+//         self.contract_address_results.borrow_mut().remove(0)
+//     }
+//
+//     fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
+//         self.retrieve_transactions_parameters
+//             .lock()
+//             .unwrap()
+//             .push((start_block, recipient.clone()));
+//         self.retrieve_transactions_results.borrow_mut().remove(0)
+//     }
+//
+//     fn send_transaction(
+//         &self,
+//         consuming_wallet: &Wallet,
+//         recipient: &Wallet,
+//         amount: u64,
+//         nonce: U256,
+//         gas_price: u64,
+//     ) -> BlockchainResult<H256> {
+//         self.send_transaction_parameters.lock().unwrap().push((
+//             consuming_wallet.clone(),
+//             recipient.clone(),
+//             amount,
+//             nonce,
+//             gas_price,
+//         ));
+//         self.send_transaction_results.borrow_mut().remove(0)
+//     }
+//
+//     fn get_eth_balance(&self, _address: &Wallet) -> Balance {
+//         unimplemented!()
+//     }
+//
+//     fn get_token_balance(&self, _address: &Wallet) -> Balance {
+//         unimplemented!()
+//     }
+//
+//     fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
+//         self.get_transaction_count_parameters
+//             .lock()
+//             .unwrap()
+//             .push(wallet.clone());
+//         self.get_transaction_count_results.borrow_mut().remove(0)
+//     }
+//
+//     fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
+//         todo!()
+//     }
+// }
 
 #[derive(Debug, Default, Clone)]
 pub struct TestTransport {
@@ -113,8 +363,8 @@ pub struct SendTransactionToolWrapperMock {
     sign_transaction_params:
         Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
     sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
-    order_payment_backup_params: Arc<Mutex<Vec<(u16, u64)>>>,
-    order_payment_backup_results: RefCell<Vec<SystemTime>>,
+    demand_payment_backup_completion_params: Arc<Mutex<Vec<(u64, H256)>>>,
+    demand_payment_backup_completion_results: RefCell<Vec<SystemTime>>,
     send_raw_transaction_params: Arc<Mutex<Vec<Bytes>>>,
     send_raw_transaction_results: RefCell<Vec<Result<H256, Web3Error>>>,
 }
@@ -132,12 +382,14 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperMock {
         self.sign_transaction_results.borrow_mut().remove(0)
     }
 
-    fn order_payment_backup(&self, rowid: u16, amount: u64) -> SystemTime {
-        self.order_payment_backup_params
+    fn demand_payment_backup_completion(&self, rowid: u64, transaction_hash: H256) -> SystemTime {
+        self.demand_payment_backup_completion_params
             .lock()
             .unwrap()
-            .push((rowid, amount));
-        self.order_payment_backup_results.borrow_mut().remove(0)
+            .push((rowid, transaction_hash));
+        self.demand_payment_backup_completion_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error> {
@@ -159,13 +411,18 @@ impl SendTransactionToolWrapperMock {
         self
     }
 
-    pub fn order_payment_backup_params(mut self, params: &Arc<Mutex<Vec<(u16, u64)>>>) -> Self {
-        self.order_payment_backup_params = params.clone();
+    pub fn demand_payment_backup_completion_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(u64, H256)>>>,
+    ) -> Self {
+        self.demand_payment_backup_completion_params = params.clone();
         self
     }
 
-    pub fn order_payment_backup_result(self, result: SystemTime) -> Self {
-        self.order_payment_backup_results.borrow_mut().push(result);
+    pub fn demand_payment_backup_completion_result(self, result: SystemTime) -> Self {
+        self.demand_payment_backup_completion_results
+            .borrow_mut()
+            .push(result);
         self
     }
 

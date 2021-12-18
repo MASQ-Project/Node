@@ -501,8 +501,8 @@ pub struct UiPayableAccount {
     pub wallet: String,
     pub age: u64,
     pub amount: u64,
-    #[serde(rename = "pendingTransaction")]
-    pub pending_transaction: Option<String>,
+    #[serde(rename = "pendingTransactionRowid")]
+    pub pending_transaction_rowid: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

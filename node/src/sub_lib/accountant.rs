@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{ReceivedPayments, SentPayments};
-use crate::blockchain::blockchain_bridge::{PendingPaymentBackup, ReportTransactionReceipts};
+use crate::blockchain::blockchain_bridge::{PaymentBackupRecord, ReportTransactionReceipts};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -21,9 +21,9 @@ lazy_static! {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct AccountantConfig {
-    pub payable_scan_interval: Duration,
-    pub payment_received_scan_interval: Duration,
-    pub pending_transaction_check_interval_ms: u64,
+    pub payables_scan_interval: Duration,
+    pub receivables_scan_interval: Duration,
+    pub pending_payments_scan_interval: Duration,
 }
 
 #[derive(Clone)]
@@ -35,7 +35,7 @@ pub struct AccountantSubs {
     pub report_routing_service_consumed: Recipient<ReportRoutingServiceConsumedMessage>,
     pub report_exit_service_consumed: Recipient<ReportExitServiceConsumedMessage>,
     pub report_new_payments: Recipient<ReceivedPayments>,
-    pub transaction_backup: Recipient<PendingPaymentBackup>,
+    pub transaction_backup_completion: Recipient<PaymentBackupRecord>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
     pub report_sent_payments: Recipient<SentPayments>,
     pub ui_message_sub: Recipient<NodeFromUiMessage>,

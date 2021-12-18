@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_bridge::PendingPaymentBackup;
+use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
 use actix::prelude::SendError;
 use actix::{Message, Recipient, SpawnHandle};
 use ethereum_types::H256;
@@ -18,7 +18,7 @@ pub trait SendTransactionToolWrapper {
         transaction_params: TransactionParameters,
         key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
-    fn order_payment_backup(&self, rowid: u16, amount: u64) -> SystemTime;
+    fn demand_payment_backup_completion(&self, rowid: u64, transaction_hash: H256) -> SystemTime;
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error>;
 }
 
@@ -53,16 +53,18 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
             .wait()
     }
 
-    fn order_payment_backup(&self, rowid: u16, amount: u64) -> SystemTime {
-        let payment_timestamp = SystemTime::now();
+    fn demand_payment_backup_completion(&self, rowid: u64, hash: H256) -> SystemTime {
+        let now = SystemTime::now();
         self.payment_backup_sub
-            .try_send(PendingPaymentBackup {
+            .try_send(PaymentBackupRecord {
+                amount: None,
                 rowid,
-                payment_timestamp,
-                amount,
+                timestamp: now,
+                hash,
+                attempt: 0,
             })
             .expect("Accountant is dead");
-        payment_timestamp
+        now
     }
 
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error> {
@@ -81,7 +83,7 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperNull {
         panic!("sing_transaction() should never be called on the null object")
     }
 
-    fn order_payment_backup(&self, _rowid: u16, _amount: u64) -> SystemTime {
+    fn demand_payment_backup_completion(&self, _rowid: u64, _transaction_hash: H256) -> SystemTime {
         panic!("order_payment_backup() should never be called on the null object")
     }
 
@@ -146,21 +148,21 @@ impl<T: Message> NotifyHandle<T> for NotifyHandleReal<T> {
 }
 
 pub trait PaymentBackupRecipientWrapper {
-    fn try_send(&self, msg: PendingPaymentBackup) -> Result<(), SendError<PendingPaymentBackup>>;
+    fn try_send(&self, msg: PaymentBackupRecord) -> Result<(), SendError<PaymentBackupRecord>>;
 }
 
 pub struct PaymentBackupRecipientWrapperReal<'a> {
-    recipient: &'a Recipient<PendingPaymentBackup>,
+    recipient: &'a Recipient<PaymentBackupRecord>,
 }
 
 impl<'a> PaymentBackupRecipientWrapperReal<'a> {
-    pub fn new(recipient: &'a Recipient<PendingPaymentBackup>) -> Self {
+    pub fn new(recipient: &'a Recipient<PaymentBackupRecord>) -> Self {
         Self { recipient }
     }
 }
 
 impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperReal<'_> {
-    fn try_send(&self, msg: PendingPaymentBackup) -> Result<(), SendError<PendingPaymentBackup>> {
+    fn try_send(&self, msg: PaymentBackupRecord) -> Result<(), SendError<PaymentBackupRecord>> {
         self.recipient.try_send(msg)
     }
 }
@@ -168,14 +170,14 @@ impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperReal<'_> {
 pub struct PaymentBackupRecipientWrapperNull;
 
 impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperNull {
-    fn try_send(&self, _msg: PendingPaymentBackup) -> Result<(), SendError<PendingPaymentBackup>> {
+    fn try_send(&self, _msg: PaymentBackupRecord) -> Result<(), SendError<PaymentBackupRecord>> {
         panic!("try_send() for PaymentBackupRecipientWrapper should never be called on the null object")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_bridge::PendingPaymentBackup;
+    use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
     use crate::blockchain::tool_wrappers::{
         PaymentBackupRecipientWrapper, PaymentBackupRecipientWrapperNull,
         SendTransactionToolWrapper, SendTransactionToolWrapperNull,
@@ -213,8 +215,9 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "order_payment_backup() should never be called on the null object")]
-    fn null_order_payment_backup_stops_the_run() {
-        let _ = SendTransactionToolWrapperNull.order_payment_backup(5, 1000);
+    fn null_trigger_payment_backup_completion_stops_the_run() {
+        let _ =
+            SendTransactionToolWrapperNull.demand_payment_backup_completion(5, Default::default());
     }
 
     #[test]
@@ -222,10 +225,12 @@ mod tests {
         expected = "try_send() for PaymentBackupRecipientWrapper should never be called on the null object"
     )]
     fn null_try_send_stops_the_run() {
-        let msg = PendingPaymentBackup {
+        let msg = PaymentBackupRecord {
             rowid: 1,
-            payment_timestamp: SystemTime::now(),
-            amount: 123,
+            timestamp: SystemTime::now(),
+            hash: Default::default(),
+            attempt: 0,
+            amount: None,
         };
 
         let _ = PaymentBackupRecipientWrapperNull.try_send(msg);

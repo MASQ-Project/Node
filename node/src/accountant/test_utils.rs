@@ -10,12 +10,7 @@ use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, Receiv
 use crate::accountant::tests::{PayableDaoMock, ReceivableDaoMock};
 use crate::accountant::Accountant;
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
-use crate::blockchain::blockchain_bridge::PendingPaymentBackup;
-use crate::blockchain::blockchain_interface::{
-    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, Transaction,
-    Transactions, TxReceipt,
-};
-use crate::blockchain::tool_wrappers::{PaymentBackupRecipientWrapper, SendTransactionToolWrapper};
+use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
@@ -24,12 +19,11 @@ use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-use ethereum_types::{H256, U256};
+use ethereum_types::{BigEndianHash, H256, U256};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use web3::types::Address;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -50,8 +44,7 @@ pub fn make_payable_account(n: u64) -> PayableAccount {
         wallet: make_wallet(&format!("wallet{}", n)),
         balance: (n * 1_000_000_000) as i64,
         last_paid_timestamp: from_time_t(now - (n as i64)),
-        pending_payment_transaction: None,
-        rowid: 1,
+        pending_payment_rowid_opt: None,
     }
 }
 
@@ -339,59 +332,76 @@ pub fn bc_from_ac_plus_wallets(
 
 #[derive(Default)]
 pub struct PendingPaymentsDaoMock {
-    insert_record_params: Arc<Mutex<Vec<PendingPaymentBackup>>>,
-    insert_record_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
-    delete_record_params: Arc<Mutex<Vec<u16>>>,
+    delete_record_params: Arc<Mutex<Vec<u64>>>,
     delete_record_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
-    read_record_params: Arc<Mutex<Vec<u16>>>,
-    read_record_results: RefCell<Vec<Result<PendingPaymentBackup, PendingPaymentDaoError>>>,
-    mark_failure_params: Arc<Mutex<Vec<u16>>>,
+    initiate_record_params: Arc<Mutex<Vec<u64>>>,
+    initiate_record_results: RefCell<Vec<Result<u64, PendingPaymentDaoError>>>,
+    mark_failure_params: Arc<Mutex<Vec<u64>>>,
     mark_failure_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
+    read_record_params: Arc<Mutex<Vec<u64>>>,
+    read_record_results: RefCell<Vec<Result<PaymentBackupRecord, PendingPaymentDaoError>>>,
+    return_all_active_backup_records_params: Arc<Mutex<Vec<()>>>,
+    return_all_active_backup_records_results:
+        RefCell<Vec<Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError>>>,
 }
 
 impl PendingPaymentsDao for PendingPaymentsDaoMock {
-    fn read_backup_record(&self, id: u16) -> Result<PendingPaymentBackup, PendingPaymentDaoError> {
+    fn read_backup_record(&self, id: u64) -> Result<PaymentBackupRecord, PendingPaymentDaoError> {
         self.read_record_params.lock().unwrap().push(id);
         self.read_record_results.borrow_mut().remove(0)
     }
 
-    fn insert_backup_record(
+    fn return_all_active_backup_records(
         &self,
-        pending_payment: PendingPaymentBackup,
-    ) -> Result<(), PendingPaymentDaoError> {
-        self.insert_record_params
+    ) -> Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError> {
+        self.return_all_active_backup_records_params
             .lock()
             .unwrap()
-            .push(pending_payment);
-        self.insert_record_results.borrow_mut().remove(0)
+            .push(());
+        self.return_all_active_backup_records_results
+            .borrow_mut()
+            .remove(0)
     }
 
-    fn delete_backup_record(&self, id: u16) -> Result<(), PendingPaymentDaoError> {
+    fn initiate_backup_record(&self, amount: u64) -> Result<u64, PendingPaymentDaoError> {
+        self.initiate_record_params.lock().unwrap().push(amount);
+        self.initiate_record_results.borrow_mut().remove(0)
+    }
+
+    fn complete_backup_record(
+        &self,
+        id: u64,
+        transaction_hash: H256,
+    ) -> Result<(), PendingPaymentDaoError> {
+        todo!()
+    }
+
+    fn delete_backup_record(&self, id: u64) -> Result<(), PendingPaymentDaoError> {
         self.delete_record_params.lock().unwrap().push(id);
         self.delete_record_results.borrow_mut().remove(0)
     }
 
-    fn mark_failure(&self, id: u16) -> Result<(), PendingPaymentDaoError> {
+    fn mark_failure(&self, id: u64) -> Result<(), PendingPaymentDaoError> {
         self.mark_failure_params.lock().unwrap().push(id);
         self.mark_failure_results.borrow_mut().remove(0)
     }
 }
 
 impl PendingPaymentsDaoMock {
-    pub fn insert_backup_record_params(
-        mut self,
-        params: &Arc<Mutex<Vec<PendingPaymentBackup>>>,
+    pub fn initiate_backup_record_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
+        self.initiate_record_params = params.clone();
+        self
+    }
+
+    pub fn initiate_backup_record_result(
+        self,
+        result: Result<u64, PendingPaymentDaoError>,
     ) -> Self {
-        self.insert_record_params = params.clone();
+        self.initiate_record_results.borrow_mut().push(result);
         self
     }
 
-    pub fn insert_backup_record_result(self, result: Result<(), PendingPaymentDaoError>) -> Self {
-        self.insert_record_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn delete_backup_record_params(mut self, params: &Arc<Mutex<Vec<u16>>>) -> Self {
+    pub fn delete_backup_record_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
         self.delete_record_params = params.clone();
         self
     }
@@ -401,20 +411,35 @@ impl PendingPaymentsDaoMock {
         self
     }
 
-    pub fn read_backup_record_params(mut self, params: &Arc<Mutex<Vec<u16>>>) -> Self {
+    pub fn read_backup_record_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
         self.read_record_params = params.clone();
         self
     }
 
     pub fn read_backup_record_result(
         self,
-        result: Result<PendingPaymentBackup, PendingPaymentDaoError>,
+        result: Result<PaymentBackupRecord, PendingPaymentDaoError>,
     ) -> Self {
         self.read_record_results.borrow_mut().push(result);
         self
     }
 
-    pub fn mark_failure_params(mut self, params: &Arc<Mutex<Vec<u16>>>) -> Self {
+    pub fn return_all_backup_records_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.return_all_active_backup_records_params = params.clone();
+        self
+    }
+
+    pub fn return_all_backup_records_result(
+        self,
+        result: Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError>,
+    ) -> Self {
+        self.return_all_active_backup_records_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn mark_failure_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
         self.mark_failure_params = params.clone();
         self
     }
@@ -451,146 +476,12 @@ impl PendingPaymentsDaoFactoryMock {
     }
 }
 
-#[derive(Default)]
-pub struct BlockchainInterfaceMock {
-    retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
-    retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
-    send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
-    send_transaction_results: RefCell<Vec<BlockchainResult<(H256, SystemTime)>>>,
-    get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
-    get_transaction_receipt_results: RefCell<Vec<TxReceipt>>,
-    send_transaction_tools_results: RefCell<Vec<Box<dyn SendTransactionToolWrapper>>>,
-    contract_address_results: RefCell<Vec<Address>>,
-    get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
-    get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
-}
-
-impl BlockchainInterfaceMock {
-    pub fn retrieve_transactions_params(mut self, params: &Arc<Mutex<Vec<(u64, Wallet)>>>) -> Self {
-        self.retrieve_transactions_parameters = params.clone();
-        self
-    }
-
-    pub fn retrieve_transactions_result(
-        self,
-        result: Result<Vec<Transaction>, BlockchainError>,
-    ) -> Self {
-        self.retrieve_transactions_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn send_transaction_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
-    ) -> Self {
-        self.send_transaction_parameters = params.clone();
-        self
-    }
-
-    pub fn send_transaction_result(self, result: BlockchainResult<(H256, SystemTime)>) -> Self {
-        self.send_transaction_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn contract_address_result(self, address: Address) -> Self {
-        self.contract_address_results.borrow_mut().push(address);
-        self
-    }
-
-    pub fn get_transaction_count_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
-        self.get_transaction_count_parameters = params.clone();
-        self
-    }
-
-    pub fn get_transaction_count_result(self, result: BlockchainResult<U256>) -> Self {
-        self.get_transaction_count_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn get_transaction_receipt_params(mut self, params: &Arc<Mutex<Vec<H256>>>) -> Self {
-        self.get_transaction_receipt_params = params.clone();
-        self
-    }
-
-    pub fn get_transaction_receipt_result(self, result: TxReceipt) -> Self {
-        self.get_transaction_receipt_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn send_transaction_tools_result(
-        self,
-        result: Box<dyn SendTransactionToolWrapper>,
-    ) -> Self {
-        self.send_transaction_tools_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-}
-
-impl BlockchainInterface for BlockchainInterfaceMock {
-    fn contract_address(&self) -> Address {
-        self.contract_address_results.borrow_mut().remove(0)
-    }
-
-    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
-        self.retrieve_transactions_parameters
-            .lock()
-            .unwrap()
-            .push((start_block, recipient.clone()));
-        self.retrieve_transactions_results.borrow_mut().remove(0)
-    }
-
-    fn send_transaction<'a>(
-        &self,
-        consuming_wallet: &Wallet,
-        recipient: &Wallet,
-        amount: u64,
-        nonce: U256,
-        gas_price: u64,
-        rowid_payables: u16,
-        _send_transaction_tools: &'a dyn SendTransactionToolWrapper,
-    ) -> BlockchainResult<(H256, SystemTime)> {
-        self.send_transaction_parameters.lock().unwrap().push((
-            consuming_wallet.clone(),
-            recipient.clone(),
-            amount,
-            nonce,
-            gas_price,
-        ));
-        self.send_transaction_results.borrow_mut().remove(0)
-    }
-
-    fn get_eth_balance(&self, _address: &Wallet) -> Balance {
-        unimplemented!()
-    }
-
-    fn get_token_balance(&self, _address: &Wallet) -> Balance {
-        unimplemented!()
-    }
-
-    fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
-        self.get_transaction_count_parameters
-            .lock()
-            .unwrap()
-            .push(wallet.clone());
-        self.get_transaction_count_results.borrow_mut().remove(0)
-    }
-
-    fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
-        self.get_transaction_receipt_params
-            .lock()
-            .unwrap()
-            .push(hash);
-        self.get_transaction_receipt_results.borrow_mut().remove(0)
-    }
-
-    fn send_transaction_tools<'a>(
-        &'a self,
-        backup_recipient: &dyn PaymentBackupRecipientWrapper,
-    ) -> Box<dyn SendTransactionToolWrapper + 'a> {
-        self.send_transaction_tools_results.borrow_mut().remove(0)
+pub fn make_payment_backup() -> PaymentBackupRecord {
+    PaymentBackupRecord {
+        rowid: 33,
+        timestamp: from_time_t(222_222_222),
+        hash: H256::from_uint(&U256::from(456)),
+        attempt: 0,
+        amount: None,
     }
 }

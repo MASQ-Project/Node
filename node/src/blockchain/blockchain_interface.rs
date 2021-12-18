@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_bridge::PendingPaymentBackup;
+use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
 use crate::blockchain::tool_wrappers::{
     PaymentBackupRecipientWrapper, SendTransactionToolWrapper, SendTransactionToolWrapperReal,
 };
@@ -88,7 +88,7 @@ pub trait BlockchainInterface {
         amount: u64,
         nonce: U256,
         gas_price: u64,
-        payables_rowid: u16,
+        pending_payments_rowid: u64,
         send_transaction_tools: &'a dyn SendTransactionToolWrapper,
     ) -> BlockchainResult<(H256, SystemTime)>;
 
@@ -154,7 +154,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _amount: u64,
         _nonce: U256,
         _gas_price: u64,
-        _rowid_payables: u16,
+        _pending_payments_rowid: u64,
         _send_transaction_tools: &'a dyn SendTransactionToolWrapper,
     ) -> BlockchainResult<(H256, SystemTime)> {
         let msg = "Can't send transactions clandestinely yet".to_string();
@@ -280,18 +280,18 @@ where
         amount: u64,
         nonce: U256,
         gas_price: u64,
-        rowid_in_payable: u16,
+        pending_payments_rowid: u64,
         send_transaction_tools: &'a dyn SendTransactionToolWrapper,
     ) -> BlockchainResult<(H256, SystemTime)> {
         debug!(
             self.logger,
-            "Preparing transaction for {} Gwei to {} from {} (chain_id: {}, contract: {:#x}, payable rowid: {}, gas price: {})", //TODO fix thi later to Wei
+            "Preparing transaction for {} Gwei to {} from {} (chain_id: {}, contract: {:#x}, payable rowid: {}, gas price: {})", //TODO fix this later to Wei
             amount,
             recipient,
             consuming_wallet,
             self.chain.rec().num_chain_id,
             self.contract_address(),
-            rowid_in_payable,
+            pending_payments_rowid,
             gas_price
         );
         let signed_transaction = self.prepare_signed_transaction(
@@ -302,9 +302,11 @@ where
             gas_price,
             send_transaction_tools,
         )?;
-        let payment_timestamp =
-            send_transaction_tools.order_payment_backup(rowid_in_payable, amount);
-        self.logger.info(|| self.log_sending(recipient, amount));
+        let payment_timestamp = send_transaction_tools.demand_payment_backup_completion(
+            pending_payments_rowid,
+            signed_transaction.transaction_hash,
+        );
+        self.logger.info(|| self.log_sending(recipient, amount)); //TODO this should be encrypted
         match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
             Ok(hash) => Ok((hash, payment_timestamp)),
             Err(e) => Err(BlockchainError::TransactionFailed(e.to_string())),
@@ -483,6 +485,7 @@ mod tests {
     use serde_json::json;
     use serde_json::Value;
     use simple_server::Server;
+    use sodiumoxide::crypto::sign::sign;
     use std::net::Ipv4Addr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -888,11 +891,11 @@ mod tests {
         init_test_logging();
         let mut transport = TestTransport::default();
         transport.add_response(json!(
-            "0x0000000000000000000000000000000000000000000000000000000000000001"
+            "0xe26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f"
         ));
         let (recorder, _, recording_arc) = make_recorder();
         let actor_addr = recorder.start();
-        let recipient_of_payment_backup = recipient!(actor_addr, PendingPaymentBackup);
+        let recipient_of_payment_backup = recipient!(actor_addr, PaymentBackupRecord);
         let payment_backup_recipient_wrapper =
             PaymentBackupRecipientWrapperReal::new(&recipient_of_payment_backup);
         let subject = BlockchainInterfaceNonClandestine::new(
@@ -924,7 +927,11 @@ mod tests {
         transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#)]);
         transport.assert_no_more_requests();
         let (hash, timestamp) = result;
-        assert_eq!(hash, H256::from_uint(&U256::from(1)));
+        assert_eq!(
+            hash,
+            H256::from_str("e26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f")
+                .unwrap()
+        );
         let comparable_now = to_time_t(SystemTime::now());
         let result_as_better_comparable_in_secs = to_time_t(timestamp);
         assert!(
@@ -935,11 +942,13 @@ mod tests {
             comparable_now
         );
         let recording = recording_arc.lock().unwrap();
-        let sent_backup = recording.get_record::<PendingPaymentBackup>(0);
-        let expected_payment_backup = PendingPaymentBackup {
+        let sent_backup = recording.get_record::<PaymentBackupRecord>(0);
+        let expected_payment_backup = PaymentBackupRecord {
             rowid,
-            payment_timestamp: sent_backup.payment_timestamp,
-            amount,
+            timestamp,
+            hash,
+            attempt: 0,
+            amount: None,
         };
         assert_eq!(sent_backup, &expected_payment_backup);
         let log_handler = TestLogHandler::new();
@@ -961,7 +970,7 @@ mod tests {
             Chain::EthMainnet,
         );
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
-        let order_payment_backup_params_arc = Arc::new(Mutex::new(vec![]));
+        let trigger_payment_backup_completion_params_arc = Arc::new(Mutex::new(vec![]));
         let send_raw_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let payment_timestamp = SystemTime::now();
         let transaction_parameters_expected = TransactionParameters {
@@ -989,15 +998,16 @@ mod tests {
             .sign_transaction(transaction_parameters_expected.clone(), &secret)
             .wait()
             .unwrap();
+        let hash = signed_transaction.transaction_hash;
         let send_transaction_tools = &SendTransactionToolWrapperMock::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             .sign_transaction_result(Ok(signed_transaction.clone()))
-            .order_payment_backup_params(&order_payment_backup_params_arc)
-            .order_payment_backup_result(payment_timestamp)
+            .demand_payment_backup_completion_params(&trigger_payment_backup_completion_params_arc)
+            .demand_payment_backup_completion_result(payment_timestamp)
             .send_raw_transaction_params(&send_raw_transaction_params_arc)
-            .send_raw_transaction_result(Ok(H256::from_uint(&U256::from(5))));
+            .send_raw_transaction_result(Ok(hash));
         let recipient_wallet = make_wallet("blah123");
-        let rowid_from_payables = 6;
+        let rowid_from_pending_tables = 6;
         let amount = 50_000;
 
         let result = subject.send_transaction(
@@ -1006,14 +1016,11 @@ mod tests {
             amount,
             U256::from(5),
             123u64,
-            rowid_from_payables,
+            rowid_from_pending_tables,
             send_transaction_tools,
         );
 
-        assert_eq!(
-            result,
-            Ok((H256::from_uint(&U256::from(5)), payment_timestamp))
-        );
+        assert_eq!(result, Ok((hash, payment_timestamp)));
         let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
         let (transaction_params, secret) = sign_transaction_params.remove(0);
         assert!(sign_transaction_params.is_empty());
@@ -1025,10 +1032,11 @@ mod tests {
                 .secret()
                 .secp256k1_secret
         );
-        let order_payment_backup_params = order_payment_backup_params_arc.lock().unwrap();
+        let trigger_payment_backup_completion_params =
+            trigger_payment_backup_completion_params_arc.lock().unwrap();
         assert_eq!(
-            *order_payment_backup_params,
-            vec![(rowid_from_payables, amount)]
+            *trigger_payment_backup_completion_params,
+            vec![(rowid_from_pending_tables, hash)]
         );
         let send_raw_transaction = send_raw_transaction_params_arc.lock().unwrap();
         assert_eq!(
@@ -1197,11 +1205,12 @@ mod tests {
     }
 
     #[test]
-    fn send_transaction_fails_on_sending_raw_tx() {
+    fn send_transaction_fails_on_sending_raw_transaction() {
         let transport = TestTransport::default();
         let signed_transaction = make_default_signed_transaction();
         let send_transaction_tools = &SendTransactionToolWrapperMock::default()
             .sign_transaction_result(Ok(signed_transaction))
+            .demand_payment_backup_completion_result(SystemTime::now())
             .send_raw_transaction_result(Err(Web3Error::Transport(
                 "Transaction crashed".to_string(),
             )));
