@@ -40,7 +40,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::Recipient;
-use actix::{Actor, SpawnHandle};
+use actix::{Actor};
 use futures::future::Future;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -1882,7 +1882,7 @@ pub mod tests {
         let expected_wallet = make_wallet("paying_you");
         let expected_amount = 12;
         let expected_hash = H256::from("transaction_hash".keccak256());
-        let mut expected_payment = Payment::new(
+        let expected_payment = Payment::new(
             expected_wallet.clone(),
             expected_amount,
             expected_hash.clone(),
@@ -3559,7 +3559,7 @@ pub mod tests {
             None,
         );
 
-        let (ok_payments, mut errors) = subject.handle_sent_payments(payments);
+        let (ok_payments, errors) = subject.handle_sent_payments(payments);
 
         assert_eq!(ok_payments, vec![payment_2]);
         assert_eq!(
@@ -3583,7 +3583,7 @@ pub mod tests {
             DaoFactoryReal::new(&home_dir, true, MigratorConfig::test_default());
         let pending_payments_dao_factory =
             DaoFactoryReal::new(&home_dir, false, MigratorConfig::test_default());
-        let mut subject = AccountantBuilder::default()
+        let subject = AccountantBuilder::default()
             .payable_dao_factory(Box::new(payable_dao_factory))
             .pending_payments_dao_factory(Box::new(pending_payments_dao_factory))
             .build();
@@ -3772,7 +3772,7 @@ pub mod tests {
             .delete_backup_record_result(Err(PendingPaymentDaoError::RecordDeletion(
                 "bad things happened".to_string(),
             )));
-        let mut subject = AccountantBuilder::default()
+        let subject = AccountantBuilder::default()
             .payable_dao_factory(Box::new(PayableDaoFactoryMock::new(Box::new(payable_dao))))
             .pending_payments_dao_factory(Box::new(PendingPaymentsDaoFactoryMock::new(
                 pending_payments_dao,
@@ -3805,7 +3805,7 @@ pub mod tests {
             DaoFactoryReal::new(&home_dir, true, MigratorConfig::test_default());
         let pending_payments_dao_factory =
             DaoFactoryReal::new(&home_dir, false, MigratorConfig::test_default());
-        let mut subject = AccountantBuilder::default()
+        let subject = AccountantBuilder::default()
             .payable_dao_factory(Box::new(payable_dao_factory))
             .pending_payments_dao_factory(Box::new(pending_payments_dao_factory))
             .build();

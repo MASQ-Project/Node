@@ -317,10 +317,9 @@ impl BlockchainBridge {
                     self.payment_confirmation
                         .transaction_backup_subs_opt
                         .as_ref()
-                        .expect("Accountant is unbound"),
+                        .expect("Accountant is unbound")
                 ))
-                .as_ref(),
-        ) {
+                .as_ref()) {
             Ok((hash, timestamp)) => Ok(Payment::new(
                 payable.wallet.clone(),
                 unsigned_amount,
@@ -343,8 +342,7 @@ struct PendingTxInfo {
 mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
-    use crate::accountant::test_utils::AccountantBuilder;
-    use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::Payment;
     use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
@@ -381,7 +379,7 @@ mod tests {
         let secret: Vec<u8> = "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
             .from_hex()
             .unwrap();
-        let consuming_wallet = Wallet::from(Bip32ECKeyPair::from_raw_secret(&secret).unwrap());
+        let consuming_wallet = Wallet::from(Bip32ECKeyProvider::from_raw_secret(&secret).unwrap());
         let subject = BlockchainBridge::new(
             stub_bi(),
             Box::new(make_default_persistent_configuration()),

@@ -414,7 +414,6 @@ impl ActorFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::node_test_utils::{

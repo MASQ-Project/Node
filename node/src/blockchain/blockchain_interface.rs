@@ -460,7 +460,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle,
         SendTransactionToolWrapperMock, TestTransport,
@@ -477,7 +476,7 @@ mod tests {
     use crate::test_utils::{make_wallet, TestRawTransaction};
     use actix::{Actor, System};
     use crossbeam_channel::unbounded;
-    use ethereum_types::{BigEndianHash, U64};
+    use ethereum_types::{U64};
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
@@ -485,7 +484,6 @@ mod tests {
     use serde_json::json;
     use serde_json::Value;
     use simple_server::Server;
-    use sodiumoxide::crypto::sign::sign;
     use std::net::Ipv4Addr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -493,6 +491,7 @@ mod tests {
     use web3::transports::Http;
     use web3::types::H2048;
     use web3::Error as Web3Error;
+    use crate::blockchain::bip32::Bip32ECKeyProvider;
 
     #[test]
     fn blockchain_interface_non_clandestine_retrieves_transactions() {
@@ -988,10 +987,7 @@ mod tests {
         };
         let consuming_wallet_secret_raw_bytes = b"my-wallet";
         let secret =
-            Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
-                .unwrap()
-                .secret()
-                .secp256k1_secret;
+            (&Bip32ECKeyProvider::from_raw_secret(consuming_wallet_secret_raw_bytes).unwrap()).into();
         let signed_transaction = subject
             .web3
             .accounts()
@@ -1027,10 +1023,9 @@ mod tests {
         assert_eq!(transaction_params, transaction_parameters_expected);
         assert_eq!(
             secret,
-            Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
-                .unwrap()
-                .secret()
-                .secp256k1_secret
+            (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
+                .unwrap())
+                .into()
         );
         let trigger_payment_backup_completion_params =
             trigger_payment_backup_completion_params_arc.lock().unwrap();
@@ -1135,10 +1130,9 @@ mod tests {
         assert!(transaction_params.gas < U256::from(not_above_this_value));
         assert_eq!(
             secret,
-            Bip32ECKeyPair::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
-                .unwrap()
-                .secret()
-                .secp256k1_secret
+            (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
+                .unwrap())
+                .into()
         );
     }
 
@@ -1240,7 +1234,7 @@ mod tests {
     }
 
     fn test_consuming_wallet_with_secret() -> Wallet {
-        let key_pair = Bip32ECKeyPair::from_raw_secret(
+        let key_pair = Bip32ECKeyProvider::from_raw_secret(
             &decode_hex("97923d8fd8de4a00f912bfb77ef483141dec551bd73ea59343ef5c4aac965d04")
                 .unwrap(),
         )
@@ -1482,7 +1476,7 @@ mod tests {
             .zip(constant_parts)
         {
             let secret = Wallet::from(
-                Bip32ECKeyPair::from_raw_secret(&signed.private_key.0.as_ref()).unwrap(),
+                Bip32ECKeyProvider::from_raw_secret(&signed.private_key.0.as_ref()).unwrap(),
             )
             .prepare_secp256k1_secret()
             .unwrap();

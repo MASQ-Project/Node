@@ -10,7 +10,6 @@ use crate::sub_lib::wallet::Wallet;
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::{Null, ToSql, Type};
 use rusqlite::{Error, OptionalExtension, NO_PARAMS};
-use serde_json::{self};
 use std::fmt::Debug;
 use std::time::SystemTime;
 use web3::types::H256;
