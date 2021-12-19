@@ -476,6 +476,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use rustc_hex::{FromHex, ToHex};
     use tiny_hderive::bip32::ExtendedPrivKey;
+    use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 
     #[test]
     fn from_config_dao_error() {
@@ -1015,7 +1016,10 @@ mod tests {
         let derivation_path = derivation_path(0, 1);
         let consuming_epk = ExtendedPrivKey::derive (seed_bytes.as_slice(), derivation_path.as_str()).unwrap();
         let consuming_wallet_private_key = consuming_epk.secret().to_hex::<String>().to_uppercase();
-        let consuming_wallet_private_key_encrypted = Bip39::encrypt_bytes(&consuming_wallet_private_key.from_hex::<Vec<u8>>().unwrap().as_slice(), db_password).unwrap();
+        let consuming_wallet_private_key_encrypted = make_encrypted_consuming_wallet_private_key(
+            &consuming_wallet_private_key,
+            db_password
+        );
         let earning_key_pair = Bip32ECKeyPair::from_raw(seed_bytes.as_slice(), derivation_path.as_str()).unwrap();
         let earning_wallet = Wallet::from(earning_key_pair);
         let earning_wallet_address = earning_wallet.to_string();
@@ -1024,6 +1028,14 @@ mod tests {
             consuming_wallet_private_key_encrypted,
             earning_wallet_address,
         )
+    }
+
+    fn make_encrypted_consuming_wallet_private_key (consuming_wallet_private_key: &str, db_password: &str) -> String {
+        DbEncryptionLayer::encrypt_value (
+            &Some (consuming_wallet_private_key.to_string()),
+            &Some (db_password.to_string()),
+            "consuming_wallet_private_key"
+        ).unwrap().unwrap()
     }
 
     #[test]
@@ -1103,18 +1115,23 @@ mod tests {
     fn set_wallet_info_fails_if_consuming_wallet_private_key_exists() {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let old_cwpk_encrypted = make_encrypted_consuming_wallet_private_key (
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "password"
+        );
         let (consuming_wallet_private_key, _, earning_wallet_address) =
             make_wallet_info("password");
+
         let config_dao = Box::new(
             ConfigDaoMock::new()
                 .get_result(Ok(ConfigDaoRecord::new(
-                    EXAMPLE_ENCRYPTED,
-                    Some(&example_encrypted),
+                    "consuming_wallet_private_key",
+                    Some(&old_cwpk_encrypted),
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
-                    "consuming_wallet_private_key",
-                    Some(&Bip39::encrypt_bytes(&consuming_wallet_private_key.from_hex::<Vec<u8>>().unwrap().as_slice(), "password").unwrap()),
+                    EXAMPLE_ENCRYPTED,
+                    Some(&example_encrypted),
                     true,
                 ))),
         );
@@ -1141,13 +1158,13 @@ mod tests {
         let config_dao = Box::new(
             ConfigDaoMock::new()
                 .get_result(Ok(ConfigDaoRecord::new(
-                    EXAMPLE_ENCRYPTED,
-                    Some(&example_encrypted),
+                    "consuming_wallet_private_key",
+                    None,
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
-                    "consuming_wallet_private_key",
-                    None,
+                    EXAMPLE_ENCRYPTED,
+                    Some(&example_encrypted),
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
@@ -1185,18 +1202,18 @@ mod tests {
                 .set_result(Ok(()))
                 .commit_result(Ok(())),
         );
-        let (consuming_wallet_private_key, _, earning_wallet_address) =
+        let (consuming_wallet_private_key, consuming_wallet_private_key_encrypted, earning_wallet_address) =
             make_wallet_info("password");
         let config_dao = Box::new(
             ConfigDaoMock::new()
                 .get_result(Ok(ConfigDaoRecord::new(
-                    EXAMPLE_ENCRYPTED,
-                    Some(&example_encrypted),
+                    "consuming_wallet_private_key",
+                    Some(&consuming_wallet_private_key_encrypted),
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
-                    "consuming_wallet_private_key",
-                    Some(&Bip39::encrypt_bytes(&consuming_wallet_private_key.from_hex::<Vec<u8>>().unwrap().as_slice(), "password").unwrap()),
+                    EXAMPLE_ENCRYPTED,
+                    Some(&example_encrypted),
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
@@ -1228,15 +1245,14 @@ mod tests {
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let config_dao = Box::new(
             ConfigDaoMock::new()
-                .get_result(Ok(ConfigDaoRecord::new("seed", None, true)))
-                .get_result(Ok(ConfigDaoRecord::new(
-                    EXAMPLE_ENCRYPTED,
-                    Some(&example_encrypted),
-                    true,
-                )))
                 .get_result(Ok(ConfigDaoRecord::new(
                     "consuming_wallet_private_key",
                     None,
+                    true,
+                )))
+                .get_result(Ok(ConfigDaoRecord::new(
+                    EXAMPLE_ENCRYPTED,
+                    Some(&example_encrypted),
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
@@ -1270,20 +1286,19 @@ mod tests {
         let writer = Box::new(
             ConfigDaoWriteableMock::new()
                 .set_result(Ok(()))
-                .set_result(Ok(()))
                 .set_result(Err(ConfigDaoError::NotPresent))
                 .commit_params(&commit_params_arc),
         );
         let config_dao = Box::new(
             ConfigDaoMock::new()
                 .get_result(Ok(ConfigDaoRecord::new(
-                    EXAMPLE_ENCRYPTED,
-                    Some(&example_encrypted),
+                    "consuming_wallet_private_key",
+                    None,
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
-                    "consuming_wallet_private_key",
-                    None,
+                    EXAMPLE_ENCRYPTED,
+                    Some(&example_encrypted),
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
