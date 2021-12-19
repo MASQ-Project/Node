@@ -383,13 +383,16 @@ impl<T: Message + Clone> NotifyLaterHandle<T> for NotifyLaterHandleMock<T> {
 }
 
 pub struct NotifyHandleMock<T> {
-    notify_params: Arc<Mutex<Vec<T>>>, //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself
+    //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself as the subject
+    notify_params: Arc<Mutex<Vec<T>>>,
+    pub do_you_want_to_proceed_after: bool,
 }
 
 impl<T: Message> Default for NotifyHandleMock<T> {
     fn default() -> Self {
         Self {
             notify_params: Arc::new(Mutex::new(vec![])),
+            do_you_want_to_proceed_after: false,
         }
     }
 }
@@ -407,6 +410,8 @@ impl<T: Message + Clone> NotifyHandle<T> for NotifyHandleMock<T> {
         if !cfg!(test) {
             panic!("this shouldn't run outside a test")
         }
-        closure(msg)
+        if self.do_you_want_to_proceed_after {
+            closure(msg)
+        }
     }
 }

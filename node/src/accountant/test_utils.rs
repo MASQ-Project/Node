@@ -344,7 +344,7 @@ pub struct PendingPaymentsDaoMock {
     return_unresolved_backup_records_params: Arc<Mutex<Vec<()>>>,
     return_unresolved_backup_records_results:
         RefCell<Vec<Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError>>>,
-    have_return_unresolved_backup_records_shut_down_the_system: bool,
+    pub have_return_unresolved_backup_records_shut_down_the_system: bool,
 }
 
 impl PendingPaymentsDao for PendingPaymentsDaoMock {
@@ -435,12 +435,12 @@ impl PendingPaymentsDaoMock {
         self
     }
 
-    pub fn return_all_backup_records_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+    pub fn return_unresolved_backup_records_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
         self.return_unresolved_backup_records_params = params.clone();
         self
     }
 
-    pub fn return_all_backup_records_result(
+    pub fn return_unresolved_backup_records_result(
         self,
         result: Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError>,
     ) -> Self {

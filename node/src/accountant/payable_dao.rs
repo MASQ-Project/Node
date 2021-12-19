@@ -22,6 +22,8 @@ pub struct PayableAccount {
     pub pending_payment_rowid_opt: Option<u64>,
 }
 
+//TODO we probably can cut out this struct below as we need very little from it
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Payment {
     pub to: Wallet,
@@ -109,13 +111,13 @@ impl PayableDao for PayableDaoReal {
             jackass_unsigned_to_signed(payment.amount.expectv("amount")).map_err(|err_num| {
                 PaymentError::PostTransaction(
                     PaymentErrorKind::SignConversion(err_num),
-                    payment.hash,
+                    payment.into(),
                 )
             })?;
         if let Err(e) = self
             .try_decrease_balance(payment.rowid, signed_amount, payment.timestamp)
             .map_err(|e| {
-                PaymentError::PostTransaction(PaymentErrorKind::RusqliteError(e), payment.hash)
+                PaymentError::PostTransaction(PaymentErrorKind::RusqliteError(e), payment.into())
             })
         {
             unimplemented!()
@@ -355,6 +357,7 @@ impl PayableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::test_utils::make_payment_backup;
+    use crate::accountant::TransactionId;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer;
@@ -573,7 +576,7 @@ mod tests {
             result,
             Err(PaymentError::PostTransaction(
                 PaymentErrorKind::SignConversion(u64::MAX),
-                hash
+                TransactionId { hash, rowid }
             ))
         )
     }
@@ -596,7 +599,7 @@ mod tests {
             result,
             Err(PaymentError::PostTransaction(
                 PaymentErrorKind::RusqliteError("attempt to write a readonly database".to_string()),
-                hash
+                TransactionId { hash, rowid }
             ))
         )
     }
@@ -619,7 +622,10 @@ mod tests {
             result,
             Err(PaymentError::PostTransaction(
                 PaymentErrorKind::RusqliteError("attempt to write a readonly database".to_string()),
-                hash
+                TransactionId {
+                    hash,
+                    rowid: unimplemented!()
+                }
             ))
         )
     }

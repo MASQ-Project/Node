@@ -61,7 +61,7 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
                 rowid,
                 timestamp: now,
                 hash,
-                attempt: 0,
+                attempt: 1,
             })
             .expect("Accountant is dead");
         now

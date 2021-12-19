@@ -77,8 +77,7 @@ pub(in crate::accountant) mod accountant_tools {
             Box<dyn NotifyLaterHandle<RequestTransactionReceipts>>,
         pub notify_handle_cancel_failed_transaction:
             Box<dyn NotifyHandle<CancelFailedPendingTransaction>>,
-        pub notify_handle_confirm_tx_after_success:
-            Box<dyn NotifyHandle<ConfirmPendingTransaction>>,
+        pub notify_handle_confirm_transaction: Box<dyn NotifyHandle<ConfirmPendingTransaction>>,
     }
 
     impl TransactionConfirmationTools {
@@ -87,7 +86,7 @@ pub(in crate::accountant) mod accountant_tools {
                 request_transaction_receipts_subs_opt: None,
                 notify_handle_request_transaction_receipts: Default::default(),
                 notify_handle_cancel_failed_transaction: Default::default(),
-                notify_handle_confirm_tx_after_success: Default::default(),
+                notify_handle_confirm_transaction: Default::default(),
             }
         }
     }

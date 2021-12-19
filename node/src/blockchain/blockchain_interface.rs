@@ -946,7 +946,7 @@ mod tests {
             rowid,
             timestamp,
             hash,
-            attempt: 0,
+            attempt: 1,
             amount: None,
         };
         assert_eq!(sent_backup, &expected_payment_backup);

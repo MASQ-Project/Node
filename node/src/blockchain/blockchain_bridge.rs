@@ -114,11 +114,7 @@ impl Handler<RetrieveTransactions> for BlockchainBridge {
 impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: RequestTransactionReceipts,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: RequestTransactionReceipts, _ctx: &mut Self::Context) {
         let results: Vec<(TxReceipt, PaymentBackupRecord)> = msg
             .pending_payments
             .iter()
@@ -342,6 +338,7 @@ struct PendingTxInfo {
 mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
+    use crate::accountant::test_utils::make_payment_backup;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::Payment;
     use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
@@ -360,6 +357,7 @@ mod tests {
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::Addr;
     use actix::System;
+    use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use futures::future::Future;
     use masq_lib::constants::DEFAULT_CHAIN;
@@ -367,7 +365,7 @@ mod tests {
     use rustc_hex::FromHex;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
-    use web3::types::{H256, U256};
+    use web3::types::{TransactionReceipt, H256, U256};
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -690,18 +688,93 @@ mod tests {
     }
 
     #[test]
+    fn blockchain_bridge_processes_requests_for_transaction_receipts() {
+        let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let payment_backup_1 = make_payment_backup();
+        let hash_1 = payment_backup_1.hash;
+        let hash_2 = H256::from_uint(&U256::from(78989));
+        let hash_3 = H256::from_uint(&U256::from(11111));
+        let payment_backup_2 = PaymentBackupRecord {
+            rowid: 456,
+            timestamp: SystemTime::now(),
+            hash: hash_2,
+            attempt: 3,
+            amount: Some(4565),
+        };
+        let payment_backup_3 = PaymentBackupRecord {
+            rowid: 450,
+            timestamp: from_time_t(230_000_000),
+            hash: hash_3,
+            attempt: 1,
+            amount: Some(7879),
+        };
+        let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
+            .get_transaction_receipt_result(Ok(Some(TransactionReceipt::default())))
+            .get_transaction_receipt_result(Ok(None))
+            .get_transaction_receipt_result(Err(BlockchainError::TransactionFailed(
+                "bad bad bad".to_string(),
+            )));
+        let consuming_wallet = make_paying_wallet(b"somewallet");
+        let subject = BlockchainBridge::new(
+            Box::new(blockchain_interface_mock),
+            Box::new(PersistentConfigurationMock::default()),
+            false,
+            None, //not needed in this test
+        );
+        let addr = subject.start();
+        let subject_subs = BlockchainBridge::make_subs_from(&addr);
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        send_bind_message!(subject_subs, peer_actors);
+        let msg = RequestTransactionReceipts {
+            pending_payments: vec![
+                payment_backup_1.clone(),
+                payment_backup_2.clone(),
+                payment_backup_3.clone(),
+            ],
+        };
+
+        let _ = addr.try_send(msg).unwrap();
+
+        let system = System::new("transaction receipts");
+        System::current().stop();
+        system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 1);
+        let received_message = accountant_recording.get_record::<ReportTransactionReceipts>(0);
+        assert_eq!(
+            received_message,
+            &ReportTransactionReceipts {
+                payment_backups_with_receipts: vec![
+                    (Ok(Some(TransactionReceipt::default())), payment_backup_1),
+                    (Ok(None), payment_backup_2),
+                    (
+                        Err(BlockchainError::TransactionFailed(
+                            "bad bad bad".to_string()
+                        )),
+                        payment_backup_3
+                    )
+                ]
+            }
+        );
+        let get_transaction_params = get_transaction_receipt_params_arc.lock().unwrap();
+        assert_eq!(*get_transaction_params, vec![hash_1, hash_2, hash_3])
+    }
+
+    #[test]
     #[should_panic(
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
     fn blockchain_bridge_can_be_crashed_properly_but_not_improperly() {
         let crashable = true;
-        let actor = BlockchainBridge::new(
+        let subject = BlockchainBridge::new(
             Box::new(BlockchainInterfaceMock::default()),
             Box::new(PersistentConfigurationMock::default()),
             crashable,
             None,
         );
 
-        prove_that_crash_request_handler_is_hooked_up(actor, CRASH_KEY);
+        prove_that_crash_request_handler_is_hooked_up(subject, CRASH_KEY);
     }
 }
