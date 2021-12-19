@@ -19,6 +19,7 @@ use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -340,9 +341,10 @@ pub struct PendingPaymentsDaoMock {
     mark_failure_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
     read_record_params: Arc<Mutex<Vec<u64>>>,
     read_record_results: RefCell<Vec<Result<PaymentBackupRecord, PendingPaymentDaoError>>>,
-    return_all_active_backup_records_params: Arc<Mutex<Vec<()>>>,
-    return_all_active_backup_records_results:
+    return_unresolved_backup_records_params: Arc<Mutex<Vec<()>>>,
+    return_unresolved_backup_records_results:
         RefCell<Vec<Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError>>>,
+    have_return_unresolved_backup_records_shut_down_the_system: bool,
 }
 
 impl PendingPaymentsDao for PendingPaymentsDaoMock {
@@ -351,14 +353,23 @@ impl PendingPaymentsDao for PendingPaymentsDaoMock {
         self.read_record_results.borrow_mut().remove(0)
     }
 
-    fn return_all_active_backup_records(
+    fn return_unresolved_backup_records(
         &self,
     ) -> Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError> {
-        self.return_all_active_backup_records_params
+        self.return_unresolved_backup_records_params
             .lock()
             .unwrap()
             .push(());
-        self.return_all_active_backup_records_results
+        if self.have_return_unresolved_backup_records_shut_down_the_system
+            && self
+                .return_unresolved_backup_records_results
+                .borrow()
+                .is_empty()
+        {
+            System::current().stop();
+            return Ok(vec![]);
+        }
+        self.return_unresolved_backup_records_results
             .borrow_mut()
             .remove(0)
     }
@@ -425,7 +436,7 @@ impl PendingPaymentsDaoMock {
     }
 
     pub fn return_all_backup_records_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.return_all_active_backup_records_params = params.clone();
+        self.return_unresolved_backup_records_params = params.clone();
         self
     }
 
@@ -433,7 +444,7 @@ impl PendingPaymentsDaoMock {
         self,
         result: Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError>,
     ) -> Self {
-        self.return_all_active_backup_records_results
+        self.return_unresolved_backup_records_results
             .borrow_mut()
             .push(result);
         self

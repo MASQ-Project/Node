@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
 use crate::blockchain::tool_wrappers::{
     PaymentBackupRecipientWrapper, SendTransactionToolWrapper, SendTransactionToolWrapperReal,
 };
@@ -460,6 +459,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle,
         SendTransactionToolWrapperMock, TestTransport,
@@ -476,7 +477,7 @@ mod tests {
     use crate::test_utils::{make_wallet, TestRawTransaction};
     use actix::{Actor, System};
     use crossbeam_channel::unbounded;
-    use ethereum_types::{U64};
+    use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
@@ -491,7 +492,6 @@ mod tests {
     use web3::transports::Http;
     use web3::types::H2048;
     use web3::Error as Web3Error;
-    use crate::blockchain::bip32::Bip32ECKeyProvider;
 
     #[test]
     fn blockchain_interface_non_clandestine_retrieves_transactions() {
@@ -986,8 +986,9 @@ mod tests {
             chain_id: Some(1),
         };
         let consuming_wallet_secret_raw_bytes = b"my-wallet";
-        let secret =
-            (&Bip32ECKeyProvider::from_raw_secret(consuming_wallet_secret_raw_bytes).unwrap()).into();
+        let secret = (&Bip32ECKeyProvider::from_raw_secret(consuming_wallet_secret_raw_bytes)
+            .unwrap())
+            .into();
         let signed_transaction = subject
             .web3
             .accounts()

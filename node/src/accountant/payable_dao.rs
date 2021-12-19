@@ -90,7 +90,7 @@ impl PayableDao for PayableDaoReal {
     fn mark_pending_payment_rowid(&self, wallet: &Wallet, rowid: u64) -> Result<(), PaymentError> {
         let mut stm = self
             .conn
-            .prepare("update payable set pending_payment_transaction=? where wallet_address=?")
+            .prepare("update payable set pending_payment_rowid=? where wallet_address=?")
             .expect("Internal Error");
         let params: &[&dyn ToSql] = &[
             &jackass_unsigned_to_signed(rowid)
@@ -120,7 +120,18 @@ impl PayableDao for PayableDaoReal {
         {
             unimplemented!()
         }
-        Ok(())
+        let formally_signed_rowid = jackass_unsigned_to_signed(payment.rowid)
+            .expect("SQLite counts up to i64::MAX; should never happen");
+        let mut stm = self
+            .conn
+            .prepare("update payable set pending_payment_rowid=? where pending_payment_rowid=?")
+            .expect("Internal Error");
+        let params: &[&dyn ToSql] = &[&Null, &formally_signed_rowid];
+        match stm.execute(params) {
+            Ok(1) => Ok(()),
+            Ok(num) => unimplemented!(),
+            Err(e) => unimplemented!(),
+        }
     }
 
     fn transaction_canceled(&self, rowid: u64) -> Result<(), PaymentError> {
@@ -322,12 +333,11 @@ impl PayableDaoReal {
     ) -> Result<(), String> {
         let mut stmt = self
             .conn
-            .prepare("update set balance = balance - :balance, last_paid_timestamp = :last_paid, pending_payment_transaction = :transaction where pending_payments_rowid = :referential_rowid")
+            .prepare("update payable set balance = balance - :balance, last_paid_timestamp = :last_paid where pending_payment_rowid = :referential_rowid")
             .expect("Internal error");
         let params: &[(&str, &dyn ToSql)] = &[
             (":balance", &amount),
             (":last_paid", &dao_utils::to_time_t(last_paid_timestamp)),
-            (":transaction", &Null),
             (
                 ":referential_rowid",
                 &i64::try_from(rowid).expect("SQLite was wrong when choosing the rowid"),
@@ -335,7 +345,7 @@ impl PayableDaoReal {
         ];
         match stmt.execute_named(params) {
             Ok(1) => Ok(()),
-            Ok(x) => unimplemented!(),
+            Ok(x) => unimplemented!("{}", x),
             Err(e) => Err(format!("{}", e)),
         }
     }

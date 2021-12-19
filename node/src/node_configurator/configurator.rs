@@ -471,10 +471,7 @@ impl Configurator {
     }
 
     fn generate_wallet(seed: &Seed, derivation_path: &str) -> Result<Wallet, MessageError> {
-        match Bip32ECKeyProvider::try_from(
-            (seed.as_bytes(),
-            derivation_path
-        )) {
+        match Bip32ECKeyProvider::try_from((seed.as_bytes(), derivation_path)) {
             Err(e) => Err((
                 DERIVATION_PATH_ERROR,
                 format!("Bad derivation-path syntax: {}: {}", e, derivation_path),

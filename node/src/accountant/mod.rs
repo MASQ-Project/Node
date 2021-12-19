@@ -3,6 +3,7 @@
 pub mod payable_dao;
 pub mod pending_payments_dao;
 pub mod receivable_dao;
+pub mod tools;
 
 #[cfg(test)]
 pub mod test_utils;
@@ -10,12 +11,12 @@ pub mod test_utils;
 use crate::accountant::payable_dao::{PayableAccount, PayableDaoFactory, Payment};
 use crate::accountant::pending_payments_dao::{PendingPaymentsDao, PendingPaymentsDaoFactory};
 use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDaoFactory};
+use crate::accountant::tools::accountant_tools::{Scanners, TransactionConfirmationTools};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{
     PaymentBackupRecord, ReportTransactionReceipts, RetrieveTransactions,
 };
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
-use crate::blockchain::tool_wrappers::{NotifyHandle, NotifyLaterHandle};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
@@ -34,13 +35,13 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
+use actix::Actor;
 use actix::Addr;
 use actix::AsyncContext;
 use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::Recipient;
-use actix::{Actor};
 use futures::future::Future;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -134,6 +135,7 @@ pub struct Accountant {
     pending_payments_dao: Box<dyn PendingPaymentsDao>,
     banned_dao: Box<dyn BannedDao>,
     crashable: bool,
+    scanners: Scanners,
     transaction_confirmation: TransactionConfirmationTools,
     persistent_configuration: Box<dyn PersistentConfiguration>,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
@@ -142,25 +144,6 @@ pub struct Accountant {
     report_sent_payments_sub: Option<Recipient<SentPayments>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     logger: Logger,
-}
-
-struct TransactionConfirmationTools {
-    request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
-    notify_handle_request_transaction_receipts:
-        Box<dyn NotifyLaterHandle<RequestTransactionReceipts>>,
-    notify_handle_cancel_failed_transaction: Box<dyn NotifyHandle<CancelFailedPendingTransaction>>,
-    notify_handle_confirm_tx_after_success: Box<dyn NotifyHandle<ConfirmPendingTransaction>>,
-}
-
-impl TransactionConfirmationTools {
-    fn new() -> Self {
-        Self {
-            request_transaction_receipts_subs_opt: None,
-            notify_handle_request_transaction_receipts: Default::default(),
-            notify_handle_cancel_failed_transaction: Default::default(),
-            notify_handle_confirm_tx_after_success: Default::default(),
-        }
-    }
 }
 
 impl Actor for Accountant {
@@ -371,7 +354,7 @@ impl Handler<CancelFailedPendingTransaction> for Accountant {
 
 #[derive(Debug, PartialEq, Message, Clone)]
 pub struct ConfirmPendingTransaction {
-    pub payment: PaymentBackupRecord,
+    pub payment_backup: PaymentBackupRecord,
 }
 
 //TODO discard
@@ -421,6 +404,7 @@ impl Accountant {
             pending_payments_dao: pending_payments_dao_factory.make(),
             banned_dao: banned_dao_factory.make(),
             crashable: config.crash_point == CrashPoint::Message,
+            scanners: Scanners::default(),
             transaction_confirmation: TransactionConfirmationTools::new(),
             persistent_configuration: Box::new(PersistentConfigurationReal::new(
                 config_dao_factory.make(),
@@ -454,7 +438,7 @@ impl Accountant {
         DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
     }
 
-    fn scan_for_payables(&mut self) {
+    fn scan_for_payables(&self) {
         debug!(self.logger, "Scanning for payables");
 
         let all_non_pending_payables = self.payable_dao.non_pending_payables();
@@ -518,7 +502,7 @@ impl Accountant {
             .collect()
     }
 
-    fn scan_for_delinquencies(&mut self) {
+    fn scan_for_delinquencies(&self) {
         debug!(self.logger, "Scanning for delinquencies");
 
         let now = SystemTime::now();
@@ -553,7 +537,7 @@ impl Accountant {
             });
     }
 
-    fn scan_for_received_payments(&mut self) {
+    fn scan_for_received_payments(&self) {
         let future_logger = self.logger.clone();
         debug!(
             self.logger,
@@ -614,7 +598,7 @@ impl Accountant {
 
     fn scan_for_pending_payments(&self) {
         debug!(self.logger, "Scanning for pending payments");
-        match self.pending_payments_dao.return_all_active_backup_records() {
+        match self.pending_payments_dao.return_unresolved_backup_records() {
             Ok(filtered_pending_payments) => {
                 if !filtered_pending_payments.is_empty() {
                     debug!(
@@ -846,13 +830,13 @@ impl Accountant {
         info!(self.logger, "Accountant bound");
     }
 
-    fn handle_start_message(&mut self) {
-        self.scan_for_pending_payments();
-        self.scan_for_payables();
-        self.handle_scan_for_receivables();
+    fn handle_start_message(&self) {
+        self.scanners.pending_payments.scan(self);
+        self.scanners.payables.scan(self);
+        self.scanners.receivables.scan(self);
     }
 
-    fn handle_scan_for_receivables(&mut self) {
+    fn handle_scan_for_receivables(&self) {
         self.scan_for_received_payments();
         self.scan_for_delinquencies();
     }
@@ -1029,33 +1013,36 @@ impl Accountant {
     }
 
     fn handle_confirm_pending_transaction(&self, msg: ConfirmPendingTransaction) {
-        if let Err(e) = self.payable_dao.transaction_confirmed(&msg.payment) {
+        if let Err(e) = self.payable_dao.transaction_confirmed(&msg.payment_backup) {
             warning!(self.logger,"Local confirmation for correct transaction {} is failing on operation over payable records: {:?}; \
-             Not fatal because the confirmation process is to restart later by a periodic scan for confirmations",msg.payment.hash,e);
-            if let Err(e) = self.pending_payments_dao.mark_failure(msg.payment.rowid) {
-                warning!(self.logger,"Instant fail mark not granted on account of {:?}; confirmation for {} is frozen until it restarts automatically when age of the transaction passes past time limit", e,msg.payment.hash)
+             Not fatal because the confirmation process is to restart later by a periodic scan for confirmations",msg.payment_backup.hash,e);
+            if let Err(e) = self
+                .pending_payments_dao
+                .mark_failure(msg.payment_backup.rowid)
+            {
+                warning!(self.logger,"Instant fail mark not granted on account of {:?}; confirmation for {} is frozen until it restarts automatically when age of the transaction passes past time limit", e,msg.payment_backup.hash)
             } else {
                 debug!(
                     self.logger,
-                    "Instant fail mark added to 'pending_payments' for {}", msg.payment.hash
+                    "Instant fail mark added to 'pending_payments' for {}", msg.payment_backup.hash
                 )
             }
         } else {
             debug!(
                 self.logger,
                 "Confirmation of transaction {}; record for payable table took change",
-                msg.payment.hash
+                msg.payment_backup.hash
             );
             if let Err(e) = self
                 .pending_payments_dao
-                .delete_backup_record(msg.payment.rowid)
+                .delete_backup_record(msg.payment_backup.rowid)
             {
-                warning!(self.logger,"Unsuccessful attempt to delete a transaction record ({}) from pending_payments; nothing changes for the transaction is valid; secondary issue that may be taken care of by a cleanup done later",msg.payment.hash)
+                warning!(self.logger,"Unsuccessful attempt to delete a transaction record ({}) from pending_payments; nothing changes for the transaction is valid; secondary issue that may be taken care of by a cleanup done later",msg.payment_backup.hash)
             } else {
                 info!(
                     self.logger,
                     "Transaction {:#x} has gone through the whole confirmation process succeeding",
-                    msg.payment.hash
+                    msg.payment_backup.hash
                 )
             }
         }
@@ -1209,7 +1196,12 @@ impl Accountant {
                 let closure = |msg: ConfirmPendingTransaction| ctx.notify(msg);
                 self.transaction_confirmation
                     .notify_handle_confirm_tx_after_success
-                    .notify(ConfirmPendingTransaction { payment }, Box::new(closure));
+                    .notify(
+                        ConfirmPendingTransaction {
+                            payment_backup: payment,
+                        },
+                        Box::new(closure),
+                    );
             }
         });
     }
@@ -1314,6 +1306,7 @@ pub mod tests {
         PendingPaymentsDaoMock, ReceivableDaoFactoryMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
+    use crate::accountant::tools::accountant_tools::NullScanner;
     use crate::accountant::PaymentErrorKind::SignConversion;
     use crate::blockchain::blockchain_interface::Transaction;
     use crate::blockchain::blockchain_interface::{BlockchainError, TxReceipt};
@@ -1373,7 +1366,7 @@ pub mod tests {
         top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
         top_records_results: RefCell<Vec<Vec<PayableAccount>>>,
         total_results: RefCell<Vec<u64>>,
-        let_non_pending_payables_shut_down_the_system: bool,
+        have_non_pending_payables_shut_down_the_system: bool,
     }
 
     impl PayableDao for PayableDaoMock {
@@ -1426,7 +1419,7 @@ pub mod tests {
 
         fn non_pending_payables(&self) -> Vec<PayableAccount> {
             self.non_pending_payables_params.lock().unwrap().push(());
-            if self.let_non_pending_payables_shut_down_the_system
+            if self.have_non_pending_payables_shut_down_the_system
                 && self.non_pending_payables_results.borrow().is_empty()
             {
                 System::current().stop();
@@ -1546,6 +1539,7 @@ pub mod tests {
         top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
         top_records_results: RefCell<Vec<Vec<ReceivableAccount>>>,
         total_results: RefCell<Vec<u64>>,
+        have_new_delinquencies_shutdown_the_system: bool,
     }
 
     impl ReceivableDao for ReceivableDaoMock {
@@ -1590,6 +1584,12 @@ pub mod tests {
                 .lock()
                 .unwrap()
                 .push((now, payment_curves.clone()));
+            if self.have_new_delinquencies_shutdown_the_system
+                && self.new_delinquencies_results.borrow().is_empty()
+            {
+                System::current().stop();
+                return vec![];
+            }
             self.new_delinquencies_results.borrow_mut().remove(0)
         }
 
@@ -1598,11 +1598,7 @@ pub mod tests {
                 .lock()
                 .unwrap()
                 .push(payment_curves.clone());
-            if self.paid_delinquencies_results.borrow().is_empty() {
-                vec![]
-            } else {
-                self.paid_delinquencies_results.borrow_mut().remove(0)
-            }
+            self.paid_delinquencies_results.borrow_mut().remove(0)
         }
 
         fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
@@ -1960,13 +1956,13 @@ pub mod tests {
             PayableAccount {
                 wallet: make_wallet("blah"),
                 balance: amount_1,
-                last_paid_timestamp: from_time_t(PAYMENT_CURVES.payment_suggested_after_sec + 5),
+                last_paid_timestamp: from_time_t(100_000_000),
                 pending_payment_rowid_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("foo"),
                 balance: amount_2,
-                last_paid_timestamp: from_time_t(PAYMENT_CURVES.payment_suggested_after_sec + 5),
+                last_paid_timestamp: from_time_t(100_000_000),
                 pending_payment_rowid_opt: None,
             },
         ];
@@ -1977,7 +1973,7 @@ pub mod tests {
             .initiate_backup_record_result(Ok(rowid_of_just_inserted_new_record_1))
             .initiate_backup_record_result(Ok(rowid_of_just_inserted_new_record_2));
         let system = System::new("report_accounts_payable forwarded to blockchain_bridge");
-        let subject = make_accountant(
+        let mut subject = make_accountant(
             Some(bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
                     payables_scan_interval: Duration::from_secs(100), //scan intervals deliberately big to demonstrate that we don't do the intervals yet
@@ -1992,6 +1988,8 @@ pub mod tests {
             None,
             None,
         );
+        subject.scanners.pending_payments = Box::new(NullScanner); //skipping scanner for pending payments
+        subject.scanners.receivables = Box::new(NullScanner); //turning off scanner for receivables
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
@@ -2004,7 +2002,7 @@ pub mod tests {
         System::current().stop();
         system.run();
         let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
-        assert_eq!(blockchain_bridge_recorder.len(), 2); //the second message is from the scan for receivables
+        assert_eq!(blockchain_bridge_recorder.len(), 1);
         let report_accounts_payables_msgs: Vec<&ReportAccountsPayable> = (0
             ..blockchain_bridge_recorder.len())
             .flat_map(|index| {
@@ -2023,7 +2021,9 @@ pub mod tests {
         };
         assert_eq!(
             report_accounts_payables_msgs,
-            vec![&ReportAccountsPayable { accounts }]
+            vec![&ReportAccountsPayable {
+                accounts: expected_accounts_after
+            }]
         );
         let initiate_payment_backup_params = initiate_backup_record_params_arc.lock().unwrap();
         assert_eq!(
@@ -2349,7 +2349,7 @@ pub mod tests {
             .non_pending_payables_result(vec![account.clone()]);
         let pending_payments_dao =
             PendingPaymentsDaoMock::default().initiate_backup_record_result(Ok(899));
-        payable_dao.let_non_pending_payables_shut_down_the_system = true;
+        payable_dao.have_non_pending_payables_shut_down_the_system = true;
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();
@@ -2425,7 +2425,7 @@ pub mod tests {
         let persistent_config = PersistentConfigurationMock::default()
             .start_block_params(&start_block_params_arc)
             .start_block_result(Ok(123456));
-        payable_dao.let_non_pending_payables_shut_down_the_system = true;
+        payable_dao.have_non_pending_payables_shut_down_the_system = true;
         let subject = make_accountant(
             Some(config),
             Some(payable_dao),
@@ -2620,34 +2620,35 @@ pub mod tests {
         let system = System::new("payment_received_scan_triggers_scan_for_delinquencies");
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payables_scan_interval: Duration::from_millis(100),
+                payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
             },
             make_wallet("hi"),
         );
-
-        let mut payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
-        payable_dao.let_non_pending_payables_shut_down_the_system = true;
-        let receivable_dao = ReceivableDaoMock::new()
+        let mut receivable_dao = ReceivableDaoMock::new()
             .new_delinquencies_result(vec![])
             .new_delinquencies_result(vec![make_receivable_account(1234, true)])
             .paid_delinquencies_result(vec![])
-            .paid_delinquencies_result(vec![]);
+            .paid_delinquencies_result(vec![]) //TODO we maybe should set up more things in this test than just new delinquencies
+            .paid_delinquencies_result(vec![]); //because the system has some inertia before it shuts down
+        receivable_dao.have_new_delinquencies_shutdown_the_system = true;
         let banned_dao = BannedDaoMock::new()
             .ban_parameters(&ban_parameters_arc_inner)
             .ban_list_result(vec![])
             .ban_list_result(vec![]);
         let persistent_config =
             PersistentConfigurationMock::default().start_block_result(Ok(123456));
-        let subject = make_accountant(
+        let mut subject = make_accountant(
             Some(config),
-            Some(payable_dao),
+            None,
             Some(receivable_dao),
             None,
             Some(banned_dao),
             Some(persistent_config),
         );
+        subject.scanners.pending_payments = Box::new(NullScanner); //skipping
+        subject.scanners.payables = Box::new(NullScanner); //skipping
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();
@@ -3592,17 +3593,13 @@ pub mod tests {
         let amount = 4567;
         let timestamp_from_time_of_payment = from_time_t(200_000_000);
         let previous_timestamp = from_time_t(199_000_000);
-        let payable_rowid = 1;
-        let payment = Payment {
-            to: recipient_wallet.clone(),
-            amount,
+        let pending_payments_rowid = 2; //the number is important (must correspond with the actual from-origin-position of this row when it was created)
+        let payment_backup = PaymentBackupRecord {
+            rowid: pending_payments_rowid,
             timestamp: timestamp_from_time_of_payment,
-            transaction: tx_hash,
-            rowid: 1,
-        };
-
-        let sent_payment_msg = SentPayments {
-            payments: vec![Ok(payment.clone())],
+            hash: tx_hash,
+            attempt: 0,
+            amount: Some(amount),
         };
         let conn_for_assertion = DbInitializerReal::default()
             .initialize(&home_dir, false, MigratorConfig::test_default())
@@ -3611,7 +3608,7 @@ pub mod tests {
             initiate_records_in_payable_and_pending_payments(
                 conn_for_assertion.as_ref(),
                 &recipient_wallet,
-                payable_rowid,
+                pending_payments_rowid,
                 amount,
                 previous_timestamp,
                 timestamp_from_time_of_payment,
@@ -3620,7 +3617,7 @@ pub mod tests {
         }
 
         let _ = subject
-            .handle_confirm_pending_transaction(ConfirmPendingTransaction { payment: todo!() });
+            .handle_confirm_pending_transaction(ConfirmPendingTransaction { payment_backup });
 
         let mut stm1 = conn_for_assertion
             .prepare("select * from payable where wallet_address = ?")
@@ -3630,17 +3627,17 @@ pub mod tests {
                 let wallet: String = row.get(0).unwrap();
                 let balance: i64 = row.get(1).unwrap();
                 let timestamp: i64 = row.get(2).unwrap();
-                let pending_tx_hash_opt: Option<String> = row.get(3).unwrap();
+                let pending_payment_rowid: Option<i64> = row.get(3).unwrap();
                 assert_eq!(wallet, recipient_wallet.to_string());
                 assert_eq!(balance, 0,);
                 assert_eq!(timestamp, to_time_t(timestamp_from_time_of_payment));
-                assert_eq!(pending_tx_hash_opt, None);
+                assert_eq!(pending_payment_rowid, None);
                 Ok(())
             })
             .unwrap();
         assert_row_for_given_id_deleted_from_pending_payments(
             conn_for_assertion.as_ref(),
-            payment.rowid,
+            pending_payments_rowid,
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("DEBUG: Accountant: Confirmation of transaction 0x051a…8c19; record for payable table took change");
@@ -3656,23 +3653,29 @@ pub mod tests {
         timestamp_from_time_of_payment: SystemTime,
         tx_hash: H256,
     ) {
-        let mut stm1 = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?,?,?,?)").unwrap();
+        let mut stm1 = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_rowid) values (?,?,?,?)").unwrap();
         let params: &[&dyn ToSql] = &[
             recipient_wallet,
             &(amount as i64),
             &to_time_t(previous_timestamp),
-            &format!("{:#x}", tx_hash),
+            &jackass_unsigned_to_signed(pending_payments_rowid).unwrap(),
         ];
         let row_changed = stm1.execute(params).unwrap();
         assert_eq!(row_changed, 1);
-        let mut stm1 = conn.prepare("insert into pending_payments (payable_rowid, amount, payment_timestamp, process_error) values (?,?,?,?)").unwrap();
+        let mut stm2 = conn.prepare("insert into pending_payments (rowid, amount, payment_timestamp, transaction_hash, process_error) values (?,?,?,?,?)").unwrap();
+        //I want to have a number higher than the lowest for rowid - so I'm adding one extra row
+        let params_of_irrelevant_sentinel: &[&dyn ToSql] =
+            &[&Null, &1234, &100_000_000, &"abcd45", &Null];
+        let row_changed = stm2.execute(params_of_irrelevant_sentinel).unwrap();
+        assert_eq!(row_changed, 1);
         let params: &[&dyn ToSql] = &[
-            &jackass_unsigned_to_signed(pending_payments_rowid).unwrap(),
+            &Null,
             &(amount as i64),
             &to_time_t(timestamp_from_time_of_payment),
+            &format!("{:#x}", tx_hash),
             &Null,
         ];
-        let row_changed = stm1.execute(params).unwrap();
+        let row_changed = stm2.execute(params).unwrap();
         assert_eq!(row_changed, 1)
     }
 
@@ -3682,7 +3685,7 @@ pub mod tests {
     ) {
         let signed_row_id = jackass_unsigned_to_signed(rowid).unwrap();
         let mut stm2 = conn
-            .prepare("select * from pending_payments where payable_rowid = ?")
+            .prepare("select * from pending_payments where rowid = ?")
             .unwrap();
         let query_result_err = stm2
             .query_row(&[&signed_row_id], |row: &Row| Ok(()))
@@ -3714,7 +3717,7 @@ pub mod tests {
         payment.rowid = 3;
         payment.hash = hash;
         let msg = ConfirmPendingTransaction {
-            payment: payment.clone(),
+            payment_backup: payment.clone(),
         };
 
         let _ = subject.handle_confirm_pending_transaction(msg);
@@ -3751,7 +3754,7 @@ pub mod tests {
         payment_backup.rowid = 3;
         payment_backup.hash = hash;
         let msg = ConfirmPendingTransaction {
-            payment: payment_backup.clone(),
+            payment_backup: payment_backup.clone(),
         };
 
         let _ = subject.handle_confirm_pending_transaction(msg);
@@ -3782,7 +3785,7 @@ pub mod tests {
         payment.rowid = 3;
         payment.hash = hash;
         let msg = ConfirmPendingTransaction {
-            payment: payment.clone(),
+            payment_backup: payment.clone(),
         };
 
         let _ = subject.handle_confirm_pending_transaction(msg);

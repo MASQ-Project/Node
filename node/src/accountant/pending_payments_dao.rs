@@ -19,7 +19,7 @@ pub enum PendingPaymentDaoError {
 
 pub trait PendingPaymentsDao {
     fn read_backup_record(&self, id: u64) -> Result<PaymentBackupRecord, PendingPaymentDaoError>; //TODO maybe will be discarded
-    fn return_all_active_backup_records(
+    fn return_unresolved_backup_records(
         &self,
     ) -> Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError>;
     fn initiate_backup_record(&self, amount: u64) -> Result<u64, PendingPaymentDaoError>;
@@ -37,7 +37,7 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal {
         todo!()
     }
 
-    fn return_all_active_backup_records(
+    fn return_unresolved_backup_records(
         &self,
     ) -> Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError> {
         todo!()
@@ -73,8 +73,9 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal {
             .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
-            .prepare("delete from pending_payments where payable_rowid = ?")
+            .prepare("delete from pending_payments where rowid = ?")
             .expect("Internal error");
+        eprintln!("{}", signed_id);
         match stm.execute(&[&signed_id]) {
             Ok(1) => Ok(()),
             Ok(x) => unimplemented!(),

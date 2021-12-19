@@ -275,7 +275,7 @@ impl DbInitializerReal {
                 wallet_address text primary key,
                 balance integer not null,
                 last_paid_timestamp integer not null,
-                pending_payment_transaction text null
+                pending_payment_rowid integer null
             )",
             NO_PARAMS,
         )
@@ -290,16 +290,17 @@ impl DbInitializerReal {
     fn create_pending_payments_table(&self, conn: &Connection) {
         conn.execute(
             "create table if not exists pending_payments (
-                payable_rowid integer primary key,
+                rowid integer primary key,
                 amount integer not null,
-                payment_timestamp integer not null,
+                payment_timestamp integer null,
+                transaction_hash text null,
                 process_error text null
             )",
             NO_PARAMS,
         )
         .expect("Can't create pending_payments table");
         conn.execute(
-            "create unique index if not exists idx_pending_payments_payable_rowid on pending_payments (payable_rowid)",
+            "create unique index if not exists idx_pending_payments_payable_rowid on pending_payments (rowid)",
             NO_PARAMS,
         )
         .expect("Can't create pending_payments rowid index");

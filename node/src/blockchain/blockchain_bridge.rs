@@ -30,7 +30,6 @@ use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::convert::TryFrom;
-use std::default::Default;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::Http;
@@ -317,9 +316,10 @@ impl BlockchainBridge {
                     self.payment_confirmation
                         .transaction_backup_subs_opt
                         .as_ref()
-                        .expect("Accountant is unbound")
+                        .expect("Accountant is unbound"),
                 ))
-                .as_ref()) {
+                .as_ref(),
+        ) {
             Ok((hash, timestamp)) => Ok(Payment::new(
                 payable.wallet.clone(),
                 unsigned_amount,
