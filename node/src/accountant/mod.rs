@@ -36,7 +36,6 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::Recipient;
-use futures::future::Future;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::crash_point::CrashPoint;
@@ -48,7 +47,6 @@ use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::ops::Add;
 use std::path::Path;
-use std::thread;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
@@ -117,7 +115,7 @@ impl Actor for Accountant {
 
 #[derive(Debug, Eq, Message, PartialEq)]
 pub struct ReceivedPayments {
-    payments: Vec<Transaction>,
+    pub payments: Vec<Transaction>,
 }
 
 #[derive(Debug, Eq, Message, PartialEq)]
@@ -125,10 +123,10 @@ pub struct SentPayments {
     pub payments: Vec<Result<Payment, BlockchainError>>,
 }
 
-#[derive(Debug, Eq, Message, PartialEq)]
+#[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
 pub struct ScanForPayables {}
 
-#[derive(Debug, Eq, Message, PartialEq)]
+#[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
 pub struct ScanForReceivables {}
 
 impl Handler<BindMessage> for Accountant {
@@ -143,23 +141,8 @@ impl Handler<BindMessage> for Accountant {
 impl Handler<StartMessage> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: StartMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.handle_start_message();
-
-        ctx.notify_later(ScanForPayables {}, self.config.payables_scan_interval);
-
-        ctx.run_interval(self.config.receivables_scan_interval, |accountant, _ctx| {
-            accountant.handle_scan_for_receivables()
-        });
-    }
-}
-
-impl Handler<ScanForPayables> for Accountant {
-    type Result = ();
-
-    fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.scan_for_payables();
-        let _ = ctx.notify_later(msg, self.config.payables_scan_interval);
     }
 }
 
@@ -174,8 +157,26 @@ impl Handler<ReceivedPayments> for Accountant {
 impl Handler<SentPayments> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, sent_payments: SentPayments, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_sent_payments(sent_payments);
+    fn handle(&mut self, msg: SentPayments, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_sent_payments(msg);
+    }
+}
+
+impl Handler<ScanForPayables> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
+        self.handle_scan_for_payables();
+        ctx.notify_later(msg, self.config.payables_scan_interval);
+    }
+}
+
+impl Handler<ScanForReceivables> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
+        self.handle_scan_for_receivables();
+        ctx.notify_later(msg, self.config.receivables_scan_interval);
     }
 }
 
@@ -287,6 +288,8 @@ impl Accountant {
             report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
             report_sent_payments: addr.clone().recipient::<SentPayments>(),
             ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+            scan_for_payables: addr.clone().recipient::<ScanForPayables>(),
+            scan_for_receivables: addr.clone().recipient::<ScanForReceivables>(),
         }
     }
 
@@ -360,12 +363,10 @@ impl Accountant {
     }
 
     fn scan_for_received_payments(&mut self) {
-        let future_logger = self.logger.clone();
         debug!(
             self.logger,
             "Scanning for payments to {}", self.earning_wallet
         );
-        let future_report_new_payments_sub = self.report_new_payments_sub.clone();
         let start_block = match self.persistent_configuration.start_block() {
             Ok(start_block) => start_block,
             Err(pce) => {
@@ -376,46 +377,16 @@ impl Accountant {
                 return;
             }
         };
-        let future = self
+        let earning_wallet = self.earning_wallet.clone();
+        self
             .retrieve_transactions_sub
             .as_ref()
             .expect("BlockchainBridge is unbound")
-            .send(RetrieveTransactions {
+            .try_send(RetrieveTransactions {
                 start_block,
-                recipient: self.earning_wallet.clone(),
+                recipient: earning_wallet,
             })
-            .then(move |transactions_possibly| match transactions_possibly {
-                Ok(Ok(ref vec)) if vec.is_empty() => {
-                    debug!(future_logger, "No payments detected");
-                    Ok(())
-                }
-                Ok(Ok(transactions)) => {
-                    future_report_new_payments_sub
-                        .expect("Accountant is unbound")
-                        .try_send(ReceivedPayments {
-                            payments: transactions,
-                        })
-                        .expect("Accountant is dead.");
-                    Ok(())
-                }
-                Ok(Err(e)) => {
-                    warning!(
-                        future_logger,
-                        "Unable to retrieve transactions from Blockchain Bridge: {:?}",
-                        e
-                    );
-                    Err(())
-                }
-                Err(e) => {
-                    error!(
-                        future_logger,
-                        "Unable to send to Blockchain Bridge: {:?}", e
-                    );
-                    thread::sleep(Duration::from_secs(1));
-                    panic!("Unable to send to Blockchain Bridge: {:?}", e);
-                }
-            });
-        actix::spawn(future);
+            .expect("BlockchainBridge is dead")
     }
 
     fn balance_and_age(account: &ReceivableAccount) -> (String, Duration) {
@@ -625,19 +596,24 @@ impl Accountant {
         self.scan_for_delinquencies();
     }
 
+    fn handle_scan_for_payables(&mut self) {
+        self.scan_for_payables();
+    }
+
     fn handle_scan_for_receivables(&mut self) {
         self.scan_for_received_payments();
         self.scan_for_delinquencies();
     }
 
-    fn handle_received_payments(&mut self, received_payments: ReceivedPayments) {
+
+    fn handle_received_payments(&mut self, msg: ReceivedPayments) {
         self.receivable_dao
             .as_mut()
-            .more_money_received(received_payments.payments);
+            .more_money_received(msg.payments);
     }
 
-    fn handle_sent_payments(&mut self, sent_payments: SentPayments) {
-        sent_payments
+    fn handle_sent_payments(&mut self, msg: SentPayments) {
+        msg
             .payments
             .iter()
             .for_each(|payment| match payment {
@@ -792,7 +768,7 @@ impl Accountant {
 // segfaults on the Mac when using u64::try_from (i64). This is an attempt to
 // work around that.
 pub fn jackass_unsigned_to_signed(unsigned: u64) -> Result<i64, PaymentError> {
-    if unsigned <= (std::i64::MAX as u64) {
+    if unsigned <= (i64::MAX as u64) {
         Ok(unsigned as i64)
     } else {
         Err(PaymentError::SignConversion(unsigned))
@@ -1587,6 +1563,53 @@ pub mod tests {
     }
 
     #[test]
+    fn accountant_scans_for_received_payments_and_sends_message_to_blockchain_bridge() {
+        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
+        let blockchain_bridge = blockchain_bridge.retrieve_transactions_response(Ok(vec![]));
+        let receivable_dao = ReceivableDaoMock::new()
+            .new_delinquencies_result(vec![])
+            .paid_delinquencies_result(vec![]);
+        let earning_wallet = make_wallet("some_wallet_address");
+        let system = System::new("accountant_scans_for_received_payments_and_sends_message_to_blockchain_bridge");
+        let subject = make_subject(
+            Some(bc_from_ac_plus_earning_wallet(
+                AccountantConfig {
+                    payables_scan_interval: Duration::from_millis(100_000), //scan intervals deliberately big to demonstrate that we don't do the intervals yet
+                    receivables_scan_interval: Duration::from_secs(100_000),
+                },
+                earning_wallet.clone(),
+            )),
+            None,
+            Some(receivable_dao),
+            None,
+            None,
+        );
+        let accountant_addr = subject.start();
+        let accountant_subs = Accountant::make_subs_from(&accountant_addr);
+        let peer_actors = peer_actors_builder()
+            .blockchain_bridge(blockchain_bridge)
+            .build();
+
+        send_bind_message!(accountant_subs, peer_actors);
+        send_start_message!(accountant_subs);
+
+        System::current().stop();
+        system.run();
+        let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
+        assert_eq!(blockchain_bridge_recorder.len(), 2); //the second message is from the scan for receivables
+        let scans_for_received_payments_msgs: Vec<&RetrieveTransactions> = (0
+            ..blockchain_bridge_recorder.len())
+            .flat_map(|index| {
+                blockchain_bridge_recorder.get_record_opt::<RetrieveTransactions>(index)
+            })
+            .collect();
+        assert_eq!(
+            scans_for_received_payments_msgs,
+            vec![&RetrieveTransactions { start_block: 5u64, recipient: (earning_wallet) }]
+        );
+    }
+
+    #[test]
     fn accountant_payment_received_scan_timer_triggers_scanning_for_payments() {
         let paying_wallet = make_wallet("wallet0");
         let earning_wallet = make_wallet("earner3000");
@@ -1608,8 +1631,6 @@ pub mod tests {
             },
             earning_wallet.clone(),
         );
-
-        thread::spawn(move || {
             let system = System::new(
                 "accountant_payment_received_scan_timer_triggers_scanning_for_payments",
             );
@@ -1627,16 +1648,14 @@ pub mod tests {
             );
             let peer_actors = peer_actors_builder()
                 .blockchain_bridge(blockchain_bridge)
-                .accountant(accountant_mock)
                 .build();
             let subject_addr: Addr<Accountant> = subject.start();
             let subject_subs = Accountant::make_subs_from(&subject_addr);
-
             send_bind_message!(subject_subs, peer_actors);
             send_start_message!(subject_subs);
 
+            System::current().stop();
             system.run();
-        });
 
         blockchain_bridge_awaiter.await_message_count(1);
         let retrieve_transactions_recording = blockchain_bridge_recording.lock().unwrap();
@@ -1740,7 +1759,7 @@ pub mod tests {
             earning_wallet.clone(),
         );
 
-        thread::spawn(move || {
+
             let system =
                 System::new("accountant_logs_error_when_blockchain_bridge_responds_with_error");
             let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
@@ -1763,9 +1782,8 @@ pub mod tests {
 
             send_bind_message!(subject_subs, peer_actors);
             send_start_message!(subject_subs);
-
+            System::current().stop();
             system.run();
-        });
 
         blockchain_bridge_awaiter.await_message_count(1);
         let retrieve_transactions_recording = blockchain_bridge_recording.lock().unwrap();
@@ -2790,12 +2808,12 @@ pub mod tests {
             None,
         );
 
-        subject.record_service_provided(std::i64::MAX as u64, 1, 2, &wallet);
+        subject.record_service_provided(i64::MAX as u64, 1, 2, &wallet);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error trying to record service provided to Node with consuming wallet {}: service rate {}, byte rate 1, payload size 2. Skipping",
             wallet,
-            std::i64::MAX as u64
+            i64::MAX as u64
         ));
     }
 
@@ -2814,12 +2832,12 @@ pub mod tests {
             None,
         );
 
-        subject.record_service_consumed(std::i64::MAX as u64, 1, 2, &wallet);
+        subject.record_service_consumed(i64::MAX as u64, 1, 2, &wallet);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error trying to record service consumed from Node with earning wallet {}: service rate {}, byte rate 1, payload size 2. Skipping",
             wallet,
-            std::i64::MAX as u64
+            i64::MAX as u64
         ));
     }
 
@@ -2830,7 +2848,7 @@ pub mod tests {
         let payments = SentPayments {
             payments: vec![Ok(Payment::new(
                 wallet.clone(),
-                std::u64::MAX,
+                u64::MAX,
                 H256::from_uint(&U256::from(1)),
             ))],
         };
@@ -2848,7 +2866,7 @@ pub mod tests {
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error trying to record payment of {} sent to earning wallet {} (transaction {}). Skipping",
-            std::u64::MAX,
+            u64::MAX,
             wallet,
             H256::from_uint(&U256::from(1))
         ));
@@ -2945,15 +2963,15 @@ pub mod tests {
 
     #[test]
     fn jackass_unsigned_to_signed_handles_max_allowable() {
-        let result = jackass_unsigned_to_signed(std::i64::MAX as u64);
+        let result = jackass_unsigned_to_signed(i64::MAX as u64);
 
-        assert_eq!(result, Ok(std::i64::MAX));
+        assert_eq!(result, Ok(i64::MAX));
     }
 
     #[test]
     fn jackass_unsigned_to_signed_handles_max_plus_one() {
-        let attempt = (std::i64::MAX as u64) + 1;
-        let result = jackass_unsigned_to_signed((std::i64::MAX as u64) + 1);
+        let attempt = (i64::MAX as u64) + 1;
+        let result = jackass_unsigned_to_signed((i64::MAX as u64) + 1);
 
         assert_eq!(result, Err(PaymentError::SignConversion(attempt)));
     }

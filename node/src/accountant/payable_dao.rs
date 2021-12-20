@@ -405,9 +405,9 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_payable(&wallet, std::u64::MAX);
+        let result = subject.more_money_payable(&wallet, u64::MAX);
 
-        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)));
+        assert_eq!(result, Err(PaymentError::SignConversion(u64::MAX)));
     }
 
     #[test]
@@ -484,11 +484,11 @@ mod tests {
                 .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
-        let payment = Payment::new(wallet, std::u64::MAX, H256::from_uint(&U256::from(1)));
+        let payment = Payment::new(wallet, u64::MAX, H256::from_uint(&U256::from(1)));
 
         let result = subject.payment_sent(&payment);
 
-        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
+        assert_eq!(result, Err(PaymentError::SignConversion(u64::MAX)))
     }
 
     #[test]
@@ -506,12 +506,12 @@ mod tests {
 
         let result = subject.payment_confirmed(
             &wallet,
-            std::u64::MAX,
+            u64::MAX,
             SystemTime::now(),
             H256::from_uint(&U256::from(1)),
         );
 
-        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
+        assert_eq!(result, Err(PaymentError::SignConversion(u64::MAX)))
     }
 
     #[test]
@@ -622,9 +622,9 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_payable(&make_wallet("foobar"), std::u64::MAX);
+        let result = subject.more_money_payable(&make_wallet("foobar"), u64::MAX);
 
-        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
+        assert_eq!(result, Err(PaymentError::SignConversion(u64::MAX)))
     }
 
     #[test]
@@ -641,11 +641,11 @@ mod tests {
 
         let result = subject.payment_sent(&Payment::new(
             make_wallet("foobar"),
-            std::u64::MAX,
+            u64::MAX,
             H256::from_uint(&U256::from(123)),
         ));
 
-        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
+        assert_eq!(result, Err(PaymentError::SignConversion(u64::MAX)))
     }
 
     #[test]

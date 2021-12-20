@@ -585,9 +585,9 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_receivable(&make_wallet("booga"), std::u64::MAX);
+        let result = subject.more_money_receivable(&make_wallet("booga"), u64::MAX);
 
-        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
+        assert_eq!(result, Err(PaymentError::SignConversion(u64::MAX)))
     }
 
     #[test]

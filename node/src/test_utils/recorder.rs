@@ -131,6 +131,7 @@ recorder_message_handler!(TransmitDataMsg);
 recorder_message_handler!(ReportAccountsPayable);
 recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
+recorder_message_handler!(RetrieveTransactions);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -160,22 +161,6 @@ impl Handler<RouteQueryMessage> for Recorder {
         MessageResult(extract_response(
             &mut self.route_query_responses,
             "No RouteQueryResponses prepared for RouteQueryMessage",
-        ))
-    }
-}
-
-impl Handler<RetrieveTransactions> for Recorder {
-    type Result = MessageResult<RetrieveTransactions>;
-
-    fn handle(
-        &mut self,
-        msg: RetrieveTransactions,
-        _ctx: &mut Self::Context,
-    ) -> <Self as Handler<RetrieveTransactions>>::Result {
-        self.record(msg);
-        MessageResult(extract_response(
-            &mut self.retrieve_transactions_responses,
-            "No RetrieveTransactionsResponses prepared for RetrieveTransactions",
         ))
     }
 }
@@ -417,6 +402,8 @@ pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
         report_new_payments: recipient!(addr, ReceivedPayments),
         report_sent_payments: recipient!(addr, SentPayments),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),
+        scan_for_payables: recipient!(addr, ScanForPayables),
+        scan_for_receivables: recipient!(addr, ScanForReceivables)
     }
 }
 
