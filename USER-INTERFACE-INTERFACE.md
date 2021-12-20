@@ -681,7 +681,7 @@ If the UI is remembering the database password, it should forget it when this me
     "consumingDerivationPathOpt": <optional string>,
     "consumingPrivateKeyOpt": <optional string>,
     "earningDerivationPathOpt": <optional string>,
-    "earningPrivateKeyOpt": <optional string>,
+    "earningAddressOpt": <optional string>,
 }
 ```
 ##### Description:
@@ -725,17 +725,17 @@ you change any of the numbers ending in ', you may have trouble getting other so
 wallet. If you don't supply `consumingDerivationPathOpt`, you must supply `consumingPrivateKeyOpt`.
 
 `consumingPrivateKeyOpt`, if specified, is the private key of the consuming wallet, represented as a string of 64
-hexadecimal digits. This value supersedes `consumingDerivationPathOpt`; but if you don't supply that value, you must
-supply this one.
+hexadecimal digits. This value supersedes `consumingDerivationPathOpt` if both are supplied; but if you don't supply 
+that value, you must supply this one.
 
 `earningDerivationPathOpt` is the derivation path from the generated seed number to be used to generate the earning
 wallet. By convention, it is "m/44'/60'/0'/0/1", but you can supply whatever path you want. Note that if
 you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
 wallet. If you don't supply `earningDerivationPathOpt`, you must supply `earningAddressOpt`.
 
-`earningAddressOpt`, if specified, is the address of the consuming wallet, represented as a string of 64
-hexadecimal digits. This value supersedes `consumingDerivationPathOpt`; but if you don't supply that value, you must
-supply this one.
+`earningAddressOpt`, if specified, is the address of the consuming wallet, represented as "0x" followed by a string
+of 40 hexadecimal digits. This value supersedes `earningDerivationPathOpt` if both are supplied; but if you don't 
+supply that value, you must supply this one.
 
 The consuming and earning wallet information may evaluate to the same wallet; there's nothing wrong with that.
 

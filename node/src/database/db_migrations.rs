@@ -971,7 +971,7 @@ mod tests {
                 current_schema_version: 0
             }
         ).unwrap();
-        let mut external_parameters = make_external_migration_parameters();
+        let external_parameters = make_external_migration_parameters();
         let subject = utils
             .make_mig_declaration_utils(&external_parameters);
 

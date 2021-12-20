@@ -1012,7 +1012,7 @@ mod tests {
     }
 
     fn make_wallet_info(db_password: &str) -> (String, String, String) {
-        let (seed_bytes, encrypted_seed) = make_seed_info(db_password);
+        let (seed_bytes, _) = make_seed_info(db_password);
         let derivation_path = derivation_path(0, 1);
         let consuming_epk = ExtendedPrivKey::derive (seed_bytes.as_slice(), derivation_path.as_str()).unwrap();
         let consuming_wallet_private_key = consuming_epk.secret().to_hex::<String>().to_uppercase();
@@ -1080,7 +1080,7 @@ mod tests {
                 .start_transaction_result(Ok(writer)),
         );
         let mut subject = PersistentConfigurationReal::new(config_dao);
-        let (consuming_wallet_private_key, cwpk_encrypted, earning_wallet_address) =
+        let (consuming_wallet_private_key, _, earning_wallet_address) =
             make_wallet_info("password");
 
         let result = subject.set_wallet_info(
@@ -1099,7 +1099,7 @@ mod tests {
                 "earning_wallet_address".to_string(),
             ]
         );
-        let mut set_params = set_params_arc.lock().unwrap();
+        let set_params = set_params_arc.lock().unwrap();
         assert_eq!(set_params[0].0, "consuming_wallet_private_key".to_string());
         let cwpk_decrypted = Bip39::decrypt_bytes(set_params[0].1.as_ref().unwrap(), "password").unwrap().as_slice().to_hex::<String>().to_uppercase();
         assert_eq!(cwpk_decrypted, consuming_wallet_private_key);

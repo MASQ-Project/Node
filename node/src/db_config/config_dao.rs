@@ -273,7 +273,7 @@ mod tests {
                 false,
             ),
         );
-        assert_contains(&result, &ConfigDaoRecord::new("seed", None, true));
+        assert_contains(&result, &ConfigDaoRecord::new("consuming_wallet_private_key", None, true));
     }
 
     #[test]
@@ -309,9 +309,9 @@ mod tests {
                 .initialize(&home_dir, true, MigratorConfig::panic_on_migration())
                 .unwrap(),
         );
-        let initial_value = dao.get("seed").unwrap();
+        let initial_value = dao.get("consuming_wallet_private_key").unwrap();
         let modified_value = ConfigDaoRecord::new(
-            "seed",
+            "consuming_wallet_private_key",
             Some("Two wrongs don't make a right, but two Wrights make an airplane"),
             true,
         );
@@ -319,15 +319,15 @@ mod tests {
 
         subject
             .set(
-                "seed",
+                "consuming_wallet_private_key",
                 Some("Two wrongs don't make a right, but two Wrights make an airplane".to_string()),
             )
             .unwrap();
 
         let subject_get_all = subject.get_all().unwrap();
-        let subject_get = subject.get("seed").unwrap();
+        let subject_get = subject.get("consuming_wallet_private_key").unwrap();
         let confirmer_get_all = confirmer.get_all().unwrap();
-        let confirmer_get = confirmer.get("seed").unwrap();
+        let confirmer_get = confirmer.get("consuming_wallet_private_key").unwrap();
         assert_contains(&subject_get_all, &modified_value);
         assert_eq!(subject_get, modified_value);
         assert_contains(&confirmer_get_all, &initial_value);
@@ -336,14 +336,14 @@ mod tests {
 
         // Can't use a committed ConfigDaoWriteableReal anymore
         assert_eq!(subject.get_all(), Err(ConfigDaoError::TransactionError));
-        assert_eq!(subject.get("seed"), Err(ConfigDaoError::TransactionError));
+        assert_eq!(subject.get("consuming_wallet_private_key"), Err(ConfigDaoError::TransactionError));
         assert_eq!(
-            subject.set("seed", Some("irrelevant".to_string())),
+            subject.set("consuming_wallet_private_key", Some("irrelevant".to_string())),
             Err(ConfigDaoError::TransactionError)
         );
         assert_eq!(subject.commit(), Err(ConfigDaoError::TransactionError));
         let confirmer_get_all = confirmer.get_all().unwrap();
-        let confirmer_get = confirmer.get("seed").unwrap();
+        let confirmer_get = confirmer.get("consuming_wallet_private_key").unwrap();
         assert_contains(&confirmer_get_all, &modified_value);
         assert_eq!(confirmer_get, modified_value);
     }
@@ -363,7 +363,7 @@ mod tests {
 
             subject
                 .set(
-                    "seed",
+                    "consuming_wallet_private_key",
                     Some(
                         "Two wrongs don't make a right, but two Wrights make an airplane"
                             .to_string(),
@@ -377,11 +377,11 @@ mod tests {
                 ConfigDaoError::TransactionError
             );
         }
-        let final_value = dao.get("seed").unwrap();
+        let final_value = dao.get("consuming_wallet_private_key").unwrap();
         assert_eq!(
             final_value,
             ConfigDaoRecord::new(
-                "seed",
+                "consuming_wallet_private_key",
                 Some("Two wrongs don't make a right, but two Wrights make an airplane"),
                 true
             )
@@ -404,9 +404,9 @@ mod tests {
                 .initialize(&home_dir, false, MigratorConfig::panic_on_migration())
                 .unwrap(),
         );
-        let initial_value = dao.get("seed").unwrap();
+        let initial_value = dao.get("consuming_wallet_private_key").unwrap();
         let modified_value = ConfigDaoRecord::new(
-            "seed",
+            "consuming_wallet_private_key",
             Some("Two wrongs don't make a right, but two Wrights make an airplane"),
             true,
         );
@@ -415,7 +415,7 @@ mod tests {
 
             subject
                 .set(
-                    "seed",
+                    "consuming_wallet_private_key",
                     Some(
                         "Two wrongs don't make a right, but two Wrights make an airplane"
                             .to_string(),
@@ -424,9 +424,9 @@ mod tests {
                 .unwrap();
 
             let subject_get_all = subject.get_all().unwrap();
-            let subject_get = subject.get("seed").unwrap();
+            let subject_get = subject.get("consuming_wallet_private_key").unwrap();
             let confirmer_get_all = confirmer.get_all().unwrap();
-            let confirmer_get = confirmer.get("seed").unwrap();
+            let confirmer_get = confirmer.get("consuming_wallet_private_key").unwrap();
             assert_contains(&subject_get_all, &modified_value);
             assert_eq!(subject_get, modified_value);
             assert_contains(&confirmer_get_all, &initial_value);
@@ -435,7 +435,7 @@ mod tests {
         }
 
         let confirmer_get_all = confirmer.get_all().unwrap();
-        let confirmer_get = confirmer.get("seed").unwrap();
+        let confirmer_get = confirmer.get("consuming_wallet_private_key").unwrap();
         assert_contains(&confirmer_get_all, &initial_value);
         assert_eq!(confirmer_get, initial_value);
     }

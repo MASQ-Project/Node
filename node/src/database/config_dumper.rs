@@ -86,8 +86,8 @@ fn configuration_to_json(
 
 fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> String {
     let to_utf8 = |data: PlainData| {
-        String::from_utf8(data.into())
-            .expect("Database is corrupt: past_neighbors hex string cannot be interpreted as UTF-8")
+        String::from_utf8(data.clone().into())
+            .expect(&format! ("Database is corrupt: {} byte string '{:?}' cannot be interpreted as UTF-8", json_name, data))
     };
     match json_name {
         "exampleEncrypted" => encode_bytes(Some(input))
@@ -161,10 +161,12 @@ mod tests {
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
+    use masq_lib::utils::{NeighborhoodModeLight};
     use std::fs::File;
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+    use rustc_hex::{FromHex, ToHex};
+    use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {
@@ -227,10 +229,6 @@ mod tests {
         )
         .join("MASQ")
         .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
-        let seed = Seed::new(
-            &Bip39::mnemonic(MnemonicType::Words24, Language::English),
-            "passphrase",
-        );
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
@@ -248,7 +246,7 @@ mod tests {
             persistent_config.change_password(None, "password").unwrap();
             persistent_config
                 .set_wallet_info(
-                    &derivation_path(4, 4),
+                    "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
                     "0x0123456789012345678901234567890123456789",
                     "password",
                 )
@@ -297,9 +295,10 @@ mod tests {
         let dao = ConfigDaoReal::new(conn);
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
         assert_value("clandestinePort", "3456", &map);
-        assert_value(
-            "consumingWalletDerivationPath",
-            &derivation_path(4, 4),
+        assert_encrypted_value(
+            "consumingWalletPrivateKey",
+            "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
+            "password",
             &map,
         );
         assert_value(
@@ -330,7 +329,6 @@ mod tests {
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
             &map,
         );
-        assert_value("seed", &dao.get("seed").unwrap().value_opt.unwrap(), &map);
 
         assert!(output.ends_with("\n}\n")) //asserting that there is a blank line at the end
     }
@@ -365,7 +363,7 @@ mod tests {
             persistent_config.change_password(None, "password").unwrap();
             persistent_config
                 .set_wallet_info(
-                    &derivation_path(4, 4),
+                    "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
                     "0x0123456789012345678901234567890123456789",
                     "password",
                 )
@@ -416,8 +414,8 @@ mod tests {
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
         assert_value("clandestinePort", "3456", &map);
         assert_value(
-            "consumingWalletDerivationPath",
-            &derivation_path(4, 4),
+            "consumingWalletPrivateKey",
+            "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
             &map,
         );
         assert_value(
@@ -457,10 +455,6 @@ mod tests {
         )
         .join("MASQ")
         .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
-        let seed = Seed::new(
-            &Bip39::mnemonic(MnemonicType::Words24, Language::English),
-            "passphrase",
-        );
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
@@ -478,7 +472,7 @@ mod tests {
             persistent_config.change_password(None, "password").unwrap();
             persistent_config
                 .set_wallet_info(
-                    &derivation_path(4, 4),
+                    "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
                     "0x0123456789012345678901234567890123456789",
                     "password",
                 )
@@ -522,15 +516,17 @@ mod tests {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
+eprintln! ("{:?}", map);
         let conn = DbInitializerReal::default()
             .initialize(&data_dir, false, MigratorConfig::panic_on_migration())
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
         assert_value("clandestinePort", "3456", &map);
-        assert_value(
-            "consumingWalletDerivationPath",
-            &derivation_path(4, 4),
+        assert_encrypted_value(
+            "consumingWalletPrivateKey",
+            "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
+            "password",
             &map,
         );
         assert_value(
@@ -561,12 +557,11 @@ mod tests {
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
             &map,
         );
-        assert_value("seed", &dao.get("seed").unwrap().value_opt.unwrap(), &map);
     }
 
     #[test]
     #[should_panic(
-        expected = "Database is corrupt: past_neighbors hex string cannot be interpreted as UTF-8"
+        expected = "Database is corrupt: past_neighbors hex string 'PlainData { data: [192, 193] }' cannot be interpreted as UTF-8"
     )]
     fn decode_bytes_handles_decode_error_for_past_neighbors() {
         let cryptde = main_cryptde();
@@ -602,5 +597,19 @@ mod tests {
             x => panic!("Expected JSON string; found {:?}", x),
         };
         assert_eq!(actual_value, expected_value);
+    }
+
+    fn assert_encrypted_value(key: &str, expected_value: &str, password: &str, map: &Map<String, Value>) {
+        let encrypted_value = match map
+            .get(key)
+            .unwrap_or_else(|| panic!("record for {} is missing", key))
+        {
+            Value::String(s) => s,
+            x => panic!("Expected JSON string; found {:?}", x),
+        };
+        let encrypted_value_bytes = encrypted_value.from_hex::<Vec<u8>>().unwrap().as_slice();
+        let decrypted_value_bytes = Bip39::decrypt_bytes(encrypted_value, password).unwrap();
+        let actual_value: String = decrypted_value_bytes.as_slice().to_hex();
+        assert_eq!(actual_value.to_uppercase(), expected_value.to_uppercase());
     }
 }
