@@ -30,6 +30,7 @@ use serde_json::{Map, Value};
 #[cfg(test)]
 use std::any::Any;
 use std::path::{Path, PathBuf};
+use rustc_hex::ToHex;
 
 pub struct DumpConfigRunnerReal;
 
@@ -106,6 +107,9 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
                 .map(|nd| nd.to_string(cryptde))
                 .collect::<Vec<String>>()
                 .join(",")
+        },
+        "consumingWalletPrivateKey" => {
+            input.as_slice().to_hex()
         }
         _ => to_utf8(input),
     }
@@ -415,7 +419,7 @@ mod tests {
         assert_value("clandestinePort", "3456", &map);
         assert_value(
             "consumingWalletPrivateKey",
-            "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             &map,
         );
         assert_value(
@@ -437,13 +441,6 @@ mod tests {
         let expected_ee_decrypted = Bip39::decrypt_bytes(&expected_ee_entry, "password").unwrap();
         let expected_ee_string = encode_bytes(Some(expected_ee_decrypted)).unwrap().unwrap();
         assert_value("exampleEncrypted", &expected_ee_string, &map);
-        assert_value(
-            "seed",
-            &encode_bytes(Some(PlainData::new(seed.as_ref())))
-                .unwrap()
-                .unwrap(),
-            &map,
-        );
     }
 
     #[test]
@@ -561,7 +558,7 @@ eprintln! ("{:?}", map);
 
     #[test]
     #[should_panic(
-        expected = "Database is corrupt: past_neighbors hex string 'PlainData { data: [192, 193] }' cannot be interpreted as UTF-8"
+        expected = "Database is corrupt: pastNeighbors byte string 'PlainData { data: [192, 193] }' cannot be interpreted as UTF-8"
     )]
     fn decode_bytes_handles_decode_error_for_past_neighbors() {
         let cryptde = main_cryptde();

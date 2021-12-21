@@ -54,5 +54,13 @@ impl DbEncryptionLayer {
         }
     }
 
+    pub fn reencrypt_value (crypt_value: &str, old_password: &str, new_password: &str, name: &str) -> String {
+        let decrypted_value = match Bip39::decrypt_bytes(crypt_value, old_password) {
+            Ok(plain_data) => plain_data,
+            Err(_) => panic! ("Database is corrupt: configuration value '{}' cannot be decrypted", name),
+        };
+        Bip39::encrypt_bytes(&decrypted_value, new_password).expect("Encryption failed")
+    }
+
     // These methods were extracted from SecureConfigLayer and are covered by the tests there.
 }

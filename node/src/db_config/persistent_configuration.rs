@@ -15,9 +15,9 @@ use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::{NeighborhoodModeLight, WrapResult};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
-use rustc_hex::FromHex;
+use rustc_hex::{FromHex, ToHex};
 use websocket::url::Url;
-use crate::blockchain::bip39::Bip39;
+use crate::blockchain::bip39::{Bip39, Bip39Error};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -241,20 +241,26 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         self.consuming_wallet_private_key(db_password)
             .map (|key_opt| key_opt
                 .map (|key| match key.from_hex::<Vec<u8>>() {
-                    Err (_) => todo! (),
+                    Err(e) => todo! ("{:?}", e),
                     Ok (bytes) => match Bip32ECKeyPair::from_raw_secret (bytes.as_slice()) {
-                        Err (_) => todo! (),
+                        Err(e) => todo! ("{:?}", e),
                         Ok (pair) => Wallet::from (pair)
                     }
                 }))
     }
 
     fn consuming_wallet_private_key(&self, db_password: &str) -> Result<Option<String>, PersistentConfigError> {
-        Ok(self.scl.decrypt(
-            self.get_record("consuming_wallet_private_key")?,
-            Some(db_password.to_string()),
-            &self.dao,
-        )?)
+        let encrypted_value_opt = self.get_record("consuming_wallet_private_key")?.value_opt;
+        if let Some (encrypted_value) = encrypted_value_opt {
+            match Bip39::decrypt_bytes(&encrypted_value, db_password) {
+                Ok(decrypted_bytes) => Ok(Some(decrypted_bytes.as_slice().to_hex())),
+                Err(Bip39Error::DecryptionFailure(_)) => Err (PersistentConfigError::PasswordError),
+                Err(e) => todo! ("{:?}", e),
+            }
+        }
+        else {
+            Ok(None)
+        }
     }
 
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError> {
@@ -284,7 +290,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         match consuming_wallet_private_key_opt {
             None => (),
             Some(existing_consuming_wallet_private_key) => {
-                if consuming_wallet_private_key != existing_consuming_wallet_private_key {
+                if consuming_wallet_private_key.to_uppercase() != existing_consuming_wallet_private_key.to_uppercase() {
                     return Err(PersistentConfigError::Collision(
                         "Consuming wallet private key already populated; cannot replace"
                             .to_string(),
@@ -850,7 +856,7 @@ mod tests {
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_private_key",
-                Some(&Bip39::encrypt_bytes(&consuming_private_key.as_bytes(), "password").unwrap()),
+                Some(&Bip39::encrypt_bytes(&consuming_private_key.from_hex::<Vec<u8>>().unwrap().as_slice(), "password").unwrap()),
                 true
             )))
             .get_result(Ok(ConfigDaoRecord::new(
@@ -860,13 +866,13 @@ mod tests {
             )));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let result = subject.consuming_wallet_private_key("password").err().unwrap();
+        let result = subject.consuming_wallet_private_key("incorrect");
 
-        assert_eq!(result, PersistentConfigError::PasswordError);
+        assert_eq!(result, Err(PersistentConfigError::PasswordError));
         let get_params = get_params_arc.lock().unwrap();
         assert_eq!(
             *get_params,
-            vec!["consuming_wallet_private_key".to_string(), "example_encrypted".to_string()]
+            vec!["consuming_wallet_private_key".to_string()]
         );
    }
 
@@ -879,7 +885,7 @@ mod tests {
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_private_key",
-                Some(&Bip39::encrypt_bytes(&consuming_private_key.as_bytes(), "password").unwrap()),
+                Some(&Bip39::encrypt_bytes(&consuming_private_key.from_hex::<Vec<u8>>().unwrap().as_slice(), "password").unwrap()),
                 true
             )))
             .get_result(Ok(ConfigDaoRecord::new(
@@ -892,11 +898,11 @@ mod tests {
 
         let result = subject.consuming_wallet_private_key("password").unwrap().unwrap();
 
-        assert_eq!(result, consuming_private_key.to_string());
+        assert_eq!(result.to_uppercase(), consuming_private_key.to_string().to_uppercase());
         let get_params = get_params_arc.lock().unwrap();
         assert_eq!(
             *get_params,
-            vec!["consuming_wallet_private_key".to_string(), "example_encrypted".to_string()]
+            vec!["consuming_wallet_private_key".to_string()]
         );
     }
 
@@ -908,7 +914,7 @@ mod tests {
         let config_dao = ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_private_key",
-                Some(&Bip39::encrypt_bytes(&consuming_private_key.as_bytes(), "password").unwrap()),
+                Some(&Bip39::encrypt_bytes(&consuming_private_key.from_hex::<Vec<u8>>().unwrap().as_slice(), "password").unwrap()),
                 true
             )))
             .get_result(Ok(ConfigDaoRecord::new(
@@ -1031,11 +1037,7 @@ mod tests {
     }
 
     fn make_encrypted_consuming_wallet_private_key (consuming_wallet_private_key: &str, db_password: &str) -> String {
-        DbEncryptionLayer::encrypt_value (
-            &Some (consuming_wallet_private_key.to_string()),
-            &Some (db_password.to_string()),
-            "consuming_wallet_private_key"
-        ).unwrap().unwrap()
+        Bip39::encrypt_bytes(&consuming_wallet_private_key.from_hex::<Vec<u8>>().unwrap().as_slice(), db_password).unwrap()
     }
 
     #[test]
@@ -1060,11 +1062,6 @@ mod tests {
                 .get_result(Ok(ConfigDaoRecord::new(
                     "consuming_wallet_private_key",
                     None,
-                    true,
-                )))
-                .get_result(Ok(ConfigDaoRecord::new(
-                    EXAMPLE_ENCRYPTED,
-                    Some(&example_encrypted),
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
@@ -1095,7 +1092,6 @@ mod tests {
             *get_params,
             vec![
                 "consuming_wallet_private_key".to_string(),
-                EXAMPLE_ENCRYPTED.to_string(),
                 "earning_wallet_address".to_string(),
             ]
         );
@@ -1163,11 +1159,6 @@ mod tests {
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
-                    EXAMPLE_ENCRYPTED,
-                    Some(&example_encrypted),
-                    true,
-                )))
-                .get_result(Ok(ConfigDaoRecord::new(
                     "earning_wallet_address",
                     Some("0x0123456789012345678901234567890123456789"),
                     false,
@@ -1212,11 +1203,6 @@ mod tests {
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
-                    EXAMPLE_ENCRYPTED,
-                    Some(&example_encrypted),
-                    true,
-                )))
-                .get_result(Ok(ConfigDaoRecord::new(
                     "earning_wallet_address",
                     Some(&earning_wallet_address),
                     false,
@@ -1248,11 +1234,6 @@ mod tests {
                 .get_result(Ok(ConfigDaoRecord::new(
                     "consuming_wallet_private_key",
                     None,
-                    true,
-                )))
-                .get_result(Ok(ConfigDaoRecord::new(
-                    EXAMPLE_ENCRYPTED,
-                    Some(&example_encrypted),
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
@@ -1294,11 +1275,6 @@ mod tests {
                 .get_result(Ok(ConfigDaoRecord::new(
                     "consuming_wallet_private_key",
                     None,
-                    true,
-                )))
-                .get_result(Ok(ConfigDaoRecord::new(
-                    EXAMPLE_ENCRYPTED,
-                    Some(&example_encrypted),
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(

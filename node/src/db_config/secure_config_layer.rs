@@ -175,11 +175,8 @@ impl SecureConfigLayer {
             (true, None, _) => Ok(old_record),
             (true, Some(_), None) => panic! ("Database is corrupt: configuration value '{}' is encrypted, but database has no password", old_record.name),
             (true, Some(value), Some(old_password)) => {
-                let decrypted_value = match Bip39::decrypt_bytes(value, old_password) {
-                    Ok(plain_data) => plain_data,
-                    Err(_) => panic! ("Database is corrupt: configuration value '{}' cannot be decrypted", old_record.name),
-                };
-                let reencrypted_value = Bip39::encrypt_bytes(&decrypted_value, new_password).expect("Encryption failed");
+                let reencrypted_value = DbEncryptionLayer::reencrypt_value(value,
+                    old_password, new_password, &old_record.name);
                 Ok(ConfigDaoRecord::new(&old_record.name, Some(&reencrypted_value), old_record.encrypted))
             },
         }
@@ -215,6 +212,7 @@ mod tests {
     use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
     use crate::sub_lib::cryptde::PlainData;
     use std::sync::{Arc, Mutex};
+    use websocket::url::quirks::password;
 
     #[test]
     fn secure_config_layer_error_from_config_dao_error() {
