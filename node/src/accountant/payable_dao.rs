@@ -1,13 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{
-    jackass_unsigned_to_signed, DebtRecordingError, PaymentError, PaymentErrorKind,
+    jackass_unsigned_to_signed, DebtRecordingError, PaymentError, PaymentErrorKind, TransactionId,
 };
 use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::sub_lib::wallet::Wallet;
-use masq_lib::utils::ExpectValue;
 use rusqlite::types::{Null, ToSql, Type};
 use rusqlite::{Error, OptionalExtension, NO_PARAMS};
 use std::fmt::Debug;
@@ -22,7 +21,7 @@ pub struct PayableAccount {
     pub pending_payment_rowid_opt: Option<u64>,
 }
 
-//TODO we probably can cut out this struct below as we need very little from it
+//TODO we probably can cut back this struct below as we need very little from it
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Payment {
@@ -53,7 +52,7 @@ pub trait PayableDao: Debug + Send {
 
     fn transaction_confirmed(&self, payment: &PaymentBackupRecord) -> Result<(), PaymentError>;
 
-    fn transaction_canceled(&self, rowid: u64) -> Result<(), PaymentError>;
+    fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PaymentError>;
 
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount>;
 
@@ -107,18 +106,12 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn transaction_confirmed(&self, payment: &PaymentBackupRecord) -> Result<(), PaymentError> {
-        let signed_amount =
-            jackass_unsigned_to_signed(payment.amount.expectv("amount")).map_err(|err_num| {
-                PaymentError::PostTransaction(
-                    PaymentErrorKind::SignConversion(err_num),
-                    payment.into(),
-                )
-            })?;
+        let signed_amount = jackass_unsigned_to_signed(payment.amount).map_err(|err_num| {
+            PaymentError(PaymentErrorKind::SignConversion(err_num), payment.into())
+        })?;
         if let Err(e) = self
             .try_decrease_balance(payment.rowid, signed_amount, payment.timestamp)
-            .map_err(|e| {
-                PaymentError::PostTransaction(PaymentErrorKind::RusqliteError(e), payment.into())
-            })
+            .map_err(|e| PaymentError(PaymentErrorKind::RusqliteError(e), payment.into()))
         {
             unimplemented!()
         }
@@ -136,42 +129,45 @@ impl PayableDao for PayableDaoReal {
         }
     }
 
-    fn transaction_canceled(&self, rowid: u64) -> Result<(), PaymentError> {
-        unimplemented!()
-        // let mut stm = self.conn
-        //     .prepare("update payable set pending_payment_transaction = ? where wallet_address = ? and pending_payment_transaction = ?").expect("Internal error");
-        // let params: &[&dyn ToSql] = &[&Null, &recipient_wallet, &format!("{:#x}", hash)];
-        // match stm.execute(params) {
-        //     Ok(1) => Ok(()),
-        //     Ok(x) => unimplemented!("{}",x),
-        //     Err(e) => unimplemented!()
-        //
-        //     //     Err(PaymentError::PostTransaction(
-        //     //     PaymentErrorKind::RusqliteError(e.to_string()),
-        //     //     hash,
-        //     // )),
-        //}
+    fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PaymentError> {
+        let formally_signed_rowid =
+            jackass_unsigned_to_signed(transaction_id.rowid).map_err(|e| {
+                unimplemented!();
+                PaymentError(PaymentErrorKind::SignConversion(e), transaction_id)
+            })?;
+        let mut stm = self
+            .conn
+            .prepare("update payable set pending_payment_rowid = ? where pending_payment_rowid = ?")
+            .expect("Internal error");
+        let params: &[&dyn ToSql] = &[&Null, &formally_signed_rowid];
+        match stm.execute(params) {
+            Ok(1) => Ok(()),
+            Ok(x) => unimplemented!("{}", x),
+            Err(e) => unimplemented!(),
+        }
     }
 
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount> {
         let mut stmt = self.conn
-            .prepare("select rowid, balance, last_paid_timestamp, pending_payment_transaction from payable where wallet_address = ?")
+            .prepare("select rowid, balance, last_paid_timestamp, pending_payment_rowid from payable where wallet_address = ?")
             .expect("Internal error");
         match stmt
             .query_row(&[&wallet], |row| {
                 let balance_result = row.get(1);
                 let last_paid_timestamp_result = row.get(2);
-                let pending_payment_transaction_result: Result<Option<i64>, Error> = row.get(3);
+                let pending_payment_rowid_result: Result<Option<i64>, Error> = row.get(3);
                 match (
                     balance_result,
                     last_paid_timestamp_result,
-                    pending_payment_transaction_result,
+                    pending_payment_rowid_result,
                 ) {
                     (Ok(balance), Ok(last_paid_timestamp), Ok(rowid)) => Ok(PayableAccount {
                         wallet: wallet.clone(),
                         balance,
                         last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                        pending_payment_rowid_opt: rowid.map(|num| num as u64),
+                        pending_payment_rowid_opt: rowid.map(|num| {
+                            u64::try_from(num).expect("SQLite counts this just in positive numbers")
+                        }),
                     }),
                     _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
                 }
@@ -231,7 +227,7 @@ impl PayableDao for PayableDaoReal {
                     balance,
                     last_paid_timestamp,
                     wallet_address,
-                    pending_payment_transaction
+                    pending_payment_rowid
                 from
                     payable
                 where
@@ -245,11 +241,10 @@ impl PayableDao for PayableDaoReal {
             .expect("Internal error");
         let params: &[&dyn ToSql] = &[&min_amt, &min_timestamp];
         stmt.query_map(params, |row| {
-            let rowid: rusqlite::Result<i64> = row.get(0);
-            let balance_result = row.get(1);
-            let last_paid_timestamp_result = row.get(2);
-            let wallet_result: Result<Wallet, rusqlite::Error> = row.get(3);
-            let pending_payments_rowid_result_opt: Result<Option<i64>, Error> = row.get(4);
+            let balance_result = row.get(0);
+            let last_paid_timestamp_result = row.get(1);
+            let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
+            let pending_payments_rowid_result_opt: Result<Option<i64>, Error> = row.get(3);
             match (
                 wallet_result,
                 balance_result,
@@ -570,11 +565,11 @@ mod tests {
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
 
-        let result = subject.transaction_canceled(rowid);
+        let result = subject.transaction_canceled(TransactionId { hash, rowid });
 
         assert_eq!(
             result,
-            Err(PaymentError::PostTransaction(
+            Err(PaymentError(
                 PaymentErrorKind::SignConversion(u64::MAX),
                 TransactionId { hash, rowid }
             ))
@@ -593,11 +588,11 @@ mod tests {
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
 
-        let result = subject.transaction_canceled(rowid);
+        let result = subject.transaction_canceled(TransactionId { hash, rowid });
 
         assert_eq!(
             result,
-            Err(PaymentError::PostTransaction(
+            Err(PaymentError(
                 PaymentErrorKind::RusqliteError("attempt to write a readonly database".to_string()),
                 TransactionId { hash, rowid }
             ))
@@ -620,7 +615,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PaymentError::PostTransaction(
+            Err(PaymentError(
                 PaymentErrorKind::RusqliteError("attempt to write a readonly database".to_string()),
                 TransactionId {
                     hash,
@@ -807,7 +802,7 @@ mod tests {
                       pending_payment_rowid: Option<i64>| {
             let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp, &pending_payment_rowid];
             conn
-                .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?, ?, ?, ?)")
+                .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_rowid) values (?, ?, ?, ?)")
                 .unwrap()
                 .execute(params)
                 .unwrap();

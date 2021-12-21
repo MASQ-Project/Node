@@ -291,9 +291,10 @@ impl DbInitializerReal {
         conn.execute(
             "create table if not exists pending_payments (
                 rowid integer primary key,
+                transaction_hash text not null,
                 amount integer not null,
-                payment_timestamp integer null,
-                transaction_hash text null,
+                payment_timestamp integer not null,
+                attempt integer not null,
                 process_error text null
             )",
             NO_PARAMS,
@@ -303,6 +304,7 @@ impl DbInitializerReal {
             "create unique index if not exists idx_pending_payments_payable_rowid on pending_payments (rowid)",
             NO_PARAMS,
         )
+            //TODO create another index for searching by hashes
         .expect("Can't create pending_payments rowid index");
     }
 

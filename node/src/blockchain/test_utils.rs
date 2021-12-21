@@ -3,8 +3,8 @@
 #![cfg(test)]
 
 use crate::blockchain::blockchain_interface::{
-    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, Transaction,
-    Transactions, TxReceipt, REQUESTS_IN_PARALLEL,
+    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, SendTransactionInputs,
+    Transaction, Transactions, TxReceipt, REQUESTS_IN_PARALLEL,
 };
 use crate::blockchain::tool_wrappers::{
     NotifyHandle, NotifyLaterHandle, PaymentBackupRecipientWrapper, SendTransactionToolWrapper,
@@ -125,23 +125,15 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn send_transaction<'a>(
+    fn send_transaction<'b>(
         &self,
-        consuming_wallet: &Wallet,
-        recipient: &Wallet,
-        amount: u64,
-        nonce: U256,
-        gas_price: u64,
-        pending_payments_rowid: u64,
-        _send_transaction_tools: &'a dyn SendTransactionToolWrapper,
+        inputs: SendTransactionInputs,
+        _send_transaction_tools: &'b dyn SendTransactionToolWrapper,
     ) -> BlockchainResult<(H256, SystemTime)> {
-        self.send_transaction_parameters.lock().unwrap().push((
-            consuming_wallet.clone(),
-            recipient.clone(),
-            amount,
-            nonce,
-            gas_price,
-        ));
+        self.send_transaction_parameters
+            .lock()
+            .unwrap()
+            .push(inputs.abstract_for_assertions());
         self.send_transaction_results.borrow_mut().remove(0)
     }
 
@@ -261,8 +253,8 @@ pub struct SendTransactionToolWrapperMock {
     sign_transaction_params:
         Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
     sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
-    demand_payment_backup_completion_params: Arc<Mutex<Vec<(u64, H256)>>>,
-    demand_payment_backup_completion_results: RefCell<Vec<SystemTime>>,
+    request_new_payment_backup_params: Arc<Mutex<Vec<(H256, u64)>>>,
+    request_new_payment_backup_results: RefCell<Vec<SystemTime>>,
     send_raw_transaction_params: Arc<Mutex<Vec<Bytes>>>,
     send_raw_transaction_results: RefCell<Vec<Result<H256, Web3Error>>>,
 }
@@ -280,12 +272,12 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperMock {
         self.sign_transaction_results.borrow_mut().remove(0)
     }
 
-    fn demand_payment_backup_completion(&self, rowid: u64, transaction_hash: H256) -> SystemTime {
-        self.demand_payment_backup_completion_params
+    fn request_new_payment_backup(&self, transaction_hash: H256, amount: u64) -> SystemTime {
+        self.request_new_payment_backup_params
             .lock()
             .unwrap()
-            .push((rowid, transaction_hash));
-        self.demand_payment_backup_completion_results
+            .push((transaction_hash, amount));
+        self.request_new_payment_backup_results
             .borrow_mut()
             .remove(0)
     }
@@ -309,16 +301,16 @@ impl SendTransactionToolWrapperMock {
         self
     }
 
-    pub fn demand_payment_backup_completion_params(
+    pub fn request_new_payment_backup_params(
         mut self,
-        params: &Arc<Mutex<Vec<(u64, H256)>>>,
+        params: &Arc<Mutex<Vec<(H256, u64)>>>,
     ) -> Self {
-        self.demand_payment_backup_completion_params = params.clone();
+        self.request_new_payment_backup_params = params.clone();
         self
     }
 
-    pub fn demand_payment_backup_completion_result(self, result: SystemTime) -> Self {
-        self.demand_payment_backup_completion_results
+    pub fn request_new_payment_backup_result(self, result: SystemTime) -> Self {
+        self.request_new_payment_backup_results
             .borrow_mut()
             .push(result);
         self

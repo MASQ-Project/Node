@@ -18,7 +18,7 @@ pub trait SendTransactionToolWrapper {
         transaction_params: TransactionParameters,
         key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
-    fn demand_payment_backup_completion(&self, rowid: u64, transaction_hash: H256) -> SystemTime;
+    fn request_new_payment_backup(&self, transaction_hash: H256, amount: u64) -> SystemTime;
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error>;
 }
 
@@ -53,15 +53,16 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
             .wait()
     }
 
-    fn demand_payment_backup_completion(&self, rowid: u64, hash: H256) -> SystemTime {
+    fn request_new_payment_backup(&self, hash: H256, amount: u64) -> SystemTime {
         let now = SystemTime::now();
         self.payment_backup_sub
             .try_send(PaymentBackupRecord {
-                amount: None,
-                rowid,
+                amount,
+                rowid: 0, //disregarded in this context
                 timestamp: now,
                 hash,
-                attempt: 1,
+                attempt: 1, //TODO make this autoincrement
+                process_error: None,
             })
             .expect("Accountant is dead");
         now
@@ -83,8 +84,8 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperNull {
         panic!("sing_transaction() should never be called on the null object")
     }
 
-    fn demand_payment_backup_completion(&self, _rowid: u64, _transaction_hash: H256) -> SystemTime {
-        panic!("order_payment_backup() should never be called on the null object")
+    fn request_new_payment_backup(&self, _transaction_hash: H256, _amount: u64) -> SystemTime {
+        panic!("request_new_payment_backup() should never be called on the null object")
     }
 
     fn send_raw_transaction(&self, _rlp: Bytes) -> Result<H256, Web3Error> {
@@ -214,10 +215,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "order_payment_backup() should never be called on the null object")]
-    fn null_trigger_payment_backup_completion_stops_the_run() {
-        let _ =
-            SendTransactionToolWrapperNull.demand_payment_backup_completion(5, Default::default());
+    #[should_panic(
+        expected = "request_new_payment_backup() should never be called on the null object"
+    )]
+    fn null_request_new_payment_backup_stops_the_run() {
+        let _ = SendTransactionToolWrapperNull.request_new_payment_backup(Default::default(), 5);
     }
 
     #[test]
@@ -230,7 +232,8 @@ mod tests {
             timestamp: SystemTime::now(),
             hash: Default::default(),
             attempt: 0,
-            amount: None,
+            amount: 44,
+            process_error: None,
         };
 
         let _ = PaymentBackupRecipientWrapperNull.try_send(msg);

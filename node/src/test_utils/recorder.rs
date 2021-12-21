@@ -178,6 +178,7 @@ impl Handler<RetrieveTransactions> for Recorder {
         msg: RetrieveTransactions,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<RetrieveTransactions>>::Result {
+        eprintln!("booooo");
         self.record(msg);
         MessageResult(extract_response(
             &mut self.retrieve_transactions_responses,
@@ -409,7 +410,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
         report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
         report_new_payments: recipient!(addr, ReceivedPayments),
-        transaction_backup_completion: recipient!(addr, PaymentBackupRecord),
+        payment_backup: recipient!(addr, PaymentBackupRecord),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
         report_sent_payments: recipient!(addr, SentPayments),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),

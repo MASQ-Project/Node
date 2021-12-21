@@ -5,7 +5,8 @@ use crate::accountant::SentPayments;
 use crate::accountant::{PaymentError, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, BlockchainResult, Transaction, TxReceipt,
+    BlockchainInterfaceNonClandestine, BlockchainResult, SendTransactionInputs, Transaction,
+    TxReceipt,
 };
 use crate::blockchain::tool_wrappers::PaymentBackupRecipientWrapperReal;
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
@@ -68,7 +69,7 @@ impl Handler<BindMessage> for BlockchainBridge {
         //     msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         // ]);
         self.payment_confirmation.transaction_backup_subs_opt =
-            Some(msg.peer_actors.accountant.transaction_backup_completion);
+            Some(msg.peer_actors.accountant.payment_backup);
         self.payment_confirmation
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
@@ -140,13 +141,14 @@ pub struct ReportTransactionReceipts {
     pub payment_backups_with_receipts: Vec<(TxReceipt, PaymentBackupRecord)>,
 }
 
-#[derive(Debug, PartialEq, Message, Clone, Copy)]
+#[derive(Debug, PartialEq, Message, Clone)]
 pub struct PaymentBackupRecord {
     pub rowid: u64,
     pub timestamp: SystemTime,
     pub hash: H256,
     pub attempt: u16,
-    pub amount: Option<u64>, //this is present when we're reading a complete record and empty when we are yet completing one
+    pub amount: u64,
+    pub process_error: Option<String>,
 }
 
 impl Handler<ReportAccountsPayable> for BlockchainBridge {
@@ -301,12 +303,7 @@ impl BlockchainBridge {
             .pending_payment_rowid_opt
             .expect("accounts failing to fetch a relevant rowid should've been left out");
         match self.blockchain_interface.send_transaction(
-            consuming_wallet,
-            &payable.wallet,
-            unsigned_amount,
-            nonce,
-            gas_price,
-            pending_payment_rowid,
+            SendTransactionInputs::new(payable, consuming_wallet, nonce, gas_price)?,
             self.blockchain_interface
                 .send_transaction_tools(&PaymentBackupRecipientWrapperReal::new(
                     self.payment_confirmation
@@ -700,14 +697,16 @@ mod tests {
             timestamp: SystemTime::now(),
             hash: hash_2,
             attempt: 3,
-            amount: Some(4565),
+            amount: 4565,
+            process_error: None,
         };
         let payment_backup_3 = PaymentBackupRecord {
             rowid: 450,
             timestamp: from_time_t(230_000_000),
             hash: hash_3,
             attempt: 1,
-            amount: Some(7879),
+            amount: 7879,
+            process_error: None,
         };
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
