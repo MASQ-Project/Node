@@ -124,10 +124,10 @@ pub struct SentPayments {
 }
 
 #[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
-pub struct ScanForPayables {}
+pub struct ScanForPayables;
 
 #[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
-pub struct ScanForReceivables {}
+pub struct ScanForReceivables;
 
 impl Handler<BindMessage> for Accountant {
     type Result = ();
@@ -329,7 +329,6 @@ impl Accountant {
 
     fn scan_for_delinquencies(&mut self) {
         debug!(self.logger, "Scanning for delinquencies");
-
         let now = SystemTime::now();
         self.receivable_dao
             .new_delinquencies(now, &PAYMENT_CURVES)
@@ -345,7 +344,6 @@ impl Accountant {
                     age.as_secs()
                 )
             });
-
         self.receivable_dao
             .paid_delinquencies(&PAYMENT_CURVES)
             .into_iter()
@@ -377,14 +375,13 @@ impl Accountant {
                 return;
             }
         };
-        let earning_wallet = self.earning_wallet.clone();
         self
             .retrieve_transactions_sub
             .as_ref()
             .expect("BlockchainBridge is unbound")
             .try_send(RetrieveTransactions {
                 start_block,
-                recipient: earning_wallet,
+                recipient: self.earning_wallet.clone(),
             })
             .expect("BlockchainBridge is dead")
     }
@@ -591,9 +588,8 @@ impl Accountant {
     }
 
     fn handle_start_message(&mut self) {
-        self.scan_for_payables();
-        self.scan_for_received_payments();
-        self.scan_for_delinquencies();
+        self.handle_scan_for_payables();
+        self.handle_scan_for_receivables();
     }
 
     fn handle_scan_for_payables(&mut self) {
@@ -1566,20 +1562,35 @@ pub mod tests {
     fn accountant_scans_for_received_payments_and_sends_message_to_blockchain_bridge() {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let blockchain_bridge = blockchain_bridge.retrieve_transactions_response(Ok(vec![]));
+        let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao = ReceivableDaoMock::new()
-            .new_delinquencies_result(vec![])
-            .paid_delinquencies_result(vec![]);
-        let earning_wallet = make_wallet("some_wallet_address");
+            .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
+        let earning_wallet = make_wallet("someearningwallet");
+        let accounts = vec![
+            PayableAccount {
+                wallet: make_wallet("blah"),
+                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 100,
+                last_paid_timestamp: from_time_t(PAYMENT_CURVES.payment_suggested_after_sec + 5),
+                pending_payment_transaction: None,
+            },
+            PayableAccount {
+                wallet: make_wallet("foo"),
+                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 100,
+                last_paid_timestamp: from_time_t(PAYMENT_CURVES.payment_suggested_after_sec + 5),
+                pending_payment_transaction: None,
+            },
+        ];
+        let payable_dao = PayableDaoMock::new().non_pending_payables_result(accounts.clone());
         let system = System::new("accountant_scans_for_received_payments_and_sends_message_to_blockchain_bridge");
         let subject = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
-                    payables_scan_interval: Duration::from_millis(100_000), //scan intervals deliberately big to demonstrate that we don't do the intervals yet
+                    payables_scan_interval: Duration::from_secs(100_000), //scan intervals deliberately big to demonstrate that we don't do the intervals yet
                     receivables_scan_interval: Duration::from_secs(100_000),
                 },
                 earning_wallet.clone(),
             )),
-            None,
+            Some(payable_dao),
             Some(receivable_dao),
             None,
             None,
@@ -1604,13 +1615,98 @@ pub mod tests {
             })
             .collect();
         assert_eq!(
-            scans_for_received_payments_msgs,
-            vec![&RetrieveTransactions { start_block: 5u64, recipient: (earning_wallet) }]
+            *scans_for_received_payments_msgs,
+            vec![&RetrieveTransactions { start_block: 0u64, recipient: (earning_wallet) }]
         );
     }
 
     #[test]
+    fn accountant_sends_correct_messages_on_startup() {
+        let (accountant_mock, _, accountant_recording_arc) = make_recorder();
+        let accountant_mock = accountant_mock.report_accounts_payable_response(Ok(vec![]));
+        let config = bc_from_ac_plus_earning_wallet(
+            AccountantConfig {
+                payables_scan_interval: Duration::from_secs(10_000),
+                receivables_scan_interval: Duration::from_secs(10_000),
+            },
+            make_wallet("somewallet"),
+        );
+        let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let receivable_dao = ReceivableDaoMock::new()
+            .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
+        let earning_wallet = make_wallet("someearningwallet");
+        let accounts = vec![
+            PayableAccount {
+                wallet: make_wallet("blah"),
+                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 100,
+                last_paid_timestamp: from_time_t(PAYMENT_CURVES.payment_suggested_after_sec + 5),
+                pending_payment_transaction: None,
+            },
+            PayableAccount {
+                wallet: make_wallet("foo"),
+                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 100,
+                last_paid_timestamp: from_time_t(PAYMENT_CURVES.payment_suggested_after_sec + 5),
+                pending_payment_transaction: None,
+            },
+        ];
+        let payable_dao = PayableDaoMock::new().non_pending_payables_result(accounts.clone());
+        let config_mock = PersistentConfigurationMock::new().start_block_result(Ok(5));
+        let system = System::new(
+            "accountant_sends_correct_messages_on_startup",
+        );
+        let subject = make_subject(
+            Some(config),
+            Some(payable_dao),
+            Some(receivable_dao),
+            None,
+            Some(config_mock),
+        );
+
+        let accountant_addr = subject.start();
+        let accountant_subs = Accountant::make_subs_from(&accountant_addr);
+        let peer_actors = peer_actors_builder()
+            .accountant(accountant_mock)
+            .build();
+
+        send_bind_message!(accountant_subs, peer_actors);
+        send_start_message!(accountant_subs);
+
+        let _ = &accountant_addr.try_send(ScanForPayables);
+        let _ = &accountant_addr.try_send(ScanForReceivables);
+        System::current().stop();
+        system.run();
+
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 2); //the second message is from the scan for receivables
+        let scan_for_payables_msgs: Vec<&ScanForPayables> = (0
+            ..accountant_recording.len())
+            .flat_map(|index| {
+                accountant_recording.get_record_opt::<ScanForPayables>(index)
+            })
+            .collect();
+        assert_eq!(
+            scan_for_payables_msgs,
+            vec![&ScanForPayables]
+        );
+
+        // let accountant_recording = accountant_recording_arc.lock().unwrap();
+        // let start_message = accountant_recording.get_record::<StartMessage>(0);
+        // println!("{:?}", start_message);
+        // let scan_for_payables_message = accountant_recording.get_record::<ScanForPayables>(0);
+        // println!("{:?}", scan_for_payables_message);
+        // let scan_for_receivables_message = accountant_recording.get_record::<ScanForReceivables>(0);
+        // println!("{:?}", scan_for_receivables_message);
+        // assert_eq!(
+        //     ,
+        //     scan_for_payables_message
+        // );
+    }
+
+    #[test]
     fn accountant_payment_received_scan_timer_triggers_scanning_for_payments() {
+        let system = System::new(
+            "accountant_payment_received_scan_timer_triggers_scanning_for_payments",
+        );
         let paying_wallet = make_wallet("wallet0");
         let earning_wallet = make_wallet("earner3000");
         let amount = 42u64;
@@ -1619,21 +1715,18 @@ pub mod tests {
             from: paying_wallet.clone(),
             gwei_amount: amount,
         }];
-        let blockchain_bridge =
-            Recorder::new().retrieve_transactions_response(Ok(expected_transactions.clone()));
-        let blockchain_bridge_awaiter = blockchain_bridge.get_awaiter();
+        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
+        let blockchain_bridge = blockchain_bridge.retrieve_transactions_response(Ok(expected_transactions.clone()));
         let blockchain_bridge_recording = blockchain_bridge.get_recording();
-        let (accountant_mock, accountant_awaiter, accountant_recording_arc) = make_recorder();
+        let (accountant_mock, _, accountant_recording_arc) = make_recorder();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(10_000),
-                receivables_scan_interval: Duration::from_millis(100),
+                receivables_scan_interval: Duration::from_millis(500),
             },
             earning_wallet.clone(),
         );
-            let system = System::new(
-                "accountant_payment_received_scan_timer_triggers_scanning_for_payments",
-            );
+
             let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
             let receivable_dao = ReceivableDaoMock::new()
                 .new_delinquencies_result(vec![])
@@ -1646,30 +1739,32 @@ pub mod tests {
                 None,
                 Some(config_mock),
             );
-            let peer_actors = peer_actors_builder()
-                .blockchain_bridge(blockchain_bridge)
-                .build();
-            let subject_addr: Addr<Accountant> = subject.start();
-            let subject_subs = Accountant::make_subs_from(&subject_addr);
-            send_bind_message!(subject_subs, peer_actors);
-            send_start_message!(subject_subs);
 
-            System::current().stop();
-            system.run();
+        let accountant_addr = subject.start();
+        let accountant_subs = Accountant::make_subs_from(&accountant_addr);
+        let peer_actors = peer_actors_builder()
+            .blockchain_bridge(blockchain_bridge)
+            .build();
 
-        blockchain_bridge_awaiter.await_message_count(1);
-        let retrieve_transactions_recording = blockchain_bridge_recording.lock().unwrap();
-        let retrieve_transactions_message =
-            retrieve_transactions_recording.get_record::<RetrieveTransactions>(0);
+        send_bind_message!(accountant_subs, peer_actors);
+        send_start_message!(accountant_subs);
+
+        System::current().stop();
+        system.run();
+
+        let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
+        assert_eq!(blockchain_bridge_recorder.len(), 1);
+        let scans_for_received_payments_msgs: Vec<&RetrieveTransactions> = (0
+            ..blockchain_bridge_recorder.len())
+            .flat_map(|index| {
+                blockchain_bridge_recorder.get_record_opt::<RetrieveTransactions>(index)
+            })
+            .collect();
         assert_eq!(
-            &RetrieveTransactions {
-                start_block: 5u64,
-                recipient: earning_wallet,
-            },
-            retrieve_transactions_message
+            *scans_for_received_payments_msgs,
+            vec![&RetrieveTransactions { start_block: 5u64, recipient: (earning_wallet) }]
         );
 
-        accountant_awaiter.await_message_count(1);
         let received_payments_recording = accountant_recording_arc.lock().unwrap();
         let received_payments_message =
             received_payments_recording.get_record::<ReceivedPayments>(0);
@@ -1697,7 +1792,6 @@ pub mod tests {
             earning_wallet.clone(),
         );
 
-        thread::spawn(move || {
             let system = System::new("accountant_logs_if_no_transactions_were_detected");
             let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
             let receivable_dao = ReceivableDaoMock::new()
@@ -1720,9 +1814,8 @@ pub mod tests {
 
             send_bind_message!(subject_subs, peer_actors);
             send_start_message!(subject_subs);
-
+            System::current().stop();
             system.run();
-        });
 
         blockchain_bridge_awaiter.await_message_count(1);
         TestLogHandler::new().exists_log_containing("DEBUG: Accountant: Scanning for payments");
@@ -1758,7 +1851,6 @@ pub mod tests {
             },
             earning_wallet.clone(),
         );
-
 
             let system =
                 System::new("accountant_logs_error_when_blockchain_bridge_responds_with_error");

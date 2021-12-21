@@ -2,7 +2,7 @@
 
 use crate::accountant::payable_dao::Payment;
 use crate::accountant::{ReceivedPayments, SentPayments};
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine, BlockchainResult, Transaction, Transactions};
+use crate::blockchain::blockchain_interface::{BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine, BlockchainResult, Transactions};
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
 use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -566,15 +566,9 @@ mod tests {
         let system =
             System::new("retrieve_transactions_sends_transactions_to_blockchain_interface");
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
-        let send_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
-            .get_transaction_count_params(&get_transaction_count_params_arc)
-            .get_transaction_count_result(Ok(U256::from(1)))
-            .get_transaction_count_result(Ok(U256::from(2)))
-            .send_transaction_params(&send_transaction_params_arc)
-            .send_transaction_result(Ok(H256::from("sometransactionhash".keccak256())))
-            .send_transaction_result(Ok(H256::from("someothertransactionhash".keccak256())));
+            .get_transaction_count_params(&get_transaction_count_params_arc);
         let expected_gas_price = 5u64;
         let persistent_configuration_mock =
             PersistentConfigurationMock::default().gas_price_result(Ok(expected_gas_price));
@@ -591,32 +585,22 @@ mod tests {
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr.try_send(RetrieveTransactions {
-            start_block: 5u64,
+            start_block: 0u64,
             recipient: earning_wallet.clone(),
         });
 
         System::current().stop();
         system.run();
-        let send_transaction_params = send_transaction_params_arc.lock().unwrap();
-        println!("send_transaction_params resulted in: {:?}", send_transaction_params);
-        // assert_eq!(
-        //     *send_transaction_params,
-        //     vec![(5u64, earning_wallet.clone())]
-        // );
         let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
-        println!("get_transaction_count_params resulted in: {:?}", get_transaction_count_params);
-        // assert_eq!(
-        //     *get_transaction_count_params,
-        //     vec![earning_wallet.clone(), earning_wallet.clone()]
-        // );
+        assert_eq!(
+            *get_transaction_count_params,
+            vec![earning_wallet.clone(), earning_wallet.clone()]
+        );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
-        println!("accountant_received_payment resulted in");
-        // assert_eq!(accountant_received_payment.len(), 1);
+        assert_eq!(accountant_received_payment.len(), 1);
         let retrieve_transactions_msg = accountant_received_payment.get_record::<RetrieveTransactions>(0);
-        println!("retrieve_transactions_msg resulted in: {:?}", retrieve_transactions_msg);
         let retrieve_transactions_cloned = retrieve_transactions_msg.recipient.clone();
-        println!("retrieve_transactions_cloned resulted in: {:?}", retrieve_transactions_cloned);
-        // assert_eq!(retrieve_transactions_cloned, earning_wallet.clone())
+        assert_eq!(retrieve_transactions_cloned, earning_wallet.clone())
     }
 
     #[test]
