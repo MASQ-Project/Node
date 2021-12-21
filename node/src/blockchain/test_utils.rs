@@ -6,6 +6,10 @@ pub fn make_meaningless_phrase() -> String {
     "phrase donate agent satoshi burst end company pear obvious achieve depth advice".to_string()
 }
 
+pub fn make_meaningless_phrase_words() -> Vec<String> {
+    make_meaningless_phrase().split(" ").map (|x| x.to_string()).collect()
+}
+
 pub fn make_meaningless_seed() -> Seed {
     let mnemonic = Mnemonic::from_phrase(make_meaningless_phrase(), Language::English).unwrap();
     Seed::new(&mnemonic, "passphrase")

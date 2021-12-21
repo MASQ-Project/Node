@@ -241,12 +241,13 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         self.consuming_wallet_private_key(db_password)
             .map (|key_opt| key_opt
                 .map (|key| match key.from_hex::<Vec<u8>>() {
-                    Err(e) => todo! ("{:?}", e),
+                    Err(e) => panic! ("Database corruption {:?}: consuming private key is not hex, but '{}'", e, key),
                     Ok (bytes) => match Bip32ECKeyPair::from_raw_secret (bytes.as_slice()) {
-                        Err(e) => todo! ("{:?}", e),
+                        Err(e) => panic! ("Database corruption {:?}: consuming private key is invalid", e),
                         Ok (pair) => Wallet::from (pair)
                     }
-                }))
+                })
+            )
     }
 
     fn consuming_wallet_private_key(&self, db_password: &str) -> Result<Option<String>, PersistentConfigError> {
@@ -255,7 +256,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             match Bip39::decrypt_bytes(&encrypted_value, db_password) {
                 Ok(decrypted_bytes) => Ok(Some(decrypted_bytes.as_slice().to_hex())),
                 Err(Bip39Error::DecryptionFailure(_)) => Err (PersistentConfigError::PasswordError),
-                Err(e) => todo! ("{:?}", e),
+                Err(e) => panic! ("Database corruption {:?}: consuming private key can't be decrypted", e),
             }
         }
         else {
@@ -436,17 +437,13 @@ impl PersistentConfigurationReal {
         }
     }
 
-    fn validate_mnemonic_seed(mnemonic_seed: &dyn AsRef<[u8]>) -> bool {
-        mnemonic_seed.as_ref().len() == 64
-    }
-
     fn encrypt_private_key(private_key: &str, db_password: &str) -> Result<String, PersistentConfigError> {
         let private_key_bytes = match private_key.from_hex::<Vec<u8>>() {
             Ok(bytes) => bytes,
             Err(_) => return Err(PersistentConfigError::BadHexFormat(private_key.to_string())),
         };
         Bip39::encrypt_bytes(&private_key_bytes, db_password)
-            .map_err (|e| todo! ())
+            .map_err (|e| panic! ("Failure to encrypt consuming private key: {:?}", e))
     }
 
     fn validate_wallet_address(address: &str) -> bool {
@@ -482,7 +479,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use rustc_hex::{FromHex, ToHex};
     use tiny_hderive::bip32::ExtendedPrivKey;
-    use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 
     #[test]
     fn from_config_dao_error() {
@@ -1149,8 +1145,6 @@ mod tests {
 
     #[test]
     fn set_wallet_info_fails_if_earning_wallet_address_exists() {
-        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
-        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let config_dao = Box::new(
             ConfigDaoMock::new()
                 .get_result(Ok(ConfigDaoRecord::new(
@@ -1227,8 +1221,6 @@ mod tests {
 
     #[test]
     fn set_wallet_info_fails_if_earning_wallet_address_is_invalid() {
-        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
-        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let config_dao = Box::new(
             ConfigDaoMock::new()
                 .get_result(Ok(ConfigDaoRecord::new(

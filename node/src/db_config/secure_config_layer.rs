@@ -212,7 +212,6 @@ mod tests {
     use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
     use crate::sub_lib::cryptde::PlainData;
     use std::sync::{Arc, Mutex};
-    use websocket::url::quirks::password;
 
     #[test]
     fn secure_config_layer_error_from_config_dao_error() {

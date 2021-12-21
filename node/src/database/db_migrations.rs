@@ -648,6 +648,7 @@ mod tests {
     }
 
     impl DBMigrateDeclarationUtilitiesMock {
+        #[allow (dead_code)]
         pub fn db_password_result(self, result: Option<String>) -> Self {
             self.db_password_results.borrow_mut().push(result);
             self

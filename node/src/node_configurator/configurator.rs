@@ -24,7 +24,6 @@ use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::configurator::NewPasswordMessage;
-use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::handle_ui_crash_request;
@@ -216,32 +215,6 @@ impl Configurator {
         }
     }
 
-    fn process_value_with_dif_treatment_of_none<T>(
-        data: Result<Option<T>, PersistentConfigError>,
-        closure_for_none: fn() -> (u64, String),
-    ) -> Result<T, (u64, String)> {
-        match data {
-            Ok(value) => match value {
-                None => Err(closure_for_none()),
-                Some(value) => Ok(value),
-            },
-            Err(e) => Err((CONFIGURATOR_READ_ERROR, format!("{:?}", e))),
-        }
-    }
-
-    fn recalculate_consuming_wallet(
-        seed: PlainData,
-        derivation_path: String,
-    ) -> Result<Wallet, String> {
-        match Bip32ECKeyPair::from_raw(seed.as_ref(), &derivation_path) {
-            Err(e) => Err(format!(
-                "Consuming wallet address error during generation: {}",
-                e
-            )),
-            Ok(kp) => Ok(Wallet::from(kp)),
-        }
-    }
-
     fn handle_generate_wallets(
         &mut self,
         msg: UiGenerateWalletsRequest,
@@ -345,7 +318,7 @@ impl Configurator {
         let (consuming_wallet_private_key, earning_wallet_address) = match msg.seed_spec_opt {
             None => match (msg.consuming_private_key_opt, msg.earning_address_opt) {
                 (Some (consuming_private_key), Some (earning_address)) => (consuming_private_key, earning_address),
-                _ => todo! ("If you don't send in a seed spec, you must provide both earning address and consuming private key!"),
+                _ => return Err ((MISSING_DATA, "If you supply no seed information, you must supply both consuming wallet private key and earning wallet address".to_string())),
             },
             Some (seed_spec) => {
                 let seed = Self::make_seed(
@@ -354,11 +327,11 @@ impl Configurator {
                     &seed_spec.mnemonic_phrase,
                 )?;
                 let consuming_private_key = match (msg.consuming_private_key_opt, msg.consuming_derivation_path_opt) {
-                    (Some (consuming_private_key), _) => todo! (),
+                    (Some (consuming_private_key), _) => consuming_private_key,
                     (None, Some (consuming_derivation_path)) => {
                         Self::generate_private_key(&seed, consuming_derivation_path.as_str())
                     },
-                    _ => todo! ("Gotta provide either consuming private key or consuming derivation path"),
+                    _ => return Err((MISSING_DATA, "If you supply seed information, you must supply either the consuming wallet derivation path or the consuming wallet private key".to_string())),
                 };
                 let earning_address = match (msg.earning_address_opt, msg.earning_derivation_path_opt) {
                     (Some (earning_address), _) => earning_address,
@@ -366,7 +339,7 @@ impl Configurator {
                         let wallet = Self::generate_wallet(&seed, earning_derivation_path.as_str())?;
                         wallet.string_address_from_keypair()
                     },
-                    _ => todo! ("Gotta provide either earning address or earning derivation path"),
+                    _ => return Err((MISSING_DATA, "If you supply seed information, you must supply either the earning wallet derivation path or the earning wallet address".to_string())),
                 };
                 (consuming_private_key, earning_address)
             },
@@ -765,7 +738,7 @@ mod tests {
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
+    use crate::test_utils::pure_test_utils::{make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up};
     use bip39::{Language, Mnemonic};
     use tiny_hderive::bip32::ExtendedPrivKey;
     use masq_lib::automap_tools::AutomapProtocol;
@@ -773,6 +746,7 @@ mod tests {
     use masq_lib::constants::MISSING_DATA;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
+    use crate::blockchain::test_utils::{make_meaningless_phrase_words};
 
     #[test]
     fn constructor_connects_with_database() {
@@ -1584,6 +1558,114 @@ mod tests {
                 ))
             }
         )
+    }
+
+    #[test]
+    fn unfriendly_handle_recover_wallets_handles_useless_seed_spec_with_key_and_address() {
+        let db_password = "password".to_string();
+        let consuming_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
+        let earning_address = "0x0123456789012345678901234567890123456789".to_string();
+        let msg = UiRecoverWalletsRequest {
+            db_password: db_password.clone(),
+            seed_spec_opt: Some (UiRecoverSeedSpec {
+                mnemonic_phrase: make_meaningless_phrase_words(),
+                mnemonic_phrase_language: "English".to_string(),
+                mnemonic_passphrase_opt: None
+            }),
+            consuming_derivation_path_opt: None,
+            consuming_private_key_opt: Some (consuming_private_key.clone()),
+            earning_derivation_path_opt: None,
+            earning_address_opt: Some (earning_address.clone()),
+        };
+        let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new (
+            make_default_persistent_configuration()
+                .check_password_result (Ok(true))
+                .set_wallet_info_params(&set_wallet_info_params_arc)
+                .set_wallet_info_result(Ok(()))
+        );
+
+        let result = Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
+
+        assert_eq!(result.is_ok(), true);
+        let set_wallet_info_params = set_wallet_info_params_arc.lock().unwrap();
+        assert_eq! (*set_wallet_info_params, vec![(
+            consuming_private_key,
+            earning_address,
+            db_password
+        )])
+    }
+
+    #[test]
+    fn unfriendly_handle_recover_wallets_handles_no_seed_spec_and_only_earning_wallet_address() {
+        let msg = UiRecoverWalletsRequest {
+            db_password: "password".to_string(),
+            seed_spec_opt: None,
+            consuming_derivation_path_opt: None,
+            consuming_private_key_opt: None,
+            earning_derivation_path_opt: None,
+            earning_address_opt: Some ("0x0123456789012345678901234567890123456789".to_string()),
+        };
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new (
+            make_default_persistent_configuration()
+                .check_password_result (Ok(true))
+        );
+
+        let result = Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
+
+        assert_eq! (result, Err((MISSING_DATA, "If you supply no seed information, you must supply both consuming wallet private key and earning wallet address".to_string())));
+    }
+
+    #[test]
+    fn unfriendly_handle_recover_wallets_handles_seed_but_nothing_about_consuming_wallet() {
+        let db_password = "password".to_string();
+        let earning_address = "0x0123456789012345678901234567890123456789".to_string();
+        let msg = UiRecoverWalletsRequest {
+            db_password: db_password.clone(),
+            seed_spec_opt: Some (UiRecoverSeedSpec {
+                mnemonic_phrase: make_meaningless_phrase_words(),
+                mnemonic_phrase_language: "English".to_string(),
+                mnemonic_passphrase_opt: None
+            }),
+            consuming_derivation_path_opt: None,
+            consuming_private_key_opt: None,
+            earning_derivation_path_opt: None,
+            earning_address_opt: Some (earning_address.clone()),
+        };
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new (
+            make_default_persistent_configuration()
+                .check_password_result (Ok(true))
+        );
+
+        let result = Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
+
+        assert_eq! (result, Err((MISSING_DATA, "If you supply seed information, you must supply either the consuming wallet derivation path or the consuming wallet private key".to_string())));
+    }
+
+    #[test]
+    fn unfriendly_handle_recover_wallets_handles_seed_but_nothing_about_earning_wallet() {
+        let db_password = "password".to_string();
+        let consuming_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
+        let msg = UiRecoverWalletsRequest {
+            db_password: db_password.clone(),
+            seed_spec_opt: Some (UiRecoverSeedSpec {
+                mnemonic_phrase: make_meaningless_phrase_words(),
+                mnemonic_phrase_language: "English".to_string(),
+                mnemonic_passphrase_opt: None
+            }),
+            consuming_derivation_path_opt: None,
+            consuming_private_key_opt: Some(consuming_private_key.clone()),
+            earning_derivation_path_opt: None,
+            earning_address_opt: None,
+        };
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new (
+            make_default_persistent_configuration()
+                .check_password_result (Ok(true))
+        );
+
+        let result = Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
+
+        assert_eq! (result, Err((MISSING_DATA, "If you supply seed information, you must supply either the earning wallet derivation path or the earning wallet address".to_string())));
     }
 
     #[test]

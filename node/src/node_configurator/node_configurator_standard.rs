@@ -359,26 +359,6 @@ fn wallet_parms_are_equal (a: &str, b: &str) -> bool {
     a.to_uppercase() == b.to_uppercase()
 }
 
-fn validate_testing_parameters(
-    mnemonic_seed_exists: bool,
-    multi_config: &MultiConfig,
-) -> Result<(), ConfiguratorError> {
-    let consuming_wallet_specified =
-        value_m!(multi_config, "consuming-private-key", String).is_some();
-    let earning_wallet_specified = value_m!(multi_config, "earning-wallet", String).is_some();
-    if mnemonic_seed_exists && (consuming_wallet_specified || earning_wallet_specified) {
-        let parameter = match (consuming_wallet_specified, earning_wallet_specified) {
-            (true, false) => "consuming-private-key",
-            (false, true) => "earning-wallet",
-            (true, true) => "consuming-private-key, earning-wallet",
-            (false, false) => panic!("The if statement in Rust no longer works"),
-        };
-        Err(ConfiguratorError::required(parameter, "Cannot use --consuming-private-key or --earning-wallet when database contains wallet information"))
-    } else {
-        Ok(())
-    }
-}
-
 pub fn make_neighborhood_config(
     multi_config: &MultiConfig,
 
@@ -1813,16 +1793,6 @@ mod tests {
             .earning_wallet_from_address_result(Ok(earning_wallet_from_address_opt))
             .gas_price_result(Ok(gas_price))
             .past_neighbors_result(past_neighbors_result)
-    }
-
-    fn make_mnemonic_seed(prefix: &str) -> PlainData {
-        let mut bytes: Vec<u8> = vec![];
-        while bytes.len() < 64 {
-            bytes.extend(prefix.as_bytes())
-        }
-        bytes.truncate(64);
-        let result = PlainData::from(bytes);
-        result
     }
 
     #[test]

@@ -161,7 +161,6 @@ mod tests {
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
     use crate::test_utils::{main_cryptde, ArgsBuilder};
-    use bip39::{Language, MnemonicType, Seed};
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
@@ -169,8 +168,7 @@ mod tests {
     use std::fs::File;
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use rustc_hex::{FromHex, ToHex};
-    use crate::db_config::db_encryption_layer::DbEncryptionLayer;
+    use rustc_hex::{ToHex};
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {
@@ -346,10 +344,6 @@ mod tests {
         )
         .join("MASQ")
         .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
-        let seed = Seed::new(
-            &Bip39::mnemonic(MnemonicType::Words24, Language::English),
-            "passphrase",
-        );
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
@@ -604,7 +598,6 @@ eprintln! ("{:?}", map);
             Value::String(s) => s,
             x => panic!("Expected JSON string; found {:?}", x),
         };
-        let encrypted_value_bytes = encrypted_value.from_hex::<Vec<u8>>().unwrap().as_slice();
         let decrypted_value_bytes = Bip39::decrypt_bytes(encrypted_value, password).unwrap();
         let actual_value: String = decrypted_value_bytes.as_slice().to_hex();
         assert_eq!(actual_value.to_uppercase(), expected_value.to_uppercase());
