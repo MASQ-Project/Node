@@ -91,11 +91,11 @@ pub trait PersistentConfiguration {
     fn gas_price(&self) -> Result<u64, PersistentConfigError>;
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
     // WARNING: Actors should get consuming-wallet information from their startup config, not from here
-    fn consuming_wallet_from_private_key(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError>;
+    fn consuming_wallet(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get consuming-wallet information from their startup config, not from here
     fn consuming_wallet_private_key(&self, db_password: &str) -> Result<Option<String>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
-    fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError>;
+    fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
 
@@ -237,7 +237,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(writer.commit()?)
     }
     
-    fn consuming_wallet_from_private_key(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError> {
+    fn consuming_wallet(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError> {
         self.consuming_wallet_private_key(db_password)
             .map (|key_opt| key_opt
                 .map (|key| match key.from_hex::<Vec<u8>>() {
@@ -264,7 +264,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
-    fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError> {
+    fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError> {
         match self.earning_wallet_address()? {
             None => Ok(None),
             Some(address) => match Wallet::from_str(&address) {
@@ -903,7 +903,7 @@ mod tests {
     }
 
     #[test]
-    fn consuming_wallet_from_private_key() {
+    fn consuming_wallet() {
         let example_encrypted = Bip39::encrypt_bytes(b"Aside from that, Mrs. Lincoln, how was the play?", "password").unwrap();
         let consuming_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
         let consuming_wallet = Wallet::from(Bip32ECKeyPair::from_raw_secret (consuming_private_key.from_hex::<Vec<u8>>().unwrap().as_slice()).unwrap());
@@ -921,7 +921,7 @@ mod tests {
             ;
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let result = subject.consuming_wallet_from_private_key("password").unwrap().unwrap();
+        let result = subject.consuming_wallet("password").unwrap().unwrap();
 
         assert_eq!(result.address(), consuming_wallet.address());
     }
@@ -946,7 +946,7 @@ mod tests {
     }
 
     #[test]
-    fn earning_wallet_from_address_if_address_is_missing() {
+    fn earning_wallet_if_address_is_missing() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
@@ -957,7 +957,7 @@ mod tests {
             )));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let result = subject.earning_wallet_from_address().unwrap();
+        let result = subject.earning_wallet().unwrap();
 
         assert_eq!(result, None);
         let get_params = get_params_arc.lock().unwrap();
@@ -968,7 +968,7 @@ mod tests {
     #[should_panic(
         expected = "Database corrupt: invalid earning wallet address '123456invalid': InvalidAddress"
     )]
-    fn earning_wallet_from_address_if_address_is_set_and_invalid() {
+    fn earning_wallet_if_address_is_set_and_invalid() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
@@ -979,11 +979,11 @@ mod tests {
             )));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let _ = subject.earning_wallet_from_address();
+        let _ = subject.earning_wallet();
     }
 
     #[test]
-    fn earning_wallet_from_address_if_address_is_set_and_valid() {
+    fn earning_wallet_if_address_is_set_and_valid() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
@@ -994,7 +994,7 @@ mod tests {
             )));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let result = subject.earning_wallet_from_address().unwrap();
+        let result = subject.earning_wallet().unwrap();
 
         assert_eq!(
             result,

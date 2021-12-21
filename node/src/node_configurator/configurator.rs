@@ -200,8 +200,8 @@ impl Configurator {
     }
 
     fn get_wallet_addresses(&self, db_password: String) -> Result<(String, String), (u64, String)> {
-        let consuming_wallet_opt_result = self.persistent_config.consuming_wallet_from_private_key(&db_password);
-        let earning_wallet_opt_result = self.persistent_config.earning_wallet_from_address();
+        let consuming_wallet_opt_result = self.persistent_config.consuming_wallet(&db_password);
+        let earning_wallet_opt_result = self.persistent_config.earning_wallet();
         match (consuming_wallet_opt_result, earning_wallet_opt_result) {
             (Ok(None), Ok(None)) => Err ((MISSING_DATA, "Wallet pair not yet configured".to_string())),
             (Ok(Some(consuming_wallet)), Ok(Some(earning_wallet))) => Ok((
@@ -987,8 +987,8 @@ mod tests {
         let system = System::new("test");
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
-            .consuming_wallet_from_private_key_result(Ok(Some(Wallet::from_str("0x1234567890123456789012345678901234567890").unwrap())))
-            .earning_wallet_from_address_result(Ok(Some(Wallet::from_str("0x01234567890aa345678901234567890123456789").unwrap())));
+            .consuming_wallet_result(Ok(Some(Wallet::from_str("0x1234567890123456789012345678901234567890").unwrap())))
+            .earning_wallet_result(Ok(Some(Wallet::from_str("0x01234567890aa345678901234567890123456789").unwrap())));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
@@ -1028,8 +1028,8 @@ mod tests {
     fn handle_wallet_addresses_works_if_consuming_wallet_private_key_error() {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
-            .consuming_wallet_from_private_key_result(Err (PersistentConfigError::DatabaseError("Unknown error 3".to_string())))
-            .earning_wallet_from_address_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())));
+            .consuming_wallet_result(Err (PersistentConfigError::DatabaseError("Unknown error 3".to_string())))
+            .earning_wallet_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
             db_password: "some password".to_string(),
@@ -1058,8 +1058,8 @@ mod tests {
     fn handle_wallet_addresses_works_if_earning_wallet_address_triggers_database_error() {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
-            .consuming_wallet_from_private_key_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())))
-            .earning_wallet_from_address_result(Err(PersistentConfigError::DatabaseError(
+            .consuming_wallet_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())))
+            .earning_wallet_result(Err(PersistentConfigError::DatabaseError(
                 "Unknown error 3".to_string(),
             )));
         let subject = make_subject(Some(persistent_config));
@@ -1091,8 +1091,8 @@ mod tests {
     )]
     fn handle_wallet_addresses_panics_if_earning_wallet_address_is_missing() {
         let persistent_config = PersistentConfigurationMock::new()
-            .consuming_wallet_from_private_key_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())))
-            .earning_wallet_from_address_result(Ok(None));
+            .consuming_wallet_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())))
+            .earning_wallet_result(Ok(None));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
             db_password: "some password".to_string(),
@@ -1107,8 +1107,8 @@ mod tests {
     )]
     fn handle_wallet_addresses_panics_if_consuming_wallet_address_is_missing() {
         let persistent_config = PersistentConfigurationMock::new()
-            .consuming_wallet_from_private_key_result(Ok(None))
-            .earning_wallet_from_address_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())));
+            .consuming_wallet_result(Ok(None))
+            .earning_wallet_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
             db_password: "some password".to_string(),

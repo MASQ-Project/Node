@@ -587,12 +587,12 @@ fn neighborhood_mode_standard(
     ))
 }
 
-fn get_earning_wallet_from_address(
+fn get_earning_wallet(
     multi_config: &MultiConfig,
     persistent_config: &dyn PersistentConfiguration,
 ) -> Result<Option<Wallet>, ConfiguratorError> {
     let earning_wallet_from_command_line_opt = value_m!(multi_config, "earning-wallet", String);
-    let earning_wallet_from_database_opt = match persistent_config.earning_wallet_from_address() {
+    let earning_wallet_from_database_opt = match persistent_config.earning_wallet() {
         Ok(ewfdo) => ewfdo,
         Err(e) => return Err(e.into_configurator_error("earning-wallet")),
     };
@@ -749,7 +749,7 @@ mod tests {
     }
 
     #[test]
-    fn get_earning_wallet_from_address_handles_error_retrieving_earning_wallet_from_address() {
+    fn get_earning_wallet_handles_error_retrieving_earning_wallet() {
         let args = ArgsBuilder::new().param(
             "--earning-wallet",
             "0x0123456789012345678901234567890123456789",
@@ -758,9 +758,9 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
         let persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_from_address_result(Err(PersistentConfigError::NotPresent));
+            .earning_wallet_result(Err(PersistentConfigError::NotPresent));
 
-        let result = get_earning_wallet_from_address(&multi_config, &persistent_config);
+        let result = get_earning_wallet(&multi_config, &persistent_config);
 
         assert_eq!(
             result,
@@ -790,7 +790,7 @@ mod tests {
     }
 
     #[test]
-    fn get_earning_wallet_from_address_handles_attempted_wallet_change() {
+    fn get_earning_wallet_handles_attempted_wallet_change() {
         running_test();
         let args = ArgsBuilder::new().param(
             "--earning-wallet",
@@ -800,11 +800,11 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
         let persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_from_address_result(Ok(Some(Wallet::new(
+            .earning_wallet_result(Ok(Some(Wallet::new(
                 "0x9876543210987654321098765432109876543210",
             ))));
 
-        let result = get_earning_wallet_from_address(&multi_config, &persistent_config)
+        let result = get_earning_wallet(&multi_config, &persistent_config)
             .err()
             .unwrap();
 
@@ -1773,7 +1773,7 @@ mod tests {
     ) -> PersistentConfigurationMock {
         let consuming_wallet_private_key_opt =
             consuming_wallet_private_key_opt.map(|x| x.to_string());
-        let earning_wallet_from_address_opt = match earning_wallet_address_opt {
+        let earning_wallet_opt = match earning_wallet_address_opt {
             None => None,
             Some(address) => Some(Wallet::from_str(address).unwrap()),
         };
@@ -1790,7 +1790,7 @@ mod tests {
         PersistentConfigurationMock::new()
             .consuming_wallet_private_key_result(Ok(consuming_wallet_private_key_opt))
             .earning_wallet_address_result (Ok(earning_wallet_address_opt.map (|ewa| ewa.to_string())))
-            .earning_wallet_from_address_result(Ok(earning_wallet_from_address_opt))
+            .earning_wallet_result(Ok(earning_wallet_opt))
             .gas_price_result(Ok(gas_price))
             .past_neighbors_result(past_neighbors_result)
     }
