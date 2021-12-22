@@ -61,7 +61,7 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
                 rowid: 0, //disregarded in this context
                 timestamp: now,
                 hash,
-                attempt: 1, //TODO make this autoincrement
+                attempt: 0, //DB will know where to start: 1
                 process_error: None,
             })
             .expect("Accountant is dead");

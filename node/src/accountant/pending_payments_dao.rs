@@ -15,7 +15,6 @@ pub enum PendingPaymentDaoError {
     InsertionFailed(String),
     SignConversionError(u64),
     RecordCannotBeRead,
-    FailMark(String),
     RecordDeletion(String),
 }
 

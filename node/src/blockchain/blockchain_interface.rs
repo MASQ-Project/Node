@@ -395,7 +395,7 @@ where
     }
 
     fn log_debug_before_sending(&self, inputs: &SendTransactionInputs) -> String {
-        format!("Preparing transaction for {} Gwei to {} from {} (chain_id: {}, contract: {:#x} gas price: {})", //TODO fix this later to Wei
+        format!("Preparing transaction for {} Gwei to {} from {} (chain_id: {}, contract: {:#x}, gas price: {})", //TODO fix this later to Wei
         inputs.amount,
         inputs.recipient,
         inputs.consuming_wallet,
@@ -433,8 +433,8 @@ where
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct SendTransactionInputs<'a> {
-    consuming_wallet: &'a Wallet,
     recipient: &'a Wallet,
+    consuming_wallet: &'a Wallet,
     amount: u64,
     nonce: U256,
     gas_price: u64,
@@ -448,10 +448,12 @@ impl<'a> SendTransactionInputs<'a> {
         gas_price: u64,
     ) -> Result<Self, BlockchainError> {
         Ok(Self {
-            consuming_wallet,
             recipient: &account.wallet,
-            amount: u64::try_from(account.balance)
-                .map_err(|_| BlockchainError::UnsupportableSignValue(account.balance))?,
+            consuming_wallet,
+            amount: u64::try_from(account.balance).map_err(|_| {
+                unimplemented!();
+                BlockchainError::UnsupportableSignValue(account.balance)
+            })?,
             nonce,
             gas_price,
         })
@@ -918,7 +920,6 @@ mod tests {
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
         );
-        let rowid = 1;
         let amount = 9000;
         let gas_price = 120;
         let account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
@@ -963,7 +964,7 @@ mod tests {
         let recording = recording_arc.lock().unwrap();
         let sent_backup = recording.get_record::<PaymentBackupRecord>(0);
         let expected_payment_backup = PaymentBackupRecord {
-            rowid,
+            rowid: 0,
             timestamp,
             hash,
             attempt: 1,
@@ -972,7 +973,7 @@ mod tests {
         };
         assert_eq!(sent_backup, &expected_payment_backup);
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, payable rowid: 1, gas price: 120)" );
+        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
         log_handler.exists_log_containing(
             "INFO: BlockchainInterface: About to send transaction:\n\
         recipient: 0x00000000000000000000000000626c6168313233,\n\
@@ -990,7 +991,7 @@ mod tests {
             Chain::EthMainnet,
         );
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
-        let trigger_payment_backup_completion_params_arc = Arc::new(Mutex::new(vec![]));
+        let request_new_payment_backup_params_arc = Arc::new(Mutex::new(vec![]));
         let send_raw_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let payment_timestamp = SystemTime::now();
         let transaction_parameters_expected = TransactionParameters {
@@ -1006,7 +1007,7 @@ mod tests {
             ]),
             chain_id: Some(1),
         };
-        let consuming_wallet_secret_raw_bytes = b"my-wallet";
+        let consuming_wallet_secret_raw_bytes = b"my-wallet+++++++++++++++++++++++";
         let secret = (&Bip32ECKeyProvider::from_raw_secret(consuming_wallet_secret_raw_bytes)
             .unwrap())
             .into();
@@ -1020,7 +1021,7 @@ mod tests {
         let send_transaction_tools = &SendTransactionToolWrapperMock::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             .sign_transaction_result(Ok(signed_transaction.clone()))
-            .request_new_payment_backup_params(&trigger_payment_backup_completion_params_arc)
+            .request_new_payment_backup_params(&request_new_payment_backup_params_arc)
             .request_new_payment_backup_result(payment_timestamp)
             .send_raw_transaction_params(&send_raw_transaction_params_arc)
             .send_raw_transaction_result(Ok(hash));
@@ -1033,7 +1034,7 @@ mod tests {
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
         let inputs =
-            SendTransactionInputs::new(&account, &consuming_wallet, U256::from(1), 123).unwrap();
+            SendTransactionInputs::new(&account, &consuming_wallet, U256::from(5), 123).unwrap();
 
         let result = subject.send_transaction(inputs, send_transaction_tools);
 
@@ -1048,11 +1049,11 @@ mod tests {
                 .unwrap())
                 .into()
         );
-        let trigger_payment_backup_completion_params =
-            trigger_payment_backup_completion_params_arc.lock().unwrap();
+        let request_new_payment_backup_params =
+            request_new_payment_backup_params_arc.lock().unwrap();
         assert_eq!(
-            *trigger_payment_backup_completion_params,
-            vec![(hash, rowid_from_pending_tables)]
+            *request_new_payment_backup_params,
+            vec![(hash, amount as u64)]
         );
         let send_raw_transaction = send_raw_transaction_params_arc.lock().unwrap();
         assert_eq!(
@@ -1285,20 +1286,24 @@ mod tests {
             subject.send_transaction_tools(&PaymentBackupRecipientWrapperNull);
         let consuming_wallet = test_consuming_wallet_with_secret();
         let recipient_wallet = test_recipient_wallet();
-        let nonce_of_the_real_transaction = U256::from(nonce);
+        let nonce_correct_type = U256::from(nonce);
         let gas_price = match chain.rec().chain_family {
             ChainFamily::Eth => TEST_GAS_PRICE_ETH,
             ChainFamily::Polygon => TEST_GAS_PRICE_POLYGON,
             _ => panic!("isn't our interest in this test"),
         };
         let payable_account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
-            consuming_wallet.clone(),
+            recipient_wallet,
             i64::try_from(TEST_PAYMENT_AMOUNT).unwrap(),
             None,
         );
-        let inputs =
-            SendTransactionInputs::new(&payable_account, &consuming_wallet, U256::from(5), 123)
-                .unwrap();
+        let inputs = SendTransactionInputs::new(
+            &payable_account,
+            &consuming_wallet,
+            nonce_correct_type,
+            gas_price,
+        )
+        .unwrap();
 
         let signed_transaction = subject
             .prepare_signed_transaction(&inputs, send_transaction_tools.as_ref())
@@ -1439,6 +1444,14 @@ mod tests {
             ][..],
         ];
         assert_signature(Chain::EthRopsten, signatures)
+    }
+
+    #[test]
+    fn experiment() {
+        let secret_raw = "12345678901234567890123456789012";
+        let key_provider = Bip32ECKeyProvider::from_raw_secret(secret_raw.as_bytes()).unwrap();
+        let wallet = Wallet::from(key_provider);
+        eprintln!("{}", wallet)
     }
 
     #[derive(Deserialize)]

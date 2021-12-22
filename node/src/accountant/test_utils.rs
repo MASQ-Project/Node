@@ -350,7 +350,7 @@ pub struct PendingPaymentsDaoMock {
     payment_backup_exists_results: RefCell<Vec<bool>>,
     delete_payment_backup_params: Arc<Mutex<Vec<u64>>>,
     delete_payment_backup_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
-    insert_payment_backup_params: Arc<Mutex<Vec<(u64, H256, SystemTime, u16)>>>,
+    insert_payment_backup_params: Arc<Mutex<Vec<(H256, u64, SystemTime)>>>,
     insert_payment_backup_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
     mark_failure_params: Arc<Mutex<Vec<u64>>>,
     mark_failure_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
@@ -406,7 +406,12 @@ impl PendingPaymentsDao for PendingPaymentsDaoMock {
         amount: u64,
         timestamp: SystemTime,
     ) -> Result<(), PendingPaymentDaoError> {
-        todo!()
+        self.insert_payment_backup_params.lock().unwrap().push((
+            transaction_hash,
+            amount,
+            timestamp,
+        ));
+        self.insert_payment_backup_results.borrow_mut().remove(0)
     }
 
     fn delete_payment_backup(&self, id: u64) -> Result<(), PendingPaymentDaoError> {
@@ -433,7 +438,7 @@ impl PendingPaymentsDaoMock {
 
     pub fn insert_payment_backup_params(
         mut self,
-        params: &Arc<Mutex<Vec<(u64, H256, SystemTime, u16)>>>,
+        params: &Arc<Mutex<Vec<(H256, u64, SystemTime)>>>,
     ) -> Self {
         self.insert_payment_backup_params = params.clone();
         self

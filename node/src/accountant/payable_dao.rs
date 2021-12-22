@@ -48,7 +48,11 @@ impl Payment {
 pub trait PayableDao: Debug + Send {
     fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), DebtRecordingError>;
 
-    fn mark_pending_payment_rowid(&self, wallet: &Wallet, rowid: u64) -> Result<(), PaymentError>;
+    fn mark_pending_payment_rowid(
+        &self,
+        wallet: &Wallet,
+        transaction_id: TransactionId,
+    ) -> Result<(), PaymentError>;
 
     fn transaction_confirmed(&self, payment: &PaymentBackupRecord) -> Result<(), PaymentError>;
 
@@ -88,20 +92,30 @@ impl PayableDao for PayableDaoReal {
         }
     }
 
-    fn mark_pending_payment_rowid(&self, wallet: &Wallet, rowid: u64) -> Result<(), PaymentError> {
+    fn mark_pending_payment_rowid(
+        &self,
+        wallet: &Wallet,
+        transaction_id: TransactionId,
+    ) -> Result<(), PaymentError> {
         let mut stm = self
             .conn
             .prepare("update payable set pending_payment_rowid=? where wallet_address=?")
             .expect("Internal Error");
         let params: &[&dyn ToSql] = &[
-            &jackass_unsigned_to_signed(rowid)
+            &i64::try_from(transaction_id.rowid)
                 .expect("SQLite counts up to i64::MAX; should never happen"),
             wallet,
         ];
         match stm.execute(params) {
             Ok(1) => Ok(()),
-            Ok(num) => unimplemented!(),
-            Err(e) => unimplemented!(),
+            Ok(num) => Err(PaymentError(
+                PaymentErrorKind::RusqliteError(format!("Returned {} rows but expected 1", num)),
+                transaction_id,
+            )),
+            Err(e) => Err(PaymentError(
+                PaymentErrorKind::RusqliteError(e.to_string()),
+                transaction_id,
+            )),
         }
     }
 
@@ -109,32 +123,13 @@ impl PayableDao for PayableDaoReal {
         let signed_amount = jackass_unsigned_to_signed(payment.amount).map_err(|err_num| {
             PaymentError(PaymentErrorKind::SignConversion(err_num), payment.into())
         })?;
-        if let Err(e) = self
-            .try_decrease_balance(payment.rowid, signed_amount, payment.timestamp)
+        self.try_decrease_balance(payment.rowid, signed_amount, payment.timestamp)
             .map_err(|e| PaymentError(PaymentErrorKind::RusqliteError(e), payment.into()))
-        {
-            unimplemented!()
-        }
-        let formally_signed_rowid = jackass_unsigned_to_signed(payment.rowid)
-            .expect("SQLite counts up to i64::MAX; should never happen");
-        let mut stm = self
-            .conn
-            .prepare("update payable set pending_payment_rowid=? where pending_payment_rowid=?")
-            .expect("Internal Error");
-        let params: &[&dyn ToSql] = &[&Null, &formally_signed_rowid];
-        match stm.execute(params) {
-            Ok(1) => Ok(()),
-            Ok(num) => unimplemented!(),
-            Err(e) => unimplemented!(),
-        }
     }
 
     fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PaymentError> {
         let formally_signed_rowid =
-            jackass_unsigned_to_signed(transaction_id.rowid).map_err(|e| {
-                unimplemented!();
-                PaymentError(PaymentErrorKind::SignConversion(e), transaction_id)
-            })?;
+            i64::try_from(transaction_id.rowid).expect("SQLite counts up to i64::MAX");
         let mut stm = self
             .conn
             .prepare("update payable set pending_payment_rowid = ? where pending_payment_rowid = ?")
@@ -142,8 +137,14 @@ impl PayableDao for PayableDaoReal {
         let params: &[&dyn ToSql] = &[&Null, &formally_signed_rowid];
         match stm.execute(params) {
             Ok(1) => Ok(()),
-            Ok(x) => unimplemented!("{}", x),
-            Err(e) => unimplemented!(),
+            Ok(num) => Err(PaymentError(
+                PaymentErrorKind::RusqliteError(format!("Returned {} rows but expected 1", num)),
+                transaction_id,
+            )),
+            Err(e) => Err(PaymentError(
+                PaymentErrorKind::RusqliteError(e.to_string()),
+                transaction_id,
+            )),
         }
     }
 
@@ -181,32 +182,20 @@ impl PayableDao for PayableDaoReal {
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
         let mut stmt = self.conn
-            .prepare("select wallet_address, balance, last_paid_timestamp from payable where pending_payments_rowid is null")
+            .prepare("select wallet_address, balance, last_paid_timestamp from payable where pending_payment_rowid is null")
             .expect("Internal error");
 
         stmt.query_map(NO_PARAMS, |row| {
             let wallet_result: Result<Wallet, rusqlite::Error> = row.get(0);
             let balance_result = row.get(1);
             let last_paid_timestamp_result = row.get(2);
-            let rowid: rusqlite::Result<Option<i64>> = row.get(3);
-            match (
-                wallet_result,
-                balance_result,
-                last_paid_timestamp_result,
-                rowid,
-            ) {
-                (Ok(wallet), Ok(balance), Ok(last_paid_timestamp), Ok(rowid_opt)) => {
-                    Ok(PayableAccount {
-                        wallet,
-                        balance,
-                        last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                        pending_payment_rowid_opt: rowid_opt.map(|num| {
-                            u64::try_from(num).expect(
-                                "SQLite counts this in only positive numbers; should never happen",
-                            )
-                        }),
-                    })
-                }
+            match (wallet_result, balance_result, last_paid_timestamp_result) {
+                (Ok(wallet), Ok(balance), Ok(last_paid_timestamp)) => Ok(PayableAccount {
+                    wallet,
+                    balance,
+                    last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                    pending_payment_rowid_opt: None,
+                }),
                 _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
             }
         })
@@ -312,7 +301,7 @@ impl PayableDaoReal {
     fn try_increase_balance(&self, wallet: &Wallet, amount: i64) -> Result<bool, String> {
         let mut stmt = self
             .conn
-            .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (:address, :balance, strftime('%s','now'), null) on conflict (wallet_address) do update set balance = balance + :balance where wallet_address = :address")
+            .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_rowid) values (:address, :balance, strftime('%s','now'), null) on conflict (wallet_address) do update set balance = balance + :balance where wallet_address = :address")
             .expect("Internal error");
         let params: &[(&str, &dyn ToSql)] = &[(":address", &wallet), (":balance", &amount)];
         match stmt.execute_named(params) {
@@ -330,7 +319,7 @@ impl PayableDaoReal {
     ) -> Result<(), String> {
         let mut stmt = self
             .conn
-            .prepare("update payable set balance = balance - :balance, last_paid_timestamp = :last_paid where pending_payment_rowid = :referential_rowid")
+            .prepare("update payable set balance = balance - :balance, last_paid_timestamp = :last_paid, pending_payment_rowid = null where pending_payment_rowid = :referential_rowid")
             .expect("Internal error");
         let params: &[(&str, &dyn ToSql)] = &[
             (":balance", &amount),
@@ -342,7 +331,10 @@ impl PayableDaoReal {
         ];
         match stmt.execute_named(params) {
             Ok(1) => Ok(()),
-            Ok(x) => unimplemented!("{}", x),
+            Ok(x) => Err(format!(
+                "Trying to decrease balance, {} rows changed instead of 1",
+                x
+            )),
             Err(e) => Err(format!("{}", e)),
         }
     }
@@ -361,10 +353,29 @@ mod tests {
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::Connection as RusqliteConnection;
     use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+    use rusqlite::{Connection as RusqliteConnection};
     use std::path::Path;
     use web3::types::U256;
+
+    #[test]
+    fn try_decrease_balance_changed_no_rows() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "try_decrease_balance_changed_no_rows",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let subject = PayableDaoReal::new(wrapped_conn);
+
+        let result = subject.try_decrease_balance(45, 1111, SystemTime::now());
+
+        assert_eq!(
+            result,
+            Err("Trying to decrease balance, 0 rows changed instead of 1".to_string())
+        )
+    }
 
     #[test]
     fn more_money_payable_works_for_new_address() {
@@ -485,7 +496,13 @@ mod tests {
         assert_eq!(before_account_status, before_expected_status.clone());
 
         subject
-            .mark_pending_payment_rowid(&wallet, pending_payments_rowid)
+            .mark_pending_payment_rowid(
+                &wallet,
+                TransactionId {
+                    hash: Default::default(),
+                    rowid: pending_payments_rowid,
+                },
+            )
             .unwrap();
 
         let after_account_status = subject.account_status(&wallet).unwrap();
@@ -495,82 +512,49 @@ mod tests {
     }
 
     #[test]
-    fn payment_sent_records_a_pending_transaction_for_an_existing_address() {
-        todo!("convert this into transaction_confirmed()")
-        // let home_dir = ensure_node_home_directory_exists(
-        //     "payable_dao",
-        //     "payment_sent_records_a_pending_transaction_for_an_existing_address",
-        // );
-        // let wallet = make_wallet("booga");
-        // let subject = PayableDaoReal::new(
-        //     DbInitializerReal::default()
-        //         .initialize(&home_dir, true, MigratorConfig::test_default())
-        //         .unwrap(),
-        // );
-        // let payment = Payment::new(wallet.clone(), 1, H256::from_uint(&U256::from(1)));
-        //
-        // let before_account_status = subject.account_status(&payment.to);
-        // assert!(before_account_status.is_none());
-        // subject.more_money_payable(&wallet, 1).unwrap();
-        // subject.mark_pending_payment(&payment).unwrap();
-        //
-        // let after_account_status = subject.account_status(&payment.to).unwrap();
-        //
-        // assert_eq!(
-        //     after_account_status.clone(),
-        //     PayableAccount {
-        //         wallet,
-        //         balance: 0,
-        //         last_paid_timestamp: after_account_status.last_paid_timestamp,
-        //         pending_payment_transaction: Some(H256::from_uint(&U256::from(1))),
-        //     }
-        // )
-    }
-
-    #[test]
-    fn payment_sent_works_for_overflow() {
-        todo!("maybe convert this into transaction_confirmed()")
-        // let home_dir =
-        //     ensure_node_home_directory_exists("payable_dao", "payment_sent_works_for_overflow");
-        // let wallet = make_wallet("booga");
-        // let subject = PayableDaoReal::new(
-        //     DbInitializerReal::default()
-        //         .initialize(&home_dir, true, MigratorConfig::test_default())
-        //         .unwrap(),
-        // );
-        // let payment = Payment::new(wallet, u64::MAX, H256::from_uint(&U256::from(1)));
-        //
-        // let result = subject.mark_pending_payment(&payment);
-        //
-        // assert_eq!(
-        //     result,
-        //     Err(PaymentError::PostTransaction(
-        //         PaymentErrorKind::SignConversion(u64::MAX),
-        //         payment.transaction
-        //     ))
-        // )
-    }
-
-    #[test]
-    fn transaction_canceled_works_for_overflow() {
+    fn mark_pending_payment_returned_different_row_count_than_expected() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "transaction_canceled_works_for_overflow",
+            "mark_pending_payment_returned_different_row_count_than_expected",
         );
-        let subject = PayableDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
-                .unwrap(),
-        );
-        let hash = H256::from_uint(&U256::from(12345));
-        let rowid = 789;
+        let wallet = make_wallet("booga");
+        let hash = H256::from_uint(&U256::from(45678));
+        let rowid = 656;
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let subject = PayableDaoReal::new(conn);
 
-        let result = subject.transaction_canceled(TransactionId { hash, rowid });
+        let result = subject.mark_pending_payment_rowid(&wallet, TransactionId { hash, rowid });
 
         assert_eq!(
             result,
             Err(PaymentError(
-                PaymentErrorKind::SignConversion(u64::MAX),
+                PaymentErrorKind::RusqliteError("Returned 0 rows but expected 1".to_string()),
+                TransactionId { hash, rowid }
+            ))
+        )
+    }
+
+    #[test]
+    fn mark_pending_payment_handles_general_sql_error() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "mark_pending_payment_handles_general_sql_error",
+        );
+        let wallet = make_wallet("booga");
+        let hash = H256::from_uint(&U256::from(45678));
+        let rowid = 656;
+        let conn = how_to_trick_rusqlite_for_an_error(&home_dir);
+        let conn_wrapped = ConnectionWrapperReal::new(conn);
+        let subject = PayableDaoReal::new(Box::new(conn_wrapped));
+
+        let result = subject.mark_pending_payment_rowid(&wallet, TransactionId { hash, rowid });
+
+        assert_eq!(
+            result,
+            Err(PaymentError(
+                PaymentErrorKind::RusqliteError("attempt to write a readonly database".to_string()),
                 TransactionId { hash, rowid }
             ))
         )
@@ -582,7 +566,7 @@ mod tests {
             "payable_dao",
             "transaction_canceled_works_for_generic_sql_error",
         );
-        let conn = how_to_trick_rusqlite_to_throw_an_error(&home_dir);
+        let conn = how_to_trick_rusqlite_for_an_error(&home_dir);
         let conn_wrapped = ConnectionWrapperReal::new(conn);
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
         let hash = H256::from_uint(&U256::from(12345));
@@ -600,15 +584,42 @@ mod tests {
     }
 
     #[test]
+    fn transaction_canceled_returned_different_row_count_than_expected() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "transaction_canceled_returned_different_row_count_than_expected",
+        );
+        let hash = H256::from_uint(&U256::from(45678));
+        let rowid = 656;
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let subject = PayableDaoReal::new(conn);
+
+        let result = subject.transaction_canceled(TransactionId { hash, rowid });
+
+        assert_eq!(
+            result,
+            Err(PaymentError(
+                PaymentErrorKind::RusqliteError("Returned 0 rows but expected 1".to_string()),
+                TransactionId { hash, rowid }
+            ))
+        )
+    }
+
+    #[test]
     fn transaction_confirmed_works_for_generic_sql_error() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
             "transaction_confirmed_works_for_generic_sql_error",
         );
-        let conn = how_to_trick_rusqlite_to_throw_an_error(&home_dir);
+        let conn = how_to_trick_rusqlite_for_an_error(&home_dir);
         let conn_wrapped = ConnectionWrapperReal::new(conn);
-        let payment_backup = make_payment_backup();
+        let mut payment_backup = make_payment_backup();
         let hash = H256::from_uint(&U256::from(12345));
+        let rowid = 789;
+        payment_backup.hash = hash;
+        payment_backup.rowid = rowid;
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
         let result = subject.transaction_confirmed(&payment_backup);
@@ -617,15 +628,42 @@ mod tests {
             result,
             Err(PaymentError(
                 PaymentErrorKind::RusqliteError("attempt to write a readonly database".to_string()),
-                TransactionId {
-                    hash,
-                    rowid: unimplemented!()
-                }
+                TransactionId { hash, rowid }
             ))
         )
     }
 
-    fn how_to_trick_rusqlite_to_throw_an_error(path: &Path) -> Connection {
+    #[test]
+    fn transaction_confirmed_works_for_overflow() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "transaction_confirmed_works_for_overflow",
+        );
+        let wallet = make_wallet("booga");
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .unwrap(),
+        );
+        let mut payment_backup = make_payment_backup();
+        let hash = H256::from_uint(&U256::from(12345));
+        let rowid = 789;
+        payment_backup.hash = hash;
+        payment_backup.rowid = rowid;
+        payment_backup.amount = u64::MAX;
+
+        let result = subject.transaction_confirmed(&payment_backup);
+
+        assert_eq!(
+            result,
+            Err(PaymentError(
+                PaymentErrorKind::SignConversion(u64::MAX),
+                TransactionId { hash, rowid }
+            ))
+        )
+    }
+
+    fn how_to_trick_rusqlite_for_an_error(path: &Path) -> Connection {
         let db_path = path.join("experiment.db");
         let conn = RusqliteConnection::open_with_flags(&db_path, OpenFlags::default()).unwrap();
         {
@@ -636,7 +674,7 @@ mod tests {
                     wallet_address real primary key,
                     balance text not null,
                     last_paid_timestamp real not null,
-                    pending_payment_transaction real not null)\
+                    pending_payment_rowid integer null)\
                     ",
                 )
                 .unwrap();
@@ -700,26 +738,18 @@ mod tests {
         let conn =
             Connection::open_with_flags(&home_dir.join(db_initializer::DATABASE_FILE), flags)
                 .unwrap();
-        let insert = |wallet: &str, balance: i64, pending_payment_transaction: Option<&str>| {
-            let params: &[&dyn ToSql] = &[&wallet, &balance, &0i64, &pending_payment_transaction];
+        let insert = |wallet: &str, balance: i64, pending_payment_rowid: Option<i64>| {
+            let params: &[&dyn ToSql] = &[&wallet, &balance, &0i64, &pending_payment_rowid];
 
             conn
-                .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?, ?, ?, ?)")
+                .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_rowid) values (?, ?, ?, ?)")
                 .unwrap()
                 .execute(params)
                 .unwrap();
         };
 
-        insert(
-            "0x0000000000000000000000000000000000666f6f",
-            42,
-            Some("0x155553215215"),
-        );
-        insert(
-            "0x0000000000000000000000000000000000626172",
-            24,
-            Some("0x689477777623"),
-        );
+        insert("0x0000000000000000000000000000000000666f6f", 42, Some(15));
+        insert("0x0000000000000000000000000000000000626172", 24, Some(16));
         insert("0x0000000000000000000000000000666f6f626172", 44, None);
         insert("0x0000000000000000000000000000626172666f6f", 22, None);
 
@@ -762,32 +792,36 @@ mod tests {
     }
 
     #[test]
-    fn payable_amount_errors_on_update_balance_when_out_of_range() {
-        todo!("maybe convert this into transaction_confirmed()")
-        // let home_dir = ensure_node_home_directory_exists(
-        //     "payable_dao",
-        //     "payable_amount_precision_loss_panics_on_update_balance",
-        // );
-        // let payment = Payment::new(
-        //     make_wallet("foobar"),
-        //     u64::MAX,
-        //     H256::from_uint(&U256::from(123)),
-        // );
-        // let subject = PayableDaoReal::new(
-        //     DbInitializerReal::default()
-        //         .initialize(&home_dir, true, MigratorConfig::test_default())
-        //         .unwrap(),
-        // );
-        //
-        // let result = subject.mark_pending_payment(&payment);
-        //
-        // assert_eq!(
-        //     result,
-        //     Err(PaymentError::PostTransaction(
-        //         PaymentErrorKind::SignConversion(u64::MAX),
-        //         payment.transaction
-        //     ))
-        // )
+    fn payable_amount_error_on_transaction_confirmed_updating_balance_out_of_range() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "payable_amount_precision_loss_panics_on_update_balance",
+        );
+        let hash = H256::from_uint(&U256::from(123));
+        let rowid = 3;
+        let payment_backup = PaymentBackupRecord {
+            rowid,
+            timestamp: SystemTime::now(),
+            hash,
+            attempt: 1,
+            amount: u64::MAX,
+            process_error: None,
+        };
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .unwrap(),
+        );
+
+        let result = subject.transaction_confirmed(&payment_backup);
+
+        assert_eq!(
+            result,
+            Err(PaymentError(
+                PaymentErrorKind::SignConversion(u64::MAX),
+                TransactionId { hash, rowid }
+            ))
+        )
     }
 
     #[test]

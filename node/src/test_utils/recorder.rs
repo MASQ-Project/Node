@@ -178,7 +178,6 @@ impl Handler<RetrieveTransactions> for Recorder {
         msg: RetrieveTransactions,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<RetrieveTransactions>>::Result {
-        eprintln!("booooo");
         self.record(msg);
         MessageResult(extract_response(
             &mut self.retrieve_transactions_responses,
