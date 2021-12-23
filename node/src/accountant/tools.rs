@@ -72,21 +72,22 @@ pub(in crate::accountant) mod accountant_tools {
     }
 
     pub struct TransactionConfirmationTools {
-        pub request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
-        pub notify_handle_request_transaction_receipts:
+        pub notify_later_handle_request_transaction_receipts:
             Box<dyn NotifyLaterHandle<RequestTransactionReceipts>>,
+        pub request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
+        pub notify_handle_confirm_transaction: Box<dyn NotifyHandle<ConfirmPendingTransaction>>,
         pub notify_handle_cancel_failed_transaction:
             Box<dyn NotifyHandle<CancelFailedPendingTransaction>>,
-        pub notify_handle_confirm_transaction: Box<dyn NotifyHandle<ConfirmPendingTransaction>>,
     }
 
     impl TransactionConfirmationTools {
         pub fn new() -> Self {
             Self {
+                //TODO untested for real???
+                notify_later_handle_request_transaction_receipts: Default::default(),
                 request_transaction_receipts_subs_opt: None,
-                notify_handle_request_transaction_receipts: Default::default(),
-                notify_handle_cancel_failed_transaction: Default::default(),
                 notify_handle_confirm_transaction: Default::default(),
+                notify_handle_cancel_failed_transaction: Default::default(),
             }
         }
     }

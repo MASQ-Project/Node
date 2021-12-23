@@ -347,7 +347,7 @@ pub fn bc_from_ac_plus_wallets(
 #[derive(Default)]
 pub struct PendingPaymentsDaoMock {
     payment_backup_exists_params: Arc<Mutex<Vec<H256>>>,
-    payment_backup_exists_results: RefCell<Vec<bool>>,
+    payment_backup_exists_results: RefCell<Vec<Option<u64>>>,
     delete_payment_backup_params: Arc<Mutex<Vec<u64>>>,
     delete_payment_backup_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
     insert_payment_backup_params: Arc<Mutex<Vec<(H256, u64, SystemTime)>>>,
@@ -357,13 +357,12 @@ pub struct PendingPaymentsDaoMock {
     read_payment_backup_params: Arc<Mutex<Vec<H256>>>,
     read_payment_backup_results: RefCell<Vec<Result<PaymentBackupRecord, PendingPaymentDaoError>>>,
     return_all_payment_backups_params: Arc<Mutex<Vec<()>>>,
-    return_all_backup_records_results:
-        RefCell<Vec<Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError>>>,
+    return_all_backup_records_results: RefCell<Vec<Vec<PaymentBackupRecord>>>,
     pub have_return_all_backup_records_shut_down_the_system: bool,
 }
 
 impl PendingPaymentsDao for PendingPaymentsDaoMock {
-    fn payment_backup_exists(&self, transaction_hash: H256) -> bool {
+    fn payment_backup_exists(&self, transaction_hash: H256) -> Option<u64> {
         self.payment_backup_exists_params
             .lock()
             .unwrap()
@@ -371,20 +370,7 @@ impl PendingPaymentsDao for PendingPaymentsDaoMock {
         self.payment_backup_exists_results.borrow_mut().remove(0)
     }
 
-    fn read_payment_backup(
-        &self,
-        transaction_hash: H256,
-    ) -> Result<PaymentBackupRecord, PendingPaymentDaoError> {
-        self.read_payment_backup_params
-            .lock()
-            .unwrap()
-            .push(transaction_hash);
-        self.read_payment_backup_results.borrow_mut().remove(0)
-    }
-
-    fn return_all_payment_backups(
-        &self,
-    ) -> Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError> {
+    fn return_all_payment_backups(&self) -> Vec<PaymentBackupRecord> {
         self.return_all_payment_backups_params
             .lock()
             .unwrap()
@@ -393,7 +379,7 @@ impl PendingPaymentsDao for PendingPaymentsDaoMock {
             && self.return_all_backup_records_results.borrow().is_empty()
         {
             System::current().stop();
-            return Ok(vec![]);
+            return vec![];
         }
         self.return_all_backup_records_results
             .borrow_mut()
@@ -419,6 +405,10 @@ impl PendingPaymentsDao for PendingPaymentsDaoMock {
         self.delete_payment_backup_results.borrow_mut().remove(0)
     }
 
+    fn update_record_after_cycle(&self, id: u64) -> Result<(), PendingPaymentDaoError> {
+        todo!()
+    }
+
     fn mark_failure(&self, id: u64) -> Result<(), PendingPaymentDaoError> {
         self.mark_failure_params.lock().unwrap().push(id);
         self.mark_failure_results.borrow_mut().remove(0)
@@ -431,7 +421,7 @@ impl PendingPaymentsDaoMock {
         self
     }
 
-    pub fn payment_backup_exists_result(self, result: bool) -> Self {
+    pub fn payment_backup_exists_result(self, result: Option<u64>) -> Self {
         self.payment_backup_exists_results.borrow_mut().push(result);
         self
     }
@@ -459,28 +449,12 @@ impl PendingPaymentsDaoMock {
         self
     }
 
-    pub fn read_payment_backup_params(mut self, params: &Arc<Mutex<Vec<H256>>>) -> Self {
-        self.read_payment_backup_params = params.clone();
-        self
-    }
-
-    pub fn read_payment_backup_result(
-        self,
-        result: Result<PaymentBackupRecord, PendingPaymentDaoError>,
-    ) -> Self {
-        self.read_payment_backup_results.borrow_mut().push(result);
-        self
-    }
-
     pub fn return_all_payment_backups_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
         self.return_all_payment_backups_params = params.clone();
         self
     }
 
-    pub fn return_all_payment_backups_result(
-        self,
-        result: Result<Vec<PaymentBackupRecord>, PendingPaymentDaoError>,
-    ) -> Self {
+    pub fn return_all_payment_backups_result(self, result: Vec<PaymentBackupRecord>) -> Self {
         self.return_all_backup_records_results
             .borrow_mut()
             .push(result);

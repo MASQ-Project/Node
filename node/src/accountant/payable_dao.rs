@@ -29,18 +29,15 @@ pub struct Payment {
     pub amount: u64,
     pub timestamp: SystemTime,
     pub transaction: H256,
-    //rowid from pending_payments corresponding to this wallet account in payables
-    pub rowid: u64,
 }
 
 impl Payment {
-    pub fn new(to: Wallet, amount: u64, txn: H256, timestamp: SystemTime, rowid: u64) -> Self {
+    pub fn new(to: Wallet, amount: u64, txn: H256, timestamp: SystemTime) -> Self {
         Self {
             to,
             amount,
             timestamp,
             transaction: txn,
-            rowid,
         }
     }
 }
@@ -353,8 +350,8 @@ mod tests {
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use rusqlite::Connection as RusqliteConnection;
     use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-    use rusqlite::{Connection as RusqliteConnection};
     use std::path::Path;
     use web3::types::U256;
 
@@ -639,7 +636,6 @@ mod tests {
             "payable_dao",
             "transaction_confirmed_works_for_overflow",
         );
-        let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
                 .initialize(&home_dir, true, MigratorConfig::test_default())

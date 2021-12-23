@@ -3,8 +3,8 @@
 #![cfg(test)]
 
 use crate::blockchain::blockchain_interface::{
-    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, SendTransactionInputs,
-    Transaction, Transactions, TxReceipt, REQUESTS_IN_PARALLEL,
+    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, Receipt,
+    SendTransactionInputs, Transaction, Transactions, REQUESTS_IN_PARALLEL,
 };
 use crate::blockchain::tool_wrappers::{
     NotifyHandle, NotifyLaterHandle, PaymentBackupRecipientWrapper, SendTransactionToolWrapper,
@@ -40,7 +40,7 @@ pub struct BlockchainInterfaceMock {
     send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
     send_transaction_results: RefCell<Vec<BlockchainResult<(H256, SystemTime)>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
-    get_transaction_receipt_results: RefCell<Vec<TxReceipt>>,
+    get_transaction_receipt_results: RefCell<Vec<Receipt>>,
     send_transaction_tools_results: RefCell<Vec<Box<dyn SendTransactionToolWrapper>>>,
     contract_address_results: RefCell<Vec<Address>>,
     get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
@@ -94,7 +94,7 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn get_transaction_receipt_result(self, result: TxReceipt) -> Self {
+    pub fn get_transaction_receipt_result(self, result: Receipt) -> Self {
         self.get_transaction_receipt_results
             .borrow_mut()
             .push(result);
@@ -153,7 +153,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.get_transaction_count_results.borrow_mut().remove(0)
     }
 
-    fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
+    fn get_transaction_receipt(&self, hash: H256) -> Receipt {
         self.get_transaction_receipt_params
             .lock()
             .unwrap()
@@ -163,7 +163,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
     fn send_transaction_tools<'a>(
         &'a self,
-        backup_recipient: &dyn PaymentBackupRecipientWrapper,
+        _backup_recipient: &dyn PaymentBackupRecipientWrapper,
     ) -> Box<dyn SendTransactionToolWrapper + 'a> {
         self.send_transaction_tools_results.borrow_mut().remove(0)
     }

@@ -5,7 +5,7 @@ use crate::accountant::SentPayments;
 use crate::accountant::{PaymentError, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, BlockchainResult, SendTransactionInputs, Transaction
+    BlockchainInterfaceNonClandestine, BlockchainResult, SendTransactionInputs, Transaction,
 };
 use crate::blockchain::tool_wrappers::PaymentBackupRecipientWrapperReal;
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
@@ -308,9 +308,6 @@ impl BlockchainBridge {
             .get_transaction_count(consuming_wallet)?;
         let unsigned_amount = u64::try_from(payable.balance)
             .expect("negative balance accounts should never be seen here");
-        let pending_payment_rowid = payable
-            .pending_payment_rowid_opt
-            .expect("accounts failing to fetch a relevant rowid should've been left out");
         match self.blockchain_interface.send_transaction(
             SendTransactionInputs::new(payable, consuming_wallet, nonce, gas_price)?,
             self.blockchain_interface
@@ -327,7 +324,6 @@ impl BlockchainBridge {
                 unsigned_amount,
                 hash,
                 timestamp,
-                pending_payment_rowid,
             )),
             Err(e) => Err(e),
         }
@@ -593,13 +589,13 @@ mod tests {
                     wallet: make_wallet("blah"),
                     balance: 420,
                     last_paid_timestamp: from_time_t(150_000_000),
-                    pending_payment_rowid_opt: Some(789),
+                    pending_payment_rowid_opt: None,
                 },
                 PayableAccount {
                     wallet: make_wallet("foo"),
                     balance: 210,
                     last_paid_timestamp: from_time_t(120_000_000),
-                    pending_payment_rowid_opt: Some(790),
+                    pending_payment_rowid_opt: None,
                 },
             ],
         });
@@ -649,15 +645,13 @@ mod tests {
                     to: make_wallet("blah"),
                     amount: 420,
                     timestamp: from_time_t(0), //cannot be asserted directly, this field is just a sentinel
-                    transaction: H256::from("sometransactionhash".keccak256()),
-                    rowid: 789
+                    transaction: H256::from("sometransactionhash".keccak256())
                 }),
                 Ok(Payment {
                     to: make_wallet("foo"),
                     amount: 210,
                     timestamp: from_time_t(0), //cannot be asserted directly, this field is just a sentinel
-                    transaction: H256::from("someothertransactionhash".keccak256()),
-                    rowid: 790
+                    transaction: H256::from("someothertransactionhash".keccak256())
                 })
             ]
         )
@@ -712,7 +706,6 @@ mod tests {
             .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
             .get_transaction_receipt_result(Ok(Some(TransactionReceipt::default())))
             .get_transaction_receipt_result(Ok(None));
-        let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(PersistentConfigurationMock::default()),

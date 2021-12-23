@@ -74,7 +74,7 @@ pub type BlockchainResult<T> = Result<T, BlockchainError>;
 pub type Balance = BlockchainResult<web3::types::U256>;
 pub type Nonce = BlockchainResult<web3::types::U256>;
 pub type Transactions = BlockchainResult<Vec<Transaction>>;
-pub type TxReceipt = BlockchainResult<Option<TransactionReceipt>>;
+pub type Receipt = BlockchainResult<Option<TransactionReceipt>>;
 
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
@@ -100,7 +100,7 @@ pub trait BlockchainInterface {
 
     fn get_transaction_count(&self, address: &Wallet) -> Nonce;
 
-    fn get_transaction_receipt(&self, hash: H256) -> TxReceipt;
+    fn get_transaction_receipt(&self, hash: H256) -> Receipt;
 
     fn send_transaction_tools<'a>(
         &'a self,
@@ -167,7 +167,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Ok(0.into())
     }
 
-    fn get_transaction_receipt(&self, _hash: H256) -> TxReceipt {
+    fn get_transaction_receipt(&self, _hash: H256) -> Receipt {
         error!(
             self.logger,
             "Can't get transaction receipt clandestinely yet",
@@ -310,11 +310,11 @@ where
             .wait()
     }
 
-    fn get_transaction_receipt(&self, hash: H256) -> TxReceipt {
+    fn get_transaction_receipt(&self, hash: H256) -> Receipt {
         self.web3
             .eth()
             .transaction_receipt(hash)
-            .map_err(|e| unimplemented!("{}", e.to_string()))
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
 
@@ -450,10 +450,8 @@ impl<'a> SendTransactionInputs<'a> {
         Ok(Self {
             recipient: &account.wallet,
             consuming_wallet,
-            amount: u64::try_from(account.balance).map_err(|_| {
-                unimplemented!();
-                BlockchainError::UnsupportableSignValue(account.balance)
-            })?,
+            amount: u64::try_from(account.balance)
+                .map_err(|_| BlockchainError::UnsupportableSignValue(account.balance))?,
             nonce,
             gas_price,
         })
@@ -495,7 +493,7 @@ mod tests {
     use crate::test_utils::{make_wallet, TestRawTransaction};
     use actix::{Actor, System};
     use crossbeam_channel::unbounded;
-    use ethereum_types::U64;
+    use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
@@ -967,7 +965,7 @@ mod tests {
             rowid: 0,
             timestamp,
             hash,
-            attempt: 1,
+            attempt: 0,
             amount: amount as u64,
             process_error: None,
         };
@@ -1025,7 +1023,6 @@ mod tests {
             .request_new_payment_backup_result(payment_timestamp)
             .send_raw_transaction_params(&send_raw_transaction_params_arc)
             .send_raw_transaction_result(Ok(hash));
-        let rowid_from_pending_tables = 6;
         let amount = 50_000;
         let account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
             make_wallet("blah123"),
@@ -1133,7 +1130,6 @@ mod tests {
             .sign_transaction_params(&sign_transaction_params_arc)
             //I don't want to set up all the mocks - I want see just the params coming in
             .sign_transaction_result(Err(Web3Error::Internal));
-        let recipient_wallet = make_wallet("blah123");
         let payable_account = make_payable_account(1);
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
         let inputs =
@@ -1446,14 +1442,6 @@ mod tests {
         assert_signature(Chain::EthRopsten, signatures)
     }
 
-    #[test]
-    fn experiment() {
-        let secret_raw = "12345678901234567890123456789012";
-        let key_provider = Bip32ECKeyProvider::from_raw_secret(secret_raw.as_bytes()).unwrap();
-        let wallet = Wallet::from(key_provider);
-        eprintln!("{}", wallet)
-    }
-
     #[derive(Deserialize)]
     struct Signing {
         signed: Vec<u8>,
@@ -1609,6 +1597,33 @@ mod tests {
     }
 
     #[test]
+    fn get_transaction_receipt_handles_errors() {
+        let port = find_free_port();
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            event_loop_handle,
+            TEST_DEFAULT_CHAIN,
+        );
+        let tx_hash = H256::from_uint(&U256::from(4564546));
+
+        let result = subject.get_transaction_receipt(tx_hash);
+
+        assert_eq!(
+            result,
+            Err(BlockchainError::QueryFailed(
+                "Transport error: Error(Connect, Os \
+         { code: 111, kind: ConnectionRefused, message: \"Connection refused\" })"
+                    .to_string()
+            ))
+        )
+    }
+
+    #[test]
     fn to_gwei_truncates_units_smaller_than_gwei() {
         assert_eq!(Some(1), to_gwei(U256::from(1_999_999_999)));
     }
@@ -1650,5 +1665,17 @@ mod tests {
             TRANSFER_METHOD_ID,
             "transfer(address,uint256)".keccak256()[0..4]
         );
+    }
+
+    #[test]
+    fn send_transaction_inputs_constructor_handles_value_out_of_range() {
+        let mut payable_account = make_payable_account(5);
+        payable_account.balance = -100;
+        let consuming_wallet = make_wallet("blah");
+
+        let result =
+            SendTransactionInputs::new(&payable_account, &consuming_wallet, U256::from(4545), 130);
+
+        assert_eq!(result, Err(BlockchainError::UnsupportableSignValue(-100)))
     }
 }

@@ -660,6 +660,26 @@ mod tests {
     }
 
     #[test]
+    fn db_initialize_creates_pending_payments_table() {
+        let home_dir = ensure_node_home_directory_does_not_exist(
+            "db_initializer",
+            "db_initialize_creates_pending_payments_table",
+        );
+        let subject = DbInitializerReal::default();
+
+        subject
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+
+        let mut flags = OpenFlags::empty();
+        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
+        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
+        let mut stmt = conn.prepare ("select rowid, transaction_hash, amount, payment_timestamp, attempt, process_error from pending_payments").unwrap ();
+        let mut payable_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
+        assert!(payable_contents.next().is_none());
+    }
+
+    #[test]
     fn db_initialize_creates_payable_table() {
         let home_dir = ensure_node_home_directory_does_not_exist(
             "db_initializer",
@@ -674,8 +694,7 @@ mod tests {
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-
-        let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payment_transaction from payable").unwrap ();
+        let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payment_rowid from payable").unwrap ();
         let mut payable_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
     }
@@ -695,7 +714,6 @@ mod tests {
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-
         let mut stmt = conn
             .prepare("select wallet_address, balance, last_received_timestamp from receivable")
             .unwrap();
@@ -718,7 +736,6 @@ mod tests {
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
         let mut banned_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
         assert!(banned_contents.next().is_none());
