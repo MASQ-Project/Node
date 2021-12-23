@@ -90,9 +90,9 @@ impl ConfigurationCommand {
         );
         Self::dump_configuration_line(
             stream,
-            "Consuming wallet derivation path:",
+            "Consuming wallet private key:",
             &configuration
-                .consuming_wallet_derivation_path_opt
+                .consuming_wallet_private_key_opt
                 .unwrap_or_else(|| "[?]".to_string()),
         );
         Self::dump_configuration_line(
@@ -125,13 +125,6 @@ impl ConfigurationCommand {
             stream,
             "Start block:",
             &configuration.start_block.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Mnemonic seed:",
-            &configuration
-                .mnemonic_seed_opt
-                .unwrap_or_else(|| "[?]".to_string()),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
     }
@@ -241,9 +234,8 @@ mod tests {
             clandestine_port: 1234,
             chain_name: "ropsten".to_string(),
             gas_price: 2345,
-            mnemonic_seed_opt: Some("mnemonic seed".to_string()),
             neighborhood_mode: "standard".to_string(),
-            consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
+            consuming_wallet_private_key_opt: Some("consuming wallet private key".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
             port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
             past_neighbors: vec!["neighbor 1".to_string(), "neighbor 2".to_string()],
@@ -277,16 +269,15 @@ mod tests {
             "\
 |NAME                              VALUE\n\
 |Blockchain service URL:           https://infura.io/ID\n\
-|Chain                             ropsten\n\
+|Chain:                            ropsten\n\
 |Clandestine port:                 1234\n\
-|Consuming wallet derivation path: consuming path\n\
+|Consuming wallet private key:     consuming wallet private key\n\
 |Current schema version:           schema version\n\
 |Earning wallet address:           earning address\n\
 |Gas price:                        2345\n\
 |Neighborhood mode:                standard\n\
 |Port mapping protocol:            PCP\n\
 |Start block:                      3456\n\
-|Mnemonic seed:                    mnemonic seed\n\
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
 "
@@ -305,9 +296,8 @@ mod tests {
             clandestine_port: 1234,
             chain_name: "mumbai".to_string(),
             gas_price: 2345,
-            mnemonic_seed_opt: None,
             neighborhood_mode: "zero-hop".to_string(),
-            consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
+            consuming_wallet_private_key_opt: None,
             earning_wallet_address_opt: Some("earning wallet".to_string()),
             port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
             past_neighbors: vec![],
@@ -339,16 +329,15 @@ mod tests {
             "\
 NAME                              VALUE\n\
 Blockchain service URL:           https://infura.io/ID\n\
-Chain                             mumbai\n\
+Chain:                            mumbai\n\
 Clandestine port:                 1234\n\
-Consuming wallet derivation path: consuming path\n\
+Consuming wallet private key:     [?]\n\
 Current schema version:           schema version\n\
 Earning wallet address:           earning wallet\n\
 Gas price:                        2345\n\
 Neighborhood mode:                zero-hop\n\
 Port mapping protocol:            PCP\n\
 Start block:                      3456\n\
-Mnemonic seed:                    [?]\n\
 Past neighbors:                   [?]\n\
 "
             .to_string()

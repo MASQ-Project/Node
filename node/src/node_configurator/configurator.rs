@@ -2105,7 +2105,7 @@ mod tests {
             db_password: "password".to_string(),
             seed_spec_opt: Some(UiGenerateSeedSpec {
                 mnemonic_phrase_size: 24,
-                mnemonic_phrase_language: "English".to_string(),
+                mnemonic_phrase_language: "English".to_string(),N
                 mnemonic_passphrase_opt: Some("booga".to_string()),
             }),
             consuming_derivation_path_opt: Some(derivation_path(0, 4)),

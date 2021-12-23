@@ -374,7 +374,7 @@ impl DbMigratorReal {
         record: &dyn DatabaseMigration,
         migration_utilities: &'a (dyn DBMigrationUtilities + 'a),
     ) -> rusqlite::Result<()> {
-eprintln!("Migrating from version {} to version {}", record.old_version(), record.old_version() + 1);
+        info! (&self.logger, "Migrating from version {} to version {}", record.old_version(), record.old_version() + 1);
         record.migrate(migration_utilities.make_mig_declaration_utils(&self.external))?;
         let migrate_to = record.old_version() + 1;
         migration_utilities.update_schema_version(migrate_to)
