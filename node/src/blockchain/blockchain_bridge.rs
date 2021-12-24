@@ -2,7 +2,10 @@
 
 use crate::accountant::payable_dao::Payment;
 use crate::accountant::{ReceivedPayments, SentPayments};
-use crate::blockchain::blockchain_interface::{BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine, BlockchainResult, Transactions};
+use crate::blockchain::blockchain_interface::{
+    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
+    BlockchainResult, Transactions,
+};
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
 use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -16,10 +19,10 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::handle_ui_crash_request;
 use crate::sub_lib::wallet::Wallet;
+use actix::Actor;
 use actix::Context;
 use actix::Handler;
 use actix::Message;
-use actix::{Actor};
 use actix::{Addr, Recipient};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -70,12 +73,11 @@ impl Handler<BindMessage> for BlockchainBridge {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Message)]
+#[derive(Debug, Eq, PartialEq, Message, Clone)]
 pub struct RetrieveTransactions {
     pub start_block: u64,
     pub recipient: Wallet,
 }
-//Result<Vec<Transaction>, BlockchainError>
 impl Handler<RetrieveTransactions> for BlockchainBridge {
     type Result = ();
 
@@ -201,16 +203,17 @@ impl BlockchainBridge {
         }
     }
 
-    fn handle_retrieve_transactions(&self, msg: RetrieveTransactions){
+    fn handle_retrieve_transactions(&self, msg: RetrieveTransactions) {
         let retrieved_transactions = self.handle_retrieve_transactions_inner(msg);
         match retrieved_transactions {
-            Ok(transactions) => {
-                self.received_payments_subs_opt
-                    .as_ref()
-                    .expect("Accountant is unbound")
-                    .try_send(ReceivedPayments { payments: transactions })
-                    .expect("Accountant is dead.")
-            }
+            Ok(transactions) => self
+                .received_payments_subs_opt
+                .as_ref()
+                .expect("Accountant is unbound")
+                .try_send(ReceivedPayments {
+                    payments: transactions,
+                })
+                .expect("Accountant is dead."),
             Err(e) => warning!(self.logger, "{}", e),
         }
     }
@@ -261,7 +264,7 @@ mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchain_interface::{BlockchainError};
+    use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
@@ -274,7 +277,6 @@ mod tests {
     };
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use actix::Addr;
     use actix::System;
     use ethsign::SecretKey;
     use ethsign_crypto::Keccak256;
@@ -303,7 +305,7 @@ mod tests {
             Some(consuming_wallet.clone()),
         );
         let system = System::new("blockchain_bridge_receives_bind_message");
-        let addr: Addr<BlockchainBridge> = subject.start();
+        let addr = subject.start();
 
         addr.try_send(BindMessage {
             peer_actors: peer_actors_builder().build(),
@@ -328,7 +330,7 @@ mod tests {
             None,
         );
         let system = System::new("blockchain_bridge_receives_bind_message");
-        let addr: Addr<BlockchainBridge> = subject.start();
+        let addr = subject.start();
 
         addr.try_send(BindMessage {
             peer_actors: peer_actors_builder().build(),
@@ -378,7 +380,7 @@ mod tests {
             false,
             None,
         );
-        let addr: Addr<BlockchainBridge> = subject.start();
+        let addr = subject.start();
 
         let request = addr.send(RetrieveTransactions {
             start_block: block_no,
@@ -482,7 +484,7 @@ mod tests {
             false,
             Some(consuming_wallet.clone()),
         );
-        let addr: Addr<BlockchainBridge> = subject.start();
+        let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
@@ -565,21 +567,34 @@ mod tests {
     fn retrieve_transactions_sends_transactions_to_blockchain_interface() {
         let system =
             System::new("retrieve_transactions_sends_transactions_to_blockchain_interface");
-        let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let blockchain_interface_mock = BlockchainInterfaceMock::default()
-            .get_transaction_count_params(&get_transaction_count_params_arc);
+        let earning_wallet = make_wallet("somewallet");
+        let amount = 42u64;
+        let amount2 = 55u64;
         let expected_gas_price = 5u64;
+        let expected_transactions = vec![
+            Transaction {
+                block_number: 7u64,
+                from: earning_wallet.clone(),
+                gwei_amount: amount,
+            },
+            Transaction {
+                block_number: 9u64,
+                from: earning_wallet.clone(),
+                gwei_amount: amount2,
+            },
+        ];
+        let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .retrieve_transactions_result(Ok(expected_transactions.clone()));
         let persistent_configuration_mock =
             PersistentConfigurationMock::default().gas_price_result(Ok(expected_gas_price));
-        let earning_wallet = make_wallet("somewallet");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
             false,
             Some(earning_wallet.clone()),
         );
-        let addr: Addr<BlockchainBridge> = subject.start();
+        let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
@@ -588,19 +603,16 @@ mod tests {
             start_block: 0u64,
             recipient: earning_wallet.clone(),
         });
-
         System::current().stop();
         system.run();
-        let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
-        assert_eq!(
-            *get_transaction_count_params,
-            vec![earning_wallet.clone(), earning_wallet.clone()]
-        );
+
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
-        let retrieve_transactions_msg = accountant_received_payment.get_record::<RetrieveTransactions>(0);
-        let retrieve_transactions_cloned = retrieve_transactions_msg.recipient.clone();
-        assert_eq!(retrieve_transactions_cloned, earning_wallet.clone())
+        let retrieve_transactions_msg =
+            accountant_received_payment.get_record::<ReceivedPayments>(0);
+        let retrieve_transactions_cloned = retrieve_transactions_msg.payments.clone();
+        let expected_transactions_cloned = expected_transactions.clone();
+        assert_eq!(retrieve_transactions_cloned, expected_transactions_cloned)
     }
 
     #[test]

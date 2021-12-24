@@ -403,7 +403,7 @@ pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
         report_sent_payments: recipient!(addr, SentPayments),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),
         scan_for_payables: recipient!(addr, ScanForPayables),
-        scan_for_receivables: recipient!(addr, ScanForReceivables)
+        scan_for_receivables: recipient!(addr, ScanForReceivables),
     }
 }
 
