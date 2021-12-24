@@ -6,11 +6,18 @@ use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, Transaction,
     Transactions,
 };
+use crate::blockchain::tool_wrappers::{
+    SendTransactionToolsWrapper, SendTransactionToolsWrapperNull,
+};
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, Mnemonic, Seed};
+use jsonrpc_core as rpc;
 use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use web3::types::{Address, H256, U256};
+use web3::{Error, RequestId, Transport};
 
 pub fn make_meaningless_phrase() -> String {
     "phrase donate agent satoshi burst end company pear obvious achieve depth advice".to_string()
@@ -83,13 +90,14 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn send_transaction(
+    fn send_transaction<'a>(
         &self,
         consuming_wallet: &Wallet,
         recipient: &Wallet,
         amount: u64,
         nonce: U256,
         gas_price: u64,
+        _send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
     ) -> BlockchainResult<H256> {
         self.send_transaction_parameters.lock().unwrap().push((
             consuming_wallet.clone(),
@@ -115,5 +123,70 @@ impl BlockchainInterface for BlockchainInterfaceMock {
             .unwrap()
             .push(wallet.clone());
         self.get_transaction_count_results.borrow_mut().remove(0)
+    }
+
+    fn send_transaction_tools<'a>(&'a self) -> Box<dyn SendTransactionToolsWrapper + 'a> {
+        Box::new(SendTransactionToolsWrapperNull)
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct TestTransport {
+    asserted: usize,
+    requests: Rc<RefCell<Vec<(String, Vec<rpc::Value>)>>>,
+    responses: Rc<RefCell<VecDeque<rpc::Value>>>,
+}
+
+impl Transport for TestTransport {
+    type Out = web3::Result<rpc::Value>;
+
+    fn prepare(&self, method: &str, params: Vec<rpc::Value>) -> (RequestId, rpc::Call) {
+        let request = web3::helpers::build_request(1, method, params.clone());
+        self.requests.borrow_mut().push((method.into(), params));
+        (self.requests.borrow().len(), request)
+    }
+
+    fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
+        match self.responses.borrow_mut().pop_front() {
+            Some(response) => Box::new(futures::finished(response)),
+            None => {
+                println!("Unexpected request (id: {:?}): {:?}", id, request);
+                Box::new(futures::failed(Error::Unreachable))
+            }
+        }
+    }
+}
+
+impl TestTransport {
+    pub fn add_response(&mut self, value: rpc::Value) {
+        self.responses.borrow_mut().push_back(value);
+    }
+
+    pub fn assert_request(&mut self, method: &str, params: &[String]) {
+        let idx = self.asserted;
+        self.asserted += 1;
+
+        let (m, p) = self
+            .requests
+            .borrow()
+            .get(idx)
+            .expect("Expected result.")
+            .clone();
+        assert_eq!(&m, method);
+        let p: Vec<String> = p
+            .into_iter()
+            .map(|p| serde_json::to_string(&p).unwrap())
+            .collect();
+        assert_eq!(p, params);
+    }
+
+    pub fn assert_no_more_requests(&mut self) {
+        let requests = self.requests.borrow();
+        assert_eq!(
+            self.asserted,
+            requests.len(),
+            "Expected no more requests, got: {:?}",
+            &requests[self.asserted..]
+        );
     }
 }
