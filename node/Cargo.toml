@@ -12,7 +12,7 @@ members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
 
 [dependencies]
 actix = "= 0.7.9"
-backtrace = "0.3.61"
+backtrace = "0.3.57"
 base64 = "0.10.1"
 bytes = "0.4.12"
 chrono = "0.4.7"
@@ -21,7 +21,7 @@ crossbeam-channel = "0.5.0"
 dirs = "2.0.2"
 ethsign = {version = "0.6.1", default-features = false, features = ["pure-rust"]}
 ethsign-crypto = "0.1.0"
-ethereum-types = "0.6.0"
+ethereum-types = "0.9.0"
 fdlimit = "0.1.1"
 flexi_logger = { version = "0.14.1", features = [ "ziplogs" ] }
 futures = "0.1.28"
@@ -57,8 +57,9 @@ toml = "0.5.3"
 trust-dns = "0.17.0"
 trust-dns-resolver = "0.12.0"
 unindent = "0.1.4"
-web3 = {version = "0.8.0", default-features = false, features = ["http", "tls"]}
+web3 = {version = "0.11.0", default-features = false, features = ["http", "tls"]}
 websocket = {version = "0.26.0", default-features = false, features = ["async", "sync"]}
+secp256k1secrets = {package = "secp256k1", version = "0.17.2"}
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.3.0"
@@ -75,7 +76,7 @@ ipconfig = "0.2.1"
 
 [dev-dependencies]
 base58 = "0.1.0"
-jsonrpc-core = "11.0.0"
+jsonrpc-core = "14.0.0"
 native-tls = {version = "0.2.3", features = ["vendored"]}
 simple-server = "0.4.0"
 serial_test_derive = "0.2.0"

@@ -16,6 +16,13 @@ pub enum Chain {
     Dev,
 }
 
+#[derive(Debug, PartialEq, Copy, Clone, Eq, Hash)]
+pub enum ChainFamily {
+    Eth,
+    Polygon,
+    Dev,
+}
+
 impl Default for Chain {
     fn default() -> Self {
         DEFAULT_CHAIN
@@ -132,10 +139,11 @@ mod tests {
     fn make_defaulted_blockchain_record<'a>() -> BlockchainRecord {
         BlockchainRecord {
             num_chain_id: 0,
-            self_id: Chain::EthMainnet,
+            self_id: Chain::PolyMainnet,
             literal_identifier: "",
             contract: Default::default(),
             contract_creation_block: 0,
+            chain_family: ChainFamily::Polygon,
         }
     }
 

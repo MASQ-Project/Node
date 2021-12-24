@@ -14,7 +14,7 @@ use clap::value_t;
 use log::LevelFilter;
 
 use crate::apps::app_node;
-use crate::blockchain::bip32::Bip32ECKeyPair;
+use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::bootstrapper::PortConfiguration;
 use crate::database::db_migrations::{ExternalData, MigratorConfig};
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
@@ -628,13 +628,16 @@ fn get_consuming_wallet_opt_from_derivation_path(
         Ok(Some(derivation_path)) => match persistent_config.mnemonic_seed(db_password) {
             Ok(None) => Ok(None),
             Ok(Some(mnemonic_seed)) => {
-                let keypair = Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), &derivation_path)
-                    .unwrap_or_else(|_| {
-                        panic!(
-                            "Error making keypair from mnemonic seed and derivation path {}",
-                            derivation_path
-                        )
-                    });
+                let keypair = Bip32ECKeyProvider::try_from((
+                    mnemonic_seed.as_ref(),
+                    derivation_path.as_str(),
+                ))
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Error making keypair from mnemonic seed and derivation path {}",
+                        derivation_path
+                    )
+                });
                 Ok(Some(Wallet::from(keypair)))
             }
             Err(e) => match e {
@@ -655,7 +658,7 @@ fn get_consuming_wallet_from_private_key(
     match value_m!(multi_config, "consuming-private-key", String) {
         Some(consuming_private_key_string) => {
             match consuming_private_key_string.from_hex::<Vec<u8>>() {
-                Ok(raw_secret) => match Bip32ECKeyPair::from_raw_secret(&raw_secret[..]) {
+                Ok(raw_secret) => match Bip32ECKeyProvider::from_raw_secret(&raw_secret[..]) {
                     Ok(keypair) => Ok(Some(Wallet::from(keypair))),
                     Err(e) => panic!(
                         "Internal error: bad clap validation for consuming-private-key: {:?}",
@@ -1570,7 +1573,7 @@ mod tests {
         .unwrap();
         let consuming_private_key_bytes: Vec<u8> = consuming_private_key.from_hex().unwrap();
         let consuming_keypair =
-            Bip32ECKeyPair::from_raw_secret(consuming_private_key_bytes.as_ref()).unwrap();
+            Bip32ECKeyProvider::from_raw_secret(consuming_private_key_bytes.as_ref()).unwrap();
         assert_eq!(
             bootstrapper_config.consuming_wallet,
             Some(Wallet::from(consuming_keypair)),
@@ -1724,7 +1727,7 @@ mod tests {
         assert_eq!(
             config.consuming_wallet,
             Some(Wallet::from(
-                Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap()
+                Bip32ECKeyProvider::from_raw_secret(consuming_private_key.as_slice()).unwrap()
             )),
         );
         assert_eq!(
@@ -2160,7 +2163,7 @@ mod tests {
 
         let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
         let expected_consuming_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), "m/44'/60'/1'/2/3").unwrap(),
+            Bip32ECKeyProvider::try_from((mnemonic_seed.as_ref(), "m/44'/60'/1'/2/3")).unwrap(),
         );
         assert_eq!(config.consuming_wallet, Some(expected_consuming_wallet));
         assert_eq!(

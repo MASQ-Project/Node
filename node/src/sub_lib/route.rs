@@ -7,11 +7,11 @@ use crate::sub_lib::cryptde::{decodex, CodexError};
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::wallet::Wallet;
+use ethereum_types::Address;
 use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::min;
 use std::iter;
-use web3::types::Address;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct Route {
