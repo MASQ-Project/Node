@@ -478,6 +478,8 @@ pub struct UiConfigurationResponse {
     pub start_block: u64,
     #[serde(rename = "consumingWalletPrivateKeyOpt")]
     pub consuming_wallet_private_key_opt: Option<String>,
+    #[serde(rename = "consumingWalletAddressOpt")]
+    pub consuming_wallet_address_opt: Option<String>,
     #[serde(rename = "pastNeighbors")]
     pub past_neighbors: Vec<String>,
 }

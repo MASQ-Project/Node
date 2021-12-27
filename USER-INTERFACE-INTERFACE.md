@@ -359,8 +359,9 @@ during creation of the database, it never changes. It's basically a read-only va
 
 * `clandestinePort`: The port on which the Node is currently listening for connections from other Nodes.
 
-* `consumingWalletDerivationPathOpt`: This is the derivation path (from the mnemonic seed) of the consuming wallet.
-  More than likely, it's m/44'/60'/0'/0/0.
+* `consumingWalletPrivateKey`: This is the private key of the consuming wallet, as a 64-digit hexadecimal number.
+
+* `consumingWalletAddress`: This is the address of the consuming wallet, as a 40-digit hexadecimal number prefixed by "0x".
 
 * `currentSchemaVersion`: This will be a version number for the database schema represented as an ordinal numeral. This will always
 be the same for a given version of Node. If you upgrade your Node, and the new Node wants to see a later
