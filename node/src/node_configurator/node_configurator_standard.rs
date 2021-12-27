@@ -343,12 +343,15 @@ pub fn get_wallets(
             &format! ("Cannot change to an address ({}) different from that previously set ({})", m, c))),
     };
     let consuming_wallet_opt = consuming_opt.map (|consuming_private_key| {
-        let key_bytes = consuming_private_key.from_hex::<Vec<u8>>().expect ("Wallet corruption: bad hex value for consuming wallet private key");
-        let key_pair = Bip32ECKeyPair::from_raw_secret (key_bytes.as_slice()).expect ("Wallet corruption: consuming wallet private key in invalid format");
+        let key_bytes = consuming_private_key.from_hex::<Vec<u8>>()
+            .expect (&format!("Wallet corruption: bad hex value for consuming wallet private key: {}", consuming_private_key));
+        let key_pair = Bip32ECKeyPair::from_raw_secret (key_bytes.as_slice())
+            .expect (&format!("Wallet corruption: consuming wallet private key in invalid format: {:?}", key_bytes));
         Wallet::from (key_pair)
     });
     let earning_wallet_opt = earning_opt.map (|earning_address| {
-        Wallet::from_str (&earning_address).expect ("Wallet corruption: bad value for earning wallet address")
+        Wallet::from_str (&earning_address)
+            .expect (&format!("Wallet corruption: bad value for earning wallet address: {}", earning_address))
     });
     config.consuming_wallet = consuming_wallet_opt;
     config.earning_wallet = earning_wallet_opt.unwrap_or (DEFAULT_EARNING_WALLET.clone());

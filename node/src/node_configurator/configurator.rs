@@ -38,7 +38,7 @@ use masq_lib::constants::{
     UNRECOGNIZED_PARAMETER,
 };
 use masq_lib::utils::derivation_path;
-use rustc_hex::ToHex;
+use rustc_hex::{FromHex, ToHex};
 use std::str::FromStr;
 
 pub const CRASH_KEY: &str = "CONFIGURATOR";
@@ -520,8 +520,25 @@ impl Configurator {
                 .to_string();
         let port_mapping_protocol_opt =
             Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?;
-        let (consuming_wallet_private_key_opt, past_neighbors) = match good_password {
+        let (consuming_wallet_private_key_opt, consuming_wallet_address_opt, past_neighbors) = match good_password {
             Some(password) => {
+                let (consuming_wallet_private_key_opt, consuming_wallet_address_opt) = {
+                    match persistent_config.consuming_wallet_private_key(password) {
+                        Ok(Some (private_key_hex)) => {
+                            let private_key_bytes = match private_key_hex.from_hex::<Vec<u8>>() {
+                                Ok(bytes) => bytes,
+                                Err(e) => todo!("{:?}", e),
+                            };
+                            let key_pair = match Bip32ECKeyPair::from_raw_secret(private_key_bytes.as_slice()) {
+                                Ok(pair) => pair,
+                                Err(e) => todo!("{:?}", e),
+                            };
+                            (Some(private_key_hex), Some(format!("{:?}", key_pair.address())))
+                        },
+                        Ok(None) => (None, None),
+                        Err (e) => todo! ("{:?}", e),
+                    }
+                };
                 let consuming_wallet_private_key_opt = Self::value_not_required(
                     persistent_config.consuming_wallet_private_key(password),
                     "consumingWalletPrivateKeyOpt",
@@ -537,9 +554,9 @@ impl Configurator {
                         .map(|nd| nd.to_string(main_cryptde()))
                         .collect::<Vec<String>>(),
                 };
-                (consuming_wallet_private_key_opt, past_neighbors)
+                (consuming_wallet_private_key_opt, consuming_wallet_address_opt, past_neighbors)
             }
-            None => (None, vec![]),
+            None => (None, None, vec![]),
         };
         let response = UiConfigurationResponse {
             blockchain_service_url_opt,
@@ -549,6 +566,7 @@ impl Configurator {
             gas_price,
             neighborhood_mode,
             consuming_wallet_private_key_opt,
+            consuming_wallet_address_opt,
             earning_wallet_address_opt,
             port_mapping_protocol_opt,
             past_neighbors,
@@ -740,6 +758,7 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::pure_test_utils::{make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up};
     use bip39::{Language, Mnemonic};
+    use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
     use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::blockchains::chains::Chain;
@@ -1462,7 +1481,7 @@ mod tests {
             *set_wallet_info_params,
             vec![(
                 consuming_private_key,
-                format! ("0x{}", earning_wallet.address().as_bytes().to_hex::<String>()),
+                format! ("{:?}", earning_wallet.address()),
                 request.db_password,
             )]
         );
@@ -1928,16 +1947,32 @@ mod tests {
 
     #[test]
     fn configuration_works_with_no_password() {
+        let consuming_wallet_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
+        let consuming_wallet_address = format!("{:?}", Bip32ECKeyPair::from_raw_secret (consuming_wallet_private_key
+            .from_hex::<Vec<u8>>().unwrap().as_slice()).unwrap().address());
+        let earning_wallet_address = "4a5e43b54c6C56Ebf7".to_string();
+        let public_key = PK::from(&b"xaca4sf4a56"[..]);
+        let node_addr = NodeAddr::from_str("1.2.1.3:4545").unwrap();
+        let node_descriptor = NodeDescriptor::from((
+            &public_key,
+            &node_addr,
+            Chain::EthRopsten,
+            main_cryptde() as &dyn CryptDE,
+        ));
         let persistent_config = PersistentConfigurationMock::new()
-            .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())))
+            .blockchain_service_url_result(Ok(None))
+            .check_password_result(Ok(true))
             .chain_name_result("ropsten".to_string())
             .current_schema_version_result("1.2.3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
-            .consuming_wallet_private_key_result(Ok(None))
+            .consuming_wallet_private_key_result(Ok(Some(
+                consuming_wallet_private_key.clone(),
+            )))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::Standard))
-            .earning_wallet_address_result(Ok(None))
+            .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
+            .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
             .start_block_result(Ok(3456));
         let mut subject = make_subject(Some(persistent_config));
 
@@ -1954,14 +1989,15 @@ mod tests {
         assert_eq!(
             configuration,
             UiConfigurationResponse {
-                blockchain_service_url_opt: Some("https://infura.io/ID".to_string()),
+                blockchain_service_url_opt: None,
                 current_schema_version: "1.2.3".to_string(),
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
                 neighborhood_mode: String::from("standard"),
                 consuming_wallet_private_key_opt: None,
-                earning_wallet_address_opt: None,
+                consuming_wallet_address_opt: None,
+                earning_wallet_address_opt: Some (earning_wallet_address),
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),
                 past_neighbors: vec![],
                 start_block: 3456
@@ -1986,6 +2022,8 @@ mod tests {
         let consuming_wallet_private_key_params_arc = Arc::new(Mutex::new(vec![]));
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let consuming_wallet_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
+        let consuming_wallet_address = format!("{:?}", Bip32ECKeyPair::from_raw_secret (consuming_wallet_private_key
+            .from_hex::<Vec<u8>>().unwrap().as_slice()).unwrap().address());
         let earning_wallet_address = "4a5e43b54c6C56Ebf7".to_string();
         let public_key = PK::from(&b"xaca4sf4a56"[..]);
         let node_addr = NodeAddr::from_str("1.2.1.3:4545").unwrap();
@@ -2034,6 +2072,7 @@ mod tests {
                 gas_price: 2345,
                 neighborhood_mode: String::from("consume-only"),
                 consuming_wallet_private_key_opt: Some(consuming_wallet_private_key),
+                consuming_wallet_address_opt: Some(consuming_wallet_address),
                 earning_wallet_address_opt: Some(earning_wallet_address),
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),
                 past_neighbors: vec![node_descriptor.to_string(main_cryptde())],
@@ -2041,7 +2080,7 @@ mod tests {
             }
         );
         let consuming_wallet_private_key_params = consuming_wallet_private_key_params_arc.lock().unwrap();
-        assert_eq!(*consuming_wallet_private_key_params, vec!["password".to_string()]);
+        assert_eq!(*consuming_wallet_private_key_params, vec!["password".to_string(), "password".to_string()]);
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
         assert_eq!(*past_neighbors_params, vec!["password".to_string()])
     }
@@ -2105,7 +2144,7 @@ mod tests {
             db_password: "password".to_string(),
             seed_spec_opt: Some(UiGenerateSeedSpec {
                 mnemonic_phrase_size: 24,
-                mnemonic_phrase_language: "English".to_string(),N
+                mnemonic_phrase_language: "English".to_string(),
                 mnemonic_passphrase_opt: Some("booga".to_string()),
             }),
             consuming_derivation_path_opt: Some(derivation_path(0, 4)),

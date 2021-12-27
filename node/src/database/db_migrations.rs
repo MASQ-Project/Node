@@ -10,9 +10,11 @@ use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use rusqlite::{Transaction, NO_PARAMS};
 use std::fmt::Debug;
 use itertools::Itertools;
+use rustc_hex::FromHex;
 use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
 use tiny_hderive::bip32::ExtendedPrivKey;
+use crate::blockchain::bip39::Bip39;
 use crate::sub_lib::cryptde::PlainData;
 
 pub trait DbMigrator {
@@ -306,10 +308,8 @@ impl DatabaseMigration for Migrate_3_to_4 {
                 let extended_private_key = ExtendedPrivKey::derive(seed_data.as_ref(), consuming_path.as_str())
                     .expect("Internal error");
                 let private_key_data = PlainData::new (&extended_private_key.secret());
-                let private_key_encoded = encode_bytes (Some (private_key_data))
-                    .expect ("Internal error").expect("Internal error");
-                DbEncryptionLayer::encrypt_value(&Some(private_key_encoded), &password_opt, "consuming_private_key")
-                    .expect ("Internal error")
+                Some (Bip39::encrypt_bytes(&private_key_data.as_slice(), password_opt.as_ref().expect("Test-drive me!"))
+                    .expect("Internal error: encryption failed"))
             },
             _ => None
         };
@@ -320,7 +320,7 @@ impl DatabaseMigration for Migrate_3_to_4 {
             "null".to_string()
         };
         utils.execute_upon_transaction(&[
-            format! ("insert into config (name, value, encrypted) values ('consuming_private_key', {}, 1)",
+            format! ("insert into config (name, value, encrypted) values ('consuming_wallet_private_key', {}, 1)",
                 private_key_column).as_str(),
             "delete from config where name in ('seed', 'consuming_wallet_derivation_path', 'consuming_wallet_public_key')",
         ])
@@ -555,6 +555,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use bip39::{Mnemonic, MnemonicType, Language, Seed};
     use rand::Rng;
+    use rustc_hex::ToHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
     use crate::blockchain::bip39::Bip39;
     use crate::sub_lib::cryptde::PlainData;
@@ -1399,8 +1400,8 @@ mod tests {
     }
 
     #[test]
-    fn migration_from_3_to_4_happy_path() {
-        let data_path = ensure_node_home_directory_exists("db_migrations", "migration_from_3_to_4_happy_path");
+    fn migration_from_3_to_4_with_wallets() {
+        let data_path = ensure_node_home_directory_exists("db_migrations", "migration_from_3_to_4_with_wallets");
         let db_path = data_path.join(DATABASE_FILE);
         let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
         let password_opt = &Some ("password".to_string());
@@ -1456,15 +1457,42 @@ mod tests {
             let mut stmt = schema4_conn.prepare ("select count(*) from config where name in ('consuming_wallet_derivation_path', 'consuming_wallet_public_key', 'seed')").unwrap();
             let cruft = stmt.query_row(NO_PARAMS, |row| Ok (row.get::<usize, u32>(0))).unwrap().unwrap();
             assert_eq!(cruft, 0);
-            let mut stmt = schema4_conn.prepare ("select value, encrypted from config where name = 'consuming_private_key'").unwrap();
+            let mut stmt = schema4_conn.prepare ("select value, encrypted from config where name = 'consuming_wallet_private_key'").unwrap();
             let (private_key_encrypted, encrypted) = stmt.query_row(NO_PARAMS, |row|
                 Ok((row.get::<usize, Option<String>>(0).unwrap(), row.get::<usize, u8>(1).unwrap()))).unwrap();
             assert_eq!(encrypted, 1);
-            let private_key_encoded = DbEncryptionLayer::decrypt_value(&private_key_encrypted, &password_opt, "consuming_private_key").unwrap().unwrap();
-            let private_key = decode_bytes(Some(private_key_encoded)).unwrap().unwrap();
+            let private_key = Bip39::decrypt_bytes(&private_key_encrypted.unwrap(), password_opt.as_ref().unwrap()).unwrap();
             private_key.as_slice().to_vec()
         };
 
         assert_eq! (migrated_private_key, original_private_key);
+    }
+
+    #[test]
+    fn migration_from_3_to_4_without_password() {
+        let data_path = ensure_node_home_directory_exists("db_migrations", "migration_from_3_to_4_without_password");
+        let db_path = data_path.join(DATABASE_FILE);
+        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let password_opt = &Some ("password".to_string());
+        let subject = DbInitializerReal::default();
+        let mut migrator_config = MigratorConfig::create_or_migrate(make_external_migration_parameters());
+        migrator_config.external_dataset.as_mut().unwrap().db_password_opt = password_opt.clone();
+
+        let schema4_conn = subject.initialize_to_version(
+            &data_path,
+            4,
+            false,
+            migrator_config,
+        )
+            .unwrap();
+
+        let mut stmt = schema4_conn.prepare ("select count(*) from config where name in ('consuming_wallet_derivation_path', 'consuming_wallet_public_key', 'seed')").unwrap();
+        let cruft = stmt.query_row(NO_PARAMS, |row| Ok (row.get::<usize, u32>(0))).unwrap().unwrap();
+        assert_eq!(cruft, 0);
+        let mut stmt = schema4_conn.prepare ("select value, encrypted from config where name = 'consuming_wallet_private_key'").unwrap();
+        let (private_key_encrypted, encrypted) = stmt.query_row(NO_PARAMS, |row|
+            Ok((row.get::<usize, Option<String>>(0).unwrap(), row.get::<usize, u8>(1).unwrap()))).unwrap();
+        assert_eq!(private_key_encrypted, None);
+        assert_eq!(encrypted, 1);
     }
 }
