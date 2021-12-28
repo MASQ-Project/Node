@@ -2,7 +2,7 @@
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::DaoFactoryReal;
 use rusqlite::types::ToSql;
-use rusqlite::{Row, Rows, Statement, Transaction, NO_PARAMS};
+use rusqlite::{Row, Rows, Statement, Transaction};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -190,7 +190,7 @@ fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), Config
 
 fn get_all(mut stmt: Statement) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
     let mut rows: Rows = stmt
-        .query(NO_PARAMS)
+        .query([])
         .expect("Schema error: couldn't dump config table");
     let mut results = Vec::new();
     loop {

@@ -2,7 +2,7 @@
 use crate::masquerader::{MasqueradeError, Masquerader};
 use crate::sub_lib::framer::Framer;
 use crate::sub_lib::logger::Logger;
-use serde::export::fmt::Debug;
+use serde::__private::fmt::Debug;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct UnmaskedChunk {

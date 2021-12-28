@@ -33,7 +33,7 @@ impl Bip39 {
         match Crypto::encrypt(
             seed.as_ref(),
             &Protected::new(db_password.as_bytes()),
-            NonZeroU32::new(10240).expect("Internal error"),
+            u32::from(NonZeroU32::new(10240).expect("Internal error")),
         ) {
             Ok(crypto) => match serde_cbor::to_vec(&crypto) {
                 Ok(cipher_seed) => Ok(cipher_seed.to_hex()),
