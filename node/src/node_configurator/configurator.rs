@@ -17,7 +17,7 @@ use masq_lib::ui_gateway::{
     MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
 };
 
-use crate::blockchain::bip32::Bip32ECKeyPair;
+use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::Bip39;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
@@ -201,7 +201,7 @@ impl Configurator {
     }
 
     fn get_wallet_addresses(&self, db_password: String) -> Result<(String, String), (u64, String)> {
-        let mnemonic = match Self::process_value_with_dif_treatment_of_none(
+        let mnemonic = match Self::process_value_with_specific_none(
             self.persistent_config.mnemonic_seed(&db_password),
             || {
                 (
@@ -216,7 +216,7 @@ impl Configurator {
             Err(e) => return Err(e),
         };
 
-        let derivation_path = match Self::process_value_with_dif_treatment_of_none(
+        let derivation_path = match Self::process_value_with_specific_none(
             self.persistent_config.consuming_wallet_derivation_path(),
             || {
                 panic!(
@@ -235,7 +235,7 @@ impl Configurator {
                 Err(e) => return Err((KEY_PAIR_CONSTRUCTION_ERROR, e)),
             };
 
-        let earning_wallet_address = match Self::process_value_with_dif_treatment_of_none(
+        let earning_wallet_address = match Self::process_value_with_specific_none(
             self.persistent_config.earning_wallet_address(),
             || {
                 panic!(
@@ -251,7 +251,7 @@ impl Configurator {
         Ok((consuming_wallet_address, earning_wallet_address))
     }
 
-    fn process_value_with_dif_treatment_of_none<T>(
+    fn process_value_with_specific_none<T>(
         data: Result<Option<T>, PersistentConfigError>,
         closure_for_none: fn() -> (u64, String),
     ) -> Result<T, (u64, String)> {
@@ -268,7 +268,7 @@ impl Configurator {
         seed: PlainData,
         derivation_path: String,
     ) -> Result<Wallet, String> {
-        match Bip32ECKeyPair::from_raw(seed.as_ref(), &derivation_path) {
+        match Bip32ECKeyProvider::try_from((seed.as_ref(), derivation_path.as_str())) {
             Err(e) => Err(format!(
                 "Consuming wallet address error during generation: {}",
                 e
@@ -473,7 +473,7 @@ impl Configurator {
     }
 
     fn generate_wallet(seed: &Seed, derivation_path: &str) -> Result<Wallet, MessageError> {
-        match Bip32ECKeyPair::from_raw(seed.as_bytes(), derivation_path) {
+        match Bip32ECKeyProvider::try_from((seed.as_bytes(), derivation_path)) {
             Err(e) => Err((
                 DERIVATION_PATH_ERROR,
                 format!("Bad derivation-path syntax: {}: {}", e, derivation_path),
@@ -754,8 +754,9 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     use super::*;
-    use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::bip39::Bip39;
+    use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::sub_lib::cryptde::PublicKey as PK;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
@@ -1009,9 +1010,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .mnemonic_seed_params(&mnemonic_seed_params_arc)
-            .mnemonic_seed_result(Ok(Some(PlainData::new(
-                "snake, goal, cook, doom".as_bytes(),
-            ))))
+            .mnemonic_seed_result(Ok(Some(PlainData::new(make_meaningless_seed().as_bytes()))))
             .consuming_wallet_derivation_path_result(Ok(Some(String::from(derivation_path(0, 4)))))
             .earning_wallet_address_result(Ok(Some(String::from(
                 "0x01234567890aa345678901234567890123456789",
@@ -1042,7 +1041,7 @@ mod tests {
             &NodeToUiMessage {
                 target: MessageTarget::ClientId(1234),
                 body: UiWalletAddressesResponse {
-                    consuming_wallet_address: "0x84646fb4dd69dd12fd779a569f7cdbe1e133b29b"
+                    consuming_wallet_address: "0xd706e65c48a6dcf0290027c0bc16c14a62b4c072"
                         .to_string(),
                     earning_wallet_address: "0x01234567890aa345678901234567890123456789"
                         .to_string()
@@ -1162,7 +1161,7 @@ mod tests {
     fn handle_wallet_addresses_works_if_consuming_wallet_address_error() {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_result(Ok(Some(PlainData::new(b"snake, goal, cook, doom"))))
+            .mnemonic_seed_result(Ok(Some(PlainData::new(make_meaningless_seed().as_bytes()))))
             .consuming_wallet_derivation_path_result(Ok(Some(String::from("*************"))));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
@@ -1193,9 +1192,7 @@ mod tests {
     fn handle_wallet_addresses_works_if_earning_wallet_address_triggers_database_error() {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_result(Ok(Some(PlainData::new(
-                "snake, goal, cook, doom".as_bytes(),
-            ))))
+            .mnemonic_seed_result(Ok(Some(PlainData::new(make_meaningless_seed().as_bytes()))))
             .consuming_wallet_derivation_path_result(Ok(Some(String::from(derivation_path(0, 4)))))
             .earning_wallet_address_result(Err(PersistentConfigError::DatabaseError(
                 "Unknown error 3".to_string(),
@@ -1229,7 +1226,7 @@ mod tests {
     )]
     fn handle_wallet_addresses_panics_if_earning_wallet_address_is_missing() {
         let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_result(Ok(Some(PlainData::new(b"snake, goal, cook, doom"))))
+            .mnemonic_seed_result(Ok(Some(PlainData::new(make_meaningless_seed().as_bytes()))))
             .consuming_wallet_derivation_path_result(Ok(Some(String::from(derivation_path(0, 4)))))
             .earning_wallet_address_result(Ok(None));
         let subject = make_subject(Some(persistent_config));
@@ -1276,14 +1273,16 @@ mod tests {
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
         let seed = PlainData::new(Bip39::seed(&mnemonic, "booga").as_ref());
         let consuming_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(seed.as_slice(), &derivation_path(0, 4)).unwrap(),
+            Bip32ECKeyProvider::try_from((seed.as_slice(), derivation_path(0, 4).as_str()))
+                .unwrap(),
         );
         assert_eq!(
             generated_wallets.consuming_wallet_address,
             consuming_wallet.string_address_from_keypair()
         );
         let earning_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(seed.as_slice(), &derivation_path(0, 5)).unwrap(),
+            Bip32ECKeyProvider::try_from((seed.as_slice(), derivation_path(0, 5).as_str()))
+                .unwrap(),
         );
         assert_eq!(
             generated_wallets.earning_wallet_address,

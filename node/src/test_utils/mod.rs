@@ -16,7 +16,7 @@ pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
 
-use crate::blockchain::bip32::Bip32ECKeyPair;
+use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
@@ -44,6 +44,7 @@ use masq_lib::constants::HTTP_PORT;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use regex::Regex;
 use rustc_hex::ToHex;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::From;
@@ -59,6 +60,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use web3::types::{Address, U256};
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
@@ -484,7 +486,7 @@ pub fn make_payer(secret: &[u8], public_key: &PublicKey) -> Payer {
 pub fn make_paying_wallet(secret: &[u8]) -> Wallet {
     let digest = secret.keccak256();
     Wallet::from(
-        Bip32ECKeyPair::from_raw_secret(&digest).expect("Invalid Secret for Bip32ECKeyPair"),
+        Bip32ECKeyProvider::from_raw_secret(&digest).expect("Invalid Secret for Bip32ECKeyPair"),
     )
 }
 
@@ -497,6 +499,19 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
     let a_str = format!("{:?}", a);
     let b_str = format!("{:?}", b);
     assert_eq!(a_str, b_str);
+}
+
+//must stay without cfg(test) -- used in another crate
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
+pub struct TestRawTransaction {
+    pub nonce: U256,
+    pub to: Option<Address>,
+    pub value: U256,
+    #[serde(rename = "gasPrice")]
+    pub gas_price: U256,
+    #[serde(rename = "gasLimit")]
+    pub gas_limit: U256,
+    pub data: Vec<u8>,
 }
 
 #[cfg(test)]
@@ -514,6 +529,7 @@ pub mod pure_test_utils {
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::cell::RefCell;
     use std::collections::HashMap;
+    use std::num::ParseIntError;
     use std::path::PathBuf;
     use std::thread;
     use std::time::Duration;
@@ -634,6 +650,13 @@ pub mod pure_test_utils {
             };
             System::current().stop();
         }
+    }
+
+    pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+            .collect()
     }
 }
 

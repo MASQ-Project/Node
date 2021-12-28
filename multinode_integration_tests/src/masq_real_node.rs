@@ -12,7 +12,7 @@ use masq_lib::constants::CURRENT_LOGFILE_NAME;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
-use node_lib::blockchain::bip32::Bip32ECKeyPair;
+use node_lib::blockchain::bip32::Bip32ECKeyProvider;
 use node_lib::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -328,10 +328,10 @@ impl NodeStartupConfig {
             EarningWalletInfo::Address(address) => Wallet::from_str(address).unwrap(),
             EarningWalletInfo::DerivationPath(phrase, derivation_path) => {
                 let mnemonic = Mnemonic::from_phrase(phrase.as_str(), Language::English).unwrap();
-                let keypair = Bip32ECKeyPair::from_raw(
+                let keypair = Bip32ECKeyProvider::try_from((
                     Seed::new(&mnemonic, "passphrase").as_ref(),
-                    derivation_path,
-                )
+                    derivation_path.as_str(),
+                ))
                 .unwrap();
                 Wallet::from(keypair)
             }
@@ -343,16 +343,16 @@ impl NodeStartupConfig {
             ConsumingWalletInfo::None => None,
             ConsumingWalletInfo::PrivateKey(key) => {
                 let key_bytes = key.from_hex::<Vec<u8>>().unwrap();
-                let keypair = Bip32ECKeyPair::from_raw_secret(&key_bytes).unwrap();
+                let keypair = Bip32ECKeyProvider::from_raw_secret(&key_bytes).unwrap();
                 Some(Wallet::from(keypair))
             }
             ConsumingWalletInfo::DerivationPath(phrase, derivation_path) => {
                 let mnemonic =
                     Mnemonic::from_phrase(phrase.to_string(), Language::English).unwrap();
-                let keypair = Bip32ECKeyPair::from_raw(
+                let keypair = Bip32ECKeyProvider::try_from((
                     Seed::new(&mnemonic, "passphrase").as_ref(),
-                    derivation_path,
-                )
+                    derivation_path.as_str(),
+                ))
                 .unwrap();
                 Some(Wallet::from(keypair))
             }
