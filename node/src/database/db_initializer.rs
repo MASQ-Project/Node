@@ -305,7 +305,7 @@ impl DbInitializerReal {
         conn.execute(
             "create unique index if not exists idx_pending_payments_payable_rowid on pending_payments (rowid)",
             NO_PARAMS,
-        );
+        ).expect("Can't create pending_payments rowid index");
         //TODO should we create a secondary index for hash? it may be slowing down the tests now though
     }
 

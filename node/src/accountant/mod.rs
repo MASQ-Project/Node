@@ -961,10 +961,11 @@ impl Accountant {
                     .pending_payments_dao
                     .mark_failure(msg.id.rowid)
                 {
-                    Ok(_) => info!(
+                    Ok(_) => warning!(
                         self.logger,
-                        "Broken transaction {} was successfully canceled", msg.id.hash
-                    ),
+                        "Broken transaction {} left with an error mark; you should take over the care of this transaction to make sure your debts will be paid; \
+                            remember to use the same nonce to prevent undesired impacts, that is, you can avoid potential double spending that way; new scans and thus payments to \
+                             the same wallet are going to be retried again alongside your own taken action.", msg.id.hash),
                     Err(e) => panic!("Unsuccessful attempt to mark fatal error at pending payment backup due to {:?}; database unreliable", e),
                 }
             }
@@ -1071,13 +1072,24 @@ impl Accountant {
     ) -> PendingTransactionStatus {
         fn handle_none_receipt(
             payment: PaymentBackupRecord,
+            pending_interval: u64,
             logger: &Logger,
         ) -> PendingTransactionStatus {
             info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",payment.hash, payment.attempt, elapsed_in_ms(payment.timestamp));
-            PendingTransactionStatus::StillPending(TransactionId {
+            let elapsed = payment.timestamp.elapsed().expect("we should be older now");
+            let transaction_id = TransactionId {
                 hash: payment.hash,
                 rowid: payment.rowid,
-            })
+            };
+            if pending_interval <= elapsed.as_secs() {
+                unimplemented!();
+                warning!(logger,"Pending transaction '{}' has exceeded the maximum time allowed ({}sec) \
+         for being pending and the confirmation process is going to be aborted now at the finished attempt {}; manual resolving is required from the \
+          user to make the transaction paid",payment.hash,pending_interval,payment.attempt);
+                PendingTransactionStatus::Failure(transaction_id)
+            } else {
+                PendingTransactionStatus::StillPending(transaction_id)
+            }
         }
         fn handle_status_with_success(
             payment: PaymentBackupRecord,
@@ -1100,7 +1112,7 @@ impl Accountant {
             PendingTransactionStatus::Failure(payment.into())
         }
         match receipt.status{
-                None => handle_none_receipt(payment,logger),
+                None => handle_none_receipt(payment, self.config.when_pending_too_long_sec, logger),
                 Some(status_code) =>
                     match status_code.as_u64(){
                     0 => handle_status_with_success(payment,logger),
@@ -1255,7 +1267,6 @@ pub mod tests {
         BlockchainInterfaceMock, NotifyHandleMock, NotifyLaterHandleMock,
     };
     use crate::blockchain::tool_wrappers::SendTransactionToolWrapperNull;
-    use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -1280,8 +1291,7 @@ pub mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
-    use rusqlite::types::Null;
-    use rusqlite::{Error, Row, ToSql, NO_PARAMS};
+    use rusqlite::{Error, NO_PARAMS};
     use std::cell::RefCell;
     use std::ops::Sub;
     use std::rc::Rc;
@@ -1725,7 +1735,7 @@ pub mod tests {
                     pending_payments_scan_interval: Duration::from_millis(
                         DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
                     ),
-                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                    when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1824,7 +1834,7 @@ pub mod tests {
                     pending_payments_scan_interval: Duration::from_millis(
                         DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
                     ),
-                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                    when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1983,8 +1993,6 @@ pub mod tests {
     {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let blockchain_bridge = blockchain_bridge.retrieve_transactions_response(Ok(vec![]));
-        let rowid_of_just_inserted_new_record_1 = 456;
-        let rowid_of_just_inserted_new_record_2 = 457;
         let amount_1 = PAYMENT_CURVES.balance_to_decrease_from_gwub + 100;
         let amount_2 = PAYMENT_CURVES.balance_to_decrease_from_gwub + 101;
         let accounts = vec![
@@ -2010,7 +2018,7 @@ pub mod tests {
                     payables_scan_interval: Duration::from_secs(100), //scan intervals deliberately big to demonstrate that we don't do the intervals yet
                     receivables_scan_interval: Duration::from_secs(100),
                     pending_payments_scan_interval: Duration::from_secs(100),
-                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                    when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -2068,7 +2076,7 @@ pub mod tests {
                     payables_scan_interval: Duration::from_secs(10_000),
                     receivables_scan_interval: Duration::from_secs(10_000),
                     pending_payments_scan_interval: Duration::from_secs(100),
-                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                    when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 },
                 earning_wallet.clone(),
             )),
@@ -2119,7 +2127,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100), //making sure we cannot enter the first repeated scanning
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_millis(100), //except here, where we use it to stop the system
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("buy"),
             make_wallet("hi"),
@@ -2213,7 +2221,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             earning_wallet.clone(),
         );
@@ -2296,7 +2304,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(10_000),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             earning_wallet.clone(),
         );
@@ -2366,7 +2374,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(10_000),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             earning_wallet.clone(),
         );
@@ -2426,11 +2434,10 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100), //deliberately big to refrain from starting off this scanning
                 pending_payments_scan_interval: Duration::from_millis(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("hi"),
         );
-        let now = to_time_t(SystemTime::now());
         // slightly above minimum balance, to the right of the curve (time intersection)
         let payment_backup_record = PaymentBackupRecord {
             rowid: 45454,
@@ -2501,7 +2508,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_millis(100),
                 receivables_scan_interval: Duration::from_secs(100), //deliberately big to refrain from starting off this scanning
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("hi"),
         );
@@ -2567,7 +2574,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(1000),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("mine"),
         );
@@ -2630,7 +2637,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_millis(1_000),
                 receivables_scan_interval: Duration::from_millis(1_000),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("mine"),
         );
@@ -2658,8 +2665,7 @@ pub mod tests {
         let payable_dao = PayableDaoMock::default()
             .non_pending_payables_result(accounts.clone())
             .non_pending_payables_result(vec![]);
-        let (mut blockchain_bridge, blockchain_bridge_awaiter, blockchain_bridge_recordings_arc) =
-            make_recorder();
+        let (mut blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         blockchain_bridge = blockchain_bridge
             .retrieve_transactions_response(Ok(vec![]))
             .report_accounts_payable_response(Ok(vec![]));
@@ -2701,7 +2707,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("hi"),
         );
@@ -2766,7 +2772,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(1000),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("mine"),
         );
@@ -2873,7 +2879,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("mine"),
         );
@@ -2917,7 +2923,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("hi"),
         );
@@ -2974,7 +2980,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             consuming_wallet.clone(),
             make_wallet("our earning wallet"),
@@ -3030,7 +3036,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             earning_wallet.clone(),
         );
@@ -3084,7 +3090,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("hi"),
         );
@@ -3133,7 +3139,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             consuming_wallet.clone(),
             make_wallet("the earning wallet"),
@@ -3179,7 +3185,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             earning_wallet.clone(),
         );
@@ -3223,7 +3229,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("hi"),
         );
@@ -3280,7 +3286,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             consuming_wallet.clone(),
             make_wallet("my earning wallet"),
@@ -3336,7 +3342,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             earning_wallet.clone(),
         );
@@ -3390,7 +3396,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("hi"),
         );
@@ -3440,7 +3446,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             consuming_wallet.clone(),
             make_wallet("own earning wallet"),
@@ -3486,7 +3492,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             earning_wallet.clone(),
         );
@@ -3670,7 +3676,7 @@ pub mod tests {
             .delete_payment_backup_result(Err(PendingPaymentDaoError::RecordDeletion(
                 "we slept over, sorry".to_string(),
             )));
-        let mut subject = make_accountant(None, None, None, Some(pending_payment_dao), None, None);
+        let subject = make_accountant(None, None, None, Some(pending_payment_dao), None, None);
 
         let _ = subject.handle_sent_payments(payments);
     }
@@ -3681,9 +3687,7 @@ pub mod tests {
         init_test_logging();
         let payment_backup_exists_params_arc = Arc::new(Mutex::new(vec![]));
         let now_system = SystemTime::now();
-        let payment_hash_1 = H256::from_uint(&U256::from(789));
         let payment_1 = Err(BlockchainError::InvalidResponse);
-        let payment_1_rowid = 120;
         let payment_2_rowid = 126;
         let payment_hash_2 = H256::from_uint(&U256::from(166));
         let payment_2 = Payment::new(make_wallet("booga"), 6789, payment_hash_2, now_system);
@@ -3761,7 +3765,6 @@ pub mod tests {
             .pending_payments_dao_factory(Box::new(pending_payments_dao_factory))
             .build();
         let tx_hash = H256::from("sometransactionhash".keccak256());
-        let recipient_wallet = make_wallet("wallet");
         let amount = 4567;
         let timestamp_from_time_of_payment = from_time_t(200_000_000);
         let rowid = 2;
@@ -3844,7 +3847,7 @@ pub mod tests {
     }
 
     #[test]
-    fn handle_cancel_pending_transaction_works_for_real() {
+    fn handle_cancel_pending_transaction_works() {
         init_test_logging();
         let transaction_canceled_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_failure_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3878,7 +3881,10 @@ pub mod tests {
         let mark_failure_params = mark_failure_params_arc.lock().unwrap();
         assert_eq!(*mark_failure_params, vec![rowid]);
         TestLogHandler::new().exists_log_containing(
-            "INFO: Accountant: Broken transaction 0x051a…8c19 was successfully canceled",
+            "WARN: Accountant: Broken transaction 0x051a…8c19 left with an error mark; \
+             you should take over the care of this transaction to make sure your debts will be paid; \
+              remember to use the same nonce to prevent undesired impacts, that is, you can avoid potential double spending that way; \
+               new scans and thus payments to the same wallet are going to be retried again alongside your own taken action.",
         );
     }
 
@@ -3887,10 +3893,6 @@ pub mod tests {
         expected = "Unsuccessful attempt to uncheck pending transaction 0x051a…8c19 for payables; caused by RusqliteError(\"locked\")"
     )]
     fn handle_cancel_pending_transaction_panics_on_job_for_payable_dao() {
-        let home_dir = ensure_node_home_directory_exists(
-            "accountant",
-            "handle_cancel_pending_transaction_panics_on_job_for_payable_dao",
-        );
         let rowid = 2;
         let hash = H256::from("sometransactionhash".keccak256());
         let payable_dao_factory = PayableDaoFactoryMock::new(Box::new(
@@ -4135,7 +4137,8 @@ pub mod tests {
                 pending_payments_scan_interval: Duration::from_millis(
                     pending_payments_scan_interval,
                 ),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: (PAYMENT_CURVES.payment_suggested_after_sec + 1000)
+                    as u64,
             },
             make_wallet("some_wallet_address"),
         );
@@ -4234,7 +4237,6 @@ pub mod tests {
             });
         let mut peer_actors = peer_actors_builder().build();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
-        let cloned_recipient_for_sent_payments = accountant_subs.report_sent_payments.clone();
         peer_actors.accountant = accountant_subs.clone();
         let blockchain_bridge_addr = blockchain_bridge.start();
         let blockchain_bridge_subs = BlockchainBridge::make_subs_from(&blockchain_bridge_addr);
@@ -4349,10 +4351,9 @@ pub mod tests {
             Duration::from_millis(pending_payments_scan_interval),
         );
 
-        let mut notify_later_check_for_confirmation =
-            notify_later_scan_for_pending_payments_params_arc
-                .lock()
-                .unwrap();
+        let notify_later_check_for_confirmation = notify_later_scan_for_pending_payments_params_arc
+            .lock()
+            .unwrap();
         assert_eq!(
             *notify_later_check_for_confirmation,
             vec![
@@ -4365,7 +4366,7 @@ pub mod tests {
         );
         let mut notify_confirm_transaction_params =
             notify_confirm_transaction_params_arc.lock().unwrap();
-        let mut actual_confirmed_payment: ConfirmPendingTransaction =
+        let actual_confirmed_payment: ConfirmPendingTransaction =
             notify_confirm_transaction_params.remove(0);
         assert!(notify_confirm_transaction_params.is_empty());
         let expected_confirmation_message = ConfirmPendingTransaction {
@@ -4375,8 +4376,7 @@ pub mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("DEBUG: Accountant: Transaction 0x0000…007b was unmarked as pending due to cancellation");
         log_handler.exists_log_containing(
-            "INFO: Accountant: Broken transaction 0x0000…007b was successfully canceled",
-        );
+            "WARN: Accountant: Broken transaction 0x0000…007b left with an error mark; you should take over the care of this transaction to make sure your debts will be paid;"); //the message continues but is shortened here
         log_handler.exists_log_matching("INFO: Accountant: Transaction '0x0000…0237' has been added to the blockchain; detected locally at attempt 4 at \\d{2,}ms after its sending");
         log_handler.exists_log_containing("INFO: Accountant: Transaction 0x0000000000000000000000000000000000000000000000000000000000000237 has gone through the whole confirmation process succeeding");
     }
@@ -4388,7 +4388,6 @@ pub mod tests {
         let tx_receipt_opt = None;
         let rowid = 455;
         let hash = H256::from_uint(&U256::from(2323));
-        let payment = make_payment_backup();
         let payment_backup_record = PaymentBackupRecord {
             rowid,
             timestamp: SystemTime::now().sub(Duration::from_millis(10000)),
@@ -4510,7 +4509,7 @@ pub mod tests {
     }
 
     #[test]
-    fn check_out_transaction_receipt_when_transaction_status_is_none() {
+    fn check_out_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval() {
         init_test_logging();
         let hash = H256::from_uint(&U256::from(567));
         let rowid = 466;
@@ -4540,6 +4539,44 @@ pub mod tests {
         TestLogHandler::new().exists_log_containing(
             "INFO: receipt_check_logger: Pending \
          transaction '0x0000…0237' couldn't be confirmed at attempt 1 at 100ms after its sending",
+        );
+    }
+
+    #[test]
+    fn check_out_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval()
+    {
+        init_test_logging();
+        let hash = H256::from_uint(&U256::from(567));
+        let rowid = 466;
+        let tx_receipt = TransactionReceipt::default(); //status defaulted to None
+        let when_sent =
+            SystemTime::now().sub(Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC + 5)); //old transaction
+        let subject = AccountantBuilder::default().build();
+        let payment_backup = PaymentBackupRecord {
+            rowid,
+            timestamp: when_sent,
+            hash,
+            attempt: 10,
+            amount: 123,
+            nonce: 1,
+            process_error: None,
+        };
+
+        let result = subject.check_out_transaction_receipt(
+            tx_receipt,
+            payment_backup.clone(),
+            &Logger::new("receipt_check_logger"),
+        );
+
+        assert_eq!(
+            result,
+            PendingTransactionStatus::Failure(TransactionId { hash, rowid })
+        );
+        TestLogHandler::new().exists_log_containing(
+            "WARN: receipt_check_logger: Pending transaction '0x0000…0237' has exceeded the \
+             maximum time allowed (21600sec) for being pending and the confirmation process is going to \
+              be aborted now at the finished attempt 10; manual resolving is required from the user to \
+               make the transaction paid",
         );
     }
 

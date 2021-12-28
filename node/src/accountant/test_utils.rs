@@ -356,8 +356,6 @@ pub struct PendingPaymentsDaoMock {
     update_backup_after_scan_cycle_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
     mark_failure_params: Arc<Mutex<Vec<u64>>>,
     mark_failure_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
-    read_payment_backup_params: Arc<Mutex<Vec<H256>>>,
-    read_payment_backup_results: RefCell<Vec<Result<PaymentBackupRecord, PendingPaymentDaoError>>>,
     return_all_payment_backups_params: Arc<Mutex<Vec<()>>>,
     return_all_backup_records_results: RefCell<Vec<Vec<PaymentBackupRecord>>>,
     pub have_return_all_backup_records_shut_down_the_system: bool,

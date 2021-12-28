@@ -96,10 +96,7 @@ pub(in crate::accountant) mod accountant_tools {
 mod tests {
     use crate::accountant::tools::accountant_tools::{
         PayablesScanner, PendingPaymentsScanner, ReceivablesScanner, Scanners,
-        TransactionConfirmationTools,
     };
-    use crate::accountant::ScanForPendingPayments;
-    use crate::blockchain::tool_wrappers::NotifyHandleReal;
 
     #[test]
     fn scanners_are_properly_defaulted() {

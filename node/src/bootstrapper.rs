@@ -334,7 +334,7 @@ impl BootstrapperConfig {
                 pending_payments_scan_interval: Duration::from_secs(
                     DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
                 ),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],

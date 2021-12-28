@@ -187,13 +187,11 @@ mod tests {
         PendingPaymentDaoError, PendingPaymentsDao, PendingPaymentsDaoReal,
     };
     use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
-    use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+    use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
     use crate::database::db_migrations::MigratorConfig;
-    use crate::sub_lib::utils::to_string;
     use ethereum_types::BigEndianHash;
-    use libc::sem_destroy;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, Error, OpenFlags, Row, NO_PARAMS};
     use std::str::FromStr;
@@ -261,9 +259,11 @@ mod tests {
     fn insert_payment_sad_path() {
         let home_dir =
             ensure_node_home_directory_exists("pending_payments_dao", "insert_payment_sad_path");
-        let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
-            .unwrap();
+        {
+            DbInitializerReal::default()
+                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .unwrap();
+        }
         let conn_read_only = Connection::open_with_flags(
             home_dir.join(DATABASE_FILE),
             OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -411,13 +411,14 @@ mod tests {
 
         let result = subject.delete_payment_backup(rowid);
 
+        assert_eq!(result, Ok(()));
         let conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
         let signed_row_id = jackass_unsigned_to_signed(rowid).unwrap();
         let mut stm2 = conn
             .prepare("select * from pending_payments where rowid = ?")
             .unwrap();
         let query_result_err = stm2
-            .query_row(&[&signed_row_id], |row: &Row| Ok(()))
+            .query_row(&[&signed_row_id], |_row: &Row| Ok(()))
             .unwrap_err();
         assert_eq!(query_result_err, Error::QueryReturnedNoRows);
     }
@@ -539,7 +540,7 @@ mod tests {
         }
         let mut all_backups_before = subject.return_all_payment_backups();
         assert_eq!(all_backups_before.len(), 1);
-        let mut backup_before = all_backups_before.remove(0);
+        let backup_before = all_backups_before.remove(0);
         assert_eq!(backup_before.hash, hash);
         assert_eq!(backup_before.rowid, 1);
         assert_eq!(backup_before.attempt, 1);
@@ -552,7 +553,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         let mut all_backups_after = subject.return_all_payment_backups();
         assert_eq!(all_backups_after.len(), 1);
-        let mut backup_after = all_backups_after.remove(0);
+        let backup_after = all_backups_after.remove(0);
         assert_eq!(backup_after.hash, hash);
         assert_eq!(backup_after.rowid, 1);
         assert_eq!(backup_after.attempt, 1);
