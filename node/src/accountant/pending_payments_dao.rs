@@ -18,6 +18,7 @@ pub enum PendingPaymentDaoError {
     SignConversionError(u64),
     RecordCannotBeRead,
     RecordDeletion(String),
+    ErrorMarkFailed(String),
 }
 
 pub trait PendingPaymentsDao {
@@ -107,7 +108,7 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal<'_> {
         match stm.execute(&[&signed_id]) {
             Ok(1) => Ok(()),
             Ok(num) => panic!(
-                "payment backup: one row should've been deleted but the result is {}",
+                "payment backup: delete: one row should've been deleted but the result is {}",
                 num
             ),
             Err(e) => Err(PendingPaymentDaoError::RecordDeletion(e.to_string())),
@@ -124,7 +125,7 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal<'_> {
         match stm.execute(&[&signed_id]) {
             Ok(1) => Ok(()),
             Ok(num) => panic!(
-                "payment backup: one row should've been updated but the result is {}",
+                "payment backup: update: one row should've been updated but the result is {}",
                 num
             ),
             Err(e) => Err(PendingPaymentDaoError::UpdateFailed(e.to_string())),
@@ -132,7 +133,20 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal<'_> {
     }
 
     fn mark_failure(&self, id: u64) -> Result<(), PendingPaymentDaoError> {
-        todo!()
+        let signed_id = jackass_unsigned_to_signed(id)
+            .expect("SQLite counts up to i64::MAX; should never happen");
+        let mut stm = self
+            .conn
+            .prepare("update pending_payments set process_error = 'ERROR' where rowid = ?")
+            .expect("Internal error");
+        match stm.execute(&[&signed_id]) {
+            Ok(1) => Ok(()),
+            Ok(num) => panic!(
+                "payment backup: mark failure: one row should've been updated but the result is {}",
+                num
+            ),
+            Err(e) => Err(PendingPaymentDaoError::ErrorMarkFailed(e.to_string())),
+        }
     }
 }
 
@@ -162,18 +176,21 @@ impl<'a> PendingPaymentsDaoReal<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::jackass_unsigned_to_signed;
     use crate::accountant::pending_payments_dao::{
         PendingPaymentDaoError, PendingPaymentsDao, PendingPaymentsDaoReal,
     };
     use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
     use crate::database::db_migrations::MigratorConfig;
+    use crate::sub_lib::utils::to_string;
     use ethereum_types::BigEndianHash;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection, Error, OpenFlags, NO_PARAMS};
+    use rusqlite::{Connection, Error, OpenFlags, Row, NO_PARAMS};
     use std::str::FromStr;
+    use std::time::SystemTime;
     use web3::types::{H256, U256};
 
     #[test]
@@ -359,6 +376,38 @@ mod tests {
     }
 
     #[test]
+    fn delete_payment_backup_happy_path() {
+        let home_dir = ensure_node_home_directory_exists(
+            "pending_payments_dao",
+            "delete_payment_backup_happy_path",
+        );
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let hash = H256::from_uint(&U256::from(666666));
+        let rowid = 1;
+        let subject = PendingPaymentsDaoReal::new(conn);
+        {
+            subject
+                .insert_payment_backup(hash, 5555, SystemTime::now())
+                .unwrap();
+            assert!(subject.payment_backup_exists(hash).is_some())
+        }
+
+        let result = subject.delete_payment_backup(rowid);
+
+        let conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
+        let signed_row_id = jackass_unsigned_to_signed(rowid).unwrap();
+        let mut stm2 = conn
+            .prepare("select * from pending_payments where rowid = ?")
+            .unwrap();
+        let query_result_err = stm2
+            .query_row(&[&signed_row_id], |row: &Row| Ok(()))
+            .unwrap_err();
+        assert_eq!(query_result_err, Error::QueryReturnedNoRows);
+    }
+
+    #[test]
     fn delete_payment_backup_sad_path() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payments_dao",
@@ -449,6 +498,71 @@ mod tests {
         assert_eq!(
             result,
             Err(PendingPaymentDaoError::UpdateFailed(
+                "attempt to write a readonly database".to_string()
+            ))
+        )
+    }
+
+    #[test]
+    fn mark_failure_works() {
+        let home_dir =
+            ensure_node_home_directory_exists("pending_payments_dao", "mark_failure_works");
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let hash = H256::from_uint(&U256::from(666));
+        let amount = 1234;
+        let timestamp = from_time_t(190_000_000);
+        let subject = PendingPaymentsDaoReal::new(conn);
+        {
+            subject
+                .insert_payment_backup(hash, amount, timestamp)
+                .unwrap();
+        }
+        let mut all_backups_before = subject.return_all_payment_backups();
+        assert_eq!(all_backups_before.len(), 1);
+        let mut backup_before = all_backups_before.remove(0);
+        assert_eq!(backup_before.hash, hash);
+        assert_eq!(backup_before.rowid, 1);
+        assert_eq!(backup_before.attempt, 1);
+        assert_eq!(backup_before.process_error, None);
+        assert_eq!(backup_before.timestamp, timestamp);
+
+        let result = subject.mark_failure(1);
+
+        assert_eq!(result, Ok(()));
+        let mut all_backups_after = subject.return_all_payment_backups();
+        assert_eq!(all_backups_after.len(), 1);
+        let mut backup_after = all_backups_after.remove(0);
+        assert_eq!(backup_after.hash, hash);
+        assert_eq!(backup_after.rowid, 1);
+        assert_eq!(backup_after.attempt, 1);
+        assert_eq!(backup_after.process_error, Some("ERROR".to_string()));
+        assert_eq!(backup_after.timestamp, timestamp);
+    }
+
+    #[test]
+    fn mark_failure_sad_path() {
+        let home_dir =
+            ensure_node_home_directory_exists("pending_payments_dao", "mark_failure_sad_path");
+        {
+            DbInitializerReal::default()
+                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .unwrap();
+        }
+        let conn_read_only = Connection::open_with_flags(
+            home_dir.join(DATABASE_FILE),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let wrapped_conn = ConnectionWrapperReal::new(conn_read_only);
+        let subject = PendingPaymentsDaoReal::new(Box::new(wrapped_conn));
+
+        let result = subject.mark_failure(1);
+
+        assert_eq!(
+            result,
+            Err(PendingPaymentDaoError::ErrorMarkFailed(
                 "attempt to write a readonly database".to_string()
             ))
         )

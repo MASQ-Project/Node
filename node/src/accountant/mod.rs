@@ -328,9 +328,7 @@ impl Handler<CancelFailedPendingTransaction> for Accountant {
         msg: CancelFailedPendingTransaction,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        if let Some(msg) = self.handle_cancel_pending_transaction(msg) {
-            unimplemented!() //TODO mark failure?
-        }
+        self.handle_cancel_pending_transaction(msg)
     }
 }
 
@@ -951,10 +949,7 @@ impl Accountant {
             .expect("UiGateway is dead");
     }
 
-    fn handle_cancel_pending_transaction(
-        &self,
-        msg: CancelFailedPendingTransaction,
-    ) -> Option<CancelFailedPendingTransaction> {
+    fn handle_cancel_pending_transaction(&self, msg: CancelFailedPendingTransaction) {
         match self.payable_dao.transaction_canceled(msg.id) {
             Ok(_) => {
                 debug!(
@@ -963,19 +958,18 @@ impl Accountant {
                 );
                 match self
                     .pending_payments_dao
-                    .delete_payment_backup(msg.id.rowid)
+                    .mark_failure(msg.id.rowid)
                 {
                     Ok(_) => info!(
                         self.logger,
                         "Broken transaction {} was successfully canceled", msg.id.hash
                     ),
-                    Err(e) => panic!("Unsuccessful attempt to delete pending payment backup due to {:?}; database unreliable", e),
+                    Err(e) => panic!("Unsuccessful attempt to mark fatal error at pending payment backup due to {:?}; database unreliable", e),
                 }
             }
             Err(e) =>
                 panic!("Unsuccessful attempt to uncheck pending transaction {} for payables; caused by {:?}", msg.id.hash,e.0)
         }
-        None
     }
 
     fn handle_confirm_pending_transaction(&self, msg: ConfirmPendingTransaction) {
@@ -1074,13 +1068,11 @@ impl Accountant {
         payment: PaymentBackupRecord,
         logger: &Logger,
     ) -> PendingTransactionStatus {
-        let attempt = payment.attempt;
         fn handle_none_receipt(
             payment: PaymentBackupRecord,
-            attempt: u16,
             logger: &Logger,
         ) -> PendingTransactionStatus {
-            info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",payment.hash, attempt, elapsed_in_ms(payment.timestamp));
+            info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",payment.hash, payment.attempt, elapsed_in_ms(payment.timestamp));
             PendingTransactionStatus::StillPending(TransactionId {
                 hash: payment.hash,
                 rowid: payment.rowid,
@@ -1088,33 +1080,30 @@ impl Accountant {
         }
         fn handle_status_with_success(
             payment: PaymentBackupRecord,
-            attempt: u16,
             logger: &Logger,
         ) -> PendingTransactionStatus {
             info!(
                 logger,
                 "Transaction '{}' has been added to the blockchain; detected locally at attempt {} at {}ms after its sending",
                 payment.hash,
-                attempt,
+                payment.attempt,
                 elapsed_in_ms(payment.timestamp)
             );
             PendingTransactionStatus::Confirmed(payment)
         }
         fn handle_status_with_failure(
             payment: &PaymentBackupRecord,
-            attempt: u16,
             logger: &Logger,
         ) -> PendingTransactionStatus {
-            warning!(logger,"Pending transaction '{}' announced as a failure, checking out attempt {} after {}ms from its sending",payment.hash,attempt,elapsed_in_ms(payment.timestamp));
+            warning!(logger,"Pending transaction '{}' announced as a failure, checking out attempt {} after {}ms from its sending",payment.hash,payment.attempt,elapsed_in_ms(payment.timestamp));
             PendingTransactionStatus::Failure(payment.into())
         }
-        //TODO revamp this part
         match receipt.status{
-                None => handle_none_receipt(payment,attempt,logger),
+                None => handle_none_receipt(payment,logger),
                 Some(status_code) =>
                     match status_code.as_u64(){
-                    0 => handle_status_with_success(payment,attempt,logger),
-                    1 => handle_status_with_failure(&payment,attempt,logger),
+                    0 => handle_status_with_success(payment,logger),
+                    1 => handle_status_with_failure(&payment,logger),
                     other => unreachable!("tx receipt for pending '{}' - tx status: code other than 0 or 1 shouldn't be possible, but was {}",payment.hash,other)
                 }
             }
@@ -3720,16 +3709,20 @@ pub mod tests {
     }
 
     #[test]
-    fn handle_confirm_transaction_works_for_real() {
+    fn handle_confirm_transaction_works() {
         init_test_logging();
-        let home_dir = ensure_node_home_directory_exists(
-            "accountant",
-            "handle_confirm_transaction_works_for_real",
+        let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
+        let delete_payment_backup_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_dao_factory = PayableDaoFactoryMock::new(Box::new(
+            PayableDaoMock::default()
+                .transaction_confirmed_params(&transaction_confirmed_params_arc)
+                .transaction_confirmed_result(Ok(())),
+        ));
+        let pending_payments_dao_factory = PendingPaymentsDaoFactoryMock::new(
+            PendingPaymentsDaoMock::default()
+                .delete_payment_backup_params(&delete_payment_backup_params_arc)
+                .delete_payment_backup_result(Ok(())),
         );
-        let payable_dao_factory =
-            DaoFactoryReal::new(&home_dir, true, MigratorConfig::test_default());
-        let pending_payments_dao_factory =
-            DaoFactoryReal::new(&home_dir, false, MigratorConfig::test_default());
         let subject = AccountantBuilder::default()
             .payable_dao_factory(Box::new(payable_dao_factory))
             .pending_payments_dao_factory(Box::new(pending_payments_dao_factory))
@@ -3738,107 +3731,27 @@ pub mod tests {
         let recipient_wallet = make_wallet("wallet");
         let amount = 4567;
         let timestamp_from_time_of_payment = from_time_t(200_000_000);
-        let previous_timestamp = from_time_t(199_000_000);
-        let pending_payments_rowid = 2; //must correspond with the real, generated from-origin position
+        let rowid = 2;
         let payment_backup = PaymentBackupRecord {
-            rowid: pending_payments_rowid,
+            rowid,
             timestamp: timestamp_from_time_of_payment,
             hash: tx_hash,
-            attempt: 0,
+            attempt: 1,
             amount,
             process_error: None,
         };
-        let conn_for_assertion = DbInitializerReal::default()
-            .initialize(&home_dir, false, MigratorConfig::test_default())
-            .unwrap();
-        {
-            initiate_records_in_payable_and_pending_payments(
-                conn_for_assertion.as_ref(),
-                &recipient_wallet,
-                pending_payments_rowid,
-                amount,
-                previous_timestamp,
-                timestamp_from_time_of_payment,
-                tx_hash,
-            )
-        }
 
-        let _ = subject
-            .handle_confirm_pending_transaction(ConfirmPendingTransaction { payment_backup });
+        let _ = subject.handle_confirm_pending_transaction(ConfirmPendingTransaction {
+            payment_backup: payment_backup.clone(),
+        });
 
-        let mut stm1 = conn_for_assertion
-            .prepare("select * from payable where wallet_address = ?")
-            .unwrap();
-        let _ = stm1
-            .query_row(&[recipient_wallet.to_string()], |row: &Row| {
-                let wallet: String = row.get(0).unwrap();
-                let balance: i64 = row.get(1).unwrap();
-                let timestamp: i64 = row.get(2).unwrap();
-                let pending_payment_rowid: Option<i64> = row.get(3).unwrap();
-                assert_eq!(wallet, recipient_wallet.to_string());
-                assert_eq!(balance, 0,);
-                assert_eq!(timestamp, to_time_t(timestamp_from_time_of_payment));
-                assert_eq!(pending_payment_rowid, None);
-                Ok(())
-            })
-            .unwrap();
-        assert_row_for_given_id_deleted_from_pending_payments(
-            conn_for_assertion.as_ref(),
-            pending_payments_rowid,
-        );
+        let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
+        assert_eq!(*transaction_confirmed_params, vec![payment_backup]);
+        let delete_payment_backup_params = delete_payment_backup_params_arc.lock().unwrap();
+        assert_eq!(*delete_payment_backup_params, vec![rowid]);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("DEBUG: Accountant: Confirmation of transaction 0x051a…8c19; record for payable table took change");
         log_handler.exists_log_containing("INFO: Accountant: Transaction 0x051aae12b9595ccaa43c2eabfd5b86347c37fa0988167165b0b17b23fcaa8c19 has gone through the whole confirmation process succeeding");
-    }
-
-    fn initiate_records_in_payable_and_pending_payments(
-        conn: &dyn ConnectionWrapper,
-        recipient_wallet: &Wallet,
-        pending_payments_rowid: u64,
-        amount: u64,
-        previous_timestamp: SystemTime,
-        timestamp_from_time_of_payment: SystemTime,
-        tx_hash: H256,
-    ) {
-        let mut stm1 = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_rowid) values (?,?,?,?)").unwrap();
-        let params: &[&dyn ToSql] = &[
-            recipient_wallet,
-            &(amount as i64),
-            &to_time_t(previous_timestamp),
-            &jackass_unsigned_to_signed(pending_payments_rowid).unwrap(),
-        ];
-        let row_changed = stm1.execute(params).unwrap();
-        assert_eq!(row_changed, 1);
-        let mut stm2 = conn.prepare("insert into pending_payments (rowid, amount, payment_timestamp, transaction_hash, attempt, process_error) values (?,?,?,?,?,?)").unwrap();
-        //I want to have a number higher than the lowest for rowid - so I'm adding one extra row
-        let params_of_irrelevant_sentinel: &[&dyn ToSql] =
-            &[&Null, &1234, &100_000_000, &"abcd45", &1, &Null];
-        let row_changed = stm2.execute(params_of_irrelevant_sentinel).unwrap();
-        assert_eq!(row_changed, 1);
-        let params: &[&dyn ToSql] = &[
-            &Null,
-            &(amount as i64),
-            &to_time_t(timestamp_from_time_of_payment),
-            &format!("{:#x}", tx_hash),
-            &1,
-            &Null,
-        ];
-        let row_changed = stm2.execute(params).unwrap();
-        assert_eq!(row_changed, 1)
-    }
-
-    fn assert_row_for_given_id_deleted_from_pending_payments(
-        conn: &dyn ConnectionWrapper,
-        rowid: u64,
-    ) {
-        let signed_row_id = jackass_unsigned_to_signed(rowid).unwrap();
-        let mut stm2 = conn
-            .prepare("select * from pending_payments where rowid = ?")
-            .unwrap();
-        let query_result_err = stm2
-            .query_row(&[&signed_row_id], |row: &Row| Ok(()))
-            .unwrap_err();
-        assert_eq!(query_result_err, Error::QueryReturnedNoRows);
     }
 
     #[test]
@@ -3899,52 +3812,24 @@ pub mod tests {
     #[test]
     fn handle_cancel_pending_transaction_works_for_real() {
         init_test_logging();
-        let home_dir = ensure_node_home_directory_exists(
-            "accountant",
-            "handle_cancel_pending_transaction_works_for_real",
+        let transaction_canceled_params_arc = Arc::new(Mutex::new(vec![]));
+        let mark_failure_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_dao_factory = PayableDaoFactoryMock::new(Box::new(
+            PayableDaoMock::default()
+                .transaction_canceled_params(&transaction_canceled_params_arc)
+                .transaction_canceled_result(Ok(())),
+        ));
+        let pending_payments_dao_factory = PendingPaymentsDaoFactoryMock::new(
+            PendingPaymentsDaoMock::default()
+                .mark_failure_params(&mark_failure_params_arc)
+                .mark_failure_result(Ok(())),
         );
-        let payable_dao_factory =
-            DaoFactoryReal::new(&home_dir, true, MigratorConfig::test_default());
-        let pending_payments_dao_factory =
-            DaoFactoryReal::new(&home_dir, false, MigratorConfig::test_default());
         let subject = AccountantBuilder::default()
             .payable_dao_factory(Box::new(payable_dao_factory))
             .pending_payments_dao_factory(Box::new(pending_payments_dao_factory))
             .build();
         let tx_hash = H256::from("sometransactionhash".keccak256());
-        let recipient_wallet = make_wallet("wallet");
-        let amount = 4567;
         let rowid = 2;
-        let last_timestamp = from_time_t(190_000_000);
-        let timestamp_of_time_of_payment = from_time_t(179_000_000);
-        let conn_for_assertion = DbInitializerReal::default()
-            .initialize(&home_dir, false, MigratorConfig::test_default())
-            .unwrap();
-        {
-            initiate_records_in_payable_and_pending_payments(
-                conn_for_assertion.as_ref(),
-                &recipient_wallet,
-                rowid,
-                amount,
-                last_timestamp,
-                timestamp_of_time_of_payment,
-                tx_hash,
-            );
-        }
-        let mut stm = conn_for_assertion
-            .prepare("select * from payable where wallet_address = ?")
-            .unwrap();
-        let closure = |row: &Row| {
-            let wallet: String = row.get(0).unwrap();
-            let balance: i64 = row.get(1).unwrap();
-            let timestamp: i64 = row.get(2).unwrap();
-            let pending_tx_payable_rowid: Option<i64> = row.get(3).unwrap();
-            Ok((wallet, balance, timestamp, pending_tx_payable_rowid))
-        };
-        let res = stm
-            .query_row(&[recipient_wallet.to_string()], closure)
-            .unwrap();
-        let (wallet_before, balance_before, timestamp_before, rowid_opt_before) = res;
         let transaction_id = TransactionId {
             hash: tx_hash,
             rowid,
@@ -3954,18 +3839,10 @@ pub mod tests {
             id: transaction_id,
         });
 
-        let res = stm
-            .query_row(&[recipient_wallet.to_string()], closure)
-            .unwrap();
-        let (wallet_after, balance_after, timestamp_after, hash_opt_after) = res;
-        assert!(recipient_wallet.to_string() == wallet_before && wallet_before == wallet_after);
-        assert!(amount as i64 == balance_before && balance_before == balance_after);
-        assert!(
-            to_time_t(last_timestamp) == timestamp_before && timestamp_before == timestamp_after
-        );
-        assert_eq!(rowid_opt_before, Some(2));
-        assert_eq!(hash_opt_after, None);
-        assert_row_for_given_id_deleted_from_pending_payments(conn_for_assertion.as_ref(), rowid);
+        let transaction_canceled_params = transaction_canceled_params_arc.lock().unwrap();
+        assert_eq!(*transaction_canceled_params, vec![transaction_id]);
+        let mark_failure_params = mark_failure_params_arc.lock().unwrap();
+        assert_eq!(*mark_failure_params, vec![rowid]);
         TestLogHandler::new().exists_log_containing(
             "INFO: Accountant: Broken transaction 0x051a…8c19 was successfully canceled",
         );
@@ -3999,15 +3876,15 @@ pub mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Unsuccessful attempt to delete pending payment backup due to RecordDeletion(\"no no no\"); database unreliable"
+        expected = "Unsuccessful attempt to mark fatal error at pending payment backup due to UpdateFailed(\"no no no\")"
     )]
-    fn handle_cancel_pending_transaction_panics_on_its_inability_to_delete_the_backup() {
+    fn handle_cancel_pending_transaction_panics_on_its_inability_at_marking_failure() {
         let payable_dao_factory = PayableDaoFactoryMock::new(Box::new(
             PayableDaoMock::default().transaction_canceled_result(Ok(())),
         ));
         let pending_payments_dao_factory = PendingPaymentsDaoFactoryMock::new(
-            PendingPaymentsDaoMock::default().delete_payment_backup_result(Err(
-                PendingPaymentDaoError::RecordDeletion("no no no".to_string()),
+            PendingPaymentsDaoMock::default().mark_failure_result(Err(
+                PendingPaymentDaoError::UpdateFailed("no no no".to_string()),
             )),
         );
         let subject = AccountantBuilder::default()
@@ -4129,10 +4006,11 @@ pub mod tests {
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let transaction_canceled_params_arc = Arc::new(Mutex::new(vec![]));
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
-        let return_all_payment_backups_params_arc = Arc::new(Mutex::new(vec![])); //TODO write an assertion for this
-        let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![])); //TODO write an assertion for this
+        let return_all_payment_backups_params_arc = Arc::new(Mutex::new(vec![]));
+        let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let insert_record_params_arc = Arc::new(Mutex::new(vec![]));
         let update_backup_after_cycle_params_arc = Arc::new(Mutex::new(vec![]));
+        let mark_failure_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_record_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payments_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payments_arc_cloned =
@@ -4279,9 +4157,10 @@ pub mod tests {
             .update_backup_after_scan_cycle_results(Ok(()))
             .update_backup_after_scan_cycle_results(Ok(()))
             .update_backup_after_scan_cycle_results(Ok(()))
+            .mark_failure_params(&mark_failure_params_arc)
+            //we don't have a better solution yet, so we mark this down
+            .mark_failure_result(Ok(()))
             .delete_payment_backup_params(&delete_record_params_arc)
-            //first for the one with a failure
-            .delete_payment_backup_result(Ok(()))
             //this is used during confirmation of the successful one
             .delete_payment_backup_result(Ok(()));
         let accountant_addr = Arbiter::builder()
@@ -4362,6 +4241,11 @@ pub mod tests {
                 rowid: rowid_for_account_2
             }
         );
+        let return_all_payment_backups_params =
+            return_all_payment_backups_params_arc.lock().unwrap();
+        assert_eq!(*return_all_payment_backups_params, vec![(), (), (), (), ()]);
+        let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
+        assert_eq!(*non_pending_payables_params, vec![()]); //because we disabled further scanning for payables
         let expected_params_for_payment_1 = Payment {
             to: wallet_account_1.clone(),
             amount: 5500,
@@ -4400,11 +4284,10 @@ pub mod tests {
                 rowid_for_account_2
             ]
         );
+        let mark_failure_params = mark_failure_params_arc.lock().unwrap();
+        assert_eq!(*mark_failure_params, vec![rowid_for_account_1]);
         let delete_record_params = delete_record_params_arc.lock().unwrap();
-        assert_eq!(
-            *delete_record_params,
-            vec![rowid_for_account_1, rowid_for_account_2]
-        );
+        assert_eq!(*delete_record_params, vec![rowid_for_account_2]);
         let expected_params_for_payment_2 = Payment {
             to: wallet_account_2,
             amount: payable_account_balance_2 as u64,

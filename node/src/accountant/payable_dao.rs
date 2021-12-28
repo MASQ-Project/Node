@@ -343,7 +343,7 @@ mod tests {
     use crate::accountant::test_utils::make_payment_backup;
     use crate::accountant::TransactionId;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::dao_utils::from_time_t;
+    use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::database::db_initializer;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::database::db_migrations::MigratorConfig;
@@ -557,6 +557,73 @@ mod tests {
         )
     }
 
+    fn create_account_with_pending_payment(
+        conn: &dyn ConnectionWrapper,
+        recipient_wallet: &Wallet,
+        amount: i64,
+        timestamp: SystemTime,
+        rowid: u64,
+    ) {
+        let mut stm1 = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_rowid) values (?,?,?,?)").unwrap();
+        let params: &[&dyn ToSql] = &[
+            &recipient_wallet,
+            &amount,
+            &to_time_t(timestamp),
+            &jackass_unsigned_to_signed(rowid).unwrap(),
+        ];
+        let row_changed = stm1.execute(params).unwrap();
+        assert_eq!(row_changed, 1);
+    }
+
+    #[test]
+    fn transaction_canceled_works() {
+        let home_dir =
+            ensure_node_home_directory_exists("payable_dao", "transaction_canceled_works");
+        let hash = H256::from_uint(&U256::from(45678));
+        let rowid = 656;
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let amount = 55555;
+        let timestamp = from_time_t(190_000_000);
+        let recipient_wallet = make_wallet("booga");
+        {
+            create_account_with_pending_payment(
+                conn.as_ref(),
+                &recipient_wallet,
+                amount,
+                timestamp,
+                rowid,
+            )
+        }
+        let subject = PayableDaoReal::new(conn);
+        let status_before = subject.account_status(&recipient_wallet);
+        assert_eq!(
+            status_before,
+            Some(PayableAccount {
+                wallet: recipient_wallet.clone(),
+                balance: amount,
+                last_paid_timestamp: timestamp,
+                pending_payment_rowid_opt: Some(656)
+            })
+        );
+
+        let _ = subject
+            .transaction_canceled(TransactionId { hash, rowid })
+            .unwrap();
+
+        let status_after = subject.account_status(&recipient_wallet);
+        assert_eq!(
+            status_after,
+            Some(PayableAccount {
+                wallet: recipient_wallet,
+                balance: amount,
+                last_paid_timestamp: timestamp,
+                pending_payment_rowid_opt: None
+            })
+        )
+    }
+
     #[test]
     fn transaction_canceled_works_for_generic_sql_error() {
         let home_dir = ensure_node_home_directory_exists(
@@ -601,6 +668,65 @@ mod tests {
                 PaymentErrorKind::RusqliteError("Returned 0 rows but expected 1".to_string()),
                 TransactionId { hash, rowid }
             ))
+        )
+    }
+
+    #[test]
+    fn transaction_confirmed_works() {
+        let home_dir =
+            ensure_node_home_directory_exists("payable_dao", "transaction_confirmed_works");
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let hash = H256::from_uint(&U256::from(12345));
+        let rowid = 789;
+        let previous_timestamp = from_time_t(190_000_000);
+        let payment_timestamp = from_time_t(199_000_000);
+        let attempt = 5;
+        let starting_amount = 10000;
+        let payment = 6666;
+        let wallet = make_wallet("bobble");
+        {
+            create_account_with_pending_payment(
+                conn.as_ref(),
+                &wallet,
+                starting_amount,
+                previous_timestamp,
+                rowid,
+            )
+        }
+        let subject = PayableDaoReal::new(conn);
+        let status_before = subject.account_status(&wallet);
+        assert_eq!(
+            status_before,
+            Some(PayableAccount {
+                wallet: wallet.clone(),
+                balance: starting_amount,
+                last_paid_timestamp: previous_timestamp,
+                pending_payment_rowid_opt: Some(rowid)
+            })
+        );
+        let payment_backup = PaymentBackupRecord {
+            rowid,
+            timestamp: payment_timestamp,
+            hash,
+            attempt,
+            amount: payment as u64,
+            process_error: None,
+        };
+
+        let result = subject.transaction_confirmed(&payment_backup);
+
+        assert_eq!(result, Ok(()));
+        let status_after = subject.account_status(&wallet);
+        assert_eq!(
+            status_after,
+            Some(PayableAccount {
+                wallet,
+                balance: starting_amount - payment,
+                last_paid_timestamp: payment_timestamp,
+                pending_payment_rowid_opt: None
+            })
         )
     }
 
