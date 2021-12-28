@@ -14,6 +14,7 @@ use web3::types::H256;
 #[derive(Debug, PartialEq)]
 pub enum PendingPaymentDaoError {
     InsertionFailed(String),
+    UpdateFailed(String),
     SignConversionError(u64),
     RecordCannotBeRead,
     RecordDeletion(String),
@@ -29,7 +30,7 @@ pub trait PendingPaymentsDao {
         timestamp: SystemTime,
     ) -> Result<(), PendingPaymentDaoError>;
     fn delete_payment_backup(&self, id: u64) -> Result<(), PendingPaymentDaoError>;
-    fn update_record_after_cycle(&self, id: u64) -> Result<(), PendingPaymentDaoError>; //TODO implement or discard
+    fn update_backup_after_scan_cycle(&self, id: u64) -> Result<(), PendingPaymentDaoError>; //TODO implement or discard
     fn mark_failure(&self, id: u64) -> Result<(), PendingPaymentDaoError>; //TODO implement or discard
 }
 
@@ -105,13 +106,29 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal<'_> {
             .expect("Internal error");
         match stm.execute(&[&signed_id]) {
             Ok(1) => Ok(()),
-            Ok(x) => panic!("one row should've been deleted but the result is {}", x),
+            Ok(num) => panic!(
+                "payment backup: one row should've been deleted but the result is {}",
+                num
+            ),
             Err(e) => Err(PendingPaymentDaoError::RecordDeletion(e.to_string())),
         }
     }
 
-    fn update_record_after_cycle(&self, id: u64) -> Result<(), PendingPaymentDaoError> {
-        todo!()
+    fn update_backup_after_scan_cycle(&self, id: u64) -> Result<(), PendingPaymentDaoError> {
+        let signed_id = jackass_unsigned_to_signed(id)
+            .expect("SQLite counts up to i64::MAX; should never happen");
+        let mut stm = self
+            .conn
+            .prepare("update pending_payments set attempt = attempt + 1 where rowid = ?")
+            .expect("Internal error");
+        match stm.execute(&[&signed_id]) {
+            Ok(1) => Ok(()),
+            Ok(num) => panic!(
+                "payment backup: one row should've been updated but the result is {}",
+                num
+            ),
+            Err(e) => Err(PendingPaymentDaoError::UpdateFailed(e.to_string())),
+        }
     }
 
     fn mark_failure(&self, id: u64) -> Result<(), PendingPaymentDaoError> {
@@ -347,9 +364,11 @@ mod tests {
             "pending_payments_dao",
             "delete_payment_backup_sad_path",
         );
-        let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
-            .unwrap();
+        {
+            DbInitializerReal::default()
+                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .unwrap();
+        }
         let conn_read_only = Connection::open_with_flags(
             home_dir.join(DATABASE_FILE),
             OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -364,6 +383,72 @@ mod tests {
         assert_eq!(
             result,
             Err(PendingPaymentDaoError::RecordDeletion(
+                "attempt to write a readonly database".to_string()
+            ))
+        )
+    }
+
+    #[test]
+    fn update_backup_after_scan_cycle_works() {
+        let home_dir = ensure_node_home_directory_exists(
+            "pending_payments_dao",
+            "update_backup_after_scan_cycle_works",
+        );
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let hash = H256::from_uint(&U256::from(666));
+        let amount = 1234;
+        let timestamp = from_time_t(190_000_000);
+        let subject = PendingPaymentsDaoReal::new(conn);
+        {
+            subject
+                .insert_payment_backup(hash, amount, timestamp)
+                .unwrap();
+        }
+        let mut all_backups_before = subject.return_all_payment_backups();
+        assert_eq!(all_backups_before.len(), 1);
+        let mut backup_before = all_backups_before.remove(0);
+        assert_eq!(backup_before.hash, hash);
+        assert_eq!(backup_before.rowid, 1);
+        assert_eq!(backup_before.attempt, 1);
+        assert_eq!(backup_before.process_error, None);
+        assert_eq!(backup_before.timestamp, timestamp);
+
+        let result = subject.update_backup_after_scan_cycle(1);
+
+        assert_eq!(result, Ok(()));
+        let mut all_backups_after = subject.return_all_payment_backups();
+        assert_eq!(all_backups_after.len(), 1);
+        let backup_after = all_backups_after.remove(0);
+        backup_before.attempt = 2;
+        assert_eq!(backup_before, backup_after)
+    }
+
+    #[test]
+    fn update_backup_after_scan_cycle_sad_path() {
+        let home_dir = ensure_node_home_directory_exists(
+            "pending_payments_dao",
+            "update_backup_after_scan_cycle_sad_path",
+        );
+        {
+            DbInitializerReal::default()
+                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .unwrap();
+        }
+        let conn_read_only = Connection::open_with_flags(
+            home_dir.join(DATABASE_FILE),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let wrapped_conn = ConnectionWrapperReal::new(conn_read_only);
+        let subject = PendingPaymentsDaoReal::new(Box::new(wrapped_conn));
+
+        let result = subject.update_backup_after_scan_cycle(1);
+
+        assert_eq!(
+            result,
+            Err(PendingPaymentDaoError::UpdateFailed(
                 "attempt to write a readonly database".to_string()
             ))
         )

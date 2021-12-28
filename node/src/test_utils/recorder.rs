@@ -1,10 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::payable_dao::Payment;
+use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanForPayables, ScanForReceivables, SentPayments,
 };
+use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use crate::blockchain::blockchain_bridge::{PaymentBackupRecord, ReportTransactionReceipts};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainResult, Transaction};
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;

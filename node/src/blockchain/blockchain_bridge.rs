@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::{PayableAccount, Payment};
-use crate::accountant::RequestTransactionReceipts;
 use crate::accountant::SentPayments;
+use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
     BlockchainInterfaceNonClandestine, BlockchainResult, SendTransactionInputs, Transaction,
@@ -117,11 +117,6 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     fn handle(&mut self, msg: RequestTransactionReceipts, _ctx: &mut Self::Context) {
         self.handle_request_transaction_receipts(msg)
     }
-}
-
-#[derive(Debug, PartialEq, Message, Clone)]
-pub struct ReportTransactionReceipts {
-    pub payment_backups_with_receipts: Vec<(Option<TransactionReceipt>, PaymentBackupRecord)>,
 }
 
 #[derive(Debug, PartialEq, Message, Clone)]
@@ -252,7 +247,6 @@ impl BlockchainBridge {
     }
 
     fn handle_request_transaction_receipts(&self, msg: RequestTransactionReceipts) {
-        eprintln!("I'm here");
         let short_circuit_result: Result<Vec<Option<TransactionReceipt>>, BlockchainError> = msg
             .pending_payments
             .iter()

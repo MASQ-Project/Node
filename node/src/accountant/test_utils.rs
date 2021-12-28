@@ -352,6 +352,8 @@ pub struct PendingPaymentsDaoMock {
     delete_payment_backup_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
     insert_payment_backup_params: Arc<Mutex<Vec<(H256, u64, SystemTime)>>>,
     insert_payment_backup_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
+    update_backup_after_scan_cycle_params: Arc<Mutex<Vec<u64>>>,
+    update_backup_after_scan_cycle_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
     mark_failure_params: Arc<Mutex<Vec<u64>>>,
     mark_failure_results: RefCell<Vec<Result<(), PendingPaymentDaoError>>>,
     read_payment_backup_params: Arc<Mutex<Vec<H256>>>,
@@ -405,8 +407,14 @@ impl PendingPaymentsDao for PendingPaymentsDaoMock {
         self.delete_payment_backup_results.borrow_mut().remove(0)
     }
 
-    fn update_record_after_cycle(&self, id: u64) -> Result<(), PendingPaymentDaoError> {
-        todo!()
+    fn update_backup_after_scan_cycle(&self, id: u64) -> Result<(), PendingPaymentDaoError> {
+        self.update_backup_after_scan_cycle_params
+            .lock()
+            .unwrap()
+            .push(id);
+        self.update_backup_after_scan_cycle_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn mark_failure(&self, id: u64) -> Result<(), PendingPaymentDaoError> {
@@ -468,6 +476,21 @@ impl PendingPaymentsDaoMock {
 
     pub fn mark_failure_result(self, result: Result<(), PendingPaymentDaoError>) -> Self {
         self.mark_failure_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn update_backup_after_scan_cycle_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
+        self.update_backup_after_scan_cycle_params = params.clone();
+        self
+    }
+
+    pub fn update_backup_after_scan_cycle_results(
+        self,
+        result: Result<(), PendingPaymentDaoError>,
+    ) -> Self {
+        self.update_backup_after_scan_cycle_results
+            .borrow_mut()
+            .push(result);
         self
     }
 }

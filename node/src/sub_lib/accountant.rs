@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{ReceivedPayments, SentPayments};
-use crate::blockchain::blockchain_bridge::{PaymentBackupRecord, ReportTransactionReceipts};
+use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, SentPayments};
+use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;

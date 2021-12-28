@@ -13,9 +13,7 @@ use crate::accountant::pending_payments_dao::{PendingPaymentsDao, PendingPayment
 use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDaoFactory};
 use crate::accountant::tools::accountant_tools::{Scanners, TransactionConfirmationTools};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
-use crate::blockchain::blockchain_bridge::{
-    PaymentBackupRecord, ReportTransactionReceipts, RetrieveTransactions,
-};
+use crate::blockchain::blockchain_bridge::{PaymentBackupRecord, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
@@ -290,6 +288,11 @@ pub struct RequestTransactionReceipts {
     pub pending_payments: Vec<PaymentBackupRecord>,
 }
 
+#[derive(Debug, PartialEq, Message, Clone)]
+pub struct ReportTransactionReceipts {
+    pub payment_backups_with_receipts: Vec<(Option<TransactionReceipt>, PaymentBackupRecord)>,
+}
+
 impl Handler<ReportTransactionReceipts> for Accountant {
     type Result = ();
 
@@ -300,10 +303,11 @@ impl Handler<ReportTransactionReceipts> for Accountant {
             msg.payment_backups_with_receipts.len()
         );
         let statuses = self.handle_pending_transaction_check(msg);
-        let cancellations: Vec<PendingTransactionStatus> = statuses
-            .into_iter()
-            .filter(|status| status.is_non_pending())
-            .collect();
+        let (pending_transactions, cancellations) =
+            Self::separate_transactions_if_still_pending(statuses);
+        if !pending_transactions.is_empty() {
+            self.update_backup_of_pending_transaction(pending_transactions);
+        }
         if !cancellations.is_empty() {
             debug!(self.logger, "{} cancellations", cancellations.len());
             self.handle_transaction_cancellation(cancellations, ctx);
@@ -1057,7 +1061,7 @@ impl Accountant {
                                     ),
                     None => {
                         debug!(self.logger,"DEBUG: Accountant: Interpreting a receipt for transaction '{}' but none was given; attempt {}, {}ms since sending", payment.hash, payment.attempt,elapsed_in_ms(payment.timestamp));
-                        PendingTransactionStatus::StillPending
+                        PendingTransactionStatus::StillPending(TransactionId{ hash: payment.hash, rowid: payment.rowid })
                     }
                 }
             )
@@ -1077,7 +1081,10 @@ impl Accountant {
             logger: &Logger,
         ) -> PendingTransactionStatus {
             info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",payment.hash, attempt, elapsed_in_ms(payment.timestamp));
-            PendingTransactionStatus::StillPending
+            PendingTransactionStatus::StillPending(TransactionId {
+                hash: payment.hash,
+                rowid: payment.rowid,
+            })
         }
         fn handle_status_with_success(
             payment: PaymentBackupRecord,
@@ -1111,6 +1118,32 @@ impl Accountant {
                     other => unreachable!("tx receipt for pending '{}' - tx status: code other than 0 or 1 shouldn't be possible, but was {}",payment.hash,other)
                 }
             }
+    }
+
+    fn separate_transactions_if_still_pending(
+        statuses: Vec<PendingTransactionStatus>,
+    ) -> (Vec<PendingTransactionStatus>, Vec<PendingTransactionStatus>) {
+        statuses
+            .into_iter()
+            .partition(|status| !status.is_non_pending())
+    }
+
+    fn update_backup_of_pending_transaction(
+        &self,
+        pending_payments: Vec<PendingTransactionStatus>,
+    ) {
+        pending_payments
+            .into_iter()
+            .for_each(|pending_payment| match pending_payment {
+                PendingTransactionStatus::StillPending(id) => match self
+                    .pending_payments_dao
+                    .update_backup_after_scan_cycle(id.rowid)
+                {
+                    Ok(_) => trace!(self.logger, "Updated backup for rowid: {} ", id.rowid),
+                    Err(e) => panic!("Failure on updating payment backup due to {:?}", e),
+                },
+                _ => unreachable!("we are operating behind a filter; should not happen"),
+            })
     }
 
     fn handle_transaction_cancellation(
@@ -1183,8 +1216,8 @@ fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
 
 #[derive(Debug, PartialEq, Clone)]
 enum PendingTransactionStatus {
-    StillPending,           //will go back, waiting an interval, and start a new round
-    Failure(TransactionId), //official tx failure
+    StillPending(TransactionId), //will go back, may change the record, wait an interval, and start a new round
+    Failure(TransactionId),      //official tx failure
     Confirmed(PaymentBackupRecord), //tx was fully processed and successful
     ConfirmationProcessCrashed(TransactionId), //failure within our confirming process
 }
@@ -4099,6 +4132,7 @@ pub mod tests {
         let return_all_payment_backups_params_arc = Arc::new(Mutex::new(vec![])); //TODO write an assertion for this
         let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![])); //TODO write an assertion for this
         let insert_record_params_arc = Arc::new(Mutex::new(vec![]));
+        let update_backup_after_cycle_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_record_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payments_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payments_arc_cloned =
@@ -4188,7 +4222,7 @@ pub mod tests {
                 receivables_scan_interval: Duration::from_secs(1_000_000), //we don't care about this scan
                 pending_payments_scan_interval: Duration::from_millis(
                     pending_payments_scan_interval,
-                ), //TODO adjust later
+                ),
             },
             make_wallet("some_wallet_address"),
         );
@@ -4239,6 +4273,12 @@ pub mod tests {
             .insert_payment_backup_result(Ok(()))
             .payment_backup_exists_result(Some(rowid_for_account_1))
             .payment_backup_exists_result(Some(rowid_for_account_2))
+            .update_backup_after_scan_cycle_params(&update_backup_after_cycle_params_arc)
+            .update_backup_after_scan_cycle_results(Ok(()))
+            .update_backup_after_scan_cycle_results(Ok(()))
+            .update_backup_after_scan_cycle_results(Ok(()))
+            .update_backup_after_scan_cycle_results(Ok(()))
+            .update_backup_after_scan_cycle_results(Ok(()))
             .delete_payment_backup_params(&delete_record_params_arc)
             //first for the one with a failure
             .delete_payment_backup_result(Ok(()))
@@ -4349,6 +4389,17 @@ pub mod tests {
                 pending_tx_hash_2
             ]
         );
+        let update_backup_after_cycle_params = update_backup_after_cycle_params_arc.lock().unwrap();
+        assert_eq!(
+            *update_backup_after_cycle_params,
+            vec![
+                rowid_for_account_1,
+                rowid_for_account_2,
+                rowid_for_account_1,
+                rowid_for_account_2,
+                rowid_for_account_2
+            ]
+        );
         let delete_record_params = delete_record_params_arc.lock().unwrap();
         assert_eq!(
             *delete_record_params,
@@ -4415,11 +4466,13 @@ pub mod tests {
         init_test_logging();
         let subject = AccountantBuilder::default().build();
         let tx_receipt_opt = None;
+        let rowid = 455;
+        let hash = H256::from_uint(&U256::from(2323));
         let payment = make_payment_backup();
         let payment_backup_record = PaymentBackupRecord {
-            rowid: 455,
+            rowid,
             timestamp: SystemTime::now().sub(Duration::from_millis(10000)),
-            hash: H256::from_uint(&U256::from(2323)),
+            hash,
             attempt: 3,
             amount: 111,
             process_error: None,
@@ -4430,7 +4483,13 @@ pub mod tests {
 
         let result = subject.handle_pending_transaction_check(msg.clone());
 
-        assert_eq!(result, vec![PendingTransactionStatus::StillPending]);
+        assert_eq!(
+            result,
+            vec![PendingTransactionStatus::StillPending(TransactionId {
+                hash,
+                rowid
+            })]
+        );
         TestLogHandler::new().exists_log_matching("DEBUG: Accountant: Interpreting a receipt for transaction '0x0000…0913' but none was given; attempt 3, 100\\d\\dms since sending");
     }
 
@@ -4530,11 +4589,12 @@ pub mod tests {
     fn check_out_transaction_receipt_when_transaction_status_is_none() {
         init_test_logging();
         let hash = H256::from_uint(&U256::from(567));
+        let rowid = 466;
         let tx_receipt = TransactionReceipt::default(); //status defaulted to None
         let when_sent = SystemTime::now().sub(Duration::from_millis(100));
         let subject = AccountantBuilder::default().build();
         let payment_backup = PaymentBackupRecord {
-            rowid: 466,
+            rowid,
             timestamp: when_sent,
             hash,
             attempt: 1,
@@ -4548,7 +4608,10 @@ pub mod tests {
             &Logger::new("receipt_check_logger"),
         );
 
-        assert_eq!(result, PendingTransactionStatus::StillPending);
+        assert_eq!(
+            result,
+            PendingTransactionStatus::StillPending(TransactionId { hash, rowid })
+        );
         TestLogHandler::new().exists_log_containing(
             "INFO: receipt_check_logger: Pending \
          transaction '0x0000…0237' couldn't be confirmed at attempt 1 at 100ms after its sending",
@@ -4584,9 +4647,14 @@ pub mod tests {
             true
         );
         assert_eq!(
-            PendingTransactionStatus::StillPending.is_non_pending(),
-            false
+            PendingTransactionStatus::ConfirmationProcessCrashed(make_transaction_id())
+                .is_non_pending(),
+            true
         );
+        assert_eq!(
+            PendingTransactionStatus::StillPending(make_transaction_id()).is_non_pending(),
+            false
+        )
     }
 
     #[test]
@@ -4714,6 +4782,85 @@ pub mod tests {
 
         assert_eq!(ok, vec![payment_ok]);
         assert_eq!(err, vec![error])
+    }
+
+    #[test]
+    fn separate_transactions_if_still_pending_works() {
+        let statuses = vec![
+            PendingTransactionStatus::Confirmed(make_payment_backup()),
+            PendingTransactionStatus::StillPending(make_transaction_id()),
+            PendingTransactionStatus::Failure(make_transaction_id()),
+        ];
+
+        let (pending, non_pending) = Accountant::separate_transactions_if_still_pending(statuses);
+
+        assert_eq!(
+            pending,
+            vec![PendingTransactionStatus::StillPending(make_transaction_id())]
+        );
+        assert_eq!(
+            non_pending,
+            vec![
+                PendingTransactionStatus::Confirmed(make_payment_backup()),
+                PendingTransactionStatus::Failure(make_transaction_id())
+            ]
+        )
+    }
+
+    #[test]
+    fn update_backup_of_pending_transaction_happy_path() {
+        let update_after_cycle_params_arc = Arc::new(Mutex::new(vec![]));
+        let hash_1 = H256::from_uint(&U256::from(444888));
+        let rowid_1 = 3456;
+        let hash_2 = H256::from_uint(&U256::from(111000));
+        let rowid_2 = 3450;
+        let pending_payment_dao_factory = Box::new(PendingPaymentsDaoFactoryMock::new(
+            PendingPaymentsDaoMock::default()
+                .update_backup_after_scan_cycle_params(&update_after_cycle_params_arc)
+                .update_backup_after_scan_cycle_results(Ok(()))
+                .update_backup_after_scan_cycle_results(Ok(())),
+        ));
+        let subject = AccountantBuilder::default()
+            .pending_payments_dao_factory(pending_payment_dao_factory)
+            .build();
+        let pending_payments = vec![
+            PendingTransactionStatus::StillPending(TransactionId {
+                hash: hash_1,
+                rowid: rowid_1,
+            }),
+            PendingTransactionStatus::StillPending(TransactionId {
+                hash: hash_2,
+                rowid: rowid_2,
+            }),
+        ];
+
+        let _ = subject.update_backup_of_pending_transaction(pending_payments);
+
+        let update_after_cycle_params = update_after_cycle_params_arc.lock().unwrap();
+        assert_eq!(*update_after_cycle_params, vec![rowid_1, rowid_2])
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Failure on updating payment backup due to UpdateFailed(\"yeah, bad\")"
+    )]
+    fn update_backup_of_pending_transaction_sad_path() {
+        let hash = H256::from_uint(&U256::from(444888));
+        let rowid = 3456;
+        let pending_payment_dao_factory = Box::new(PendingPaymentsDaoFactoryMock::new(
+            PendingPaymentsDaoMock::default().update_backup_after_scan_cycle_results(Err(
+                PendingPaymentDaoError::UpdateFailed("yeah, bad".to_string()),
+            )),
+        ));
+        let subject = AccountantBuilder::default()
+            .pending_payments_dao_factory(pending_payment_dao_factory)
+            .build();
+        let pending_payments = vec![PendingTransactionStatus::StillPending(TransactionId {
+            hash,
+            rowid,
+        })];
+
+        let _ = subject.update_backup_of_pending_transaction(pending_payments);
     }
 
     #[test]
