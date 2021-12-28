@@ -680,6 +680,7 @@ mod tests {
             .unwrap();
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
+        let nonce = 2;
         let previous_timestamp = from_time_t(190_000_000);
         let payment_timestamp = from_time_t(199_000_000);
         let attempt = 5;
@@ -712,6 +713,7 @@ mod tests {
             hash,
             attempt,
             amount: payment as u64,
+            nonce,
             process_error: None,
         };
 
@@ -927,6 +929,7 @@ mod tests {
             hash,
             attempt: 1,
             amount: u64::MAX,
+            nonce: 1,
             process_error: None,
         };
         let subject = PayableDaoReal::new(

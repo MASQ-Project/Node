@@ -294,18 +294,19 @@ impl DbInitializerReal {
                 transaction_hash text not null,
                 amount integer not null,
                 payment_timestamp integer not null,
+                nonce integer not null,
                 attempt integer not null,
                 process_error text null
             )",
             NO_PARAMS,
         )
+        //TODO is this index redundant given the primary key and its implicit index?
         .expect("Can't create pending_payments table");
         conn.execute(
             "create unique index if not exists idx_pending_payments_payable_rowid on pending_payments (rowid)",
             NO_PARAMS,
-        )
-            //TODO create another index for searching by hashes
-        .expect("Can't create pending_payments rowid index");
+        );
+        //TODO should we create a secondary index for hash? it may be slowing down the tests now though
     }
 
     fn create_receivable_table(&self, conn: &Connection) {

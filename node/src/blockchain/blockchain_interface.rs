@@ -278,8 +278,11 @@ where
         self.logger.debug(|| self.log_debug_before_sending(&inputs));
         let signed_transaction =
             self.prepare_signed_transaction(&inputs, send_transaction_tools)?;
-        let payment_timestamp = send_transaction_tools
-            .request_new_payment_backup(signed_transaction.transaction_hash, inputs.amount);
+        let payment_timestamp = send_transaction_tools.request_new_payment_backup(
+            signed_transaction.transaction_hash,
+            inputs.nonce.as_u64(),
+            inputs.amount,
+        );
         self.logger
             .info(|| self.log_sending(inputs.recipient, inputs.amount));
         match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
@@ -1026,6 +1029,7 @@ mod tests {
             hash,
             attempt: 0,
             amount: amount as u64,
+            nonce: 1,
             process_error: None,
         };
         assert_eq!(sent_backup, &expected_payment_backup);
@@ -1075,6 +1079,7 @@ mod tests {
             .wait()
             .unwrap();
         let hash = signed_transaction.transaction_hash;
+        let nonce = U256::from(5);
         let send_transaction_tools = &SendTransactionToolWrapperMock::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             .sign_transaction_result(Ok(signed_transaction.clone()))
@@ -1089,8 +1094,7 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let inputs =
-            SendTransactionInputs::new(&account, &consuming_wallet, U256::from(5), 123).unwrap();
+        let inputs = SendTransactionInputs::new(&account, &consuming_wallet, nonce, 123).unwrap();
 
         let result = subject.send_transaction(inputs, send_transaction_tools);
 
@@ -1109,7 +1113,7 @@ mod tests {
             request_new_payment_backup_params_arc.lock().unwrap();
         assert_eq!(
             *request_new_payment_backup_params,
-            vec![(hash, amount as u64)]
+            vec![(hash, nonce.as_u64(), amount as u64)]
         );
         let send_raw_transaction = send_raw_transaction_params_arc.lock().unwrap();
         assert_eq!(

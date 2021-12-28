@@ -414,6 +414,7 @@ impl ActorFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::node_test_utils::{
@@ -461,7 +462,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 
     #[derive(Default)]
     struct ActorSystemFactoryToolsMock {
@@ -835,7 +835,7 @@ mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -907,7 +907,7 @@ mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1021,7 +1021,7 @@ mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1080,7 +1080,7 @@ mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },

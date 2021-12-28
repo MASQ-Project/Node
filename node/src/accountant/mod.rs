@@ -1171,10 +1171,12 @@ impl Accountant {
     }
 
     fn handle_payment_backup(&self, msg: PaymentBackupRecord) {
-        match self
-            .pending_payments_dao
-            .insert_payment_backup(msg.hash, msg.amount, msg.timestamp)
-        {
+        match self.pending_payments_dao.insert_payment_backup(
+            msg.hash,
+            msg.amount,
+            msg.nonce,
+            msg.timestamp,
+        ) {
             Ok(_) => debug!(self.logger, "Processed a backup for payment '{}'", msg.hash),
             Err(e) => warning!(
                 self.logger,
@@ -1723,7 +1725,7 @@ pub mod tests {
                     pending_payments_scan_interval: Duration::from_millis(
                         DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
                     ),
-                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1822,7 +1824,7 @@ pub mod tests {
                     pending_payments_scan_interval: Duration::from_millis(
                         DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
                     ),
-                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -2008,7 +2010,7 @@ pub mod tests {
                     payables_scan_interval: Duration::from_secs(100), //scan intervals deliberately big to demonstrate that we don't do the intervals yet
                     receivables_scan_interval: Duration::from_secs(100),
                     pending_payments_scan_interval: Duration::from_secs(100),
-                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -2066,7 +2068,7 @@ pub mod tests {
                     payables_scan_interval: Duration::from_secs(10_000),
                     receivables_scan_interval: Duration::from_secs(10_000),
                     pending_payments_scan_interval: Duration::from_secs(100),
-                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
                 },
                 earning_wallet.clone(),
             )),
@@ -2117,7 +2119,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100), //making sure we cannot enter the first repeated scanning
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_millis(100), //except here, where we use it to stop the system
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("buy"),
             make_wallet("hi"),
@@ -2211,7 +2213,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             earning_wallet.clone(),
         );
@@ -2294,7 +2296,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(10_000),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             earning_wallet.clone(),
         );
@@ -2364,7 +2366,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(10_000),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             earning_wallet.clone(),
         );
@@ -2424,7 +2426,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100), //deliberately big to refrain from starting off this scanning
                 pending_payments_scan_interval: Duration::from_millis(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("hi"),
         );
@@ -2436,6 +2438,7 @@ pub mod tests {
             hash: H256::from_uint(&U256::from(565)),
             attempt: 1,
             amount: 4589,
+            nonce: 3,
             process_error: None,
         };
         let mut pending_payments_dao = PendingPaymentsDaoMock::default()
@@ -2498,7 +2501,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_millis(100),
                 receivables_scan_interval: Duration::from_secs(100), //deliberately big to refrain from starting off this scanning
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("hi"),
         );
@@ -2564,7 +2567,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(1000),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("mine"),
         );
@@ -2627,7 +2630,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_millis(1_000),
                 receivables_scan_interval: Duration::from_millis(1_000),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("mine"),
         );
@@ -2698,7 +2701,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("hi"),
         );
@@ -2763,7 +2766,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(1000),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("mine"),
         );
@@ -2847,6 +2850,7 @@ pub mod tests {
             hash: H256::from_uint(&U256::from(45678)),
             attempt: 0,
             amount: 4444,
+            nonce: 1,
             process_error: None,
         };
         let pending_payment_backup_2 = PaymentBackupRecord {
@@ -2855,6 +2859,7 @@ pub mod tests {
             hash: H256::from_uint(&U256::from(112233)),
             attempt: 0,
             amount: 7999,
+            nonce: 1,
             process_error: None,
         };
         let pending_payments_dao = PendingPaymentsDaoMock::default()
@@ -2868,7 +2873,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("mine"),
         );
@@ -2912,7 +2917,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("hi"),
         );
@@ -2969,7 +2974,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             consuming_wallet.clone(),
             make_wallet("our earning wallet"),
@@ -3025,7 +3030,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             earning_wallet.clone(),
         );
@@ -3079,7 +3084,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("hi"),
         );
@@ -3128,7 +3133,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             consuming_wallet.clone(),
             make_wallet("the earning wallet"),
@@ -3174,7 +3179,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             earning_wallet.clone(),
         );
@@ -3218,7 +3223,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("hi"),
         );
@@ -3275,7 +3280,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             consuming_wallet.clone(),
             make_wallet("my earning wallet"),
@@ -3331,7 +3336,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             earning_wallet.clone(),
         );
@@ -3385,7 +3390,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("hi"),
         );
@@ -3435,7 +3440,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             consuming_wallet.clone(),
             make_wallet("own earning wallet"),
@@ -3481,7 +3486,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             earning_wallet.clone(),
         );
@@ -3766,6 +3771,7 @@ pub mod tests {
             hash: tx_hash,
             attempt: 1,
             amount,
+            nonce: 1,
             process_error: None,
         };
 
@@ -4129,7 +4135,7 @@ pub mod tests {
                 pending_payments_scan_interval: Duration::from_millis(
                     pending_payments_scan_interval,
                 ),
-                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC),
             },
             make_wallet("some_wallet_address"),
         );
@@ -4139,6 +4145,7 @@ pub mod tests {
             hash: pending_tx_hash_1,
             attempt: 1,
             amount: payable_account_balance_1 as u64,
+            nonce: 10,
             process_error: None,
         };
         let payment_2_backup_first_round = PaymentBackupRecord {
@@ -4147,6 +4154,7 @@ pub mod tests {
             hash: pending_tx_hash_2,
             attempt: 1,
             amount: payable_account_balance_2 as u64,
+            nonce: 20,
             process_error: None,
         };
         let mut payment_1_backup_second_round = payment_1_backup_first_round.clone();
@@ -4387,6 +4395,7 @@ pub mod tests {
             hash,
             attempt: 3,
             amount: 111,
+            nonce: 1,
             process_error: None,
         };
         let msg = ReportTransactionReceipts {
@@ -4424,6 +4433,7 @@ pub mod tests {
             hash: transaction_hash_1,
             attempt: 2,
             amount: 444,
+            nonce: 1,
             process_error: None,
         };
         let transaction_hash_2 = H256::from_uint(&U256::from(3333333));
@@ -4436,6 +4446,7 @@ pub mod tests {
             hash: Default::default(),
             attempt: 15,
             amount: 1212,
+            nonce: 6,
             process_error: None,
         };
         let msg = ReportTransactionReceipts {
@@ -4477,6 +4488,7 @@ pub mod tests {
             hash,
             attempt: 5,
             amount: 2222,
+            nonce: 1,
             process_error: None,
         };
 
@@ -4511,6 +4523,7 @@ pub mod tests {
             hash,
             attempt: 1,
             amount: 123,
+            nonce: 1,
             process_error: None,
         };
 
@@ -4600,6 +4613,7 @@ pub mod tests {
             hash: tx_hash,
             attempt: 0,
             amount,
+            nonce: 1,
             process_error: None,
         };
 
@@ -4611,16 +4625,17 @@ pub mod tests {
         let system = System::new("real payment backup test");
         System::current().stop();
         assert_eq!(system.run(), 0);
-        let result: Vec<(i64, i64, i64, String, u16)> = stm
+        let result: Vec<(i64, i64, i64, String, i64, u16)> = stm
             .query_map(NO_PARAMS, |row| {
                 let rowid = row.get(0).unwrap();
                 let hash = row.get(1).unwrap();
                 let amount = row.get(2).unwrap();
                 let timestamp = row.get(3).unwrap();
-                let attempt = row.get(4).unwrap();
-                let error: rusqlite::Result<Option<String>> = row.get(5); //an empty column
+                let nonce = row.get(4).unwrap();
+                let attempt = row.get(5).unwrap();
+                let error: rusqlite::Result<Option<String>> = row.get(6); //an empty column
                 assert_eq!(error.unwrap(), None);
-                Ok((rowid, amount, timestamp, hash, attempt))
+                Ok((rowid, amount, timestamp, hash, nonce, attempt))
             })
             .unwrap()
             .flatten()
@@ -4632,6 +4647,7 @@ pub mod tests {
                 amount as i64,
                 timestamp_secs,
                 format!("{:x}", tx_hash),
+                1,
                 1
             )]
         );
@@ -4653,6 +4669,7 @@ pub mod tests {
                 ))),
         );
         let amount = 2345;
+        let nonce = 1;
         let transaction_hash = H256::from_uint(&U256::from(456));
         let subject = AccountantBuilder::default()
             .pending_payments_dao_factory(Box::new(pending_payment_dao_factory))
@@ -4664,6 +4681,7 @@ pub mod tests {
             hash: transaction_hash,
             attempt: 0,
             amount,
+            nonce,
             process_error: None,
         };
 
@@ -4672,7 +4690,7 @@ pub mod tests {
         let initiate_backup_params = insert_payment_backup_params_arc.lock().unwrap();
         assert_eq!(
             *initiate_backup_params,
-            vec![(transaction_hash, amount, from_time_t(timestamp_secs))]
+            vec![(transaction_hash, amount, nonce, from_time_t(timestamp_secs))]
         );
         TestLogHandler::new().exists_log_containing("WARN: Accountant: Failed to make a backup for pending payment '0x0000…01c8' due to 'InsertionFailed(\"Crashed\")'");
     }

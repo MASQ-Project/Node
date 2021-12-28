@@ -256,7 +256,7 @@ pub struct SendTransactionToolWrapperMock {
     sign_transaction_params:
         Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
     sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
-    request_new_payment_backup_params: Arc<Mutex<Vec<(H256, u64)>>>,
+    request_new_payment_backup_params: Arc<Mutex<Vec<(H256, u64, u64)>>>,
     request_new_payment_backup_results: RefCell<Vec<SystemTime>>,
     send_raw_transaction_params: Arc<Mutex<Vec<Bytes>>>,
     send_raw_transaction_results: RefCell<Vec<Result<H256, Web3Error>>>,
@@ -275,11 +275,16 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperMock {
         self.sign_transaction_results.borrow_mut().remove(0)
     }
 
-    fn request_new_payment_backup(&self, transaction_hash: H256, amount: u64) -> SystemTime {
+    fn request_new_payment_backup(
+        &self,
+        transaction_hash: H256,
+        nonce: u64,
+        amount: u64,
+    ) -> SystemTime {
         self.request_new_payment_backup_params
             .lock()
             .unwrap()
-            .push((transaction_hash, amount));
+            .push((transaction_hash, nonce, amount));
         self.request_new_payment_backup_results
             .borrow_mut()
             .remove(0)
@@ -306,7 +311,7 @@ impl SendTransactionToolWrapperMock {
 
     pub fn request_new_payment_backup_params(
         mut self,
-        params: &Arc<Mutex<Vec<(H256, u64)>>>,
+        params: &Arc<Mutex<Vec<(H256, u64, u64)>>>,
     ) -> Self {
         self.request_new_payment_backup_params = params.clone();
         self

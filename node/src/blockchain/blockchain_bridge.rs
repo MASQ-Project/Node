@@ -126,6 +126,7 @@ pub struct PaymentBackupRecord {
     pub hash: H256,
     pub attempt: u16,
     pub amount: u64,
+    pub nonce: u64,
     pub process_error: Option<String>,
 }
 
@@ -694,6 +695,7 @@ mod tests {
             hash: hash_2,
             attempt: 3,
             amount: 4565,
+            nonce: 1,
             process_error: None,
         };
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
@@ -755,6 +757,7 @@ mod tests {
             hash: hash_2,
             attempt: 3,
             amount: 4565,
+            nonce: 1,
             process_error: None,
         };
         let payment_backup_3 = PaymentBackupRecord {
@@ -763,6 +766,7 @@ mod tests {
             hash: hash_3,
             attempt: 1,
             amount: 7879,
+            nonce: 1,
             process_error: None,
         };
         let blockchain_interface_mock = BlockchainInterfaceMock::default()

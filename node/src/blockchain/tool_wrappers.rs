@@ -18,7 +18,12 @@ pub trait SendTransactionToolWrapper {
         transaction_params: TransactionParameters,
         key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
-    fn request_new_payment_backup(&self, transaction_hash: H256, amount: u64) -> SystemTime;
+    fn request_new_payment_backup(
+        &self,
+        transaction_hash: H256,
+        nonce: u64,
+        amount: u64,
+    ) -> SystemTime;
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error>;
 }
 
@@ -53,7 +58,7 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
             .wait()
     }
 
-    fn request_new_payment_backup(&self, hash: H256, amount: u64) -> SystemTime {
+    fn request_new_payment_backup(&self, hash: H256, nonce: u64, amount: u64) -> SystemTime {
         let now = SystemTime::now();
         self.payment_backup_sub
             .try_send(PaymentBackupRecord {
@@ -63,6 +68,7 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
                 hash,
                 attempt: 0, //DB will know where to start: 1
                 process_error: None,
+                nonce,
             })
             .expect("Accountant is dead");
         now
@@ -84,7 +90,12 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperNull {
         panic!("sing_transaction() should never be called on the null object")
     }
 
-    fn request_new_payment_backup(&self, _transaction_hash: H256, _amount: u64) -> SystemTime {
+    fn request_new_payment_backup(
+        &self,
+        _transaction_hash: H256,
+        _nonce: u64,
+        _amount: u64,
+    ) -> SystemTime {
         panic!("request_new_payment_backup() should never be called on the null object")
     }
 
@@ -219,7 +230,7 @@ mod tests {
         expected = "request_new_payment_backup() should never be called on the null object"
     )]
     fn null_request_new_payment_backup_stops_the_run() {
-        let _ = SendTransactionToolWrapperNull.request_new_payment_backup(Default::default(), 5);
+        let _ = SendTransactionToolWrapperNull.request_new_payment_backup(Default::default(), 1, 5);
     }
 
     #[test]
@@ -233,6 +244,7 @@ mod tests {
             hash: Default::default(),
             attempt: 0,
             amount: 44,
+            nonce: 4,
             process_error: None,
         };
 
