@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::{PayableAccount, Payment};
+use crate::accountant::RequestTransactionReceipts;
 use crate::accountant::SentPayments;
-use crate::accountant::{PaymentError, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
     BlockchainInterfaceNonClandestine, BlockchainResult, SendTransactionInputs, Transaction,
@@ -226,17 +226,10 @@ impl BlockchainBridge {
         let processed_payments = self.handle_report_accounts_payable_inner(creditors_msg);
         match processed_payments {
             Ok(payments) => {
-                let payments_with_payment_errors = payments
-                    .into_iter()
-                    .map(|item| item.map_err(PaymentError::from))
-                    .collect();
-                //TODO test that this error transformation is test-followed
                 self.sent_payments_subs_opt
                     .as_ref()
                     .expect("Accountant is unbound")
-                    .try_send(SentPayments {
-                        payments: payments_with_payment_errors,
-                    })
+                    .try_send(SentPayments { payments })
                     .expect("Accountant is dead");
             }
             Err(e) => warning!(self.logger, "{}", e),
@@ -259,6 +252,7 @@ impl BlockchainBridge {
     }
 
     fn handle_request_transaction_receipts(&self, msg: RequestTransactionReceipts) {
+        eprintln!("I'm here");
         let short_circuit_result: Result<Vec<Option<TransactionReceipt>>, BlockchainError> = msg
             .pending_payments
             .iter()
@@ -325,7 +319,8 @@ impl BlockchainBridge {
                 hash,
                 timestamp,
             )),
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
+            //if you have more code here that can fail too don't forget about the need to provide the transaction hash with your error
         }
     }
 }
@@ -343,7 +338,9 @@ mod tests {
     use crate::accountant::test_utils::make_payment_backup;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::Payment;
-    use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
+    use crate::blockchain::blockchain_interface::{
+        BlockchainError, BlockchainTransactionError, Transaction,
+    };
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolWrapperNull;
     use crate::database::dao_utils::from_time_t;
@@ -480,13 +477,15 @@ mod tests {
     #[test]
     fn report_accounts_payable_returns_error_for_blockchain_error() {
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
+        let transaction_hash = H256::from_uint(&U256::from(789));
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_params(&get_transaction_count_params_arc)
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
-            .send_transaction_result(Err(BlockchainError::TransactionFailed(String::from(
-                "mock payment failure",
-            ))));
+            .send_transaction_result(Err(BlockchainTransactionError::Sending(
+                String::from("mock payment failure"),
+                transaction_hash,
+            )));
         let consuming_wallet = make_wallet("somewallet");
         let persistent_configuration_mock =
             PersistentConfigurationMock::new().gas_price_result(Ok(3u64));
@@ -512,9 +511,10 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(vec![Err(BlockchainError::TransactionFailed(String::from(
-                "mock payment failure"
-            )))])
+            Ok(vec![Err(BlockchainError::TransactionFailed {
+                msg: String::from("Sending: mock payment failure"),
+                hash_opt: Some(transaction_hash)
+            })])
         );
         let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
         assert_eq!(*get_transaction_count_params, vec![consuming_wallet]);
@@ -742,7 +742,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_transaction_receipts_short_circuits_for_a_failure_within_remote_process_and_logs_the_abort(
+    fn handle_request_transaction_receipts_short_circuits_on_failure_from_remote_process_and_logs_abort(
     ) {
         init_test_logging();
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
@@ -774,7 +774,7 @@ mod tests {
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
             .get_transaction_receipt_result(Ok(Some(TransactionReceipt::default())))
-            .get_transaction_receipt_result(Err(BlockchainError::TransactionFailed(
+            .get_transaction_receipt_result(Err(BlockchainError::QueryFailed(
                 "bad bad bad".to_string(),
             )))
             .get_transaction_receipt_result(Ok(None));
@@ -801,7 +801,7 @@ mod tests {
         assert_eq!(*get_transaction_receipts_params, vec![hash_1, hash_2]);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; request of a transaction receipt failed due to 'TransactionFailed(\"bad bad bad\")'");
+        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; request of a transaction receipt failed due to 'QueryFailed(\"bad bad bad\")'");
     }
 
     #[test]

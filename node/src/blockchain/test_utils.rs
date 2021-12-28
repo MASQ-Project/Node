@@ -3,8 +3,8 @@
 #![cfg(test)]
 
 use crate::blockchain::blockchain_interface::{
-    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, Receipt,
-    SendTransactionInputs, Transaction, Transactions, REQUESTS_IN_PARALLEL,
+    Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
+    Nonce, Receipt, SendTransactionInputs, Transaction, Transactions, REQUESTS_IN_PARALLEL,
 };
 use crate::blockchain::tool_wrappers::{
     NotifyHandle, NotifyLaterHandle, PaymentBackupRecipientWrapper, SendTransactionToolWrapper,
@@ -38,7 +38,7 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
     send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
-    send_transaction_results: RefCell<Vec<BlockchainResult<(H256, SystemTime)>>>,
+    send_transaction_results: RefCell<Vec<Result<(H256, SystemTime), BlockchainTransactionError>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<Receipt>>,
     send_transaction_tools_results: RefCell<Vec<Box<dyn SendTransactionToolWrapper>>>,
@@ -69,7 +69,10 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn send_transaction_result(self, result: BlockchainResult<(H256, SystemTime)>) -> Self {
+    pub fn send_transaction_result(
+        self,
+        result: Result<(H256, SystemTime), BlockchainTransactionError>,
+    ) -> Self {
         self.send_transaction_results.borrow_mut().push(result);
         self
     }
@@ -129,7 +132,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         &self,
         inputs: SendTransactionInputs,
         _send_transaction_tools: &'b dyn SendTransactionToolWrapper,
-    ) -> BlockchainResult<(H256, SystemTime)> {
+    ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         self.send_transaction_parameters
             .lock()
             .unwrap()

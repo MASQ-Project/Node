@@ -39,9 +39,14 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal<'_> {
             .conn
             .prepare("select rowid from pending_payments where transaction_hash = ?")
             .expect("Internal error");
-        stm.exists(&[&format!("{:x}", transaction_hash)])
-            .expectv("bool");
-        unimplemented!()
+        match stm.query_row(&[&format!("{:x}", transaction_hash)], |row| {
+            let rowid: i64 = row.get(0).expectv("rowid_opt");
+            Ok(rowid)
+        }) {
+            Err(e) if e == rusqlite::Error::QueryReturnedNoRows => None,
+            Err(e) => panic!("Internal error: {}", e),
+            Ok(signed) => Some(u64::try_from(signed).expect("SQlite counts up to i64:MAX")),
+        }
     }
 
     fn return_all_payment_backups(&self) -> Vec<PaymentBackupRecord> {

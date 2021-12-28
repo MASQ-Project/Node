@@ -97,12 +97,6 @@ pub enum PaymentErrorKind {
     BlockchainError(String),
 }
 
-impl From<BlockchainError> for PaymentError {
-    fn from(error: BlockchainError) -> Self {
-        todo!()
-    }
-}
-
 #[derive(PartialEq, Debug, Clone)]
 pub struct PaymentCurves {
     pub payment_suggested_after_sec: i64,
@@ -154,7 +148,7 @@ pub struct ReceivedPayments {
 
 #[derive(Debug, Message, PartialEq)]
 pub struct SentPayments {
-    pub payments: Vec<Result<Payment, PaymentError>>,
+    pub payments: Vec<Result<Payment, BlockchainError>>,
 }
 
 #[derive(Debug, Eq, Message, PartialEq)]
@@ -163,7 +157,7 @@ pub struct ScanForPayables {}
 #[derive(Debug, Eq, Message, PartialEq)]
 pub struct ScanForReceivables {}
 
-#[derive(Debug, Eq, Message, PartialEq)]
+#[derive(Debug, Eq, Message, PartialEq, Clone)]
 pub struct ScanForPendingPayments {}
 
 impl Handler<BindMessage> for Accountant {
@@ -181,10 +175,17 @@ impl Handler<StartMessage> for Accountant {
     fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
         self.handle_start_message();
 
-        ctx.notify_later(
-            ScanForPendingPayments {},
-            self.config.pending_payments_scan_interval,
-        );
+        let closure = Box::new(|msg: ScanForPendingPayments, interval: Duration| {
+            ctx.notify_later(msg, interval)
+        });
+        self.transaction_confirmation
+            .notify_later_handle_scan_for_pending_payments
+            .notify_later(
+                ScanForPendingPayments {},
+                self.config.pending_payments_scan_interval,
+                closure,
+            );
+
         ctx.notify_later(ScanForPayables {}, self.config.payables_scan_interval);
 
         ctx.run_interval(self.config.receivables_scan_interval, |accountant, _ctx| {
@@ -205,9 +206,18 @@ impl Handler<ScanForPayables> for Accountant {
 impl Handler<ScanForPendingPayments> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: ScanForPendingPayments, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: ScanForPendingPayments, ctx: &mut Self::Context) -> Self::Result {
         self.scan_for_pending_payments();
-        let _ = ctx.notify_later(msg, self.config.pending_payments_scan_interval);
+        let closure = Box::new(|msg: ScanForPendingPayments, interval: Duration| {
+            ctx.notify_later(msg, interval)
+        });
+        self.transaction_confirmation
+            .notify_later_handle_scan_for_pending_payments
+            .notify_later(
+                ScanForPendingPayments {},
+                self.config.pending_payments_scan_interval,
+                closure,
+            );
     }
 }
 
@@ -780,40 +790,39 @@ impl Accountant {
             .more_money_received(received_payments.payments);
     }
 
-    fn handle_sent_payments(&mut self, sent_payments: SentPayments) {
-        let (ok, err) = self.mark_pending_payments_and_separate_failures(sent_payments);
+    fn handle_sent_payments(&self, sent_payments: SentPayments) {
         debug!(
             self.logger,
-            "Processed this portion of sent payments: {} OK, {} ERR",
-            ok.len(),
-            err.len()
+            "Total number of attempts to send a payment transaction: {}",
+            sent_payments.payments.len()
         );
+        let (ok, err) = Self::separate_early_errors(sent_payments, &self.logger);
+        self.mark_pending_payments(ok);
+        debug!(self.logger, "Found this portion of errors: {}", err.len());
         if !err.is_empty() {
-            err.into_iter()
-                .map(|e| e.expect_err("all the items ought to be errors"))
-                .for_each(|payment_err| {
-                    if let Some(_) = self
-                        .pending_payments_dao
-                        .payment_backup_exists(payment_err.1.hash)
-                    {
-                        debug!(
-                            self.logger,
-                            "Deleting an existing backup for a failed transaction {}",
-                            payment_err.1.hash
-                        );
-                        if let Err(e) = self
-                            .pending_payments_dao
-                            .delete_payment_backup(payment_err.1.rowid)
-                        {
-                            panic!("Database unmaintainable; payment backup deletion has stayed undone due to {:?}",e)
-                        }
-                    };
-                    debug!(
-                        self.logger,
-                        "Failed transaction '{}' without a backup - thrown out", payment_err.1.hash
-                    )
-                })
+            err.into_iter().for_each(|err|
+            if let Some(hash) = err.carries_transaction_hash(){
+                self.discard_incomplete_transaction_with_a_failure(hash)
+            } else {debug!(self.logger,"Forgetting a transaction attempt that even did not reach the signing stage")})
         }
+    }
+
+    fn discard_incomplete_transaction_with_a_failure(&self, hash: H256) {
+        if let Some(rowid) = self.pending_payments_dao.payment_backup_exists(hash) {
+            debug!(
+                self.logger,
+                "Deleting an existing backup for a failed transaction {}", hash
+            );
+            if let Err(e) = self.pending_payments_dao.delete_payment_backup(rowid) {
+                panic!("Database unmaintainable; payment backup deletion has stayed undone due to {:?}",e)
+            }
+        };
+
+        warning!(
+            self.logger,
+            "Failed transaction with a hash '{}' but without the backup - thrown out",
+            hash
+        )
     }
 
     fn handle_report_routing_service_provided_message(
@@ -992,34 +1001,44 @@ impl Accountant {
         }
     }
 
-    fn mark_pending_payments_and_separate_failures(
-        &self,
+    fn separate_early_errors(
         sent_payments: SentPayments,
-    ) -> (
-        Vec<Result<Payment, PaymentError>>,
-        Vec<Result<Payment, PaymentError>>,
-    ) {
-        sent_payments
+        logger: &Logger,
+    ) -> (Vec<Payment>, Vec<BlockchainError>) {
+        type SentPaymentType = Vec<Result<Payment, BlockchainError>>;
+        let (ok, err): (SentPaymentType, SentPaymentType) = sent_payments
             .payments
             .into_iter()
-            .map(|payment| match payment {
-                Ok(payment) => {
-                    let rowid = match self.pending_payments_dao.payment_backup_exists(payment.transaction){
-                          Some(rowid) => rowid,
-                          None => panic!("Payment backup for {} doesn't exist but should by now; system unreliable",payment.transaction)
-                    };
-                    match self.payable_dao.as_ref().mark_pending_payment_rowid(&payment.to, TransactionId{hash: payment.transaction,rowid}) {
-                    Ok(()) => Ok(payment),
-                    Err(e) => panic!("Was unable to create a mark in payables for a new pending payment '{}' due to '{:?}'",payment.transaction,e.0)
-                }},
-                Err(e) => {
-                    self.logger.warning(||{
-                        if let PaymentError(PaymentErrorKind::BlockchainError(b_e),_) = &e {format!("Transaction couldn't proceed for {:?}. Please check your blockchain service URL configuration.",b_e)} else {
-                        format!("Received information about payment that failed before than or at sending '{}', happened due to '{:?}'",e.1.hash,e.0)}
-                    });
-                   Err(e)
-                },
-            }).partition(|val| val.is_ok())
+            .partition(|payment| payment.is_ok());
+        (
+            ok.into_iter().flatten().collect(),
+            err.into_iter().map(|item|{
+                let error = item.expect_err("partition failed");
+                logger.warning(||
+                        match &error {
+                            BlockchainError::TransactionFailed { msg: _, hash_opt: _ } => format!("Encountered transaction error that occurred close to the actual sending due to '{:?}'", error),
+                            x => format!("Payment failure due to '{:?}'. Please check your blockchain service URL configuration.", x)
+                        }
+                    );
+                error
+            }).collect()
+        )
+    }
+
+    fn mark_pending_payments(&self, sent_payments: Vec<Payment>) {
+        sent_payments
+            .into_iter()
+            .for_each(|payment| {
+                let rowid = match self.pending_payments_dao.payment_backup_exists(payment.transaction) {
+                    Some(rowid) => rowid,
+                    None => panic!("Payment backup for {} doesn't exist but should by now; system unreliable", payment.transaction)
+                };
+                match self.payable_dao.as_ref().mark_pending_payment_rowid(&payment.to, TransactionId { hash: payment.transaction, rowid }) {
+                    Ok(()) => (),
+                    Err(e) => panic!("Was unable to create a mark in payables for a new pending payment '{}' due to '{:?}'", payment.transaction, e.0)
+                }
+                debug!(self.logger, "Payment '{}' has been marked as pending in the payable table",payment.transaction)
+            })
     }
 
     fn handle_pending_transaction_check(
@@ -1823,41 +1842,7 @@ pub mod tests {
     }
 
     #[test]
-    fn accountant_logs_warning_when_handle_sent_payments_encounters_a_blockchain_error() {
-        init_test_logging();
-        let system = System::new(
-            "accountant_logs_warning_when_handle_sent_payments_encounters_a_blockchain_error",
-        );
-        let subject = AccountantBuilder::default().build();
-        let send_payments = SentPayments {
-            payments: vec![Err(PaymentError(
-                PaymentErrorKind::BlockchainError("Payment attempt failed".to_string()),
-                TransactionId {
-                    hash: H256::from_uint(&U256::from(12345)),
-                    rowid: 11,
-                },
-            ))],
-        };
-
-        let result = subject.mark_pending_payments_and_separate_failures(send_payments);
-
-        let (ok, err) = result;
-        assert!(ok.is_empty());
-        assert_eq!(
-            err,
-            vec![Err(PaymentError(
-                PaymentErrorKind::BlockchainError("Payment attempt failed".to_string()),
-                TransactionId {
-                    hash: H256::from_uint(&U256::from(12345)),
-                    rowid: 11,
-                }
-            ))]
-        );
-        TestLogHandler::new().exists_log_containing(r#"WARN: Accountant: Transaction couldn't proceed for "Payment attempt failed". Please check your blockchain service URL configuration."#);
-    }
-
-    #[test]
-    fn accountant_logs_and_aborts_when_handle_sent_payments_find_an_error_and_the_payment_backup_does_not_exist(
+    fn accountant_logs_and_aborts_when_handle_sent_payments_finds_an_error_from_post_hash_time_and_the_payment_backup_does_not_exist(
     ) {
         init_test_logging();
         let system = System::new("sent payments failure without backup");
@@ -1869,13 +1854,10 @@ pub mod tests {
             )))
             .build();
         let send_payments = SentPayments {
-            payments: vec![Err(PaymentError(
-                PaymentErrorKind::RusqliteError("SQLite has a migraine".to_string()),
-                TransactionId {
-                    hash: H256::from_uint(&U256::from(12345)),
-                    rowid: 11,
-                },
-            ))],
+            payments: vec![Err(BlockchainError::TransactionFailed {
+                msg: "SQLite migraine".to_string(),
+                hash_opt: Some(H256::from_uint(&U256::from(12345))),
+            })],
         };
         let subject = accountant.start();
 
@@ -1887,21 +1869,22 @@ pub mod tests {
         system.run();
         let log_handler = TestLogHandler::new();
         log_handler.exists_no_log_containing(
-            "DEBUG: Accountant: Deleting an existing backup for a failed",
+            "DEBUG: Accountant: Deleting an existing backup for a failed transaction",
         );
+        log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error that occurred close to \
+         the actual sending due to 'TransactionFailed { msg: \"SQLite migraine\", hash_opt: Some(0x0000000000000000000000000000000000000000000000000000000000003039) }'");
         log_handler.exists_log_containing(
-            r#"DEBUG: Accountant: Failed transaction '0x0000…3039' without a backup - thrown out"#,
+            r#"WARN: Accountant: Failed transaction with a hash '0x0000…3039' but without the backup - thrown out"#,
         );
     }
 
     #[test]
-    fn accountant_orders_transaction_cancellation_when_handle_sent_payments_discover_failed_transaction_and_payment_backup_was_really_created(
-    ) {
+    fn handle_sent_payments_discover_failed_transaction_and_payment_backup_was_really_created() {
         init_test_logging();
         let payment_backup_exists_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_pending_payment_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_payment_backup_params_arc = Arc::new(Mutex::new(vec![]));
-        let good_transaction_row_id = 3;
+        let good_transaction_rowid = 3;
         let failed_transaction_rowid = 5;
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payment_params(&mark_pending_payment_params_arc)
@@ -1909,7 +1892,7 @@ pub mod tests {
         let system = System::new("accountant_calls_payable_dao_payment_sent_when_sent_payments");
         let pending_payments_dao = PendingPaymentsDaoMock::default()
             .payment_backup_exists_params(&payment_backup_exists_params_arc)
-            .payment_backup_exists_result(Some(good_transaction_row_id)) //for the correct transaction before mark_pending_payment
+            .payment_backup_exists_result(Some(good_transaction_rowid)) //for the correct transaction before mark_pending_payment
             .payment_backup_exists_result(Some(failed_transaction_rowid)) //err, to find out if the backup has been created or if the error occurred before that
             .delete_payment_backup_params(&delete_payment_backup_params_arc)
             .delete_payment_backup_result(Ok(()));
@@ -1931,13 +1914,10 @@ pub mod tests {
                     timestamp: SystemTime::now(),
                     transaction: hash_tx_1,
                 }),
-                Err(PaymentError(
-                    PaymentErrorKind::BlockchainError("Payment attempt failed".to_string()),
-                    TransactionId {
-                        hash: hash_tx_2,
-                        rowid: failed_transaction_rowid,
-                    },
-                )),
+                Err(BlockchainError::TransactionFailed {
+                    msg: "Payment attempt failed".to_string(),
+                    hash_opt: Some(hash_tx_2),
+                }),
             ],
         };
         let subject_addr = subject.start();
@@ -1957,7 +1937,7 @@ pub mod tests {
                 wallet,
                 TransactionId {
                     hash: hash_tx_1,
-                    rowid: 77
+                    rowid: good_transaction_rowid
                 }
             )]
         );
@@ -3589,16 +3569,13 @@ pub mod tests {
     #[should_panic(
         expected = "Was unable to create a mark in payables for a new pending payment '0x0000…007b' due to 'SignConversion(9999999999999)'"
     )]
-    fn handle_sent_payments_receives_fails_at_making_a_mark_in_payables_and_panics() {
+    fn handle_sent_payments_fails_to_make_a_mark_in_payables_and_so_panics() {
         let payment = Payment::new(
             make_wallet("blah"),
             6789,
             H256::from_uint(&U256::from(123)),
             SystemTime::now(),
         );
-        let payments = SentPayments {
-            payments: vec![Ok(payment)],
-        };
         let subject = make_accountant(
             None,
             Some(
@@ -3616,22 +3593,22 @@ pub mod tests {
             None,
         );
 
-        let _ = subject.mark_pending_payments_and_separate_failures(payments);
+        let _ = subject.mark_pending_payments(vec![payment]);
     }
 
     #[test]
     #[should_panic(
         expected = "Database unmaintainable; payment backup deletion has stayed undone due to RecordDeletion(\"we slept over, sorry\")"
     )]
-    fn handle_sent_payments_encounter_failed_payment_fails_to_delete_the_existing_payment_backup_and_panics(
+    fn handle_sent_payments_dealing_with_failed_payment_fails_to_delete_the_existing_payment_backup_and_panics(
     ) {
         let rowid = 4;
         let hash = H256::from_uint(&U256::from(123));
         let payments = SentPayments {
-            payments: vec![Err(PaymentError(
-                PaymentErrorKind::BlockchainError("blah".to_string()),
-                TransactionId { hash, rowid },
-            ))],
+            payments: vec![Err(BlockchainError::TransactionFailed {
+                msg: "blah".to_string(),
+                hash_opt: Some(hash),
+            })],
         };
         let pending_payment_dao = PendingPaymentsDaoMock::default()
             .payment_backup_exists_result(Some(rowid))
@@ -3644,25 +3621,27 @@ pub mod tests {
     }
 
     #[test]
-    fn handle_sent_payments_receives_one_payment_being_incorrect_and_one_correct() {
+    fn handle_sent_payments_receives_two_payments_being_incorrect_and_one_correct() {
+        //the two failures differ in the logged messages
         init_test_logging();
+        let payment_backup_exists_params_arc = Arc::new(Mutex::new(vec![]));
         let now_system = SystemTime::now();
         let payment_hash_1 = H256::from_uint(&U256::from(789));
-        let payment_1 = Err(PaymentError(
-            PaymentErrorKind::RusqliteError("closing hours, sorry".to_string()),
-            TransactionId {
-                hash: payment_hash_1,
-                rowid: 123,
-            },
-        ));
+        let payment_1 = Err(BlockchainError::InvalidResponse);
+        let payment_1_rowid = 120;
         let payment_2_rowid = 126;
-        let payment_hash_2 = H256::from_uint(&U256::from(123));
+        let payment_hash_2 = H256::from_uint(&U256::from(166));
         let payment_2 = Payment::new(make_wallet("booga"), 6789, payment_hash_2, now_system);
+        let payment_3 = Err(BlockchainError::TransactionFailed {
+            msg: "closing hours, sorry".to_string(),
+            hash_opt: None,
+        });
         let payments = SentPayments {
-            payments: vec![payment_1, Ok(payment_2.clone())],
+            payments: vec![payment_1, Ok(payment_2.clone()), payment_3],
         };
         let pending_payments_dao = PendingPaymentsDaoMock::default()
             //one seems to be missing, not really, the execution short-circuited at the outer error
+            .payment_backup_exists_params(&payment_backup_exists_params_arc)
             .payment_backup_exists_result(Some(payment_2_rowid));
         let subject = make_accountant(
             None,
@@ -3673,28 +3652,22 @@ pub mod tests {
             None,
         );
 
-        let (ok_payments, errors) = subject.mark_pending_payments_and_separate_failures(payments);
+        subject.handle_sent_payments(payments);
 
-        assert_eq!(ok_payments, vec![Ok(payment_2)]);
-        assert_eq!(
-            errors,
-            vec![Err(PaymentError(
-                PaymentErrorKind::RusqliteError("closing hours, sorry".to_string()),
-                TransactionId {
-                    hash: payment_hash_1,
-                    rowid: 123
-                }
-            ))]
-        );
-        TestLogHandler::new().exists_log_containing("WARN: Accountant: Received information about payment that failed before than or at sending '0x0000…0315', happened due to 'RusqliteError(\"closing hours, sorry\")");
+        let payment_backup_exists_params = payment_backup_exists_params_arc.lock().unwrap();
+        assert_eq!(*payment_backup_exists_params, vec![payment_hash_2]); //we know the other two errors are associated with an initiated transaction having a backup
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing("WARN: Accountant: Payment failure due to 'InvalidResponse'. Please check your blockchain service URL configuration.");
+        log_handler.exists_log_containing("DEBUG: Accountant: Payment '0x0000…00a6' has been marked as pending in the payable table");
+        log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error that occurred close to the actual sending due to 'TransactionFailed { msg: \"closing hours, sorry\", hash_opt: None }'");
+        log_handler.exists_log_containing("DEBUG: Accountant: Forgetting a transaction attempt that even did not reach the signing stage");
     }
 
     #[test]
     #[should_panic(
         expected = "Payment backup for 0x0000…0315 doesn't exist but should by now; system unreliable"
     )]
-    fn handle_sent_payments_receives_proper_payment_but_payment_backup_not_found_so_it_has_to_panic(
-    ) {
+    fn handle_sent_payments_receives_proper_payment_but_payment_backup_not_found_so_it_panics() {
         init_test_logging();
         let now_system = SystemTime::now();
         let payment_hash = H256::from_uint(&U256::from(789));
@@ -3709,11 +3682,8 @@ pub mod tests {
             None,
             None,
         );
-        let sent_payments = SentPayments {
-            payments: vec![Ok(payment)],
-        };
 
-        let _ = subject.mark_pending_payments_and_separate_failures(sent_payments);
+        let _ = subject.mark_pending_payments(vec![payment]);
     }
 
     #[test]
@@ -4130,9 +4100,9 @@ pub mod tests {
         let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![])); //TODO write an assertion for this
         let insert_record_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_record_params_arc = Arc::new(Mutex::new(vec![]));
-        let notify_later_request_transaction_receipts_params_arc = Arc::new(Mutex::new(vec![]));
-        let notify_later_request_transaction_receipts_params_arc_cloned =
-            notify_later_request_transaction_receipts_params_arc.clone(); //because it moves into a closure
+        let notify_later_scan_for_pending_payments_params_arc = Arc::new(Mutex::new(vec![]));
+        let notify_later_scan_for_pending_payments_arc_cloned =
+            notify_later_scan_for_pending_payments_params_arc.clone(); //because it moves into a closure
         let notify_cancel_failed_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_cancel_failed_transaction_params_arc_cloned =
             notify_cancel_failed_transaction_params_arc.clone(); //because it moves into a closure
@@ -4181,7 +4151,6 @@ pub mod tests {
         let consuming_wallet = make_paying_wallet(b"wallet");
         let system = System::new("pending_transaction");
         let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(130));
-        let pending_tx_checkout_interval_ms = 10;
         let blockchain_bridge = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),
@@ -4202,6 +4171,7 @@ pub mod tests {
             last_paid_timestamp: payment_timestamp_2,
             pending_payment_rowid_opt: None,
         };
+        let pending_payments_scan_interval = 300;
         let payable_dao = PayableDaoMock::new()
             .non_pending_payables_params(&non_pending_payables_params_arc)
             .non_pending_payables_result(vec![account_1, account_2])
@@ -4216,7 +4186,9 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(1_000_000), //we don't care about this scan
                 receivables_scan_interval: Duration::from_secs(1_000_000), //we don't care about this scan
-                pending_payments_scan_interval: Duration::from_millis(300), //TODO adjust later
+                pending_payments_scan_interval: Duration::from_millis(
+                    pending_payments_scan_interval,
+                ), //TODO adjust later
             },
             make_wallet("some_wallet_address"),
         );
@@ -4261,7 +4233,7 @@ pub mod tests {
                 payment_1_backup_third_round,
                 payment_2_backup_third_round,
             ])
-            .return_all_payment_backups_result(vec![payment_2_backup_fourth_round])
+            .return_all_payment_backups_result(vec![payment_2_backup_fourth_round.clone()])
             .insert_payment_backup_params(&insert_record_params_arc)
             .insert_payment_backup_result(Ok(()))
             .insert_payment_backup_result(Ok(()))
@@ -4284,12 +4256,11 @@ pub mod tests {
                     None,
                 );
                 subject.scanners.receivables = Box::new(NullScanner);
-                let notify_later_half_mock = NotifyLaterHandleMock::default().notify_later_params(
-                    &notify_later_request_transaction_receipts_params_arc_cloned,
-                );
+                let notify_later_half_mock = NotifyLaterHandleMock::default()
+                    .notify_later_params(&notify_later_scan_for_pending_payments_arc_cloned);
                 subject
                     .transaction_confirmation
-                    .notify_later_handle_request_transaction_receipts =
+                    .notify_later_handle_scan_for_pending_payments =
                     Box::new(notify_later_half_mock);
                 let mut notify_half_mock = NotifyHandleMock::default()
                     .notify_params(&notify_cancel_failed_transaction_params_arc_cloned);
@@ -4402,76 +4373,23 @@ pub mod tests {
             expected_params_for_payment_2.transaction
         );
         assert_eq!(payment_confirmed.rowid, rowid_for_account_2);
-        let first_expected_request_tx_receipts_msg_and_interval = (
-            RequestTransactionReceipts {
-                pending_payments: vec![
-                    PaymentBackupRecord {
-                        rowid: rowid_for_account_1,
-                        timestamp: payment_timestamp_1,
-                        hash: pending_tx_hash_1,
-                        attempt: 1,
-                        amount: 5500,
-                        process_error: None,
-                    },
-                    PaymentBackupRecord {
-                        rowid: rowid_for_account_2,
-                        timestamp: payment_timestamp_2,
-                        hash: pending_tx_hash_2,
-                        attempt: 1,
-                        amount: 123456,
-                        process_error: None,
-                    },
-                ],
-            },
-            Duration::from_millis(pending_tx_checkout_interval_ms),
+        let expected_scan_pending_payments_msg_and_interval = (
+            ScanForPendingPayments {},
+            Duration::from_millis(pending_payments_scan_interval),
         );
-        let mut second_expected_request_tx_receipts_msg_and_interval =
-            first_expected_request_tx_receipts_msg_and_interval.clone();
-        second_expected_request_tx_receipts_msg_and_interval
-            .0
-            .pending_payments
-            .iter_mut()
-            .for_each(|backup| backup.attempt = 2);
-        let mut third_expected_request_tx_receipts_msg_and_interval =
-            first_expected_request_tx_receipts_msg_and_interval.clone();
-        third_expected_request_tx_receipts_msg_and_interval
-            .0
-            .pending_payments
-            .iter_mut()
-            .for_each(|backup| backup.attempt = 3);
 
-        let fourth_expected_request_tx_msg_and_interval = (
-            RequestTransactionReceipts {
-                pending_payments: vec![PaymentBackupRecord {
-                    rowid: rowid_for_account_2,
-                    timestamp: payment_timestamp_2,
-                    hash: pending_tx_hash_2,
-                    attempt: 4,
-                    amount: 123456,
-                    process_error: None,
-                }],
-            },
-            Duration::from_millis(pending_tx_checkout_interval_ms),
-        );
         let mut notify_later_check_for_confirmation =
-            notify_later_request_transaction_receipts_params_arc
+            notify_later_scan_for_pending_payments_params_arc
                 .lock()
                 .unwrap();
-        //I have to zero the timestamps generated at runtime
-        notify_later_check_for_confirmation.iter_mut().for_each(
-            |item: &mut (RequestTransactionReceipts, Duration)| {
-                item.0.pending_payments.iter_mut().for_each(|payment| {
-                    payment.timestamp = from_time_t(0);
-                })
-            },
-        );
         assert_eq!(
             *notify_later_check_for_confirmation,
             vec![
-                first_expected_request_tx_receipts_msg_and_interval,
-                second_expected_request_tx_receipts_msg_and_interval,
-                third_expected_request_tx_receipts_msg_and_interval,
-                fourth_expected_request_tx_msg_and_interval
+                expected_scan_pending_payments_msg_and_interval.clone(),
+                expected_scan_pending_payments_msg_and_interval.clone(),
+                expected_scan_pending_payments_msg_and_interval.clone(),
+                expected_scan_pending_payments_msg_and_interval.clone(),
+                expected_scan_pending_payments_msg_and_interval
             ]
         );
         let mut notify_confirm_transaction_params =
@@ -4479,9 +4397,15 @@ pub mod tests {
         let mut actual_confirmed_payment: ConfirmPendingTransaction =
             notify_confirm_transaction_params.remove(0);
         assert!(notify_confirm_transaction_params.is_empty());
+        let expected_confirmation_message = ConfirmPendingTransaction {
+            payment_backup: payment_2_backup_fourth_round,
+        };
+        assert_eq!(actual_confirmed_payment, expected_confirmation_message);
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("DEBUG: Accountant: Transaction 0x0000…007b for wallet 0x00000000000000000000006372656469746f7231 was unmarked as pending due to cancellation");
-        log_handler.exists_log_containing("INFO: Accountant: Broken transaction 0x0000…007b for wallet 0x00000000000000000000006372656469746f7231 was successfully canceled");
+        log_handler.exists_log_containing("DEBUG: Accountant: Transaction 0x0000…007b was unmarked as pending due to cancellation");
+        log_handler.exists_log_containing(
+            "INFO: Accountant: Broken transaction 0x0000…007b was successfully canceled",
+        );
         log_handler.exists_log_matching("INFO: Accountant: Transaction '0x0000…0237' has been added to the blockchain; detected locally at attempt 4 at \\d{2,}ms after its sending");
         log_handler.exists_log_containing("INFO: Accountant: Transaction 0x0000000000000000000000000000000000000000000000000000000000000237 has gone through the whole confirmation process succeeding");
     }
@@ -4771,6 +4695,25 @@ pub mod tests {
             vec![(transaction_hash, amount, from_time_t(timestamp_secs))]
         );
         TestLogHandler::new().exists_log_containing("WARN: Accountant: Failed to make a backup for pending payment '0x0000…01c8' due to 'InsertionFailed(\"Crashed\")'");
+    }
+
+    #[test]
+    fn separate_early_errors_works() {
+        let payment_ok = Payment {
+            to: make_wallet("blah"),
+            amount: 5555,
+            timestamp: SystemTime::now(),
+            transaction: Default::default(),
+        };
+        let error = BlockchainError::SignedValueConversion(666);
+        let sent_payments = SentPayments {
+            payments: vec![Ok(payment_ok.clone()), Err(error.clone())],
+        };
+
+        let (ok, err) = Accountant::separate_early_errors(sent_payments, &Logger::new("test"));
+
+        assert_eq!(ok, vec![payment_ok]);
+        assert_eq!(err, vec![error])
     }
 
     #[test]

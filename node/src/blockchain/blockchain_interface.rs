@@ -58,10 +58,17 @@ pub enum BlockchainError {
     InvalidUrl,
     InvalidAddress,
     InvalidResponse,
-    UnusableWallet(String),
     QueryFailed(String),
-    TransactionFailed(String),
-    UnsupportableSignValue(i64),
+    SignedValueConversion(i64),
+    TransactionFailed { msg: String, hash_opt: Option<H256> },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum BlockchainTransactionError {
+    UnusableWallet(String),
+    Signing(String),
+    Sending(String, H256),
+    SentinelVariant,
 }
 
 impl Display for BlockchainError {
@@ -85,7 +92,7 @@ pub trait BlockchainInterface {
         &self,
         inputs: SendTransactionInputs,
         send_transaction_tools: &'a dyn SendTransactionToolWrapper,
-    ) -> BlockchainResult<(H256, SystemTime)>;
+    ) -> Result<(H256, SystemTime), BlockchainTransactionError>;
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
 
@@ -139,17 +146,17 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> Transactions {
         let msg = "Can't retrieve transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
-        Err(BlockchainError::TransactionFailed(msg))
+        Err(BlockchainError::QueryFailed(msg))
     }
 
     fn send_transaction<'a>(
         &self,
         _inputs: SendTransactionInputs,
         _send_transaction_tools: &'a dyn SendTransactionToolWrapper,
-    ) -> BlockchainResult<(H256, SystemTime)> {
+    ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         let msg = "Can't send transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
-        Err(BlockchainError::TransactionFailed(msg))
+        Err(BlockchainTransactionError::SentinelVariant)
     }
 
     fn get_eth_balance(&self, _address: &Wallet) -> Balance {
@@ -267,7 +274,7 @@ where
         &self,
         inputs: SendTransactionInputs,
         send_transaction_tools: &'a dyn SendTransactionToolWrapper,
-    ) -> BlockchainResult<(H256, SystemTime)> {
+    ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         self.logger.debug(|| self.log_debug_before_sending(&inputs));
         let signed_transaction =
             self.prepare_signed_transaction(&inputs, send_transaction_tools)?;
@@ -277,7 +284,10 @@ where
             .info(|| self.log_sending(inputs.recipient, inputs.amount));
         match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
             Ok(hash) => Ok((hash, payment_timestamp)),
-            Err(e) => Err(BlockchainError::TransactionFailed(e.to_string())),
+            Err(e) => Err(BlockchainTransactionError::Sending(
+                e.to_string(),
+                signed_transaction.transaction_hash,
+            )),
         }
     }
 
@@ -351,7 +361,7 @@ where
         &self,
         inputs: &SendTransactionInputs,
         send_transaction_tools: &'a dyn SendTransactionToolWrapper,
-    ) -> Result<SignedTransaction, BlockchainError> {
+    ) -> Result<SignedTransaction, BlockchainTransactionError> {
         let mut data = [0u8; 4 + 32 + 32];
         data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
         data[16..36].copy_from_slice(&inputs.recipient.address().0[..]);
@@ -385,12 +395,12 @@ where
 
         let key = match inputs.consuming_wallet.prepare_secp256k1_secret() {
             Ok(secret) => secret,
-            Err(e) => return Err(BlockchainError::UnusableWallet(e.to_string())),
+            Err(e) => return Err(BlockchainTransactionError::UnusableWallet(e.to_string())),
         };
 
         match send_transaction_tools.sign_transaction(transaction_parameters, &key) {
             Ok(tx) => Ok(tx),
-            Err(e) => Err(BlockchainError::TransactionFailed(e.to_string())),
+            Err(e) => Err(BlockchainTransactionError::Signing(e.to_string())),
         }
     }
 
@@ -451,7 +461,7 @@ impl<'a> SendTransactionInputs<'a> {
             recipient: &account.wallet,
             consuming_wallet,
             amount: u64::try_from(account.balance)
-                .map_err(|_| BlockchainError::UnsupportableSignValue(account.balance))?,
+                .map_err(|_| BlockchainError::SignedValueConversion(account.balance))?,
             nonce,
             gas_price,
         })
@@ -466,6 +476,55 @@ impl<'a> SendTransactionInputs<'a> {
             self.nonce,
             self.gas_price,
         )
+    }
+}
+
+impl BlockchainError {
+    pub fn carries_transaction_hash(&self) -> Option<H256> {
+        match self {
+            Self::TransactionFailed {
+                msg: _,
+                hash_opt: None,
+            } => None,
+            Self::TransactionFailed {
+                msg: _,
+                hash_opt: Some(hash),
+            } => Some(*hash),
+            _ => None,
+        }
+    }
+}
+
+impl Display for BlockchainTransactionError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnusableWallet(msg) => write!(f, "UnusableWallet: {}", msg),
+            Self::Signing(msg) => write!(f, "Signing: {}", msg),
+            Self::Sending(msg, _) => write!(f, "Sending: {}", msg),
+            Self::SentinelVariant => write!(f, "This is sentinel for BlockchainTransactionError"),
+        }
+    }
+}
+
+impl From<BlockchainTransactionError> for BlockchainError {
+    fn from(error: BlockchainTransactionError) -> Self {
+        match error {
+            BlockchainTransactionError::UnusableWallet(_) => BlockchainError::TransactionFailed {
+                msg: error.to_string(),
+                hash_opt: None,
+            },
+            BlockchainTransactionError::Signing(_) => BlockchainError::TransactionFailed {
+                msg: error.to_string(),
+                hash_opt: None,
+            },
+            BlockchainTransactionError::Sending(_, hash) => BlockchainError::TransactionFailed {
+                msg: error.to_string(),
+                hash_opt: Some(hash),
+            },
+            BlockchainTransactionError::SentinelVariant => {
+                panic!("this operation should not happen")
+            }
+        }
     }
 }
 
@@ -1177,7 +1236,7 @@ mod tests {
         );
 
         assert_eq!(result,
-                   Err(BlockchainError::UnusableWallet(
+                   Err(BlockchainTransactionError::UnusableWallet(
                        "Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()
                    ))
         )
@@ -1209,7 +1268,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(BlockchainError::TransactionFailed(
+            Err(BlockchainTransactionError::Signing(
                 "Signing error: secp: malformed or out-of-range secret key".to_string()
             ))
         );
@@ -1244,8 +1303,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(BlockchainError::TransactionFailed(
-                "Transport error: Transaction crashed".to_string()
+            Err(BlockchainTransactionError::Sending(
+                "Transport error: Transaction crashed".to_string(),
+                H256::default()
             ))
         );
     }
@@ -1668,7 +1728,7 @@ mod tests {
     }
 
     #[test]
-    fn send_transaction_inputs_constructor_handles_value_out_of_range() {
+    fn constructor_for_send_transaction_inputs_handles_value_out_of_range() {
         let mut payable_account = make_payable_account(5);
         payable_account.balance = -100;
         let consuming_wallet = make_wallet("blah");
@@ -1676,6 +1736,107 @@ mod tests {
         let result =
             SendTransactionInputs::new(&payable_account, &consuming_wallet, U256::from(4545), 130);
 
-        assert_eq!(result, Err(BlockchainError::UnsupportableSignValue(-100)))
+        assert_eq!(result, Err(BlockchainError::SignedValueConversion(-100)))
+    }
+
+    #[test]
+    fn conversion_between_errors_work() {
+        assert_eq!(
+            BlockchainError::from(BlockchainTransactionError::UnusableWallet(
+                "wallet error".to_string()
+            )),
+            BlockchainError::TransactionFailed {
+                msg: "UnusableWallet: wallet error".to_string(),
+                hash_opt: None
+            }
+        );
+        assert_eq!(
+            BlockchainError::from(BlockchainTransactionError::Signing(
+                "signature error".to_string()
+            )),
+            BlockchainError::TransactionFailed {
+                msg: "Signing: signature error".to_string(),
+                hash_opt: None
+            }
+        );
+        let hash = H256::from_uint(&U256::from(4555));
+        assert_eq!(
+            BlockchainError::from(BlockchainTransactionError::Sending(
+                "sending error".to_string(),
+                hash
+            )),
+            BlockchainError::TransactionFailed {
+                msg: "Sending: sending error".to_string(),
+                hash_opt: Some(hash)
+            }
+        )
+    }
+
+    #[test]
+    #[should_panic(expected = "this operation should not happen")]
+    fn sentinel_value_should_not_be_converted() {
+        let _: BlockchainError = BlockchainTransactionError::SentinelVariant.into();
+    }
+
+    #[test]
+    fn display_for_blockchain_transaction_error() {
+        assert_eq!(
+            BlockchainTransactionError::UnusableWallet("haha".to_string()).to_string(),
+            String::from("UnusableWallet: haha")
+        );
+        assert_eq!(
+            BlockchainTransactionError::Signing("hehe".to_string()).to_string(),
+            String::from("Signing: hehe")
+        );
+        assert_eq!(
+            BlockchainTransactionError::Sending(
+                "hihi".to_string(),
+                H256::from_uint(&U256::from(4545))
+            )
+            .to_string(),
+            String::from("Sending: hihi")
+        );
+        assert_eq!(
+            BlockchainTransactionError::SentinelVariant.to_string(),
+            String::from("This is sentinel for BlockchainTransactionError")
+        );
+    }
+
+    #[test]
+    fn carries_transaction_hash_works() {
+        assert_eq!(BlockchainError::InvalidUrl.carries_transaction_hash(), None);
+        assert_eq!(
+            BlockchainError::QueryFailed("blah".to_string()).carries_transaction_hash(),
+            None
+        );
+        assert_eq!(
+            BlockchainError::SignedValueConversion(66).carries_transaction_hash(),
+            None
+        );
+        assert_eq!(
+            BlockchainError::InvalidAddress.carries_transaction_hash(),
+            None
+        );
+        assert_eq!(
+            BlockchainError::InvalidResponse.carries_transaction_hash(),
+            None
+        );
+        assert_eq!(
+            BlockchainError::TransactionFailed {
+                msg: "blah".to_string(),
+                hash_opt: None
+            }
+            .carries_transaction_hash(),
+            None
+        );
+        let hash = H256::from_uint(&U256::from(999));
+        assert_eq!(
+            BlockchainError::TransactionFailed {
+                msg: "blah".to_string(),
+                hash_opt: Some(hash)
+            }
+            .carries_transaction_hash(),
+            Some(hash)
+        )
     }
 }
