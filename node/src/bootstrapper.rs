@@ -1,8 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{
-    DEFAULT_PAYABLES_SCAN_INTERVAL, DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
-    DEFAULT_RECEIVABLES_SCAN_INTERVAL,
-};
+use crate::accountant::{DEFAULT_PAYABLES_SCAN_INTERVAL, DEFAULT_PENDING_TOO_LONG_SEC, DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, DEFAULT_RECEIVABLES_SCAN_INTERVAL};
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
@@ -332,8 +329,9 @@ impl BootstrapperConfig {
                 payables_scan_interval: Duration::from_secs(DEFAULT_PAYABLES_SCAN_INTERVAL),
                 receivables_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLES_SCAN_INTERVAL),
                 pending_payments_scan_interval: Duration::from_secs(
-                    DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
+                    DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
                 ),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],

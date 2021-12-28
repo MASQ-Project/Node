@@ -76,7 +76,8 @@ lazy_static! {
 }
 
 //TODO this might become chain specific later on
-pub const DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS: u64 = 5_000;
+pub const DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS: u64 = 5_000;
+pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
 //TODO I may need to have two types for both payable and receivable
 #[derive(Debug, PartialEq)]
@@ -384,7 +385,7 @@ impl Accountant {
             banned_dao: banned_dao_factory.make(),
             crashable: config.crash_point == CrashPoint::Message,
             scanners: Scanners::default(),
-            transaction_confirmation: TransactionConfirmationTools::new(),
+            transaction_confirmation: TransactionConfirmationTools::default(),
             persistent_configuration: Box::new(PersistentConfigurationReal::new(
                 config_dao_factory.make(),
             )),
@@ -1720,8 +1721,9 @@ pub mod tests {
                     payables_scan_interval: Duration::from_millis(10_000),
                     receivables_scan_interval: Duration::from_millis(10_000),
                     pending_payments_scan_interval: Duration::from_millis(
-                        DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
+                        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
                     ),
+                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1818,8 +1820,9 @@ pub mod tests {
                     payables_scan_interval: Duration::from_millis(10_000),
                     receivables_scan_interval: Duration::from_millis(10_000),
                     pending_payments_scan_interval: Duration::from_millis(
-                        DEFAULT_PENDING_TX_CHECKOUT_INTERVAL_MS,
+                        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
                     ),
+                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -2005,6 +2008,7 @@ pub mod tests {
                     payables_scan_interval: Duration::from_secs(100), //scan intervals deliberately big to demonstrate that we don't do the intervals yet
                     receivables_scan_interval: Duration::from_secs(100),
                     pending_payments_scan_interval: Duration::from_secs(100),
+                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -2062,6 +2066,7 @@ pub mod tests {
                     payables_scan_interval: Duration::from_secs(10_000),
                     receivables_scan_interval: Duration::from_secs(10_000),
                     pending_payments_scan_interval: Duration::from_secs(100),
+                    when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
                 },
                 earning_wallet.clone(),
             )),
@@ -2112,6 +2117,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100), //making sure we cannot enter the first repeated scanning
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_millis(100), //except here, where we use it to stop the system
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("buy"),
             make_wallet("hi"),
@@ -2205,6 +2211,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             earning_wallet.clone(),
         );
@@ -2287,6 +2294,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(10_000),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             earning_wallet.clone(),
         );
@@ -2356,6 +2364,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(10_000),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             earning_wallet.clone(),
         );
@@ -2415,6 +2424,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100), //deliberately big to refrain from starting off this scanning
                 pending_payments_scan_interval: Duration::from_millis(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("hi"),
         );
@@ -2488,6 +2498,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_millis(100),
                 receivables_scan_interval: Duration::from_secs(100), //deliberately big to refrain from starting off this scanning
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("hi"),
         );
@@ -2553,6 +2564,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(1000),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("mine"),
         );
@@ -2615,6 +2627,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_millis(1_000),
                 receivables_scan_interval: Duration::from_millis(1_000),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("mine"),
         );
@@ -2685,6 +2698,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_millis(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("hi"),
         );
@@ -2692,7 +2706,7 @@ pub mod tests {
             .new_delinquencies_result(vec![])
             .new_delinquencies_result(vec![make_receivable_account(1234, true)])
             .paid_delinquencies_result(vec![])
-            .paid_delinquencies_result(vec![]) //TODO we maybe should set up more things in this test than just new delinquencies
+            .paid_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![]); //because the system has some inertia before it shuts down
         receivable_dao.have_new_delinquencies_shutdown_the_system = true;
         let banned_dao = BannedDaoMock::new()
@@ -2749,6 +2763,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(1000),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("mine"),
         );
@@ -2853,6 +2868,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("mine"),
         );
@@ -2896,6 +2912,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("hi"),
         );
@@ -2952,6 +2969,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             consuming_wallet.clone(),
             make_wallet("our earning wallet"),
@@ -3007,6 +3025,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             earning_wallet.clone(),
         );
@@ -3060,6 +3079,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("hi"),
         );
@@ -3108,6 +3128,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             consuming_wallet.clone(),
             make_wallet("the earning wallet"),
@@ -3153,6 +3174,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             earning_wallet.clone(),
         );
@@ -3196,6 +3218,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("hi"),
         );
@@ -3252,6 +3275,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             consuming_wallet.clone(),
             make_wallet("my earning wallet"),
@@ -3307,6 +3331,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             earning_wallet.clone(),
         );
@@ -3360,6 +3385,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("hi"),
         );
@@ -3409,6 +3435,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             consuming_wallet.clone(),
             make_wallet("own earning wallet"),
@@ -3454,6 +3481,7 @@ pub mod tests {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payments_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             earning_wallet.clone(),
         );
@@ -4101,6 +4129,7 @@ pub mod tests {
                 pending_payments_scan_interval: Duration::from_millis(
                     pending_payments_scan_interval,
                 ),
+                when_pending_too_long_sec: Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC)
             },
             make_wallet("some_wallet_address"),
         );

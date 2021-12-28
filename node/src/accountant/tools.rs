@@ -80,10 +80,9 @@ pub(in crate::accountant) mod accountant_tools {
             Box<dyn NotifyHandle<CancelFailedPendingTransaction>>,
     }
 
-    impl TransactionConfirmationTools {
-        pub fn new() -> Self {
+    impl Default for TransactionConfirmationTools {
+        fn default() -> Self {
             Self {
-                //TODO untested for real???
                 notify_later_handle_scan_for_pending_payments: Default::default(),
                 request_transaction_receipts_subs_opt: None,
                 notify_handle_confirm_transaction: Default::default(),
@@ -95,9 +94,9 @@ pub(in crate::accountant) mod accountant_tools {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::tools::accountant_tools::{
-        PayablesScanner, PendingPaymentsScanner, ReceivablesScanner, Scanners,
-    };
+    use crate::accountant::ScanForPendingPayments;
+    use crate::accountant::tools::accountant_tools::{PayablesScanner, PendingPaymentsScanner, ReceivablesScanner, Scanners, TransactionConfirmationTools};
+    use crate::blockchain::tool_wrappers::NotifyHandleReal;
 
     #[test]
     fn scanners_are_properly_defaulted() {

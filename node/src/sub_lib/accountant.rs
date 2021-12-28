@@ -24,6 +24,7 @@ pub struct AccountantConfig {
     pub payables_scan_interval: Duration,
     pub receivables_scan_interval: Duration,
     pub pending_payments_scan_interval: Duration,
+    pub when_pending_too_long_sec: Duration
 }
 
 #[derive(Clone)]

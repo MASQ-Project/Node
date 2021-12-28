@@ -31,8 +31,8 @@ pub trait PendingPaymentsDao {
         timestamp: SystemTime,
     ) -> Result<(), PendingPaymentDaoError>;
     fn delete_payment_backup(&self, id: u64) -> Result<(), PendingPaymentDaoError>;
-    fn update_backup_after_scan_cycle(&self, id: u64) -> Result<(), PendingPaymentDaoError>; //TODO implement or discard
-    fn mark_failure(&self, id: u64) -> Result<(), PendingPaymentDaoError>; //TODO implement or discard
+    fn update_backup_after_scan_cycle(&self, id: u64) -> Result<(), PendingPaymentDaoError>;
+    fn mark_failure(&self, id: u64) -> Result<(), PendingPaymentDaoError>;
 }
 
 impl PendingPaymentsDao for PendingPaymentsDaoReal<'_> {
