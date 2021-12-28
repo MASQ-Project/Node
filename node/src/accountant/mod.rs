@@ -770,8 +770,10 @@ pub mod tests {
     use super::*;
     use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDaoFactory};
     use crate::accountant::test_utils::make_receivable_account;
+    use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::blockchain_interface::Transaction;
+    use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
     use crate::db_config::config_dao::ConfigDao;
@@ -1753,56 +1755,41 @@ pub mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "query failed, aborting message")]
     fn accountant_logs_error_when_blockchain_bridge_responds_with_error() {
         init_test_logging();
-        let earning_wallet = make_wallet("earner3000");
-        let blockchain_bridge = Recorder::new().retrieve_transactions_response(Err(
-            BlockchainError::QueryFailed("really bad".to_string()),
-        ));
-        let blockchain_bridge_awaiter = blockchain_bridge.get_awaiter();
-        let blockchain_bridge_recording = blockchain_bridge.get_recording();
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(10_000),
-                receivables_scan_interval: Duration::from_millis(100),
-            },
-            earning_wallet.clone(),
+        let system =
+            System::new("retrieve_transactions_sends_transactions_to_blockchain_interface");
+        let accountant = Recorder::new();
+        let earning_wallet = make_wallet("somewallet");
+        let expected_gas_price = 5u64;
+        let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .retrieve_transactions_result(Err(BlockchainError::QueryFailed(
+                "query failed, aborting message".to_string(),
+            )));
+        let persistent_configuration_mock =
+            PersistentConfigurationMock::default().gas_price_result(Ok(expected_gas_price));
+        let subject = BlockchainBridge::new(
+            Box::new(blockchain_interface_mock),
+            Box::new(persistent_configuration_mock),
+            false,
+            Some(earning_wallet.clone()),
         );
+        let addr = subject.start();
+        let subject_subs = BlockchainBridge::make_subs_from(&addr);
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        send_bind_message!(subject_subs, peer_actors);
+        System::current().stop();
+        system.run();
 
-        thread::spawn(move || {
-            let system =
-                System::new("accountant_logs_error_when_blockchain_bridge_responds_with_error");
-            let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
-            let receivable_dao = ReceivableDaoMock::new()
-                .new_delinquencies_result(vec![])
-                .paid_delinquencies_result(vec![]);
-            let config_mock = PersistentConfigurationMock::new().start_block_result(Ok(0));
-            let subject = make_subject(
-                Some(config),
-                Some(payable_dao),
-                Some(receivable_dao),
-                None,
-                Some(config_mock),
-            );
-            let peer_actors = peer_actors_builder()
-                .blockchain_bridge(blockchain_bridge)
-                .build();
-            let subject_addr: Addr<Accountant> = subject.start();
-            let subject_subs = Accountant::make_subs_from(&subject_addr);
-
-            send_bind_message!(subject_subs, peer_actors);
-            send_start_message!(subject_subs);
-
-            system.run();
-        });
-        blockchain_bridge_awaiter.await_message_count(1);
-        let retrieve_transactions_recording = blockchain_bridge_recording.lock().unwrap();
-        let retrieve_transactions_message =
-            retrieve_transactions_recording.get_record::<RetrieveTransactions>(0);
-        assert_eq!(earning_wallet, retrieve_transactions_message.recipient);
+        addr.try_send(RetrieveTransactions {
+            start_block: 0u64,
+            recipient: earning_wallet.clone(),
+        })
+        .expect("query failed, aborting message");
 
         TestLogHandler::new().exists_log_containing(
-            r#"WARN: Accountant: Blockchain TransactionFailed("Payment attempt failed")"#,
+            r#"WARN: Accountant: Unable to retrieve transactions from Blockchain Bridge: QueryFailed("really bad")"#,
         );
     }
 

@@ -599,10 +599,12 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
 
-        let _ = addr.try_send(RetrieveTransactions {
+        let retrieve_transactions = RetrieveTransactions {
             start_block: 0u64,
             recipient: earning_wallet.clone(),
-        });
+        };
+        addr.try_send(retrieve_transactions)
+            .expect("Blockchain bridge is dead");
         System::current().stop();
         system.run();
 
