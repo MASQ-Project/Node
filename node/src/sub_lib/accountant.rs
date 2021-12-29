@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{ReceivedPayments, ScanForPayables, ScanForReceivables, SentPayments};
+use crate::accountant::{ReceivedPayments, SentPayments};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -35,8 +35,6 @@ pub struct AccountantSubs {
     pub report_new_payments: Recipient<ReceivedPayments>,
     pub report_sent_payments: Recipient<SentPayments>,
     pub ui_message_sub: Recipient<NodeFromUiMessage>,
-    pub scan_for_payables: Recipient<ScanForPayables>,
-    pub scan_for_receivables: Recipient<ScanForReceivables>,
 }
 
 impl Debug for AccountantSubs {
@@ -115,8 +113,6 @@ mod tests {
             report_new_payments: recipient!(recorder, ReceivedPayments),
             report_sent_payments: recipient!(recorder, SentPayments),
             ui_message_sub: recipient!(recorder, NodeFromUiMessage),
-            scan_for_payables: recipient!(recorder, ScanForPayables),
-            scan_for_receivables: recipient!(recorder, ScanForReceivables),
         };
 
         assert_eq!(format!("{:?}", subject), "AccountantSubs");

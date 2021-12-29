@@ -4,7 +4,7 @@ use crate::accountant::payable_dao::Payment;
 use crate::accountant::{ReceivedPayments, SentPayments};
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
-    BlockchainResult, Transactions,
+    BlockchainResult,
 };
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
 use crate::database::db_migrations::MigratorConfig;
@@ -204,7 +204,9 @@ impl BlockchainBridge {
     }
 
     fn handle_retrieve_transactions(&self, msg: RetrieveTransactions) {
-        let retrieved_transactions = self.handle_retrieve_transactions_inner(msg);
+        let retrieved_transactions = self
+            .blockchain_interface
+            .retrieve_transactions(msg.start_block, &msg.recipient);
         match retrieved_transactions {
             Ok(transactions) => self
                 .received_payments_subs_opt
@@ -216,11 +218,6 @@ impl BlockchainBridge {
                 .expect("Accountant is dead."),
             Err(e) => warning!(self.logger, "{}", e),
         }
-    }
-
-    fn handle_retrieve_transactions_inner(&self, msg: RetrieveTransactions) -> Transactions {
-        self.blockchain_interface
-            .retrieve_transactions(msg.start_block, &msg.recipient)
     }
 
     fn process_payments(
@@ -461,7 +458,7 @@ mod tests {
     }
 
     #[test]
-    fn report_accounts_payable_sends_transactions_to_blockchain_interface() {
+    fn handle_report_accounts_payable_transacts_and_sends_finished_payments_back_to_accountant() {
         let system =
             System::new("report_accounts_payable_sends_transactions_to_blockchain_interface");
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
@@ -564,22 +561,23 @@ mod tests {
     }
 
     #[test]
-    fn retrieve_transactions_sends_transactions_to_blockchain_interface() {
+    fn handle_retrieve_transactions_transacts_and_sends_received_payments_to_blockchain_interface()
+    {
         let system =
             System::new("retrieve_transactions_sends_transactions_to_blockchain_interface");
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let earning_wallet = make_wallet("somewallet");
-        let amount = 42u64;
-        let amount2 = 55u64;
-        let expected_gas_price = 5u64;
+        let amount = 42;
+        let amount2 = 55;
+        let expected_gas_price = 5;
         let expected_transactions = vec![
             Transaction {
-                block_number: 7u64,
+                block_number: 7,
                 from: earning_wallet.clone(),
                 gwei_amount: amount,
             },
             Transaction {
-                block_number: 9u64,
+                block_number: 9,
                 from: earning_wallet.clone(),
                 gwei_amount: amount2,
             },
@@ -600,9 +598,10 @@ mod tests {
         send_bind_message!(subject_subs, peer_actors);
 
         let retrieve_transactions = RetrieveTransactions {
-            start_block: 0u64,
+            start_block: 0,
             recipient: earning_wallet.clone(),
         };
+
         addr.try_send(retrieve_transactions)
             .expect("Blockchain bridge is dead");
         System::current().stop();

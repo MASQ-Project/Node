@@ -412,7 +412,7 @@ impl ActorFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::{ReceivedPayments, ScanForPayables, ScanForReceivables, SentPayments};
+    use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
@@ -744,8 +744,6 @@ mod tests {
                 report_new_payments: recipient!(addr, ReceivedPayments),
                 report_sent_payments: recipient!(addr, SentPayments),
                 ui_message_sub: recipient!(addr, NodeFromUiMessage),
-                scan_for_payables: recipient!(addr, ScanForPayables),
-                scan_for_receivables: recipient!(addr, ScanForReceivables),
             }
         }
 

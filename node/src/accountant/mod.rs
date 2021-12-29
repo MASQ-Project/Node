@@ -289,8 +289,6 @@ impl Accountant {
             report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
             report_sent_payments: addr.clone().recipient::<SentPayments>(),
             ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
-            scan_for_payables: addr.clone().recipient::<ScanForPayables>(),
-            scan_for_receivables: addr.clone().recipient::<ScanForReceivables>(),
         }
     }
 
@@ -904,7 +902,7 @@ pub mod tests {
             self
         }
 
-        pub(crate) fn non_pending_payables_result(self, result: Vec<PayableAccount>) -> Self {
+        pub fn non_pending_payables_result(self, result: Vec<PayableAccount>) -> Self {
             self.non_pending_payables_results.borrow_mut().push(result);
             self
         }
@@ -1505,7 +1503,6 @@ pub mod tests {
     fn accountant_sends_report_accounts_payable_to_blockchain_bridge_when_qualified_payments_found()
     {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
-        let blockchain_bridge = blockchain_bridge.retrieve_transactions_response(Ok(vec![]));
         let accounts = vec![
             PayableAccount {
                 wallet: make_wallet("blah"),
@@ -1563,7 +1560,6 @@ pub mod tests {
     #[test]
     fn accountant_scans_for_received_payments_and_sends_message_to_blockchain_bridge() {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
-        let blockchain_bridge = blockchain_bridge.retrieve_transactions_response(Ok(vec![]));
         let receivable_dao = ReceivableDaoMock::new();
         let earning_wallet = make_wallet("someearningwallet");
         let accounts = vec![
@@ -1629,9 +1625,9 @@ pub mod tests {
     fn accountant_payment_received_scan_timer_triggers_scanning_for_payments() {
         let paying_wallet = make_wallet("wallet0");
         let earning_wallet = make_wallet("earner3000");
-        let amount = 42u64;
+        let amount = 42;
         let expected_transactions = vec![Transaction {
-            block_number: 7u64,
+            block_number: 7,
             from: paying_wallet.clone(),
             gwei_amount: amount,
         }];
@@ -1679,14 +1675,38 @@ pub mod tests {
 
         blockchain_bridge_awaiter.await_message_count(3);
         let retrieve_transactions_recording = blockchain_bridge_recording.lock().unwrap();
+        assert_eq!(retrieve_transactions_recording.len(), 3);
         let retrieve_transactions_message =
             retrieve_transactions_recording.get_record::<RetrieveTransactions>(0);
         assert_eq!(
             &RetrieveTransactions {
-                start_block: 5u64,
-                recipient: earning_wallet,
+                start_block: 5,
+                recipient: earning_wallet.clone(),
             },
             retrieve_transactions_message
+        );
+        let retrieve_transactions_msgs: Vec<&RetrieveTransactions> = (0
+            ..retrieve_transactions_recording.len())
+            .flat_map(|index| {
+                retrieve_transactions_recording.get_record_opt::<RetrieveTransactions>(index)
+            })
+            .collect();
+        assert_eq!(
+            *retrieve_transactions_msgs,
+            vec![
+                &RetrieveTransactions {
+                    start_block: 5,
+                    recipient: earning_wallet.clone()
+                },
+                &RetrieveTransactions {
+                    start_block: 5,
+                    recipient: earning_wallet.clone()
+                },
+                &RetrieveTransactions {
+                    start_block: 5,
+                    recipient: earning_wallet.clone()
+                }
+            ]
         );
     }
 
@@ -1694,7 +1714,6 @@ pub mod tests {
     fn accountant_logs_if_no_transactions_were_detected() {
         init_test_logging();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
-        let blockchain_bridge = blockchain_bridge.retrieve_transactions_response(Ok(vec![]));
         let earning_wallet = make_wallet("someearningwallet");
         let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let receivable_dao = ReceivableDaoMock::new()
@@ -1755,17 +1774,16 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "query failed, aborting message")]
     fn accountant_logs_error_when_blockchain_bridge_responds_with_error() {
         init_test_logging();
         let system =
-            System::new("retrieve_transactions_sends_transactions_to_blockchain_interface");
+            System::new("accountant_logs_error_when_blockchain_bridge_responds_with_error");
         let accountant = Recorder::new();
         let earning_wallet = make_wallet("somewallet");
         let expected_gas_price = 5u64;
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(Err(BlockchainError::QueryFailed(
-                "query failed, aborting message".to_string(),
+                "aborting message".to_string(),
             )));
         let persistent_configuration_mock =
             PersistentConfigurationMock::default().gas_price_result(Ok(expected_gas_price));
@@ -1779,18 +1797,17 @@ pub mod tests {
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
-        System::current().stop();
-        system.run();
 
         addr.try_send(RetrieveTransactions {
             start_block: 0u64,
             recipient: earning_wallet.clone(),
         })
-        .expect("query failed, aborting message");
+        .expect("aborting message");
 
-        TestLogHandler::new().exists_log_containing(
-            r#"WARN: Accountant: Unable to retrieve transactions from Blockchain Bridge: QueryFailed("really bad")"#,
-        );
+        System::current().stop();
+        system.run();
+
+        TestLogHandler::new().assert_logs_match_in_order(vec!["QueryFailed"]);
     }
 
     #[test]
