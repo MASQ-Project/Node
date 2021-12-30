@@ -169,7 +169,6 @@ impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
         let transaction = self.root_transaction_ref;
         sql_statements.iter().fold(Ok(()), |so_far, stm| {
             if so_far.is_ok() {
-eprintln! ("Executing migration statement:\n    {}", *stm);
                 transaction.execute(stm, NO_PARAMS).map(|_| ())
             } else {
                 so_far
