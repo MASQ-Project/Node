@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::logger::Logger;
+use actix::{Message, SpawnHandle};
 use clap::App;
 use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
@@ -8,7 +9,8 @@ use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::type_name_of;
 use std::io::ErrorKind;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::marker::PhantomData;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
@@ -134,6 +136,60 @@ fn crash_request_analyzer(
         Err(_) => None,
         Ok((msg, _)) if msg.actor == crash_key => Some(msg),
         Ok((_, _)) => None,
+    }
+}
+
+pub trait NotifyLaterHandle<T> {
+    fn notify_later<'a>(
+        &'a self,
+        msg: T,
+        interval: Duration,
+        closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
+    ) -> SpawnHandle;
+}
+
+pub struct NotifyLaterHandleReal<T> {
+    phantom: PhantomData<T>,
+}
+
+impl<T: Message + 'static> Default for Box<dyn NotifyLaterHandle<T>> {
+    fn default() -> Self {
+        Box::new(NotifyLaterHandleReal {
+            phantom: PhantomData::default(),
+        })
+    }
+}
+
+impl<T: Message> NotifyLaterHandle<T> for NotifyLaterHandleReal<T> {
+    fn notify_later<'a>(
+        &'a self,
+        msg: T,
+        interval: Duration,
+        mut closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
+    ) -> SpawnHandle {
+        closure(msg, interval)
+    }
+}
+
+pub trait NotifyHandle<T> {
+    fn notify<'a>(&'a self, msg: T, closure: Box<dyn FnMut(T) + 'a>);
+}
+
+impl<T: Message + 'static> Default for Box<dyn NotifyHandle<T>> {
+    fn default() -> Self {
+        Box::new(NotifyHandleReal {
+            phantom: PhantomData::default(),
+        })
+    }
+}
+
+pub struct NotifyHandleReal<T> {
+    phantom: PhantomData<T>,
+}
+
+impl<T: Message> NotifyHandle<T> for NotifyHandleReal<T> {
+    fn notify<'a>(&'a self, msg: T, mut closure: Box<dyn FnMut(T) + 'a>) {
+        closure(msg)
     }
 }
 

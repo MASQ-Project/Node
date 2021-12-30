@@ -673,7 +673,7 @@ mod tests {
                 wallet: "wallet".to_string(),
                 age: 3456,
                 amount: 4567,
-                pending_transaction: Some("5678".to_string()),
+                pending_transaction_rowid: Some(5678),
             }],
             total_payable: 1234,
             receivables: vec![UiReceivableAccount {
@@ -791,7 +791,7 @@ mod tests {
                     "wallet": "wallet",
                     "age": 3456,
                     "amount": 4567,
-                    "pendingTransaction": "transaction"
+                    "pendingTransactionRowid": 444
                 }],
                 "totalPayable": 1234,
                 "receivables": [{
@@ -820,7 +820,7 @@ mod tests {
                         wallet: "wallet".to_string(),
                         age: 3456,
                         amount: 4567,
-                        pending_transaction: Some("transaction".to_string())
+                        pending_transaction_rowid: Some(444)
                     }],
                     total_payable: 1234,
                     receivables: vec![UiReceivableAccount {

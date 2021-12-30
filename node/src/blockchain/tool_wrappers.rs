@@ -2,11 +2,10 @@
 
 use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
 use actix::prelude::SendError;
-use actix::{Message, Recipient, SpawnHandle};
+use actix::Recipient;
 use ethereum_types::H256;
 use std::fmt::Debug;
-use std::marker::PhantomData;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use web3::futures::Future;
 use web3::types::{Bytes, SignedTransaction, TransactionParameters};
 use web3::Error as Web3Error;
@@ -18,12 +17,7 @@ pub trait SendTransactionToolWrapper {
         transaction_params: TransactionParameters,
         key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
-    fn request_new_payment_backup(
-        &self,
-        transaction_hash: H256,
-        nonce: u64,
-        amount: u64,
-    ) -> SystemTime;
+    fn request_new_payment_backup(&self, transaction_hash: H256, amount: u64) -> SystemTime;
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error>;
 }
 
@@ -58,7 +52,7 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
             .wait()
     }
 
-    fn request_new_payment_backup(&self, hash: H256, nonce: u64, amount: u64) -> SystemTime {
+    fn request_new_payment_backup(&self, hash: H256, amount: u64) -> SystemTime {
         let now = SystemTime::now();
         self.payment_backup_sub
             .try_send(PaymentBackupRecord {
@@ -68,7 +62,6 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
                 hash,
                 attempt: 0, //DB will know where to start: 1
                 process_error: None,
-                nonce,
             })
             .expect("Accountant is dead");
         now
@@ -90,72 +83,12 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperNull {
         panic!("sing_transaction() should never be called on the null object")
     }
 
-    fn request_new_payment_backup(
-        &self,
-        _transaction_hash: H256,
-        _nonce: u64,
-        _amount: u64,
-    ) -> SystemTime {
+    fn request_new_payment_backup(&self, _transaction_hash: H256, _amount: u64) -> SystemTime {
         panic!("request_new_payment_backup() should never be called on the null object")
     }
 
     fn send_raw_transaction(&self, _rlp: Bytes) -> Result<H256, Web3Error> {
         panic!("send_raw_transaction() should never be called on the null object")
-    }
-}
-
-//TODO this might be moved to somewhere else
-pub trait NotifyLaterHandle<T> {
-    fn notify_later<'a>(
-        &'a self,
-        msg: T,
-        interval: Duration,
-        closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
-    ) -> SpawnHandle;
-}
-
-pub struct NotifyLaterHandleReal<T> {
-    phantom: PhantomData<T>,
-}
-
-impl<T: Message + 'static> Default for Box<dyn NotifyLaterHandle<T>> {
-    fn default() -> Self {
-        Box::new(NotifyLaterHandleReal {
-            phantom: PhantomData::default(),
-        })
-    }
-}
-
-impl<T: Message> NotifyLaterHandle<T> for NotifyLaterHandleReal<T> {
-    fn notify_later<'a>(
-        &'a self,
-        msg: T,
-        interval: Duration,
-        mut closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
-    ) -> SpawnHandle {
-        closure(msg, interval)
-    }
-}
-
-pub trait NotifyHandle<T> {
-    fn notify<'a>(&'a self, msg: T, closure: Box<dyn FnMut(T) + 'a>);
-}
-
-impl<T: Message + 'static> Default for Box<dyn NotifyHandle<T>> {
-    fn default() -> Self {
-        Box::new(NotifyHandleReal {
-            phantom: PhantomData::default(),
-        })
-    }
-}
-
-pub struct NotifyHandleReal<T> {
-    phantom: PhantomData<T>,
-}
-
-impl<T: Message> NotifyHandle<T> for NotifyHandleReal<T> {
-    fn notify<'a>(&'a self, msg: T, mut closure: Box<dyn FnMut(T) + 'a>) {
-        closure(msg)
     }
 }
 
@@ -230,7 +163,7 @@ mod tests {
         expected = "request_new_payment_backup() should never be called on the null object"
     )]
     fn null_request_new_payment_backup_stops_the_run() {
-        let _ = SendTransactionToolWrapperNull.request_new_payment_backup(Default::default(), 1, 5);
+        let _ = SendTransactionToolWrapperNull.request_new_payment_backup(Default::default(), 5);
     }
 
     #[test]
@@ -244,7 +177,6 @@ mod tests {
             hash: Default::default(),
             attempt: 0,
             amount: 44,
-            nonce: 4,
             process_error: None,
         };
 

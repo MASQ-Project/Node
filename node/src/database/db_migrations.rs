@@ -51,6 +51,10 @@ trait DatabaseMigration: Debug {
         mig_declaration_utilities: Box<dyn MigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()>;
     fn old_version(&self) -> usize;
+    #[cfg(test)]
+    fn is_interim_placeholder(&self) -> bool {
+        false
+    }
 }
 
 trait MigDeclarationUtilities {
@@ -253,6 +257,33 @@ impl DatabaseMigration for Migrate_2_to_3 {
     }
 }
 
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+struct Migrate_4_to_5;
+
+impl DatabaseMigration for Migrate_4_to_5 {
+    fn migrate<'a>(
+        &self,
+        declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
+    ) -> rusqlite::Result<()> {
+        // let statement_1 =
+        //     "INSERT INTO config (name, value, encrypted) VALUES ('blockchain_service_url', null, 0)";
+        // let statement_2 = format!(
+        //     "INSERT INTO config (name, value, encrypted) VALUES ('neighborhood_mode', '{}', 0)",
+        //     declaration_utils
+        //         .external_parameters()
+        //         .neighborhood_mode
+        //         .to_string()
+        // );
+        // declaration_utils.execute_upon_transaction(&[statement_1, statement_2.as_str()])
+        Ok(())
+    }
+
+    fn old_version(&self) -> usize {
+        4
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 impl DbMigratorReal {
@@ -264,7 +295,13 @@ impl DbMigratorReal {
     }
 
     fn list_of_migrations<'a>() -> &'a [&'a dyn DatabaseMigration] {
-        &[&Migrate_0_to_1, &Migrate_1_to_2, &Migrate_2_to_3]
+        &[
+            &Migrate_0_to_1,
+            &Migrate_1_to_2,
+            &Migrate_2_to_3,
+            &InterimMigrationPlaceholder(4),
+            &Migrate_4_to_5,
+        ]
     }
 
     fn initiate_migrations<'a>(
@@ -445,6 +482,26 @@ impl From<(MigratorConfig, bool)> for ExternalData {
     }
 }
 
+#[derive(Debug)]
+struct InterimMigrationPlaceholder(usize);
+
+impl DatabaseMigration for InterimMigrationPlaceholder {
+    fn migrate<'a>(
+        &self,
+        _mig_declaration_utilities: Box<dyn MigDeclarationUtilities + 'a>,
+    ) -> rusqlite::Result<()> {
+        Ok(())
+    }
+
+    fn old_version(&self) -> usize {
+        self.0 - 1
+    }
+
+    fn is_interim_placeholder(&self) -> bool {
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
@@ -468,6 +525,7 @@ mod tests {
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
+    use std::iter::once;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
 
@@ -694,6 +752,7 @@ mod tests {
         old_version_result: RefCell<usize>,
         migrate_params: Arc<Mutex<Vec<()>>>,
         migrate_result: RefCell<Vec<rusqlite::Result<()>>>,
+        is_interim_placeholder_results: RefCell<bool>,
     }
 
     impl DBMigrationRecordMock {
@@ -709,6 +768,11 @@ mod tests {
 
         fn migrate_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
             self.migrate_params = params.clone();
+            self
+        }
+
+        fn is_interim_placeholder_result(self, result: bool) -> Self {
+            self.is_interim_placeholder_results.replace(result);
             self
         }
 
@@ -736,26 +800,75 @@ mod tests {
         fn old_version(&self) -> usize {
             *self.old_version_result.borrow()
         }
+
+        fn is_interim_placeholder(&self) -> bool {
+            *self.is_interim_placeholder_results.borrow()
+        }
     }
 
     #[test]
-    #[should_panic(expected = "The list of migrations for the database is not ordered properly")]
-    fn list_validation_check_works() {
-        let fake_one = DBMigrationRecordMock::default().old_version_result(6);
-        let fake_two = DBMigrationRecordMock::default().old_version_result(3);
+    #[should_panic(expected = "The list of database migrations is not ordered properly")]
+    fn list_validation_check_works_for_badly_ordered_migrations_when_inside() {
+        let fake_one = DBMigrationRecordMock::default()
+            .old_version_result(6)
+            .is_interim_placeholder_result(false);
+        let fake_two = DBMigrationRecordMock::default()
+            .old_version_result(2)
+            .is_interim_placeholder_result(false);
         let list: &[&dyn DatabaseMigration] = &[&Migrate_0_to_1, &fake_one, &fake_two];
 
         let _ = list_validation_check(list);
     }
 
+    #[test]
+    #[should_panic(expected = "The list of database migrations is not ordered properly")]
+    fn list_validation_check_works_for_badly_ordered_migrations_when_at_the_end() {
+        let fake_one = DBMigrationRecordMock::default()
+            .old_version_result(1)
+            .is_interim_placeholder_result(false);
+        let fake_two = DBMigrationRecordMock::default()
+            .old_version_result(3)
+            .is_interim_placeholder_result(false);
+        let list: &[&dyn DatabaseMigration] = &[&Migrate_0_to_1, &fake_one, &fake_two];
+
+        let _ = list_validation_check(list);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "The list of database migrations contains an interim migration placeholder - remove it before finishing"
+    )]
+    fn list_validation_check_works_for_detecting_interim_placeholders() {
+        let fake_one = DBMigrationRecordMock::default()
+            .old_version_result(3)
+            .is_interim_placeholder_result(false);
+        let fake_two = DBMigrationRecordMock::default()
+            .old_version_result(4)
+            .is_interim_placeholder_result(false);
+        let fake_three = DBMigrationRecordMock::default()
+            .old_version_result(5)
+            .is_interim_placeholder_result(true);
+        let list: &[&dyn DatabaseMigration] = &[&fake_one, &fake_two, &fake_three];
+
+        let _ = list_validation_check(list);
+    }
+
     fn list_validation_check<'a>(list_of_migrations: &'a [&'a (dyn DatabaseMigration + 'a)]) {
+        let begins_at_version = list_of_migrations[0].old_version();
         let iterator = list_of_migrations.iter();
-        let iterator_shifted = list_of_migrations.iter().skip(1);
+        let ending_sentinel = &DBMigrationRecordMock::default()
+            .old_version_result(begins_at_version + iterator.len())
+            as &dyn DatabaseMigration;
+        let iterator_shifted = list_of_migrations
+            .iter()
+            .skip(1)
+            .chain(once(&ending_sentinel));
         iterator.zip(iterator_shifted).for_each(|(first, second)| {
             assert!(
                 two_numbers_are_sequential(first.old_version(), second.old_version()),
-                "The list of migrations for the database is not ordered properly"
-            )
+                "The list of database migrations is not ordered properly"
+            );
+            assert_eq!(first.is_interim_placeholder(),false,"The list of database migrations contains an interim migration placeholder - remove it before finishing")
         });
     }
 
@@ -1126,7 +1239,7 @@ mod tests {
         let result = subject.initialize_to_version(
             &dir_path,
             1,
-            true,
+            false,
             MigratorConfig::create_or_migrate(make_external_migration_parameters()),
         );
         let connection = result.unwrap();
@@ -1169,7 +1282,7 @@ mod tests {
         let result = subject.initialize_to_version(
             &dir_path,
             start_at + 1,
-            true,
+            false,
             MigratorConfig::create_or_migrate(make_external_migration_parameters()),
         );
 
@@ -1213,7 +1326,7 @@ mod tests {
         let result = subject.initialize_to_version(
             &dir_path,
             start_at + 1,
-            true,
+            false,
             MigratorConfig::create_or_migrate(ExternalData::new(
                 DEFAULT_CHAIN,
                 NeighborhoodModeLight::ConsumeOnly,
@@ -1245,5 +1358,63 @@ mod tests {
         assert_eq!(cs_name, "schema_version".to_string());
         assert_eq!(cs_value, Some("3".to_string()));
         assert_eq!(cs_encrypted, 0);
+    }
+
+    #[test]
+    fn migration_from_4_to_5_is_properly_set() {
+        let start_at = 4;
+        let dir_path = ensure_node_home_directory_exists("db_migrations", "4_to_5");
+        let db_path = dir_path.join(DATABASE_FILE);
+        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let subject = DbInitializerReal::default();
+        {
+            subject
+                .initialize_to_version(
+                    &dir_path,
+                    start_at,
+                    true,
+                    MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                )
+                .unwrap();
+        }
+
+        let conn_schema5 = subject
+            .initialize_to_version(
+                &dir_path,
+                start_at + 1,
+                false,
+                MigratorConfig::create_or_migrate(ExternalData::new(
+                    DEFAULT_CHAIN,
+                    NeighborhoodModeLight::ConsumeOnly,
+                )),
+            )
+            .unwrap();
+
+        let mut stm = conn_schema5
+            .prepare("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap();
+        let schema5: Vec<String> = stm
+            .query_map(NO_PARAMS, |row| Ok(row.get::<usize, String>(1).unwrap()))
+            .unwrap()
+            .flatten()
+            .collect();
+        assert!(
+            schema5.contains(
+                &"
+        CREATE TABLE if not exists pending_payments (
+            rowid integer primary key,
+            transaction_hash text not null,
+            amount integer not null,
+            payment_timestamp integer not null,
+            nonce integer not null,
+            attempt integer not null,
+            process_error text null)"
+                    .to_string()
+            ),
+            "{:?}",
+            schema5
+        );
+        assert!(schema5.contains(&"CREATE TABLE payable (wallet_address text primary key, balance \
+         integer not null, last_paid_timestamp integer not null, pending_payment_transaction text null)".to_string()),"{:?}",schema5);
     }
 }

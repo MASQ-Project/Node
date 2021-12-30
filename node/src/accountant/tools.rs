@@ -5,7 +5,7 @@ pub(in crate::accountant) mod accountant_tools {
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction,
         RequestTransactionReceipts, ScanForPendingPayments,
     };
-    use crate::blockchain::tool_wrappers::{NotifyHandle, NotifyLaterHandle};
+    use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use actix::Recipient;
     #[cfg(test)]
     use std::any::Any;

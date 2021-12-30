@@ -53,6 +53,7 @@ pub trait PayableDao: Debug + Send {
 
     fn transaction_confirmed(&self, payment: &PaymentBackupRecord) -> Result<(), PaymentError>;
 
+    //TODO this method doesn't have a use now; what is its future?
     fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PaymentError>;
 
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount>;
@@ -680,7 +681,6 @@ mod tests {
             .unwrap();
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
-        let nonce = 2;
         let previous_timestamp = from_time_t(190_000_000);
         let payment_timestamp = from_time_t(199_000_000);
         let attempt = 5;
@@ -713,7 +713,6 @@ mod tests {
             hash,
             attempt,
             amount: payment as u64,
-            nonce,
             process_error: None,
         };
 
@@ -929,7 +928,6 @@ mod tests {
             hash,
             attempt: 1,
             amount: u64::MAX,
-            nonce: 1,
             process_error: None,
         };
         let subject = PayableDaoReal::new(

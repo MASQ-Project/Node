@@ -20,7 +20,7 @@ use std::path::Path;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: usize = 3;
+pub const CURRENT_SCHEMA_VERSION: usize = 5;
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -294,7 +294,6 @@ impl DbInitializerReal {
                 transaction_hash text not null,
                 amount integer not null,
                 payment_timestamp integer not null,
-                nonce integer not null,
                 attempt integer not null,
                 process_error text null
             )",
@@ -424,7 +423,7 @@ impl DbInitializerReal {
         if found_schema.eq(&target_version) {
             Box::new(ConnectionWrapperReal::new(conn))
         } else {
-            panic!("DB migration failed; the resulting records are still incorrect")
+            panic!("DB migration failed, the resulting records are still incorrect; found {} but target {}", found_schema,target_version)
         }
     }
 
@@ -761,7 +760,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "DB migration failed; the resulting records are still incorrect")]
+    #[should_panic(
+        expected = "DB migration failed, the resulting records are still incorrect; found 0 but target 1"
+    )]
     fn panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_migration(
     ) {
         let home_dir = ensure_node_home_directory_exists(

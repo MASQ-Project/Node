@@ -278,11 +278,8 @@ where
         self.logger.debug(|| self.log_debug_before_sending(&inputs));
         let signed_transaction =
             self.prepare_signed_transaction(&inputs, send_transaction_tools)?;
-        let payment_timestamp = send_transaction_tools.request_new_payment_backup(
-            signed_transaction.transaction_hash,
-            inputs.nonce.as_u64(),
-            inputs.amount,
-        );
+        let payment_timestamp = send_transaction_tools
+            .request_new_payment_backup(signed_transaction.transaction_hash, inputs.amount);
         self.logger
             .info(|| self.log_sending(inputs.recipient, inputs.amount));
         match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
@@ -1029,7 +1026,6 @@ mod tests {
             hash,
             attempt: 0,
             amount: amount as u64,
-            nonce: 1,
             process_error: None,
         };
         assert_eq!(sent_backup, &expected_payment_backup);
@@ -1113,7 +1109,7 @@ mod tests {
             request_new_payment_backup_params_arc.lock().unwrap();
         assert_eq!(
             *request_new_payment_backup_params,
-            vec![(hash, nonce.as_u64(), amount as u64)]
+            vec![(hash, amount as u64)]
         );
         let send_raw_transaction = send_raw_transaction_params_arc.lock().unwrap();
         assert_eq!(

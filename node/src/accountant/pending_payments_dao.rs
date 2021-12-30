@@ -28,7 +28,6 @@ pub trait PendingPaymentsDao {
         &self,
         transaction_hash: H256,
         amount: u64,
-        nonce: u64,
         timestamp: SystemTime,
     ) -> Result<(), PendingPaymentDaoError>;
     fn delete_payment_backup(&self, id: u64) -> Result<(), PendingPaymentDaoError>;
@@ -53,23 +52,20 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal<'_> {
     }
 
     fn return_all_payment_backups(&self) -> Vec<PaymentBackupRecord> {
-        let mut stm = self.conn.prepare("select rowid, transaction_hash, amount, payment_timestamp, nonce, attempt, process_error from pending_payments").expect("Internal error");
+        let mut stm = self.conn.prepare("select rowid, transaction_hash, amount, payment_timestamp, attempt from pending_payments where process_error is null").expect("Internal error");
         stm.query_map(NO_PARAMS, |row| {
             let rowid: i64 = Self::get_with_expect(row, 0);
             let transaction_hash: String = Self::get_with_expect(row, 1);
             let amount: i64 = Self::get_with_expect(row, 2);
             let timestamp: i64 = Self::get_with_expect(row, 3);
-            let nonce: i64 = Self::get_with_expect(row, 4);
-            let attempt: i64 = Self::get_with_expect(row, 5);
-            let process_error: Option<String> = Self::get_with_expect(row, 6);
+            let attempt: i64 = Self::get_with_expect(row, 4);
             Ok(PaymentBackupRecord {
                 rowid: u64::try_from(rowid).expectv("positive value"),
                 timestamp: from_time_t(timestamp),
                 hash: H256::from_str(transaction_hash.as_str()).expectv("string hash"),
                 attempt: u16::try_from(attempt).expectv("positive and low value"),
                 amount: u64::try_from(amount).expectv("positive value"),
-                nonce: u64::try_from(nonce).expectv("positive value"),
-                process_error,
+                process_error: None,
             })
         })
         .expect("behaves quite infallible")
@@ -81,19 +77,16 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal<'_> {
         &self,
         transaction_hash: H256,
         amount: u64,
-        nonce: u64,
         timestamp: SystemTime,
     ) -> Result<(), PendingPaymentDaoError> {
         let signed_amount = jackass_unsigned_to_signed(amount)
             .map_err(|e| PendingPaymentDaoError::SignConversionError(e))?;
-        let signed_nonce = i64::try_from(nonce).expect("should suffice");
-        let mut stm = self.conn.prepare("insert into pending_payments (rowid, transaction_hash, amount, payment_timestamp, nonce, attempt, process_error) values (?,?,?,?,?,?,?)").expect("Internal error");
+        let mut stm = self.conn.prepare("insert into pending_payments (rowid, transaction_hash, amount, payment_timestamp, attempt, process_error) values (?,?,?,?,?,?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[
             &Null, //to let it increment automatically by SQLite
             &format!("{:x}", transaction_hash),
             &signed_amount,
             &to_time_t(timestamp),
-            &signed_nonce,
             &1,
             &Null,
         ];
@@ -208,13 +201,12 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let hash = H256::from_uint(&U256::from(45466));
-        let nonce = 5;
         let amount = 55556;
         let timestamp = from_time_t(200_000_000);
         let subject = PendingPaymentsDaoReal::new(wrapped_conn);
 
         let _ = subject
-            .insert_payment_backup(hash, amount, nonce, timestamp)
+            .insert_payment_backup(hash, amount, timestamp)
             .unwrap();
 
         let assertion_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
@@ -227,16 +219,14 @@ mod tests {
                 let hash: String = row.get(1).unwrap();
                 let amount: i64 = row.get(2).unwrap();
                 let payment_timestamp = row.get(3);
-                let nonce: i64 = row.get(4).unwrap();
-                let attempt: i64 = row.get(5).unwrap();
-                let process_error = row.get(6);
+                let attempt: i64 = row.get(4).unwrap();
+                let process_error = row.get(5);
                 Ok(PaymentBackupRecord {
                     rowid: rowid as u64,
                     timestamp: from_time_t(payment_timestamp.unwrap()),
                     hash: H256::from_str(&hash).unwrap(),
                     attempt: attempt as u16,
                     amount: amount as u64,
-                    nonce: nonce as u64,
                     process_error: process_error.unwrap(),
                 })
             })
@@ -249,7 +239,6 @@ mod tests {
                 hash,
                 attempt: 1,
                 amount,
-                nonce,
                 process_error: None
             }
         )
@@ -272,11 +261,10 @@ mod tests {
         let wrapped_conn = ConnectionWrapperReal::new(conn_read_only);
         let hash = H256::from_uint(&U256::from(45466));
         let amount = 55556;
-        let nonce = 1;
         let timestamp = from_time_t(200_000_000);
         let subject = PendingPaymentsDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.insert_payment_backup(hash, amount, nonce, timestamp);
+        let result = subject.insert_payment_backup(hash, amount, timestamp);
 
         assert_eq!(
             result,
@@ -299,10 +287,9 @@ mod tests {
         let timestamp = from_time_t(195_000_000);
         let hash = H256::from_uint(&U256::from(11119));
         let amount = 787;
-        let nonce = 1;
         {
             subject
-                .insert_payment_backup(hash, amount, nonce, timestamp)
+                .insert_payment_backup(hash, amount, timestamp)
                 .unwrap();
         }
 
@@ -337,10 +324,10 @@ mod tests {
     }
 
     #[test]
-    fn return_all_payment_backups_works() {
+    fn return_all_payment_backups_works_when_no_records_with_errors_marks() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payments_dao",
-            "return_all_payment_backups_works",
+            "return_all_payment_backups_works_when_no_records_with_errors_marks",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -354,12 +341,12 @@ mod tests {
         let amount_2 = 333;
         {
             subject
-                .insert_payment_backup(hash_1, amount_1, 1, timestamp_1)
+                .insert_payment_backup(hash_1, amount_1, timestamp_1)
                 .unwrap();
         }
         {
             subject
-                .insert_payment_backup(hash_2, amount_2, 6, timestamp_2)
+                .insert_payment_backup(hash_2, amount_2, timestamp_2)
                 .unwrap();
         }
 
@@ -374,7 +361,6 @@ mod tests {
                     hash: hash_1,
                     attempt: 1,
                     amount: amount_1,
-                    nonce: 1,
                     process_error: None
                 },
                 PaymentBackupRecord {
@@ -383,10 +369,48 @@ mod tests {
                     hash: hash_2,
                     attempt: 1,
                     amount: amount_2,
-                    nonce: 6,
                     process_error: None
                 }
             ]
+        )
+    }
+
+    #[test]
+    fn return_all_payment_backups_works_when_some_records_with_errors_marks() {
+        let home_dir = ensure_node_home_directory_exists(
+            "pending_payments_dao",
+            "return_all_payment_backups_works_when_some_records_with_errors_marks",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let subject = PendingPaymentsDaoReal::new(wrapped_conn);
+        let timestamp = from_time_t(198_000_000);
+        let hash = H256::from_uint(&U256::from(10000));
+        let amount = 333;
+        {
+            subject
+                .insert_payment_backup(H256::from_uint(&U256::from(11119)), 2000, SystemTime::now())
+                .unwrap();
+            //we know that the previous record has a rowid=1, so we don't need to ask
+            subject.mark_failure(1).unwrap();
+            subject
+                .insert_payment_backup(hash, amount, timestamp)
+                .unwrap();
+        }
+
+        let result = subject.return_all_payment_backups();
+
+        assert_eq!(
+            result,
+            vec![PaymentBackupRecord {
+                rowid: 2,
+                timestamp,
+                hash,
+                attempt: 1,
+                amount,
+                process_error: None
+            }]
         )
     }
 
@@ -404,7 +428,7 @@ mod tests {
         let subject = PendingPaymentsDaoReal::new(conn);
         {
             subject
-                .insert_payment_backup(hash, 5555, 1, SystemTime::now())
+                .insert_payment_backup(hash, 5555, SystemTime::now())
                 .unwrap();
             assert!(subject.payment_backup_exists(hash).is_some())
         }
@@ -464,12 +488,11 @@ mod tests {
             .unwrap();
         let hash = H256::from_uint(&U256::from(666));
         let amount = 1234;
-        let nonce = 2;
         let timestamp = from_time_t(190_000_000);
         let subject = PendingPaymentsDaoReal::new(conn);
         {
             subject
-                .insert_payment_backup(hash, amount, nonce, timestamp)
+                .insert_payment_backup(hash, amount, timestamp)
                 .unwrap();
         }
         let mut all_backups_before = subject.return_all_payment_backups();
@@ -480,7 +503,6 @@ mod tests {
         assert_eq!(backup_before.attempt, 1);
         assert_eq!(backup_before.process_error, None);
         assert_eq!(backup_before.timestamp, timestamp);
-        assert_eq!(backup_before.nonce, nonce);
 
         let result = subject.update_backup_after_scan_cycle(1);
 
@@ -530,36 +552,53 @@ mod tests {
             .unwrap();
         let hash = H256::from_uint(&U256::from(666));
         let amount = 1234;
-        let nonce = 3;
         let timestamp = from_time_t(190_000_000);
         let subject = PendingPaymentsDaoReal::new(conn);
         {
             subject
-                .insert_payment_backup(hash, amount, nonce, timestamp)
+                .insert_payment_backup(hash, amount, timestamp)
                 .unwrap();
         }
-        let mut all_backups_before = subject.return_all_payment_backups();
-        assert_eq!(all_backups_before.len(), 1);
-        let backup_before = all_backups_before.remove(0);
-        assert_eq!(backup_before.hash, hash);
-        assert_eq!(backup_before.rowid, 1);
-        assert_eq!(backup_before.attempt, 1);
-        assert_eq!(backup_before.process_error, None);
-        assert_eq!(backup_before.timestamp, timestamp);
-        assert_eq!(backup_before.nonce, nonce);
+        let assert_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
+        let mut assert_stm = assert_conn
+            .prepare("select * from pending_payments")
+            .unwrap();
+        let mut assert_closure = || {
+            assert_stm
+                .query_row(NO_PARAMS, |row| {
+                    let rowid: i64 = row.get(0).unwrap();
+                    let transaction_hash: String = row.get(1).unwrap();
+                    let amount: i64 = row.get(2).unwrap();
+                    let timestamp: i64 = row.get(3).unwrap();
+                    let attempt: i64 = row.get(4).unwrap();
+                    let process_error: Option<String> = row.get(5).unwrap();
+                    Ok(PaymentBackupRecord {
+                        rowid: u64::try_from(rowid).unwrap(),
+                        timestamp: from_time_t(timestamp),
+                        hash: H256::from_str(transaction_hash.as_str()).unwrap(),
+                        attempt: u16::try_from(attempt).unwrap(),
+                        amount: u64::try_from(amount).unwrap(),
+                        process_error,
+                    })
+                })
+                .unwrap()
+        };
+        let assertion_before = assert_closure();
+        assert_eq!(assertion_before.hash, hash);
+        assert_eq!(assertion_before.rowid, 1);
+        assert_eq!(assertion_before.attempt, 1);
+        assert_eq!(assertion_before.process_error, None);
+        assert_eq!(assertion_before.timestamp, timestamp);
 
         let result = subject.mark_failure(1);
 
         assert_eq!(result, Ok(()));
-        let mut all_backups_after = subject.return_all_payment_backups();
-        assert_eq!(all_backups_after.len(), 1);
-        let backup_after = all_backups_after.remove(0);
-        assert_eq!(backup_after.hash, hash);
-        assert_eq!(backup_after.rowid, 1);
-        assert_eq!(backup_after.attempt, 1);
-        assert_eq!(backup_after.process_error, Some("ERROR".to_string()));
-        assert_eq!(backup_after.timestamp, timestamp);
-        assert_eq!(backup_after.nonce, nonce)
+        let assertion_after = assert_closure();
+        assert_eq!(assertion_after.hash, hash);
+        assert_eq!(assertion_after.rowid, 1);
+        assert_eq!(assertion_after.attempt, 1);
+        assert_eq!(assertion_after.process_error, Some("ERROR".to_string()));
+        assert_eq!(assertion_after.timestamp, timestamp);
     }
 
     #[test]
