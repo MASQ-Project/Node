@@ -15,7 +15,7 @@ use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
 #[cfg(not(target_os = "windows"))]
 use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags};
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 use utils::CommandConfig;
@@ -238,7 +238,7 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
     .unwrap();
     conn.execute(
         "UPDATE config SET value='eth-mainnet' WHERE name='chain_name'",
-        NO_PARAMS,
+        [],
     )
     .unwrap();
 
