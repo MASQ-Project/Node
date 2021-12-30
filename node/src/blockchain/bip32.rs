@@ -123,7 +123,7 @@ impl Serialize for Bip32ECKeyProvider {
         let result = secret
             .to_crypto(
                 &Protected::from("secret"),
-                NonZeroU32::new(1).expect("Could not create"),
+                u32::from(NonZeroU32::new(1).expect("Could not create")),
             )
             .map_err(ser::Error::custom)?;
         result.serialize(serializer)

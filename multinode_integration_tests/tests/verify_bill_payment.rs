@@ -21,7 +21,6 @@ use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::database::db_migrations::{ExternalData, MigratorConfig};
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
-use rusqlite::NO_PARAMS;
 use rustc_hex::{FromHex, ToHex};
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
@@ -407,12 +406,12 @@ fn expire_payables(path: PathBuf) {
             "update payable set last_paid_timestamp = 0 where pending_payment_transaction is null",
         )
         .unwrap();
-    statement.execute(NO_PARAMS).unwrap();
+    statement.execute([]).unwrap();
 
     let mut config_stmt = conn
         .prepare("update config set value = '0' where name = 'start_block'")
         .unwrap();
-    config_stmt.execute(NO_PARAMS).unwrap();
+    config_stmt.execute([]).unwrap();
 }
 
 fn expire_receivables(path: PathBuf) {
@@ -422,12 +421,12 @@ fn expire_receivables(path: PathBuf) {
     let mut statement = conn
         .prepare("update receivable set last_received_timestamp = 0")
         .unwrap();
-    statement.execute(NO_PARAMS).unwrap();
+    statement.execute([]).unwrap();
 
     let mut config_stmt = conn
         .prepare("update config set value = '0' where name = 'start_block'")
         .unwrap();
-    config_stmt.execute(NO_PARAMS).unwrap();
+    config_stmt.execute([]).unwrap();
 }
 
 fn open_all_file_permissions(dir: PathBuf) {

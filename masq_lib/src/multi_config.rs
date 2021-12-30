@@ -6,7 +6,7 @@ use crate::utils::WrapResult;
 use clap::{value_t, values_t};
 use clap::{App, ArgMatches};
 use regex::Regex;
-use serde::export::Formatter;
+use serde::__private::Formatter;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::fs::File;

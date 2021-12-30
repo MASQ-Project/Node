@@ -342,7 +342,7 @@ impl Configurator {
     ) -> Result<MessageBody, MessageError> {
         Self::check_preconditions(persistent_config, "recover", &msg.db_password)?;
         let language = Self::parse_language(&msg.mnemonic_phrase_language)?;
-        let mnemonic = match Mnemonic::from_phrase(msg.mnemonic_phrase.join(" "), language) {
+        let mnemonic = match Mnemonic::from_phrase(&msg.mnemonic_phrase.join(" "), language) {
             Ok(m) => m,
             Err(e) => {
                 return Err((

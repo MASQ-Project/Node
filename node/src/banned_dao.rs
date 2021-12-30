@@ -3,7 +3,7 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
-use rusqlite::{Error, ErrorCode, ToSql, NO_PARAMS};
+use rusqlite::{Error, ErrorCode, ToSql};
 use std::collections::HashSet;
 use std::sync::RwLock;
 
@@ -55,7 +55,7 @@ impl BannedCacheLoader for BannedCacheLoaderReal {
         let mut stmt = conn
             .prepare("select wallet_address from banned")
             .expect("Failed to prepare statement");
-        stmt.query_map(NO_PARAMS, |row| row.get::<usize, Wallet>(0))
+        stmt.query_map([], |row| row.get::<usize, Wallet>(0))
             .expect("Failed to query banned table")
             .map(|p| p.expect("query_map magically returned an Err"))
             .for_each(|wallet| BAN_CACHE.insert(wallet));
@@ -94,7 +94,7 @@ impl BannedDao for BannedDaoReal {
             .conn
             .prepare("select wallet_address from banned")
             .expect("Failed to prepare a statement");
-        stmt.query_map(NO_PARAMS, |row| row.get(0))
+        stmt.query_map([], |row| row.get(0))
             .expect("Couldn't retrieve delinquency-ban list: database corrupt")
             .flatten()
             .collect()
@@ -154,7 +154,6 @@ mod tests {
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
     };
-    use rusqlite::NO_PARAMS;
 
     #[test]
     fn banned_dao_can_ban_a_wallet_address() {
@@ -176,7 +175,7 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
-        let mut banned_addresses = stmt.query(NO_PARAMS).unwrap();
+        let mut banned_addresses = stmt.query([]).unwrap();
         assert_eq!(
             "0x0000000000000000646f6e616c646472756d7068",
             banned_addresses
@@ -281,7 +280,7 @@ mod tests {
             .unwrap();
         conn.prepare("insert into banned (wallet_address) values ('0x000000000000000000495f414d5f42414e4e4544')")
             .unwrap()
-            .execute(NO_PARAMS)
+            .execute([])
             .unwrap();
         BannedCacheLoaderReal {}.load(conn);
 
@@ -325,7 +324,7 @@ mod tests {
         let unban_me_baby = make_wallet("UNBAN_ME_BABY");
         conn.prepare("insert into banned (wallet_address) values ('UNBAN_ME_BABY')")
             .unwrap()
-            .execute(NO_PARAMS)
+            .execute([])
             .unwrap();
         BAN_CACHE.insert(unban_me_baby.clone());
 

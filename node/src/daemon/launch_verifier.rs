@@ -39,7 +39,7 @@ impl VerifierTools for VerifierToolsReal {
 
     fn process_is_running(&self, process_id: u32) -> bool {
         let system = Self::system();
-        let process_info_opt = system.get_process(Self::convert_pid(process_id));
+        let process_info_opt = system.process(Self::convert_pid(process_id));
         match process_info_opt {
             None => false,
             Some(process) => {
@@ -50,7 +50,7 @@ impl VerifierTools for VerifierToolsReal {
     }
 
     fn kill_process(&self, process_id: u32) {
-        if let Some(process) = Self::system().get_process(Self::convert_pid(process_id)) {
+        if let Some(process) = Self::system().process(Self::convert_pid(process_id)) {
             if !process.kill(Signal::Term) && !process.kill(Signal::Kill) {
                 error!(
                     self.logger,
@@ -109,9 +109,7 @@ impl VerifierToolsReal {
 
     #[cfg(target_os = "windows")]
     fn is_alive(process_status: ProcessStatus) -> bool {
-        match process_status {
-            ProcessStatus::Run => true,
-        }
+        !matches!(process_status, ProcessStatus::Dead | ProcessStatus::Zombie)
     }
 }
 
