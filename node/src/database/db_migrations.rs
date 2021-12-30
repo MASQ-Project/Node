@@ -7,7 +7,7 @@ use masq_lib::blockchains::chains::Chain;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
-use rusqlite::{Transaction, NO_PARAMS};
+use rusqlite::{Error, Transaction, NO_PARAMS};
 use std::fmt::Debug;
 
 pub trait DbMigrator {
@@ -59,8 +59,9 @@ trait DatabaseMigration: Debug {
 
 trait MigDeclarationUtilities {
     fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()>;
-
+    fn transaction(&self) -> &Transaction;
     fn external_parameters(&self) -> &ExternalData;
+    fn logger(&self) -> &Logger;
 }
 
 trait DBMigrationUtilities {
@@ -71,6 +72,7 @@ trait DBMigrationUtilities {
     fn make_mig_declaration_utils<'a>(
         &'a self,
         external: &'a ExternalData,
+        logger: &'a Logger,
     ) -> Box<dyn MigDeclarationUtilities + 'a>;
 
     fn too_high_schema_panics(&self, mismatched_schema: usize);
@@ -120,10 +122,12 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
     fn make_mig_declaration_utils<'b>(
         &'b self,
         external: &'b ExternalData,
+        logger: &'b Logger,
     ) -> Box<dyn MigDeclarationUtilities + 'b> {
         Box::new(MigDeclarationUtilitiesReal::new(
             self.root_transaction_ref(),
             external,
+            logger,
         ))
     }
 
@@ -141,13 +145,19 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
 struct MigDeclarationUtilitiesReal<'a> {
     root_transaction_ref: &'a Transaction<'a>,
     external: &'a ExternalData,
+    logger: &'a Logger,
 }
 
 impl<'a> MigDeclarationUtilitiesReal<'a> {
-    fn new(root_transaction_ref: &'a Transaction<'a>, external: &'a ExternalData) -> Self {
+    fn new(
+        root_transaction_ref: &'a Transaction<'a>,
+        external: &'a ExternalData,
+        logger: &'a Logger,
+    ) -> Self {
         Self {
             root_transaction_ref,
             external,
+            logger,
         }
     }
 }
@@ -157,15 +167,30 @@ impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
         let transaction = self.root_transaction_ref;
         sql_statements.iter().fold(Ok(()), |so_far, stm| {
             if so_far.is_ok() {
-                transaction.execute(stm, NO_PARAMS).map(|_| ())
+                match transaction.execute(stm, NO_PARAMS) {
+                    Ok(_) => Ok(()),
+                    Err(e) if e == Error::ExecuteReturnedResults => Ok(()),
+                    Err(e) => {
+                        eprintln!("{}", stm);
+                        Err(e)
+                    }
+                }
             } else {
                 so_far
             }
         })
     }
 
+    fn transaction(&self) -> &Transaction {
+        self.root_transaction_ref
+    }
+
     fn external_parameters(&self) -> &ExternalData {
         self.external
+    }
+
+    fn logger(&self) -> &Logger {
+        self.logger
     }
 }
 
@@ -197,7 +222,6 @@ impl DatabaseMigration for Migrate_0_to_1 {
     ) -> rusqlite::Result<()> {
         declaration_utils.execute_upon_transaction(&[
             "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)",
-            //another statement would follow here
         ])
     }
 
@@ -266,17 +290,57 @@ impl DatabaseMigration for Migrate_4_to_5 {
         &self,
         declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()> {
-        // let statement_1 =
-        //     "INSERT INTO config (name, value, encrypted) VALUES ('blockchain_service_url', null, 0)";
-        // let statement_2 = format!(
-        //     "INSERT INTO config (name, value, encrypted) VALUES ('neighborhood_mode', '{}', 0)",
-        //     declaration_utils
-        //         .external_parameters()
-        //         .neighborhood_mode
-        //         .to_string()
-        // );
-        // declaration_utils.execute_upon_transaction(&[statement_1, statement_2.as_str()])
-        Ok(())
+        let mut select_statement = declaration_utils
+            .transaction()
+            .prepare("SELECT pending_payment_transaction FROM payable WHERE pending_payment_transaction IS NOT NULL")?;
+        let unresolved_pending_transactions: Vec<String> = select_statement
+            .query_map(NO_PARAMS, |row| {
+                Ok(row
+                    .get::<usize, String>(0)
+                    .expect("select statement was badly prepared"))
+            })?
+            .flatten()
+            .collect();
+        if !unresolved_pending_transactions.is_empty() {
+            todo!()
+        } else {
+            debug!(
+                declaration_utils.logger(),
+                "Migration from 4 to 5: no previous pending transactions found; continuing"
+            )
+        };
+        let statement_1 = "ALTER TABLE payable RENAME TO _payable_old";
+        let statement_2 = "CREATE TABLE payable (\
+                wallet_address text primary key, \
+                balance integer not null, \
+                last_paid_timestamp integer not null\
+        )";
+        let statement_3 = "ALTER TABLE payable ADD pending_payment_rowid integer null";
+        let statement_4 = "INSERT INTO payable (wallet_address, balance, last_paid_timestamp) SELECT wallet_address, balance, last_paid_timestamp FROM _payable_old";
+        let statement_5 = "CREATE TABLE pending_payments (\
+                rowid integer primary key, \
+                transaction_hash text not null, \
+                amount integer not null, \
+                payment_timestamp integer not null, \
+                attempt integer not null, \
+                process_error text null\
+            )";
+        let statement_6 =
+            "CREATE UNIQUE INDEX pending_payments_hash_idx ON pending_payments (transaction_hash)";
+        let statement_7 = "DROP TABLE _payable_old";
+        let statement_8 = "DROP INDEX idx_receivable_wallet_address";
+        let statement_9 = "DROP INDEX idx_banned_wallet_address";
+        declaration_utils.execute_upon_transaction(&[
+            statement_1,
+            statement_2,
+            statement_3,
+            statement_4,
+            statement_5,
+            statement_6,
+            statement_7,
+            statement_8,
+            statement_9,
+        ])
     }
 
     fn old_version(&self) -> usize {
@@ -319,7 +383,8 @@ impl DbMigratorReal {
         );
         for record in migrations_to_process {
             let present_db_version = record.old_version();
-            if let Err(e) = self.migrate_semi_automated(record, &*migration_utilities) {
+            if let Err(e) = self.migrate_semi_automated(record, &*migration_utilities, &self.logger)
+            {
                 return self.dispatch_bad_news(present_db_version, e);
             }
             self.log_success(present_db_version)
@@ -331,8 +396,9 @@ impl DbMigratorReal {
         &self,
         record: &dyn DatabaseMigration,
         migration_utilities: &'a (dyn DBMigrationUtilities + 'a),
+        logger: &'a Logger,
     ) -> rusqlite::Result<()> {
-        record.migrate(migration_utilities.make_mig_declaration_utils(&self.external))?;
+        record.migrate(migration_utilities.make_mig_declaration_utils(&self.external, logger))?;
         let migrate_to = record.old_version() + 1;
         migration_utilities.update_schema_version(migrate_to)
     }
@@ -514,6 +580,7 @@ mod tests {
         ExternalData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, Suppression,
     };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
+    use crate::sub_lib::logger::Logger;
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
     };
@@ -521,7 +588,7 @@ mod tests {
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::NeighborhoodModeLight;
-    use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
+    use rusqlite::{Connection, Error, OptionalExtension, Statement, Transaction, NO_PARAMS};
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
@@ -590,6 +657,7 @@ mod tests {
         fn make_mig_declaration_utils<'a>(
             &'a self,
             external: &'a ExternalData,
+            _logger: &'a Logger,
         ) -> Box<dyn MigDeclarationUtilities + 'a> {
             self.make_mig_declaration_utils_params
                 .lock()
@@ -642,8 +710,16 @@ mod tests {
             self.execute_upon_transaction_results.borrow_mut().remove(0)
         }
 
+        fn transaction(&self) -> &Transaction {
+            unimplemented!("Not needed so far")
+        }
+
         fn external_parameters(&self) -> &ExternalData {
-            unimplemented!()
+            unimplemented!("Not needed so far")
+        }
+
+        fn logger(&self) -> &Logger {
+            unimplemented!("Not needed so far")
         }
     }
 
@@ -905,7 +981,11 @@ mod tests {
             .update_schema_version_params(&update_schema_version_params_arc);
         let subject = DbMigratorReal::new(make_external_migration_parameters());
 
-        let result = subject.migrate_semi_automated(&mut migration_record, &migration_utilities);
+        let result = subject.migrate_semi_automated(
+            &mut migration_record,
+            &migration_utilities,
+            &Logger::new("test logger"),
+        );
 
         assert_eq!(result, Err(Error::InvalidQuery));
         let update_schema_version_params = update_schema_version_params_arc.lock().unwrap();
@@ -953,16 +1033,17 @@ mod tests {
         let connection = Connection::open(&db_path).unwrap();
         connection
             .execute(
-                "CREATE TABLE IF NOT EXISTS test (
+                "CREATE TABLE test (
             name TEXT,
-            count TEXT
+            count integer
         )",
                 NO_PARAMS,
             )
             .unwrap();
-        let correct_statement_1 = "INSERT INTO test (name,count) VALUES ('mushrooms','270')";
-        let erroneous_statement_1 = "INSERT INTO botanic_garden (sun_flowers) VALUES (100)";
-        let erroneous_statement_2 = "UPDATE botanic_garden SET value = 99 WHERE flower = artemisia";
+        let correct_statement_1 = "INSERT INTO test (name,count) VALUES ('mushrooms',270)";
+        let erroneous_statement_1 =
+            "INSERT INTO botanic_garden (name, count) VALUES (sunflowers, 100)";
+        let erroneous_statement_2 = "INSERT INTO milky_way (star) VALUES (just_discovered)";
         let set_of_sql_statements = &[
             correct_statement_1,
             erroneous_statement_1,
@@ -974,7 +1055,7 @@ mod tests {
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
         let result = subject
-            .make_mig_declaration_utils(&external_parameters)
+            .make_mig_declaration_utils(&external_parameters, &Logger::new("test logger"))
             .execute_upon_transaction(set_of_sql_statements);
 
         assert_eq!(
@@ -992,6 +1073,47 @@ mod tests {
             .optional()
             .unwrap();
         assert!(assertion.is_none()) //means no result for this query
+    }
+
+    #[test]
+    fn execute_upon_transaction_handles_also_statements_that_return_something() {
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "execute_upon_transaction_handles_also_statements_that_return_something",
+        );
+        let db_path = dir_path.join("test_database.db");
+        let connection = Connection::open(&db_path).unwrap();
+        connection
+            .execute(
+                "CREATE TABLE botanic_garden (
+            name TEXT,
+            count integer
+        )",
+                NO_PARAMS,
+            )
+            .unwrap();
+        let statement_1 = "INSERT INTO botanic_garden (name,count) VALUES ('sun_flowers', 100)";
+        let statement_2 = "ALTER TABLE botanic_garden RENAME TO just_garden"; //this statement returns an overview of the new table on its execution
+        let statement_3 = "COMMIT";
+        let set_of_sql_statements = &[statement_1, statement_2, statement_3];
+        let mut connection_wrapper = ConnectionWrapperReal::new(connection);
+        let config = DBMigratorInnerConfiguration::new();
+        let external_parameters = make_external_migration_parameters();
+        let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
+
+        let result = subject
+            .make_mig_declaration_utils(&external_parameters, &Logger::new("test logger"))
+            .execute_upon_transaction(set_of_sql_statements);
+
+        assert_eq!(result, Ok(()));
+        let connection = Connection::open(&db_path).unwrap();
+        let assertion: Option<(String, i64)> = connection
+            .query_row("SELECT * FROM just_garden", NO_PARAMS, |row| {
+                Ok((row.get(0).unwrap(), row.get(1).unwrap()))
+            })
+            .optional()
+            .unwrap();
+        assert!(assertion.is_some()) //means there is a table named 'just_garden' now
     }
 
     fn make_success_mig_record(
@@ -1362,6 +1484,7 @@ mod tests {
 
     #[test]
     fn migration_from_4_to_5_is_properly_set() {
+        init_test_logging();
         let start_at = 4;
         let dir_path = ensure_node_home_directory_exists("db_migrations", "4_to_5");
         let db_path = dir_path.join(DATABASE_FILE);
@@ -1390,31 +1513,66 @@ mod tests {
             )
             .unwrap();
 
-        let mut stm = conn_schema5
-            .prepare("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name")
+        let table_stm = conn_schema5
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table'")
             .unwrap();
-        let schema5: Vec<String> = stm
-            .query_map(NO_PARAMS, |row| Ok(row.get::<usize, String>(1).unwrap()))
+        let query = |mut stm: Statement| -> Vec<_> {
+            stm.query_map(NO_PARAMS, |row| {
+                Ok(row.get::<usize, Option<String>>(0).unwrap())
+            })
             .unwrap()
             .flatten()
-            .collect();
+            .flatten() //rusqlite started to treat the sql parameter as optional so I have to query Option<String>
+            .collect()
+        };
+        let tables_schema5 = query(table_stm);
         assert!(
-            schema5.contains(
-                &"
-        CREATE TABLE if not exists pending_payments (
-            rowid integer primary key,
-            transaction_hash text not null,
-            amount integer not null,
-            payment_timestamp integer not null,
-            nonce integer not null,
-            attempt integer not null,
+            tables_schema5.contains(
+                &"\
+        CREATE TABLE pending_payments (\
+            rowid integer primary key, \
+            transaction_hash text not null, \
+            amount integer not null, \
+            payment_timestamp integer not null, \
+            attempt integer not null, \
             process_error text null)"
                     .to_string()
             ),
             "{:?}",
-            schema5
+            tables_schema5
         );
-        assert!(schema5.contains(&"CREATE TABLE payable (wallet_address text primary key, balance \
-         integer not null, last_paid_timestamp integer not null, pending_payment_transaction text null)".to_string()),"{:?}",schema5);
+        assert!(
+            tables_schema5.contains(
+                &"\
+        CREATE TABLE payable (wallet_address text primary key, \
+         balance integer not null, \
+         last_paid_timestamp integer not null, \
+         pending_payment_rowid integer null)"
+                    .to_string()
+            ),
+            "{:?}",
+            tables_schema5
+        );
+        assert!(
+            !tables_schema5.contains(&"_payable_old".to_string()),
+            "{:?}",
+            tables_schema5
+        );
+        let indexes_stm = conn_schema5
+            .prepare("SELECT sql FROM sqlite_master WHERE type='index'")
+            .unwrap();
+        let indexes_schema5 = query(indexes_stm);
+        assert!(!indexes_schema5.contains(
+            &"CREATE UNIQUE INDEX idx_receivable_wallet_address on receivable (wallet_address)"
+                .to_string()
+        ));
+        assert!(!indexes_schema5.contains(
+            &"CREATE UNIQUE INDEX idx_banned_wallet_address on banned (wallet_address)".to_string()
+        ));
+        assert!(indexes_schema5.contains(
+            &"CREATE UNIQUE INDEX pending_payments_hash_idx ON pending_payments (transaction_hash)"
+                .to_string()
+        ));
+        TestLogHandler::new().exists_log_containing("DEBUG: DbMigrator: Migration from 4 to 5: no previous pending transactions found; continuing");
     }
 }
