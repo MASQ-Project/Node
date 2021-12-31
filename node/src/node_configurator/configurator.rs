@@ -15,7 +15,7 @@ use masq_lib::ui_gateway::{
     MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
 };
 
-use crate::blockchain::bip32::Bip32ECKeyPair;
+use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::Bip39;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
@@ -27,19 +27,17 @@ use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::handle_ui_crash_request;
-use crate::sub_lib::wallet::{Wallet};
+use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
 use masq_lib::constants::{
-    BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR,
-    CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR,
-    ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, MISSING_DATA,
-    MNEMONIC_PHRASE_ERROR, NON_PARSABLE_VALUE, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR,
-    UNRECOGNIZED_PARAMETER,
+    BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR, CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR,
+    ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, MISSING_DATA, MNEMONIC_PHRASE_ERROR, NON_PARSABLE_VALUE,
+    UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
 };
 use masq_lib::utils::derivation_path;
 use rustc_hex::{FromHex, ToHex};
-use std::str::FromStr;
+use tiny_hderive::bip32::ExtendedPrivKey;
 
 pub const CRASH_KEY: &str = "CONFIGURATOR";
 
@@ -203,13 +201,19 @@ impl Configurator {
         let consuming_wallet_opt_result = self.persistent_config.consuming_wallet(&db_password);
         let earning_wallet_opt_result = self.persistent_config.earning_wallet();
         match (consuming_wallet_opt_result, earning_wallet_opt_result) {
-            (Ok(None), Ok(None)) => Err ((MISSING_DATA, "Wallet pair not yet configured".to_string())),
+            (Ok(None), Ok(None)) => {
+                Err((MISSING_DATA, "Wallet pair not yet configured".to_string()))
+            }
             (Ok(Some(consuming_wallet)), Ok(Some(earning_wallet))) => Ok((
                 format!("{:?}", consuming_wallet.address()),
                 format!("{:?}", earning_wallet.address()),
             )),
-            (Ok(None), Ok(Some(_))) => panic! ("Database corrupted: earning wallet exists but consuming wallet does not"),
-            (Ok(Some(_)), Ok(None)) => panic! ("Database corrupted: consuming wallet exists but earning wallet does not"),
+            (Ok(None), Ok(Some(_))) => {
+                panic!("Database corrupted: earning wallet exists but consuming wallet does not")
+            }
+            (Ok(Some(_)), Ok(None)) => {
+                panic!("Database corrupted: consuming wallet exists but earning wallet does not")
+            }
             (Err(ce), _) => Err((CONFIGURATOR_READ_ERROR, format!("{:?}", ce))),
             (_, Err(ee)) => Err((CONFIGURATOR_READ_ERROR, format!("{:?}", ee))),
         }
@@ -316,8 +320,8 @@ impl Configurator {
             &msg.db_password,
         )?;
         let (consuming_wallet_private_key, earning_wallet_address) = match msg.seed_spec_opt {
-            None => match (msg.consuming_private_key_opt, msg.earning_address_opt) {
-                (Some (consuming_private_key), Some (earning_address)) => (consuming_private_key, earning_address),
+            None => match (&msg.consuming_private_key_opt, msg.earning_address_opt) {
+                (Some (consuming_private_key), Some (earning_address)) => (consuming_private_key.clone(), earning_address),
                 _ => return Err ((MISSING_DATA, "If you supply no seed information, you must supply both consuming wallet private key and earning wallet address".to_string())),
             },
             Some (seed_spec) => {
@@ -376,7 +380,7 @@ impl Configurator {
         Ok(())
     }
 
-    fn make_passphrase (passphrase_opt: &Option<String>) -> String {
+    fn make_passphrase(passphrase_opt: &Option<String>) -> String {
         match passphrase_opt {
             Some(phrase) => phrase.to_string(),
             None => "".to_string(),
@@ -386,16 +390,18 @@ impl Configurator {
     fn make_seed(
         passphrase_opt: &Option<String>,
         language_str: &str,
-        mnemonic_phrase: &Vec<String>,
+        mnemonic_phrase: &[String],
     ) -> Result<Seed, MessageError> {
         let language = Self::parse_language(language_str)?;
         let mnemonic_passphrase = Self::make_passphrase(passphrase_opt);
-        let mnemonic = match Mnemonic::from_phrase (mnemonic_phrase.join (" "), language) {
+        let mnemonic = match Mnemonic::from_phrase(&mnemonic_phrase.join(" "), language) {
             Ok(m) => m,
-            Err (e) => return Err((
-                MNEMONIC_PHRASE_ERROR,
-                format! ("Couldn't make a mnemonic out of the supplied phrase: {}", e)
-            )),
+            Err(e) => {
+                return Err((
+                    MNEMONIC_PHRASE_ERROR,
+                    format!("Couldn't make a mnemonic out of the supplied phrase: {}", e),
+                ))
+            }
         };
         Ok(Bip39::seed(&mnemonic, &mnemonic_passphrase))
     }
@@ -457,7 +463,7 @@ impl Configurator {
     }
 
     fn generate_wallet(seed: &Seed, derivation_path: &str) -> Result<Wallet, MessageError> {
-        match Bip32ECKeyPair::from_raw(seed.as_bytes(), derivation_path) {
+        match Bip32ECKeyProvider::try_from((seed.as_bytes(), derivation_path)) {
             Err(e) => Err((
                 DERIVATION_PATH_ERROR,
                 format!("Bad derivation-path syntax: {}: {}", e, derivation_path),
@@ -467,8 +473,11 @@ impl Configurator {
     }
 
     fn generate_private_key(seed: &Seed, derivation_path: &str) -> String {
-        let binary = Bip32ECKeyPair::extended_private_key(seed, derivation_path).secret();
-        binary.to_hex::<String>().to_uppercase()
+        let binary = match ExtendedPrivKey::derive(seed.as_bytes(), derivation_path) {
+            Ok(epk) => epk.secret(),
+            Err(e) => todo!("{:?}", e),
+        };
+        (&binary).to_hex::<String>().to_uppercase()
     }
 
     fn handle_configuration(
@@ -520,16 +529,17 @@ impl Configurator {
                 .to_string();
         let port_mapping_protocol_opt =
             Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?;
-        let (consuming_wallet_private_key_opt, consuming_wallet_address_opt, past_neighbors) = match good_password {
-            Some(password) => {
-                let (consuming_wallet_private_key_opt, consuming_wallet_address_opt) = {
-                    match persistent_config.consuming_wallet_private_key(password) {
+        let (consuming_wallet_private_key_opt, consuming_wallet_address_opt, past_neighbors) =
+            match good_password {
+                Some(password) => {
+                    let (consuming_wallet_private_key_opt, consuming_wallet_address_opt) = {
+                        match persistent_config.consuming_wallet_private_key(password) {
                         Ok(Some (private_key_hex)) => {
                             let private_key_bytes = match private_key_hex.from_hex::<Vec<u8>>() {
                                 Ok(bytes) => bytes,
                                 Err(e) => panic! ("Database corruption: consuming wallet private key '{}' cannot be converted from hexadecimal: {:?}", private_key_hex, e),
                             };
-                            let key_pair = match Bip32ECKeyPair::from_raw_secret(private_key_bytes.as_slice()) {
+                            let key_pair = match Bip32ECKeyProvider::from_raw_secret(private_key_bytes.as_slice()) {
                                 Ok(pair) => pair,
                                 Err(e) => panic!("Database corruption: consuming wallet private key '{}' is invalid: {:?}", private_key_hex, e),
                             };
@@ -538,22 +548,26 @@ impl Configurator {
                         Ok(None) => (None, None),
                         Err (e) => panic!("Database corruption: error retrieving consuming wallet private key: {:?}", e),
                     }
-                };
-                let past_neighbors_opt = Self::value_not_required(
-                    persistent_config.past_neighbors(password),
-                    "pastNeighbors",
-                )?;
-                let past_neighbors = match past_neighbors_opt {
-                    None => vec![],
-                    Some(pns) => pns
-                        .into_iter()
-                        .map(|nd| nd.to_string(main_cryptde()))
-                        .collect::<Vec<String>>(),
-                };
-                (consuming_wallet_private_key_opt, consuming_wallet_address_opt, past_neighbors)
-            }
-            None => (None, None, vec![]),
-        };
+                    };
+                    let past_neighbors_opt = Self::value_not_required(
+                        persistent_config.past_neighbors(password),
+                        "pastNeighbors",
+                    )?;
+                    let past_neighbors = match past_neighbors_opt {
+                        None => vec![],
+                        Some(pns) => pns
+                            .into_iter()
+                            .map(|nd| nd.to_string(main_cryptde()))
+                            .collect::<Vec<String>>(),
+                    };
+                    (
+                        consuming_wallet_private_key_opt,
+                        consuming_wallet_address_opt,
+                        past_neighbors,
+                    )
+                }
+                None => (None, None, vec![]),
+            };
         let response = UiConfigurationResponse {
             blockchain_service_url_opt,
             current_schema_version,
@@ -732,8 +746,13 @@ impl Configurator {
 #[cfg(test)]
 mod tests {
     use actix::System;
-    use masq_lib::messages::{ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiGenerateSeedSpec, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiStartOrder, UiWalletAddressesRequest, UiWalletAddressesResponse, UiRecoverSeedSpec};
+    use masq_lib::messages::{
+        ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
+        UiGenerateSeedSpec, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiRecoverSeedSpec,
+        UiStartOrder, UiWalletAddressesRequest, UiWalletAddressesResponse,
+    };
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
+    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
     use crate::db_config::persistent_configuration::{
@@ -744,24 +763,26 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
 
     use super::*;
-    use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::bip39::Bip39;
+    use crate::blockchain::test_utils::make_meaningless_phrase_words;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::sub_lib::cryptde::PublicKey as PK;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::pure_test_utils::{make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up};
+    use crate::test_utils::pure_test_utils::{
+        make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up,
+    };
     use bip39::{Language, Mnemonic};
-    use rustc_hex::FromHex;
-    use tiny_hderive::bip32::ExtendedPrivKey;
     use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::MISSING_DATA;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
-    use crate::blockchain::test_utils::{make_meaningless_phrase_words};
+    use rustc_hex::FromHex;
+    use tiny_hderive::bip32::ExtendedPrivKey;
 
     #[test]
     fn constructor_connects_with_database() {
@@ -1002,8 +1023,12 @@ mod tests {
         let system = System::new("test");
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
-            .consuming_wallet_result(Ok(Some(Wallet::from_str("0x1234567890123456789012345678901234567890").unwrap())))
-            .earning_wallet_result(Ok(Some(Wallet::from_str("0x01234567890aa345678901234567890123456789").unwrap())));
+            .consuming_wallet_result(Ok(Some(
+                Wallet::from_str("0x1234567890123456789012345678901234567890").unwrap(),
+            )))
+            .earning_wallet_result(Ok(Some(
+                Wallet::from_str("0x01234567890aa345678901234567890123456789").unwrap(),
+            )));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
@@ -1043,8 +1068,12 @@ mod tests {
     fn handle_wallet_addresses_works_if_consuming_wallet_private_key_error() {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
-            .consuming_wallet_result(Err (PersistentConfigError::DatabaseError("Unknown error 3".to_string())))
-            .earning_wallet_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())));
+            .consuming_wallet_result(Err(PersistentConfigError::DatabaseError(
+                "Unknown error 3".to_string(),
+            )))
+            .earning_wallet_result(Ok(Some(
+                Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap(),
+            )));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
             db_password: "some password".to_string(),
@@ -1059,8 +1088,7 @@ mod tests {
                 path: MessagePath::Conversation(1234),
                 payload: Err((
                     CONFIGURATOR_READ_ERROR,
-                    r#"DatabaseError("Unknown error 3")"#
-                        .to_string()
+                    r#"DatabaseError("Unknown error 3")"#.to_string()
                 ))
             }
         );
@@ -1073,7 +1101,9 @@ mod tests {
     fn handle_wallet_addresses_works_if_earning_wallet_address_triggers_database_error() {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
-            .consuming_wallet_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())))
+            .consuming_wallet_result(Ok(Some(
+                Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap(),
+            )))
             .earning_wallet_result(Err(PersistentConfigError::DatabaseError(
                 "Unknown error 3".to_string(),
             )));
@@ -1106,7 +1136,9 @@ mod tests {
     )]
     fn handle_wallet_addresses_panics_if_earning_wallet_address_is_missing() {
         let persistent_config = PersistentConfigurationMock::new()
-            .consuming_wallet_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())))
+            .consuming_wallet_result(Ok(Some(
+                Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap(),
+            )))
             .earning_wallet_result(Ok(None));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
@@ -1123,7 +1155,9 @@ mod tests {
     fn handle_wallet_addresses_panics_if_consuming_wallet_address_is_missing() {
         let persistent_config = PersistentConfigurationMock::new()
             .consuming_wallet_result(Ok(None))
-            .earning_wallet_result(Ok(Some(Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap())));
+            .earning_wallet_result(Ok(Some(
+                Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap(),
+            )));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
             db_password: "some password".to_string(),
@@ -1167,10 +1201,12 @@ mod tests {
         let mnemonic_phrase_string = mnemonic_phrase.join(" ");
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase_string, Language::English).unwrap();
         let seed = PlainData::new(Bip39::seed(&mnemonic, "booga").as_ref());
-        let consuming_epk = ExtendedPrivKey::derive (seed.as_slice(), derivation_path(0, 4).as_str()).unwrap();
+        let consuming_epk =
+            ExtendedPrivKey::derive(seed.as_slice(), derivation_path(0, 4).as_str()).unwrap();
         let consuming_private_key = consuming_epk.secret().to_hex::<String>().to_uppercase();
         let consuming_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(seed.as_slice(), &derivation_path(0, 4)).unwrap(),
+            Bip32ECKeyProvider::try_from((seed.as_slice(), derivation_path(0, 4).as_str()))
+                .unwrap(),
         );
         assert_eq!(
             generated_wallets.consuming_wallet_address,
@@ -1184,7 +1220,8 @@ mod tests {
             )
         );
         let earning_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(seed.as_slice(), &derivation_path(0, 5)).unwrap(),
+            Bip32ECKeyProvider::try_from((seed.as_slice(), derivation_path(0, 5).as_str()))
+                .unwrap(),
         );
         assert_eq!(
             generated_wallets.earning_wallet_address,
@@ -1254,8 +1291,7 @@ mod tests {
 
     #[test]
     fn handle_generate_wallets_manages_error_if_chosen_language_isnt_in_list() {
-        let persistent_config = PersistentConfigurationMock::new()
-            .check_password_result(Ok(true));
+        let persistent_config = PersistentConfigurationMock::new().check_password_result(Ok(true));
         let mut subject = make_subject(Some(persistent_config));
         let msg = UiGenerateWalletsRequest {
             db_password: "blabla".to_string(),
@@ -1310,10 +1346,8 @@ mod tests {
 
     #[test]
     fn unfriendly_handle_generate_wallets_handles_consuming_path_without_seed_spec() {
-        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
-            PersistentConfigurationMock::new()
-                .check_password_result(Ok(true)),
-        );
+        let mut persistent_config: Box<dyn PersistentConfiguration> =
+            Box::new(PersistentConfigurationMock::new().check_password_result(Ok(true)));
         let msg = UiGenerateWalletsRequest {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -1338,10 +1372,8 @@ mod tests {
 
     #[test]
     fn unfriendly_handle_generate_wallets_handles_earning_path_without_seed_spec() {
-        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
-            PersistentConfigurationMock::new()
-                .check_password_result(Ok(true)),
-        );
+        let mut persistent_config: Box<dyn PersistentConfiguration> =
+            Box::new(PersistentConfigurationMock::new().check_password_result(Ok(true)));
         let msg = UiGenerateWalletsRequest {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -1380,7 +1412,8 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let mut request = make_example_recover_wallets_request_with_paths();
         request.earning_derivation_path_opt = None;
-        request.earning_address_opt = Some ("0x005e288d713a5fb3d7c9cf1b43810a98688c7223".to_string());
+        request.earning_address_opt =
+            Some("0x005e288d713a5fb3d7c9cf1b43810a98688c7223".to_string());
 
         subject_addr
             .try_send(NodeFromUiMessage {
@@ -1396,12 +1429,31 @@ mod tests {
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         let (_, context_id) = UiRecoverWalletsResponse::fmb(response.body.clone()).unwrap();
         assert_eq!(context_id, 4321);
-        let mnemonic_phrase = request.seed_spec_opt.as_ref().unwrap().mnemonic_phrase.join(" ");
+        let mnemonic_phrase = request
+            .seed_spec_opt
+            .as_ref()
+            .unwrap()
+            .mnemonic_phrase
+            .join(" ");
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
         let seed = PlainData::new(
-            Bip39::seed(&mnemonic, request.seed_spec_opt.as_ref().unwrap().mnemonic_passphrase_opt.as_ref().unwrap()).as_ref(),
+            Bip39::seed(
+                &mnemonic,
+                request
+                    .seed_spec_opt
+                    .as_ref()
+                    .unwrap()
+                    .mnemonic_passphrase_opt
+                    .as_ref()
+                    .unwrap(),
+            )
+            .as_ref(),
         );
-        let consuming_epk = ExtendedPrivKey::derive (seed.as_slice(), request.consuming_derivation_path_opt.unwrap().as_str()).unwrap();
+        let consuming_epk = ExtendedPrivKey::derive(
+            seed.as_slice(),
+            request.consuming_derivation_path_opt.unwrap().as_str(),
+        )
+        .unwrap();
         let consuming_private_key = consuming_epk.secret().to_hex::<String>().to_uppercase();
         let check_password_params = check_password_params_arc.lock().unwrap();
         assert_eq!(
@@ -1429,17 +1481,39 @@ mod tests {
             .set_wallet_info_result(Ok(()));
         let mut subject = make_subject(Some(persistent_config));
         let mut request = make_example_recover_wallets_request_with_paths();
-        request.earning_derivation_path_opt = Some (derivation_path(0, 5));
+        request.earning_derivation_path_opt = Some(derivation_path(0, 5));
 
         let result = subject.handle_recover_wallets(request.clone(), 1234);
 
         assert_eq!(result, UiRecoverWalletsResponse {}.tmb(1234));
-        let mnemonic_phrase = request.seed_spec_opt.as_ref().unwrap().mnemonic_phrase.join(" ");
+        let mnemonic_phrase = request
+            .seed_spec_opt
+            .as_ref()
+            .unwrap()
+            .mnemonic_phrase
+            .join(" ");
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
-        let seed = Bip39::seed(&mnemonic, request.seed_spec_opt.as_ref().unwrap().mnemonic_passphrase_opt.as_ref().unwrap());
-        let consuming_epk = ExtendedPrivKey::derive (seed.as_bytes(), request.consuming_derivation_path_opt.unwrap().as_str()).unwrap();
+        let seed = Bip39::seed(
+            &mnemonic,
+            request
+                .seed_spec_opt
+                .as_ref()
+                .unwrap()
+                .mnemonic_passphrase_opt
+                .as_ref()
+                .unwrap(),
+        );
+        let consuming_epk = ExtendedPrivKey::derive(
+            seed.as_bytes(),
+            request.consuming_derivation_path_opt.unwrap().as_str(),
+        )
+        .unwrap();
         let consuming_private_key = consuming_epk.secret().to_hex::<String>().to_uppercase();
-        let earning_wallet = Configurator::generate_wallet(&seed, request.earning_derivation_path_opt.as_ref().unwrap()).unwrap();
+        let earning_wallet = Configurator::generate_wallet(
+            &seed,
+            request.earning_derivation_path_opt.as_ref().unwrap(),
+        )
+        .unwrap();
         let set_wallet_info_params = set_wallet_info_params_arc.lock().unwrap();
         assert_eq!(
             *set_wallet_info_params,
@@ -1460,24 +1534,47 @@ mod tests {
             .set_wallet_info_result(Ok(()));
         let mut subject = make_subject(Some(persistent_config));
         let mut request = make_example_recover_wallets_request_with_paths();
-        request.seed_spec_opt.as_mut().unwrap().mnemonic_passphrase_opt = None;
+        request
+            .seed_spec_opt
+            .as_mut()
+            .unwrap()
+            .mnemonic_passphrase_opt = None;
 
         let result = subject.handle_recover_wallets(request.clone(), 1234);
 
         assert_eq!(result, UiRecoverWalletsResponse {}.tmb(1234));
-        let mnemonic_phrase = request.seed_spec_opt.as_ref().unwrap().mnemonic_phrase.join(" ");
+        let mnemonic_phrase = request
+            .seed_spec_opt
+            .as_ref()
+            .unwrap()
+            .mnemonic_phrase
+            .join(" ");
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
         let seed = Bip39::seed(&mnemonic, "");
-        let consuming_epk = ExtendedPrivKey::derive (seed.as_bytes(), request.consuming_derivation_path_opt.unwrap().as_str()).unwrap();
+        let consuming_epk = ExtendedPrivKey::derive(
+            seed.as_bytes(),
+            request.consuming_derivation_path_opt.unwrap().as_str(),
+        )
+        .unwrap();
         let consuming_private_key = consuming_epk.secret().to_hex::<String>().to_uppercase();
-        let earning_keypair = Bip32ECKeyPair::from_raw(seed.as_bytes(), request.earning_derivation_path_opt.as_ref().unwrap()).unwrap();
-        let earning_wallet = Wallet::from (earning_keypair);
+        let earning_private_key = ExtendedPrivKey::derive(
+            seed.as_bytes(),
+            request
+                .earning_derivation_path_opt
+                .as_ref()
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        let earning_keypair =
+            Bip32ECKeyProvider::from_raw_secret(&earning_private_key.secret()).unwrap();
+        let earning_wallet = Wallet::from(earning_keypair);
         let set_wallet_info_params = set_wallet_info_params_arc.lock().unwrap();
         assert_eq!(
             *set_wallet_info_params,
             vec![(
                 consuming_private_key,
-                format! ("{:?}", earning_wallet.address()),
+                format!("{:?}", earning_wallet.address()),
                 request.db_password,
             )]
         );
@@ -1528,11 +1625,11 @@ mod tests {
 
     #[test]
     fn handle_recover_wallets_works_if_mnemonic_cant_be_generated_from_phrase() {
-        let persistent_config = PersistentConfigurationMock::new()
-            .check_password_result(Ok(true));
+        let persistent_config = PersistentConfigurationMock::new().check_password_result(Ok(true));
         let mut subject = make_subject(Some(persistent_config));
         let mut request = make_example_recover_wallets_request_with_paths();
-        request.seed_spec_opt.as_mut().unwrap().mnemonic_phrase = vec!["ooga".to_string(), "booga".to_string()];
+        request.seed_spec_opt.as_mut().unwrap().mnemonic_phrase =
+            vec!["ooga".to_string(), "booga".to_string()];
 
         let result = subject.handle_recover_wallets(request, 4321);
 
@@ -1559,7 +1656,8 @@ mod tests {
             )));
         let mut subject = make_subject(Some(persistent_config));
 
-        let result = subject.handle_recover_wallets(make_example_recover_wallets_request_with_paths(), 4321);
+        let result =
+            subject.handle_recover_wallets(make_example_recover_wallets_request_with_paths(), 4321);
 
         assert_eq!(
             result,
@@ -1578,37 +1676,38 @@ mod tests {
     #[test]
     fn unfriendly_handle_recover_wallets_handles_useless_seed_spec_with_key_and_address() {
         let db_password = "password".to_string();
-        let consuming_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
+        let consuming_private_key =
+            "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
         let earning_address = "0x0123456789012345678901234567890123456789".to_string();
         let msg = UiRecoverWalletsRequest {
             db_password: db_password.clone(),
-            seed_spec_opt: Some (UiRecoverSeedSpec {
+            seed_spec_opt: Some(UiRecoverSeedSpec {
                 mnemonic_phrase: make_meaningless_phrase_words(),
                 mnemonic_phrase_language: "English".to_string(),
-                mnemonic_passphrase_opt: None
+                mnemonic_passphrase_opt: None,
             }),
             consuming_derivation_path_opt: None,
-            consuming_private_key_opt: Some (consuming_private_key.clone()),
+            consuming_private_key_opt: Some(consuming_private_key.clone()),
             earning_derivation_path_opt: None,
-            earning_address_opt: Some (earning_address.clone()),
+            earning_address_opt: Some(earning_address.clone()),
         };
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new (
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
             make_default_persistent_configuration()
-                .check_password_result (Ok(true))
+                .check_password_result(Ok(true))
                 .set_wallet_info_params(&set_wallet_info_params_arc)
-                .set_wallet_info_result(Ok(()))
+                .set_wallet_info_result(Ok(())),
         );
 
-        let result = Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
+        let result =
+            Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
 
         assert_eq!(result.is_ok(), true);
         let set_wallet_info_params = set_wallet_info_params_arc.lock().unwrap();
-        assert_eq! (*set_wallet_info_params, vec![(
-            consuming_private_key,
-            earning_address,
-            db_password
-        )])
+        assert_eq!(
+            *set_wallet_info_params,
+            vec![(consuming_private_key, earning_address, db_password)]
+        )
     }
 
     #[test]
@@ -1619,14 +1718,13 @@ mod tests {
             consuming_derivation_path_opt: None,
             consuming_private_key_opt: None,
             earning_derivation_path_opt: None,
-            earning_address_opt: Some ("0x0123456789012345678901234567890123456789".to_string()),
+            earning_address_opt: Some("0x0123456789012345678901234567890123456789".to_string()),
         };
-        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new (
-            make_default_persistent_configuration()
-                .check_password_result (Ok(true))
-        );
+        let mut persistent_config: Box<dyn PersistentConfiguration> =
+            Box::new(make_default_persistent_configuration().check_password_result(Ok(true)));
 
-        let result = Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
+        let result =
+            Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
 
         assert_eq! (result, Err((MISSING_DATA, "If you supply no seed information, you must supply both consuming wallet private key and earning wallet address".to_string())));
     }
@@ -1637,22 +1735,21 @@ mod tests {
         let earning_address = "0x0123456789012345678901234567890123456789".to_string();
         let msg = UiRecoverWalletsRequest {
             db_password: db_password.clone(),
-            seed_spec_opt: Some (UiRecoverSeedSpec {
+            seed_spec_opt: Some(UiRecoverSeedSpec {
                 mnemonic_phrase: make_meaningless_phrase_words(),
                 mnemonic_phrase_language: "English".to_string(),
-                mnemonic_passphrase_opt: None
+                mnemonic_passphrase_opt: None,
             }),
             consuming_derivation_path_opt: None,
             consuming_private_key_opt: None,
             earning_derivation_path_opt: None,
-            earning_address_opt: Some (earning_address.clone()),
+            earning_address_opt: Some(earning_address.clone()),
         };
-        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new (
-            make_default_persistent_configuration()
-                .check_password_result (Ok(true))
-        );
+        let mut persistent_config: Box<dyn PersistentConfiguration> =
+            Box::new(make_default_persistent_configuration().check_password_result(Ok(true)));
 
-        let result = Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
+        let result =
+            Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
 
         assert_eq! (result, Err((MISSING_DATA, "If you supply seed information, you must supply either the consuming wallet derivation path or the consuming wallet private key".to_string())));
     }
@@ -1660,25 +1757,25 @@ mod tests {
     #[test]
     fn unfriendly_handle_recover_wallets_handles_seed_but_nothing_about_earning_wallet() {
         let db_password = "password".to_string();
-        let consuming_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
+        let consuming_private_key =
+            "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
         let msg = UiRecoverWalletsRequest {
             db_password: db_password.clone(),
-            seed_spec_opt: Some (UiRecoverSeedSpec {
+            seed_spec_opt: Some(UiRecoverSeedSpec {
                 mnemonic_phrase: make_meaningless_phrase_words(),
                 mnemonic_phrase_language: "English".to_string(),
-                mnemonic_passphrase_opt: None
+                mnemonic_passphrase_opt: None,
             }),
             consuming_derivation_path_opt: None,
             consuming_private_key_opt: Some(consuming_private_key.clone()),
             earning_derivation_path_opt: None,
             earning_address_opt: None,
         };
-        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new (
-            make_default_persistent_configuration()
-                .check_password_result (Ok(true))
-        );
+        let mut persistent_config: Box<dyn PersistentConfiguration> =
+            Box::new(make_default_persistent_configuration().check_password_result(Ok(true)));
 
-        let result = Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
+        let result =
+            Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
 
         assert_eq! (result, Err((MISSING_DATA, "If you supply seed information, you must supply either the earning wallet derivation path or the earning wallet address".to_string())));
     }
@@ -1943,7 +2040,8 @@ mod tests {
 
     #[test]
     fn configuration_works_with_no_password() {
-        let consuming_wallet_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
+        let consuming_wallet_private_key =
+            "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
         let earning_wallet_address = "4a5e43b54c6C56Ebf7".to_string();
         let public_key = PK::from(&b"xaca4sf4a56"[..]);
         let node_addr = NodeAddr::from_str("1.2.1.3:4545").unwrap();
@@ -1960,9 +2058,7 @@ mod tests {
             .current_schema_version_result("1.2.3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
-            .consuming_wallet_private_key_result(Ok(Some(
-                consuming_wallet_private_key.clone(),
-            )))
+            .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key.clone())))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::Standard))
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
@@ -1991,7 +2087,7 @@ mod tests {
                 neighborhood_mode: String::from("standard"),
                 consuming_wallet_private_key_opt: None,
                 consuming_wallet_address_opt: None,
-                earning_wallet_address_opt: Some (earning_wallet_address),
+                earning_wallet_address_opt: Some(earning_wallet_address),
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),
                 past_neighbors: vec![],
                 start_block: 3456
@@ -2015,9 +2111,19 @@ mod tests {
     fn configuration_works_with_secrets() {
         let consuming_wallet_private_key_params_arc = Arc::new(Mutex::new(vec![]));
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
-        let consuming_wallet_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
-        let consuming_wallet_address = format!("{:?}", Bip32ECKeyPair::from_raw_secret (consuming_wallet_private_key
-            .from_hex::<Vec<u8>>().unwrap().as_slice()).unwrap().address());
+        let consuming_wallet_private_key =
+            "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
+        let consuming_wallet_address = format!(
+            "{:?}",
+            Bip32ECKeyProvider::from_raw_secret(
+                consuming_wallet_private_key
+                    .from_hex::<Vec<u8>>()
+                    .unwrap()
+                    .as_slice()
+            )
+            .unwrap()
+            .address()
+        );
         let earning_wallet_address = "4a5e43b54c6C56Ebf7".to_string();
         let public_key = PK::from(&b"xaca4sf4a56"[..]);
         let node_addr = NodeAddr::from_str("1.2.1.3:4545").unwrap();
@@ -2035,9 +2141,7 @@ mod tests {
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
             .consuming_wallet_private_key_params(&consuming_wallet_private_key_params_arc)
-            .consuming_wallet_private_key_result(Ok(Some(
-                consuming_wallet_private_key.clone(),
-            )))
+            .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key.clone())))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
             .past_neighbors_params(&past_neighbors_params_arc)
@@ -2073,8 +2177,12 @@ mod tests {
                 start_block: 3456
             }
         );
-        let consuming_wallet_private_key_params = consuming_wallet_private_key_params_arc.lock().unwrap();
-        assert_eq!(*consuming_wallet_private_key_params, vec!["password".to_string()]);
+        let consuming_wallet_private_key_params =
+            consuming_wallet_private_key_params_arc.lock().unwrap();
+        assert_eq!(
+            *consuming_wallet_private_key_params,
+            vec!["password".to_string()]
+        );
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
         assert_eq!(*past_neighbors_params, vec!["password".to_string()])
     }
@@ -2102,7 +2210,9 @@ mod tests {
         );
     }
 
-    fn check_configuration_handles_unexpected_consuming_wallet_private_key(cwpk: Result<Option<String>, PersistentConfigError>) {
+    fn check_configuration_handles_unexpected_consuming_wallet_private_key(
+        cwpk: Result<Option<String>, PersistentConfigError>,
+    ) {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .blockchain_service_url_result(Ok(None))
@@ -2110,7 +2220,9 @@ mod tests {
             .clandestine_port_result(Ok(1234))
             .chain_name_result("ropsten".to_string())
             .gas_price_result(Ok(2345))
-            .earning_wallet_address_result(Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
+            .earning_wallet_address_result(Ok(Some(
+                "0x0123456789012345678901234567890123456789".to_string(),
+            )))
             .start_block_result(Ok(3456))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
@@ -2126,13 +2238,19 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Database corruption: error retrieving consuming wallet private key: NotPresent")]
+    #[should_panic(
+        expected = "Database corruption: error retrieving consuming wallet private key: NotPresent"
+    )]
     fn configuration_handles_error_retrieving_consuming_wallet_private_key() {
-        check_configuration_handles_unexpected_consuming_wallet_private_key(Err(PersistentConfigError::NotPresent));
+        check_configuration_handles_unexpected_consuming_wallet_private_key(Err(
+            PersistentConfigError::NotPresent,
+        ));
     }
 
     #[test]
-    #[should_panic (expected = "Database corruption: consuming wallet private key 'Look, Ma, I'm not hexadecimal!' cannot be converted from hexadecimal: Invalid character 'L' at position 0")]
+    #[should_panic(
+        expected = "Database corruption: consuming wallet private key 'Look, Ma, I'm not hexadecimal!' cannot be converted from hexadecimal: Invalid character 'L' at position 0"
+    )]
     fn configuration_handles_consuming_wallet_private_key_that_is_not_hexadecimal() {
         check_configuration_handles_unexpected_consuming_wallet_private_key(Ok(Some(
             "Look, Ma, I'm not hexadecimal!".to_string(),
@@ -2140,7 +2258,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Database corruption: consuming wallet private key 'CAFEBABE' is invalid: \"InvalidInputLength\"")]
+    #[should_panic(
+        expected = "Database corruption: consuming wallet private key 'CAFEBABE' is invalid: \"Number of bytes of the secret differs from 32: 4\""
+    )]
     fn configuration_handles_consuming_wallet_private_key_that_is_an_invalid_private_key() {
         check_configuration_handles_unexpected_consuming_wallet_private_key(Ok(Some(
             "CAFEBABE".to_string(),
@@ -2194,23 +2314,23 @@ mod tests {
     fn make_example_recover_wallets_request_with_paths() -> UiRecoverWalletsRequest {
         UiRecoverWalletsRequest {
             db_password: "password".to_string(),
-            seed_spec_opt: Some (UiRecoverSeedSpec {
+            seed_spec_opt: Some(UiRecoverSeedSpec {
                 mnemonic_phrase: vec![
                     "parent", "prevent", "vehicle", "tooth", "crazy", "cruel", "update", "mango",
-                    "female", "mad", "spread", "plunge", "tiny", "inch", "under", "engine", "enforce",
-                    "film", "awesome", "plunge", "cloud", "spell", "empower", "pipe",
+                    "female", "mad", "spread", "plunge", "tiny", "inch", "under", "engine",
+                    "enforce", "film", "awesome", "plunge", "cloud", "spell", "empower", "pipe",
                 ]
-                    .into_iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<String>>(),
+                .into_iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<String>>(),
                 mnemonic_passphrase_opt: Some("ebullient".to_string()),
                 mnemonic_phrase_language: "English".to_string(),
             }),
-            consuming_derivation_path_opt: Some (derivation_path(0, 4)),
+            consuming_derivation_path_opt: Some(derivation_path(0, 4)),
             consuming_private_key_opt: None,
-            earning_derivation_path_opt: Some (derivation_path(0, 5)),
+            earning_derivation_path_opt: Some(derivation_path(0, 5)),
             // earning_wallet: "0x005e288d713a5fb3d7c9cf1b43810a98688c7223".to_string(),
-            earning_address_opt: None
+            earning_address_opt: None,
         }
     }
 

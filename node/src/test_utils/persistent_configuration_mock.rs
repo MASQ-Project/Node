@@ -27,13 +27,11 @@ pub struct PersistentConfigurationMock {
     set_gas_price_params: Arc<Mutex<Vec<u64>>>,
     set_gas_price_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     consuming_wallet_params: Arc<Mutex<Vec<String>>>,
-    consuming_wallet_results:
-        RefCell<Vec<Result<Option<Wallet>, PersistentConfigError>>>,
+    consuming_wallet_results: RefCell<Vec<Result<Option<Wallet>, PersistentConfigError>>>,
     consuming_wallet_private_key_params: Arc<Mutex<Vec<String>>>,
     consuming_wallet_private_key_results:
         RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
-    earning_wallet_results:
-        RefCell<Vec<Result<Option<Wallet>, PersistentConfigError>>>,
+    earning_wallet_results: RefCell<Vec<Result<Option<Wallet>, PersistentConfigError>>>,
     earning_wallet_address_results: RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
     set_wallet_info_params: Arc<Mutex<Vec<(String, String, String)>>>,
     set_wallet_info_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
@@ -118,12 +116,21 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn consuming_wallet(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError> {
-        self.consuming_wallet_params.lock().unwrap().push(db_password.to_string());
+        self.consuming_wallet_params
+            .lock()
+            .unwrap()
+            .push(db_password.to_string());
         Self::result_from(&self.consuming_wallet_results)
     }
 
-    fn consuming_wallet_private_key(&self, db_password: &str) -> Result<Option<String>, PersistentConfigError> {
-        self.consuming_wallet_private_key_params.lock().unwrap().push(db_password.to_string());
+    fn consuming_wallet_private_key(
+        &self,
+        db_password: &str,
+    ) -> Result<Option<String>, PersistentConfigError> {
+        self.consuming_wallet_private_key_params
+            .lock()
+            .unwrap()
+            .push(db_password.to_string());
         Self::result_from(&self.consuming_wallet_private_key_results)
     }
 
@@ -350,9 +357,7 @@ impl PersistentConfigurationMock {
         self,
         result: Result<Option<Wallet>, PersistentConfigError>,
     ) -> PersistentConfigurationMock {
-        self.consuming_wallet_results
-            .borrow_mut()
-            .push(result);
+        self.consuming_wallet_results.borrow_mut().push(result);
         self
     }
 
@@ -467,9 +472,7 @@ impl PersistentConfigurationMock {
         self,
         result: Result<Option<Wallet>, PersistentConfigError>,
     ) -> PersistentConfigurationMock {
-        self.earning_wallet_results
-            .borrow_mut()
-            .push(result);
+        self.earning_wallet_results.borrow_mut().push(result);
         self
     }
 

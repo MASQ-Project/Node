@@ -1,11 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::bip39::{Bip39};
+use crate::blockchain::bip39::Bip39;
 use crate::db_config::config_dao::{
     ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord,
 };
-use rand::Rng;
 use crate::db_config::db_encryption_layer::DbEncryptionLayer;
+use rand::Rng;
 
 pub const EXAMPLE_ENCRYPTED: &str = "example_encrypted";
 
@@ -80,8 +80,7 @@ impl SecureConfigLayer {
         let record = dao.get(name)?;
         if !record.encrypted {
             Ok(plain_value_opt)
-        }
-        else {
+        } else {
             DbEncryptionLayer::encrypt_value(&plain_value_opt, &password_opt, &record.name)
         }
     }
@@ -98,10 +97,8 @@ impl SecureConfigLayer {
         }
         if !record.encrypted {
             Ok(record.value_opt)
-        }
-        else {
-            DbEncryptionLayer::decrypt_value(&record.value_opt,
-                &password_opt, &record.name)
+        } else {
+            DbEncryptionLayer::decrypt_value(&record.value_opt, &password_opt, &record.name)
         }
     }
 
@@ -113,7 +110,10 @@ impl SecureConfigLayer {
         if !example_record.encrypted {
             panic!("Database is corrupt: Password example value is not encrypted");
         }
-        Ok (DbEncryptionLayer::password_matches (&db_password_opt, &example_record.value_opt))
+        Ok(DbEncryptionLayer::password_matches(
+            &db_password_opt,
+            &example_record.value_opt,
+        ))
     }
 
     #[allow(clippy::borrowed_box)]

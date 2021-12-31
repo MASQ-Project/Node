@@ -14,7 +14,7 @@ use clap::value_t;
 use log::LevelFilter;
 
 use crate::apps::app_node;
-use crate::blockchain::bip32::Bip32ECKeyPair;
+use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::bootstrapper::PortConfiguration;
 use crate::database::db_migrations::{ExternalData, MigratorConfig};
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
@@ -43,9 +43,9 @@ use masq_lib::shared_schema::ParamError;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::WrapResult;
 use rustc_hex::FromHex;
+use std::convert::TryFrom;
 use std::ops::Deref;
 use std::str::FromStr;
-use std::convert::TryFrom;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -308,57 +308,85 @@ pub fn get_wallets(
     persistent_config: &mut dyn PersistentConfiguration,
     config: &mut BootstrapperConfig,
 ) -> Result<(), ConfiguratorError> {
-    let db_password_opt = match (value_m!(multi_config, "db-password", String), &config.db_password_opt) {
-        (Some (dbp), _) => Some (dbp),
+    let db_password_opt = match (
+        value_m!(multi_config, "db-password", String),
+        &config.db_password_opt,
+    ) {
+        (Some(dbp), _) => Some(dbp),
         (_, dbpo) => dbpo.clone(),
     };
     let mc_consuming_opt = value_m!(multi_config, "consuming-private-key", String);
     let mc_earning_opt = value_m!(multi_config, "earning-wallet", String);
-    let pc_consuming_opt = if let Some (db_password) = db_password_opt {
+    let pc_consuming_opt = if let Some(db_password) = db_password_opt {
         match persistent_config.consuming_wallet_private_key(&db_password) {
-            Ok (pco) => pco,
-            Err (PersistentConfigError::PasswordError) => None,
-            Err (e) => return Err(e.into_configurator_error("consuming-private-key")),
+            Ok(pco) => pco,
+            Err(PersistentConfigError::PasswordError) => None,
+            Err(e) => return Err(e.into_configurator_error("consuming-private-key")),
         }
-    }
-    else {
+    } else {
         None
     };
     let pc_earning_opt = match persistent_config.earning_wallet_address() {
-        Ok (peo) => peo,
-        Err (e) => return Err(e.into_configurator_error("earning-wallet")),
+        Ok(peo) => peo,
+        Err(e) => return Err(e.into_configurator_error("earning-wallet")),
     };
     let consuming_opt = match (&mc_consuming_opt, &pc_consuming_opt) {
         (None, _) => pc_consuming_opt,
         (Some(_), None) => mc_consuming_opt,
         (Some(m), Some(c)) if wallet_parms_are_equal(m, c) => pc_consuming_opt,
-        _ => return Err(ConfiguratorError::required ("consuming-private-key",
-            &format! ("Cannot change to a private key different from that previously set"))),
+        _ => {
+            return Err(ConfiguratorError::required(
+                "consuming-private-key",
+                "Cannot change to a private key different from that previously set",
+            ))
+        }
     };
     let earning_opt = match (&mc_earning_opt, &pc_earning_opt) {
         (None, _) => pc_earning_opt,
         (Some(_), None) => mc_earning_opt,
         (Some(m), Some(c)) if wallet_parms_are_equal(m, c) => pc_earning_opt,
-        (Some(m), Some(c)) => return Err(ConfiguratorError::required ("earning-wallet",
-            &format! ("Cannot change to an address ({}) different from that previously set ({})", m, c))),
+        (Some(m), Some(c)) => {
+            return Err(ConfiguratorError::required(
+                "earning-wallet",
+                &format!(
+                    "Cannot change to an address ({}) different from that previously set ({})",
+                    m, c
+                ),
+            ))
+        }
     };
-    let consuming_wallet_opt = consuming_opt.map (|consuming_private_key| {
-        let key_bytes = consuming_private_key.from_hex::<Vec<u8>>()
-            .expect (&format!("Wallet corruption: bad hex value for consuming wallet private key: {}", consuming_private_key));
-        let key_pair = Bip32ECKeyPair::from_raw_secret (key_bytes.as_slice())
-            .expect (&format!("Wallet corruption: consuming wallet private key in invalid format: {:?}", key_bytes));
-        Wallet::from (key_pair)
+    let consuming_wallet_opt = consuming_opt.map(|consuming_private_key| {
+        let key_bytes = consuming_private_key
+            .from_hex::<Vec<u8>>()
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Wallet corruption: bad hex value for consuming wallet private key: {}",
+                    consuming_private_key
+                )
+            });
+        let key_pair =
+            Bip32ECKeyProvider::from_raw_secret(key_bytes.as_slice()).unwrap_or_else(|_| {
+                panic!(
+                    "Wallet corruption: consuming wallet private key in invalid format: {:?}",
+                    key_bytes
+                )
+            });
+        Wallet::from(key_pair)
     });
-    let earning_wallet_opt = earning_opt.map (|earning_address| {
-        Wallet::from_str (&earning_address)
-            .expect (&format!("Wallet corruption: bad value for earning wallet address: {}", earning_address))
+    let earning_wallet_opt = earning_opt.map(|earning_address| {
+        Wallet::from_str(&earning_address).unwrap_or_else(|_| {
+            panic!(
+                "Wallet corruption: bad value for earning wallet address: {}",
+                earning_address
+            )
+        })
     });
     config.consuming_wallet = consuming_wallet_opt;
-    config.earning_wallet = earning_wallet_opt.unwrap_or (DEFAULT_EARNING_WALLET.clone());
+    config.earning_wallet = earning_wallet_opt.unwrap_or_else(|| DEFAULT_EARNING_WALLET.clone());
     Ok(())
 }
 
-fn wallet_parms_are_equal (a: &str, b: &str) -> bool {
+fn wallet_parms_are_equal(a: &str, b: &str) -> bool {
     a.to_uppercase() == b.to_uppercase()
 }
 
@@ -456,7 +484,7 @@ fn validate_descriptors_from_user(
                                                                               competence_from_descriptor.rec().literal_identifier)))
                                 }
                             }
-                        Err(e) => ParamError::new("neighbors", &e.to_string()).wrap_to_err()
+                        Err(e) => ParamError::new("neighbors", &e).wrap_to_err()
                         }
                     }
                     )
@@ -590,41 +618,6 @@ fn neighborhood_mode_standard(
     ))
 }
 
-fn get_earning_wallet(
-    multi_config: &MultiConfig,
-    persistent_config: &dyn PersistentConfiguration,
-) -> Result<Option<Wallet>, ConfiguratorError> {
-    let earning_wallet_from_command_line_opt = value_m!(multi_config, "earning-wallet", String);
-    let earning_wallet_from_database_opt = match persistent_config.earning_wallet() {
-        Ok(ewfdo) => ewfdo,
-        Err(e) => return Err(e.into_configurator_error("earning-wallet")),
-    };
-    match (
-        earning_wallet_from_command_line_opt,
-        earning_wallet_from_database_opt,
-    ) {
-        (None, None) => Ok(None),
-        (Some(address), None) => Ok(Some(
-            Wallet::from_str(&address).expect("--earning-wallet not properly constrained by clap"),
-        )),
-        (None, Some(wallet)) => Ok(Some(wallet)),
-        (Some(address), Some(wallet)) => {
-            if wallet.to_string().to_lowercase() == address.to_lowercase() {
-                Ok(Some(wallet))
-            } else {
-                Err(ConfiguratorError::required(
-                    "earning-wallet",
-                    &format!(
-                        "Cannot change to an address ({}) different from that previously set ({})",
-                        address.to_lowercase(),
-                        wallet.to_string().to_lowercase()
-                    ),
-                ))
-            }
-        }
-    }
-}
-
 pub fn get_db_password(
     multi_config: &MultiConfig,
     config: &mut BootstrapperConfig,
@@ -680,11 +673,11 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::{running_test, SliceToVec};
+    use std::convert::TryFrom;
     use std::fs::File;
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
-    use std::convert::TryFrom;
 
     #[test]
     fn configure_database_handles_error_during_setting_clandestine_port() {
@@ -802,10 +795,9 @@ mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_result(Ok(Some(Wallet::new(
-                "0x9876543210987654321098765432109876543210",
-            ))));
+        let persistent_config = PersistentConfigurationMock::new().earning_wallet_result(Ok(Some(
+            Wallet::new("0x9876543210987654321098765432109876543210"),
+        )));
 
         let result = get_earning_wallet(&multi_config, &persistent_config)
             .err()
@@ -1417,7 +1409,7 @@ mod tests {
         .unwrap();
         let consuming_private_key_bytes: Vec<u8> = consuming_private_key.from_hex().unwrap();
         let consuming_keypair =
-            Bip32ECKeyPair::from_raw_secret(consuming_private_key_bytes.as_ref()).unwrap();
+            Bip32ECKeyProvider::from_raw_secret(consuming_private_key_bytes.as_ref()).unwrap();
         assert_eq!(
             bootstrapper_config.consuming_wallet,
             Some(Wallet::from(consuming_keypair)),
@@ -1571,7 +1563,7 @@ mod tests {
         assert_eq!(
             config.consuming_wallet,
             Some(Wallet::from(
-                Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap()
+                Bip32ECKeyProvider::from_raw_secret(consuming_private_key.as_slice()).unwrap()
             )),
         );
         assert_eq!(
@@ -1693,9 +1685,8 @@ mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let mut persistent_configuration =
-            make_persistent_config(None, None, None, None, None)
-                .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
+        let mut persistent_configuration = make_persistent_config(None, None, None, None, None)
+            .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
 
         unprivileged_parse_args(
             &multi_config,
@@ -1792,7 +1783,9 @@ mod tests {
         };
         PersistentConfigurationMock::new()
             .consuming_wallet_private_key_result(Ok(consuming_wallet_private_key_opt))
-            .earning_wallet_address_result (Ok(earning_wallet_address_opt.map (|ewa| ewa.to_string())))
+            .earning_wallet_address_result(
+                Ok(earning_wallet_address_opt.map(|ewa| ewa.to_string())),
+            )
             .earning_wallet_result(Ok(earning_wallet_opt))
             .gas_price_result(Ok(gas_price))
             .past_neighbors_result(past_neighbors_result)
@@ -1897,8 +1890,8 @@ mod tests {
         let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut persistent_config = make_persistent_config(
             Some("password"),
-            Some ("DCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBA"),
-            Some ("0x0123456789012345678901234567890123456789"),
+            Some("DCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBA"),
+            Some("0x0123456789012345678901234567890123456789"),
             None,
             None,
         );
@@ -1906,9 +1899,13 @@ mod tests {
 
         let result = get_wallets(&multi_config, &mut persistent_config, &mut config).err();
 
-        assert_eq! (result, Some (ConfiguratorError::new (vec![
-            ParamError::new ("consuming-private-key", "Cannot change to a private key different from that previously set")
-        ])));
+        assert_eq!(
+            result,
+            Some(ConfiguratorError::new(vec![ParamError::new(
+                "consuming-private-key",
+                "Cannot change to a private key different from that previously set"
+            )]))
+        );
     }
 
     #[test]
@@ -2333,14 +2330,21 @@ mod tests {
     fn wrap_up_external_params_for_db_is_properly_set_when_password_is_provided() {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config.blockchain_bridge_config.chain = DEFAULT_CHAIN;
-        let multi_config =
-            make_simplified_multi_config(["MASQNode", "--neighborhood-mode", "zero-hop",
-                "--db-password", "password"]);
+        let multi_config = make_simplified_multi_config([
+            "MASQNode",
+            "--neighborhood-mode",
+            "zero-hop",
+            "--db-password",
+            "password",
+        ]);
 
         let result = subject.wrap_up_external_params_for_db(&multi_config);
 
-        let expected = ExternalData::new(DEFAULT_CHAIN,
-            NeighborhoodModeLight::ZeroHop, Some ("password".to_string()));
+        let expected = ExternalData::new(
+            DEFAULT_CHAIN,
+            NeighborhoodModeLight::ZeroHop,
+            Some("password".to_string()),
+        );
         assert_eq!(result, expected)
     }
 
@@ -2353,8 +2357,43 @@ mod tests {
 
         let result = subject.wrap_up_external_params_for_db(&multi_config);
 
-        let expected = ExternalData::new(DEFAULT_CHAIN,
-            NeighborhoodModeLight::ZeroHop, None);
+        let expected = ExternalData::new(DEFAULT_CHAIN, NeighborhoodModeLight::ZeroHop, None);
         assert_eq!(result, expected)
+    }
+
+    fn get_earning_wallet(
+        multi_config: &MultiConfig,
+        persistent_config: &dyn PersistentConfiguration,
+    ) -> Result<Option<Wallet>, ConfiguratorError> {
+        let earning_wallet_from_command_line_opt = value_m!(multi_config, "earning-wallet", String);
+        let earning_wallet_from_database_opt = match persistent_config.earning_wallet() {
+            Ok(ewfdo) => ewfdo,
+            Err(e) => return Err(e.into_configurator_error("earning-wallet")),
+        };
+        match (
+            earning_wallet_from_command_line_opt,
+            earning_wallet_from_database_opt,
+        ) {
+            (None, None) => Ok(None),
+            (Some(address), None) => Ok(Some(
+                Wallet::from_str(&address)
+                    .expect("--earning-wallet not properly constrained by clap"),
+            )),
+            (None, Some(wallet)) => Ok(Some(wallet)),
+            (Some(address), Some(wallet)) => {
+                if wallet.to_string().to_lowercase() == address.to_lowercase() {
+                    Ok(Some(wallet))
+                } else {
+                    Err(ConfiguratorError::required(
+                        "earning-wallet",
+                        &format!(
+                            "Cannot change to an address ({}) different from that previously set ({})",
+                            address.to_lowercase(),
+                            wallet.to_string().to_lowercase()
+                        ),
+                    ))
+                }
+            }
+        }
     }
 }

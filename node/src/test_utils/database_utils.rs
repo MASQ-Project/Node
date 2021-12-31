@@ -3,7 +3,7 @@
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_migrations::DbMigrator;
 use crate::sub_lib::logger::Logger;
-use rusqlite::{Connection, NO_PARAMS};
+use rusqlite::Connection;
 use std::cell::RefCell;
 use std::env::current_dir;
 use std::fs::{remove_file, File};
@@ -27,7 +27,7 @@ pub fn bring_db_of_version_0_back_to_life_and_return_connection(db_path: &PathBu
     let mut buffer = String::new();
     file.read_to_string(&mut buffer).unwrap();
     buffer.lines().for_each(|stm| {
-        conn.execute(stm, NO_PARAMS).unwrap();
+        conn.execute(stm, []).unwrap();
     });
     conn
 }
@@ -79,7 +79,7 @@ pub fn assurance_query_for_config_table(
 ) -> (String, Option<String>, u16) {
     let mut statement = conn.prepare(stm).unwrap();
     statement
-        .query_row(NO_PARAMS, |r| {
+        .query_row([], |r| {
             Ok((r.get(0).unwrap(), r.get(1).unwrap(), r.get(2).unwrap()))
         })
         .unwrap_or_else(|e| panic!("panicked at {} for statement: {}", e, stm))

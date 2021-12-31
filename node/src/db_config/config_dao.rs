@@ -2,7 +2,7 @@
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::DaoFactoryReal;
 use rusqlite::types::ToSql;
-use rusqlite::{Row, Rows, Statement, Transaction, NO_PARAMS};
+use rusqlite::{Row, Rows, Statement, Transaction};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -190,7 +190,7 @@ fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), Config
 
 fn get_all(mut stmt: Statement) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
     let mut rows: Rows = stmt
-        .query(NO_PARAMS)
+        .query([])
         .expect("Schema error: couldn't dump config table");
     let mut results = Vec::new();
     loop {
@@ -273,7 +273,10 @@ mod tests {
                 false,
             ),
         );
-        assert_contains(&result, &ConfigDaoRecord::new("consuming_wallet_private_key", None, true));
+        assert_contains(
+            &result,
+            &ConfigDaoRecord::new("consuming_wallet_private_key", None, true),
+        );
     }
 
     #[test]
@@ -336,9 +339,15 @@ mod tests {
 
         // Can't use a committed ConfigDaoWriteableReal anymore
         assert_eq!(subject.get_all(), Err(ConfigDaoError::TransactionError));
-        assert_eq!(subject.get("consuming_wallet_private_key"), Err(ConfigDaoError::TransactionError));
         assert_eq!(
-            subject.set("consuming_wallet_private_key", Some("irrelevant".to_string())),
+            subject.get("consuming_wallet_private_key"),
+            Err(ConfigDaoError::TransactionError)
+        );
+        assert_eq!(
+            subject.set(
+                "consuming_wallet_private_key",
+                Some("irrelevant".to_string())
+            ),
             Err(ConfigDaoError::TransactionError)
         );
         assert_eq!(subject.commit(), Err(ConfigDaoError::TransactionError));

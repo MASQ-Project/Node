@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::blockchain::bip32::Bip32ECKeyPair;
+use crate::blockchain::bip32::Bip32ECKeyProvider;
+use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
@@ -13,11 +14,10 @@ use masq_lib::automap_tools::AutomapProtocol;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::{NeighborhoodModeLight, WrapResult};
+use rustc_hex::{FromHex, ToHex};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
-use rustc_hex::{FromHex, ToHex};
 use websocket::url::Url;
-use crate::blockchain::bip39::{Bip39, Bip39Error};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -93,7 +93,10 @@ pub trait PersistentConfiguration {
     // WARNING: Actors should get consuming-wallet information from their startup config, not from here
     fn consuming_wallet(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get consuming-wallet information from their startup config, not from here
-    fn consuming_wallet_private_key(&self, db_password: &str) -> Result<Option<String>, PersistentConfigError>;
+    fn consuming_wallet_private_key(
+        &self,
+        db_password: &str,
+    ) -> Result<Option<String>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
@@ -236,30 +239,41 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         writer.set("gas_price", encode_u64(Some(gas_price))?)?;
         Ok(writer.commit()?)
     }
-    
+
     fn consuming_wallet(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError> {
         self.consuming_wallet_private_key(db_password)
-            .map (|key_opt| key_opt
-                .map (|key| match key.from_hex::<Vec<u8>>() {
-                    Err(e) => panic! ("Database corruption {:?}: consuming private key is not hex, but '{}'", e, key),
-                    Ok (bytes) => match Bip32ECKeyPair::from_raw_secret (bytes.as_slice()) {
-                        Err(e) => panic! ("Database corruption {:?}: consuming private key is invalid", e),
-                        Ok (pair) => Wallet::from (pair)
-                    }
+            .map(|key_opt| {
+                key_opt.map(|key| match key.from_hex::<Vec<u8>>() {
+                    Err(e) => panic!(
+                        "Database corruption {:?}: consuming private key is not hex, but '{}'",
+                        e, key
+                    ),
+                    Ok(bytes) => match Bip32ECKeyProvider::from_raw_secret(bytes.as_slice()) {
+                        Err(e) => panic!(
+                            "Database corruption {:?}: consuming private key is invalid",
+                            e
+                        ),
+                        Ok(pair) => Wallet::from(pair),
+                    },
                 })
-            )
+            })
     }
 
-    fn consuming_wallet_private_key(&self, db_password: &str) -> Result<Option<String>, PersistentConfigError> {
+    fn consuming_wallet_private_key(
+        &self,
+        db_password: &str,
+    ) -> Result<Option<String>, PersistentConfigError> {
         let encrypted_value_opt = self.get_record("consuming_wallet_private_key")?.value_opt;
-        if let Some (encrypted_value) = encrypted_value_opt {
+        if let Some(encrypted_value) = encrypted_value_opt {
             match Bip39::decrypt_bytes(&encrypted_value, db_password) {
                 Ok(decrypted_bytes) => Ok(Some(decrypted_bytes.as_slice().to_hex())),
-                Err(Bip39Error::DecryptionFailure(_)) => Err (PersistentConfigError::PasswordError),
-                Err(e) => panic! ("Database corruption {:?}: consuming private key can't be decrypted", e),
+                Err(Bip39Error::DecryptionFailure(_)) => Err(PersistentConfigError::PasswordError),
+                Err(e) => panic!(
+                    "Database corruption {:?}: consuming private key can't be decrypted",
+                    e
+                ),
             }
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -291,7 +305,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         match consuming_wallet_private_key_opt {
             None => (),
             Some(existing_consuming_wallet_private_key) => {
-                if consuming_wallet_private_key.to_uppercase() != existing_consuming_wallet_private_key.to_uppercase() {
+                if consuming_wallet_private_key.to_uppercase()
+                    != existing_consuming_wallet_private_key.to_uppercase()
+                {
                     return Err(PersistentConfigError::Collision(
                         "Consuming wallet private key already populated; cannot replace"
                             .to_string(),
@@ -310,7 +326,8 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 }
             }
         }
-        let encrypted_consuming_wallet_private_key = Self::encrypt_private_key (consuming_wallet_private_key, db_password)?;
+        let encrypted_consuming_wallet_private_key =
+            Self::encrypt_private_key(consuming_wallet_private_key, db_password)?;
         if !Self::validate_wallet_address(earning_wallet_address) {
             return Err(PersistentConfigError::BadAddressFormat(
                 earning_wallet_address.to_string(),
@@ -381,8 +398,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
-        self
-            .get("mapping_protocol")?
+        self.get("mapping_protocol")?
             .map(|val| val.into())
             .wrap_to_ok()
     }
@@ -398,8 +414,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
         NeighborhoodModeLight::from_str(
-            self
-                .get("neighborhood_mode")?
+            self.get("neighborhood_mode")?
                 .expect("ever-supplied value neighborhood_mode is missing; database is corrupt!")
                 .as_str(),
         )
@@ -437,24 +452,27 @@ impl PersistentConfigurationReal {
         }
     }
 
-    fn encrypt_private_key(private_key: &str, db_password: &str) -> Result<String, PersistentConfigError> {
+    fn encrypt_private_key(
+        private_key: &str,
+        db_password: &str,
+    ) -> Result<String, PersistentConfigError> {
         let private_key_bytes = match private_key.from_hex::<Vec<u8>>() {
             Ok(bytes) => bytes,
             Err(_) => return Err(PersistentConfigError::BadHexFormat(private_key.to_string())),
         };
         Bip39::encrypt_bytes(&private_key_bytes, db_password)
-            .map_err (|e| panic! ("Failure to encrypt consuming private key: {:?}", e))
+            .map_err(|e| panic!("Failure to encrypt consuming private key: {:?}", e))
     }
 
     fn validate_wallet_address(address: &str) -> bool {
         Wallet::from_str(address).is_ok()
     }
 
-    fn get (&self, name: &str) -> Result<Option<String>, ConfigDaoError> {
-        self.get_record (name).map (|record| record.value_opt)
+    fn get(&self, name: &str) -> Result<Option<String>, ConfigDaoError> {
+        self.get_record(name).map(|record| record.value_opt)
     }
 
-    fn get_record (&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
+    fn get_record(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
         self.dao.get (name).map (|record| if record.name.as_str() == name {
             record
         }
@@ -475,9 +493,9 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use bip39::{Language, MnemonicType};
     use masq_lib::utils::{derivation_path, find_free_port};
+    use rustc_hex::{FromHex, ToHex};
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
-    use rustc_hex::{FromHex, ToHex};
     use tiny_hderive::bip32::ExtendedPrivKey;
 
     #[test]
@@ -847,19 +865,25 @@ mod tests {
     #[test]
     fn consuming_wallet_private_key_when_password_is_wrong() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let consuming_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
+        let consuming_private_key =
+            "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
         let config_dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_private_key",
-                Some(&Bip39::encrypt_bytes(&consuming_private_key.from_hex::<Vec<u8>>().unwrap().as_slice(), "password").unwrap()),
-                true
+                Some(
+                    &Bip39::encrypt_bytes(
+                        &consuming_private_key
+                            .from_hex::<Vec<u8>>()
+                            .unwrap()
+                            .as_slice(),
+                        "password",
+                    )
+                    .unwrap(),
+                ),
+                true,
             )))
-            .get_result(Ok(ConfigDaoRecord::new(
-                "example_encrypted",
-                None,
-                true
-            )));
+            .get_result(Ok(ConfigDaoRecord::new("example_encrypted", None, true)));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         let result = subject.consuming_wallet_private_key("incorrect");
@@ -870,31 +894,50 @@ mod tests {
             *get_params,
             vec!["consuming_wallet_private_key".to_string()]
         );
-   }
+    }
 
     #[test]
     fn consuming_wallet_private_key_when_password_is_right() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let example_encrypted = Bip39::encrypt_bytes(b"Aside from that, Mrs. Lincoln, how was the play?", "password").unwrap();
-        let consuming_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
+        let example_encrypted = Bip39::encrypt_bytes(
+            b"Aside from that, Mrs. Lincoln, how was the play?",
+            "password",
+        )
+        .unwrap();
+        let consuming_private_key =
+            "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
         let config_dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_private_key",
-                Some(&Bip39::encrypt_bytes(&consuming_private_key.from_hex::<Vec<u8>>().unwrap().as_slice(), "password").unwrap()),
-                true
+                Some(
+                    &Bip39::encrypt_bytes(
+                        &consuming_private_key
+                            .from_hex::<Vec<u8>>()
+                            .unwrap()
+                            .as_slice(),
+                        "password",
+                    )
+                    .unwrap(),
+                ),
+                true,
             )))
             .get_result(Ok(ConfigDaoRecord::new(
                 "example_encrypted",
                 Some(&example_encrypted),
-                true
-            )))
-            ;
+                true,
+            )));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let result = subject.consuming_wallet_private_key("password").unwrap().unwrap();
+        let result = subject
+            .consuming_wallet_private_key("password")
+            .unwrap()
+            .unwrap();
 
-        assert_eq!(result.to_uppercase(), consuming_private_key.to_string().to_uppercase());
+        assert_eq!(
+            result.to_uppercase(),
+            consuming_private_key.to_string().to_uppercase()
+        );
         let get_params = get_params_arc.lock().unwrap();
         assert_eq!(
             *get_params,
@@ -904,21 +947,42 @@ mod tests {
 
     #[test]
     fn consuming_wallet() {
-        let example_encrypted = Bip39::encrypt_bytes(b"Aside from that, Mrs. Lincoln, how was the play?", "password").unwrap();
-        let consuming_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
-        let consuming_wallet = Wallet::from(Bip32ECKeyPair::from_raw_secret (consuming_private_key.from_hex::<Vec<u8>>().unwrap().as_slice()).unwrap());
+        let example_encrypted = Bip39::encrypt_bytes(
+            b"Aside from that, Mrs. Lincoln, how was the play?",
+            "password",
+        )
+        .unwrap();
+        let consuming_private_key =
+            "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
+        let consuming_wallet = Wallet::from(
+            Bip32ECKeyProvider::from_raw_secret(
+                consuming_private_key
+                    .from_hex::<Vec<u8>>()
+                    .unwrap()
+                    .as_slice(),
+            )
+            .unwrap(),
+        );
         let config_dao = ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_private_key",
-                Some(&Bip39::encrypt_bytes(&consuming_private_key.from_hex::<Vec<u8>>().unwrap().as_slice(), "password").unwrap()),
-                true
+                Some(
+                    &Bip39::encrypt_bytes(
+                        &consuming_private_key
+                            .from_hex::<Vec<u8>>()
+                            .unwrap()
+                            .as_slice(),
+                        "password",
+                    )
+                    .unwrap(),
+                ),
+                true,
             )))
             .get_result(Ok(ConfigDaoRecord::new(
                 "example_encrypted",
                 Some(&example_encrypted),
-                true
-            )))
-            ;
+                true,
+            )));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         let result = subject.consuming_wallet("password").unwrap().unwrap();
@@ -1016,13 +1080,15 @@ mod tests {
     fn make_wallet_info(db_password: &str) -> (String, String, String) {
         let (seed_bytes, _) = make_seed_info(db_password);
         let derivation_path = derivation_path(0, 1);
-        let consuming_epk = ExtendedPrivKey::derive (seed_bytes.as_slice(), derivation_path.as_str()).unwrap();
+        let consuming_epk =
+            ExtendedPrivKey::derive(seed_bytes.as_slice(), derivation_path.as_str()).unwrap();
         let consuming_wallet_private_key = consuming_epk.secret().to_hex::<String>().to_uppercase();
-        let consuming_wallet_private_key_encrypted = make_encrypted_consuming_wallet_private_key(
-            &consuming_wallet_private_key,
-            db_password
-        );
-        let earning_key_pair = Bip32ECKeyPair::from_raw(seed_bytes.as_slice(), derivation_path.as_str()).unwrap();
+        let consuming_wallet_private_key_encrypted =
+            make_encrypted_consuming_wallet_private_key(&consuming_wallet_private_key, db_password);
+        let earning_private_key =
+            ExtendedPrivKey::derive(seed_bytes.as_slice(), derivation_path.as_str()).unwrap();
+        let earning_key_pair =
+            Bip32ECKeyProvider::from_raw_secret(&earning_private_key.secret()).unwrap();
         let earning_wallet = Wallet::from(earning_key_pair);
         let earning_wallet_address = earning_wallet.to_string();
         (
@@ -1032,8 +1098,18 @@ mod tests {
         )
     }
 
-    fn make_encrypted_consuming_wallet_private_key (consuming_wallet_private_key: &str, db_password: &str) -> String {
-        Bip39::encrypt_bytes(&consuming_wallet_private_key.from_hex::<Vec<u8>>().unwrap().as_slice(), db_password).unwrap()
+    fn make_encrypted_consuming_wallet_private_key(
+        consuming_wallet_private_key: &str,
+        db_password: &str,
+    ) -> String {
+        Bip39::encrypt_bytes(
+            &consuming_wallet_private_key
+                .from_hex::<Vec<u8>>()
+                .unwrap()
+                .as_slice(),
+            db_password,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -1093,11 +1169,18 @@ mod tests {
         );
         let set_params = set_params_arc.lock().unwrap();
         assert_eq!(set_params[0].0, "consuming_wallet_private_key".to_string());
-        let cwpk_decrypted = Bip39::decrypt_bytes(set_params[0].1.as_ref().unwrap(), "password").unwrap().as_slice().to_hex::<String>().to_uppercase();
+        let cwpk_decrypted = Bip39::decrypt_bytes(set_params[0].1.as_ref().unwrap(), "password")
+            .unwrap()
+            .as_slice()
+            .to_hex::<String>()
+            .to_uppercase();
         assert_eq!(cwpk_decrypted, consuming_wallet_private_key);
         assert_eq!(
             set_params[1],
-            ("earning_wallet_address".to_string(), Some(earning_wallet_address))
+            (
+                "earning_wallet_address".to_string(),
+                Some(earning_wallet_address)
+            )
         );
         let commit_params = commit_params_arc.lock().unwrap();
         assert_eq!(*commit_params, vec![()]);
@@ -1107,9 +1190,9 @@ mod tests {
     fn set_wallet_info_fails_if_consuming_wallet_private_key_exists() {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
-        let old_cwpk_encrypted = make_encrypted_consuming_wallet_private_key (
+        let old_cwpk_encrypted = make_encrypted_consuming_wallet_private_key(
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            "password"
+            "password",
         );
         let (consuming_wallet_private_key, _, earning_wallet_address) =
             make_wallet_info("password");
@@ -1187,8 +1270,11 @@ mod tests {
                 .set_result(Ok(()))
                 .commit_result(Ok(())),
         );
-        let (consuming_wallet_private_key, consuming_wallet_private_key_encrypted, earning_wallet_address) =
-            make_wallet_info("password");
+        let (
+            consuming_wallet_private_key,
+            consuming_wallet_private_key_encrypted,
+            earning_wallet_address,
+        ) = make_wallet_info("password");
         let config_dao = Box::new(
             ConfigDaoMock::new()
                 .get_result(Ok(ConfigDaoRecord::new(
@@ -1237,11 +1323,7 @@ mod tests {
         let mut subject = PersistentConfigurationReal::new(config_dao);
         let (consuming_wallet_private_key, _, _) = make_wallet_info("password");
 
-        let result = subject.set_wallet_info(
-            &consuming_wallet_private_key,
-            "invalid",
-            "password",
-        );
+        let result = subject.set_wallet_info(&consuming_wallet_private_key, "invalid", "password");
 
         assert_eq!(
             result,

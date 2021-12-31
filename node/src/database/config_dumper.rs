@@ -25,12 +25,12 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
+use rustc_hex::ToHex;
 use serde_json::json;
 use serde_json::{Map, Value};
 #[cfg(test)]
 use std::any::Any;
 use std::path::{Path, PathBuf};
-use rustc_hex::ToHex;
 
 pub struct DumpConfigRunnerReal;
 
@@ -87,8 +87,12 @@ fn configuration_to_json(
 
 fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> String {
     let to_utf8 = |data: PlainData| {
-        String::from_utf8(data.clone().into())
-            .expect(&format! ("Database is corrupt: {} byte string '{:?}' cannot be interpreted as UTF-8", json_name, data))
+        String::from_utf8(data.clone().into()).unwrap_or_else(|_| {
+            panic!(
+                "Database is corrupt: {} byte string '{:?}' cannot be interpreted as UTF-8",
+                json_name, data
+            )
+        })
     };
     match json_name {
         "exampleEncrypted" => encode_bytes(Some(input))
@@ -107,10 +111,8 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
                 .map(|nd| nd.to_string(cryptde))
                 .collect::<Vec<String>>()
                 .join(",")
-        },
-        "consumingWalletPrivateKey" => {
-            input.as_slice().to_hex()
         }
+        "consumingWalletPrivateKey" => input.as_slice().to_hex(),
         _ => to_utf8(input),
     }
 }
@@ -164,11 +166,11 @@ mod tests {
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::{NeighborhoodModeLight};
+    use masq_lib::utils::NeighborhoodModeLight;
+    use rustc_hex::ToHex;
     use std::fs::File;
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use rustc_hex::{ToHex};
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {
@@ -507,7 +509,7 @@ mod tests {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
-eprintln! ("{:?}", map);
+        eprintln!("{:?}", map);
         let conn = DbInitializerReal::default()
             .initialize(&data_dir, false, MigratorConfig::panic_on_migration())
             .unwrap();
@@ -590,7 +592,12 @@ eprintln! ("{:?}", map);
         assert_eq!(actual_value, expected_value);
     }
 
-    fn assert_encrypted_value(key: &str, expected_value: &str, password: &str, map: &Map<String, Value>) {
+    fn assert_encrypted_value(
+        key: &str,
+        expected_value: &str,
+        password: &str,
+        map: &Map<String, Value>,
+    ) {
         let encrypted_value = match map
             .get(key)
             .unwrap_or_else(|| panic!("record for {} is missing", key))
