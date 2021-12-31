@@ -527,22 +527,18 @@ impl Configurator {
                         Ok(Some (private_key_hex)) => {
                             let private_key_bytes = match private_key_hex.from_hex::<Vec<u8>>() {
                                 Ok(bytes) => bytes,
-                                Err(e) => todo!("{:?}", e),
+                                Err(e) => panic! ("Database corruption: consuming wallet private key '{}' cannot be converted from hexadecimal: {:?}", private_key_hex, e),
                             };
                             let key_pair = match Bip32ECKeyPair::from_raw_secret(private_key_bytes.as_slice()) {
                                 Ok(pair) => pair,
-                                Err(e) => todo!("{:?}", e),
+                                Err(e) => panic!("Database corruption: consuming wallet private key '{}' is invalid: {:?}", private_key_hex, e),
                             };
                             (Some(private_key_hex), Some(format!("{:?}", key_pair.address())))
                         },
                         Ok(None) => (None, None),
-                        Err (e) => todo! ("{:?}", e),
+                        Err (e) => panic!("Database corruption: error retrieving consuming wallet private key: {:?}", e),
                     }
                 };
-                let consuming_wallet_private_key_opt = Self::value_not_required(
-                    persistent_config.consuming_wallet_private_key(password),
-                    "consumingWalletPrivateKeyOpt",
-                )?;
                 let past_neighbors_opt = Self::value_not_required(
                     persistent_config.past_neighbors(password),
                     "pastNeighbors",
@@ -1948,8 +1944,6 @@ mod tests {
     #[test]
     fn configuration_works_with_no_password() {
         let consuming_wallet_private_key = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
-        let consuming_wallet_address = format!("{:?}", Bip32ECKeyPair::from_raw_secret (consuming_wallet_private_key
-            .from_hex::<Vec<u8>>().unwrap().as_slice()).unwrap().address());
         let earning_wallet_address = "4a5e43b54c6C56Ebf7".to_string();
         let public_key = PK::from(&b"xaca4sf4a56"[..]);
         let node_addr = NodeAddr::from_str("1.2.1.3:4545").unwrap();
@@ -2080,7 +2074,7 @@ mod tests {
             }
         );
         let consuming_wallet_private_key_params = consuming_wallet_private_key_params_arc.lock().unwrap();
-        assert_eq!(*consuming_wallet_private_key_params, vec!["password".to_string(), "password".to_string()]);
+        assert_eq!(*consuming_wallet_private_key_params, vec!["password".to_string()]);
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
         assert_eq!(*past_neighbors_params, vec!["password".to_string()])
     }
@@ -2106,6 +2100,51 @@ mod tests {
                 payload: Err((CONFIGURATOR_READ_ERROR, "dbPassword".to_string()))
             }
         );
+    }
+
+    fn check_configuration_handles_unexpected_consuming_wallet_private_key(cwpk: Result<Option<String>, PersistentConfigError>) {
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok(true))
+            .blockchain_service_url_result(Ok(None))
+            .current_schema_version_result("1.2.3")
+            .clandestine_port_result(Ok(1234))
+            .chain_name_result("ropsten".to_string())
+            .gas_price_result(Ok(2345))
+            .earning_wallet_address_result(Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
+            .start_block_result(Ok(3456))
+            .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
+            .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
+            .consuming_wallet_private_key_result(cwpk);
+        let mut subject = make_subject(Some(persistent_config));
+
+        let _ = subject.handle_configuration(
+            UiConfigurationRequest {
+                db_password_opt: Some("password".to_string()),
+            },
+            4321,
+        );
+    }
+
+    #[test]
+    #[should_panic (expected = "Database corruption: error retrieving consuming wallet private key: NotPresent")]
+    fn configuration_handles_error_retrieving_consuming_wallet_private_key() {
+        check_configuration_handles_unexpected_consuming_wallet_private_key(Err(PersistentConfigError::NotPresent));
+    }
+
+    #[test]
+    #[should_panic (expected = "Database corruption: consuming wallet private key 'Look, Ma, I'm not hexadecimal!' cannot be converted from hexadecimal: Invalid character 'L' at position 0")]
+    fn configuration_handles_consuming_wallet_private_key_that_is_not_hexadecimal() {
+        check_configuration_handles_unexpected_consuming_wallet_private_key(Ok(Some(
+            "Look, Ma, I'm not hexadecimal!".to_string(),
+        )));
+    }
+
+    #[test]
+    #[should_panic (expected = "Database corruption: consuming wallet private key 'CAFEBABE' is invalid: \"InvalidInputLength\"")]
+    fn configuration_handles_consuming_wallet_private_key_that_is_an_invalid_private_key() {
+        check_configuration_handles_unexpected_consuming_wallet_private_key(Ok(Some(
+            "CAFEBABE".to_string(),
+        )));
     }
 
     #[test]

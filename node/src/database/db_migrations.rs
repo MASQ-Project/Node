@@ -10,9 +10,8 @@ use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use rusqlite::{Transaction, NO_PARAMS};
 use std::fmt::Debug;
 use itertools::Itertools;
-use rustc_hex::FromHex;
 use crate::db_config::db_encryption_layer::DbEncryptionLayer;
-use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
+use crate::db_config::typed_config_layer::{decode_bytes};
 use tiny_hderive::bip32::ExtendedPrivKey;
 use crate::blockchain::bip39::Bip39;
 use crate::sub_lib::cryptde::PlainData;
@@ -554,11 +553,10 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use bip39::{Mnemonic, MnemonicType, Language, Seed};
     use rand::Rng;
-    use rustc_hex::ToHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
     use crate::blockchain::bip39::Bip39;
     use crate::sub_lib::cryptde::PlainData;
-    use crate::db_config::typed_config_layer::{encode_bytes, decode_bytes};
+    use crate::db_config::typed_config_layer::{encode_bytes};
     use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 
     #[derive(Default)]

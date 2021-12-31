@@ -9,7 +9,6 @@ use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 
 pub const EXAMPLE_ENCRYPTED: &str = "example_encrypted";
 
-// TODO: Split this into SecureConfigLayerError and DbEncryptionLayerError
 #[derive(Debug, PartialEq)]
 pub enum SecureConfigLayerError {
     NotPresent,
@@ -323,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Database is corrupt: Password example value is not encrypted")] // TODO: Modify this test to expect a panic, since database is corrupt
+    #[should_panic(expected = "Database is corrupt: Password example value is not encrypted")]
     fn check_password_fails_when_example_record_is_present_and_unencrypted() {
         let dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             EXAMPLE_ENCRYPTED,
