@@ -295,8 +295,11 @@ fn verify_bill_payment() {
 }
 
 fn make_migrator_config(chain: Chain) -> MigratorConfig {
-    MigratorConfig::create_or_migrate(ExternalData::new(chain,
-        NeighborhoodModeLight::Standard, None))
+    MigratorConfig::create_or_migrate(ExternalData::new(
+        chain,
+        NeighborhoodModeLight::Standard,
+        None,
+    ))
 }
 
 fn assert_balances(
