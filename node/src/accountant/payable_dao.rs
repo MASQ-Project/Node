@@ -8,7 +8,7 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::sub_lib::wallet::Wallet;
 use rusqlite::types::{Null, ToSql, Type};
-use rusqlite::{Error, OptionalExtension, NO_PARAMS};
+use rusqlite::{Error, OptionalExtension};
 use std::fmt::Debug;
 use std::time::SystemTime;
 use web3::types::H256;
@@ -183,7 +183,7 @@ impl PayableDao for PayableDaoReal {
             .prepare("select wallet_address, balance, last_paid_timestamp from payable where pending_payment_rowid is null")
             .expect("Internal error");
 
-        stmt.query_map(NO_PARAMS, |row| {
+        stmt.query_map([], |row| {
             let wallet_result: Result<Wallet, rusqlite::Error> = row.get(0);
             let balance_result = row.get(1);
             let last_paid_timestamp_result = row.get(2);
@@ -266,7 +266,7 @@ impl PayableDao for PayableDaoReal {
             .conn
             .prepare("select sum(balance) from payable")
             .expect("Internal error");
-        match stmt.query_row(NO_PARAMS, |row| {
+        match stmt.query_row([], |row| {
             let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
             match total_balance_result {
                 Ok(total_balance) => Ok(total_balance as u64),
@@ -302,7 +302,7 @@ impl PayableDaoReal {
             .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_rowid) values (:address, :balance, strftime('%s','now'), null) on conflict (wallet_address) do update set balance = balance + :balance where wallet_address = :address")
             .expect("Internal error");
         let params: &[(&str, &dyn ToSql)] = &[(":address", &wallet), (":balance", &amount)];
-        match stmt.execute_named(params) {
+        match stmt.execute(params) {
             Ok(0) => Ok(false),
             Ok(_) => Ok(true),
             Err(e) => Err(format!("{}", e)),
@@ -327,7 +327,7 @@ impl PayableDaoReal {
                 &i64::try_from(rowid).expect("SQLite was wrong when choosing the rowid"),
             ),
         ];
-        match stmt.execute_named(params) {
+        match stmt.execute(params) {
             Ok(1) => Ok(()),
             Ok(x) => Err(format!(
                 "Trying to decrease balance, {} rows changed instead of 1",
@@ -352,7 +352,7 @@ mod tests {
     use ethereum_types::BigEndianHash;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection as RusqliteConnection;
-    use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+    use rusqlite::{Connection, OpenFlags};
     use std::path::Path;
     use web3::types::U256;
 
@@ -433,7 +433,7 @@ mod tests {
                     .unwrap();
             conn.execute(
                 "update payable set last_paid_timestamp = 0 where wallet_address = '0x000000000000000000000000000000626f6f6761'",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
             subject
@@ -462,7 +462,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_payable(&wallet, std::u64::MAX);
+        let result = subject.more_money_payable(&wallet, u64::MAX);
 
         assert_eq!(result, Err(DebtRecordingError::SignConversion(u64::MAX)));
     }
@@ -801,7 +801,7 @@ mod tests {
                     ",
                 )
                 .unwrap();
-            stm.execute(NO_PARAMS).unwrap();
+            stm.execute([]).unwrap();
         }
         conn.close().unwrap();
         let conn = RusqliteConnection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)

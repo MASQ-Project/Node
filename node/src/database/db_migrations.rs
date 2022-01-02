@@ -7,7 +7,7 @@ use masq_lib::blockchains::chains::Chain;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
-use rusqlite::{Error, Transaction, NO_PARAMS};
+use rusqlite::{Error, Transaction};
 use std::fmt::Debug;
 
 pub trait DbMigrator {
@@ -163,7 +163,7 @@ impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
         let transaction = self.root_transaction_ref;
         sql_statements.iter().fold(Ok(()), |so_far, stm| {
             if so_far.is_ok() {
-                match transaction.execute(stm, NO_PARAMS) {
+                match transaction.execute(stm, []) {
                     Ok(_) => Ok(()),
                     Err(e) if e == Error::ExecuteReturnedResults => Ok(()),
                     Err(e) => Err(e),
@@ -287,7 +287,7 @@ impl DatabaseMigration for Migrate_4_to_5 {
             .transaction()
             .prepare("SELECT pending_payment_transaction FROM payable WHERE pending_payment_transaction IS NOT NULL")?;
         let unresolved_pending_transactions: Vec<String> = select_statement
-            .query_map(NO_PARAMS, |row| {
+            .query_map([], |row| {
                 Ok(row
                     .get::<usize, String>(0)
                     .expect("select statement was badly prepared"))
@@ -408,7 +408,7 @@ impl DbMigratorReal {
                 "UPDATE {} SET value = {} WHERE name = 'schema_version'",
                 name_of_given_table, update_to
             ),
-            NO_PARAMS,
+            [],
         )?;
         Ok(())
     }
@@ -584,7 +584,7 @@ mod tests {
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::NeighborhoodModeLight;
-    use rusqlite::{Connection, Error, OptionalExtension, ToSql, Transaction, NO_PARAMS};
+    use rusqlite::{Connection, Error, OptionalExtension, ToSql, Transaction};
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
@@ -997,7 +997,7 @@ mod tests {
             name TEXT,
             count integer
         )",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
         let correct_statement_1 = "INSERT INTO test (name,count) VALUES ('mushrooms',270)";
@@ -1025,11 +1025,9 @@ mod tests {
         let connection = Connection::open(&db_path).unwrap();
         //when an error occurs, the underlying transaction gets rolled back, and we cannot see any changes to the database
         let assertion: Option<(String, String)> = connection
-            .query_row(
-                "SELECT count FROM test WHERE name='mushrooms'",
-                NO_PARAMS,
-                |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())),
-            )
+            .query_row("SELECT count FROM test WHERE name='mushrooms'", [], |row| {
+                Ok((row.get(0).unwrap(), row.get(1).unwrap()))
+            })
             .optional()
             .unwrap();
         assert!(assertion.is_none()) //means no result for this query
@@ -1049,7 +1047,7 @@ mod tests {
             name TEXT,
             count integer
         )",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
         let statement_1 = "INSERT INTO botanic_garden (name,count) VALUES ('sun_flowers', 100)";
@@ -1068,7 +1066,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         let connection = Connection::open(&db_path).unwrap();
         let assertion: Option<(String, i64)> = connection
-            .query_row("SELECT * FROM just_garden", NO_PARAMS, |row| {
+            .query_row("SELECT * FROM just_garden", [], |row| {
                 Ok((row.get(0).unwrap(), row.get(1).unwrap()))
             })
             .optional()
@@ -1116,13 +1114,13 @@ mod tests {
             name TEXT,
             value TEXT
         )",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
         connection
             .execute(
                 "INSERT INTO test (name, value) VALUES ('schema_version', '2')",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
@@ -1157,7 +1155,7 @@ mod tests {
             .unwrap()
             .query_row(
                 "SELECT name, value FROM test WHERE name='schema_version'",
-                NO_PARAMS,
+                [],
                 |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())),
             )
             .unwrap();
@@ -1190,7 +1188,7 @@ mod tests {
             name TEXT,
             value TEXT
         )",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);

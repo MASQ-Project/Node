@@ -11,17 +11,17 @@ workspace = "../node"
 # See more keys and their definitions at  https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = "2.33.1"
-crossbeam-channel = "0.5.0"
+clap = "2.33.3"
+crossbeam-channel = "0.5.1"
 lazy_static = "1.4.0"
 linefeed = "0.6.0"
 masq_lib = { path = "../masq_lib" }
-regex = "1.0.5"
-websocket = {version = "0.26.0", default-features = false, features = ["sync"]}
-ctrlc = "3.1.9"
+regex = "1.5.4"
+websocket = {version = "0.26.2", default-features = false, features = ["sync"]}
+ctrlc = "3.2.1"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-nix = "0.20.0"
+nix = "0.23.0"
 
 [lib]
 name = "masq_cli_lib"

@@ -11,7 +11,7 @@ use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use rusqlite::named_params;
 use rusqlite::types::{ToSql, Type};
-use rusqlite::{OptionalExtension, Row, NO_PARAMS};
+use rusqlite::{OptionalExtension, Row};
 use std::time::SystemTime;
 
 #[derive(Debug, PartialEq)]
@@ -140,7 +140,7 @@ impl ReceivableDao for ReceivableDaoReal {
             .prepare("select balance, last_received_timestamp, wallet_address from receivable")
             .expect("Internal error");
 
-        stmt.query_map(NO_PARAMS, |row| {
+        stmt.query_map([], |row| {
             let balance_result = row.get(0);
             let last_received_timestamp_result = row.get(1);
             let wallet: Result<Wallet, rusqlite::Error> = row.get(2);
@@ -179,7 +179,7 @@ impl ReceivableDao for ReceivableDaoReal {
         "
         );
         let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
-        stmt.query_map_named(
+        stmt.query_map(
             named_params! {
                 ":slope": slope,
                 ":sugg_and_grace": payment_curves.sugg_and_grace(now),
@@ -203,7 +203,7 @@ impl ReceivableDao for ReceivableDaoReal {
         "
         );
         let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
-        stmt.query_map_named(
+        stmt.query_map(
             named_params! {
                 ":unban_balance": payment_curves.unban_when_balance_below_gwub,
             },
@@ -261,7 +261,7 @@ impl ReceivableDao for ReceivableDaoReal {
             .conn
             .prepare("select sum(balance) from receivable")
             .expect("Internal error");
-        match stmt.query_row(NO_PARAMS, |row| {
+        match stmt.query_row([], |row| {
             let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
             match total_balance_result {
                 Ok(total_balance) => Ok(total_balance as u64),
@@ -400,7 +400,6 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_wallet;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};
 
     #[test]
@@ -460,7 +459,7 @@ mod tests {
             .unwrap();
         {
             let mut stmt = conn.prepare("drop table config").unwrap();
-            stmt.execute(NO_PARAMS).unwrap();
+            stmt.execute([]).unwrap();
         }
         let mut subject = ReceivableDaoReal::new(conn);
 
@@ -492,7 +491,7 @@ mod tests {
             .unwrap();
         {
             let mut stmt = conn.prepare("drop table receivable").unwrap();
-            stmt.execute(NO_PARAMS).unwrap();
+            stmt.execute([]).unwrap();
         }
         let mut subject = ReceivableDaoReal::new(conn);
 
@@ -563,7 +562,7 @@ mod tests {
                     .unwrap();
             conn.execute(
                 "update receivable set last_received_timestamp = 0 where wallet_address = '0x000000000000000000000000000000626f6f6761'",
-                NO_PARAMS,
+                [],
             )
             .unwrap();
             subject

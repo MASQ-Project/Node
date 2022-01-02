@@ -6,7 +6,7 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::{from_time_t, to_time_t, DaoFactoryReal};
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::Value::Null;
-use rusqlite::{Row, ToSql, NO_PARAMS};
+use rusqlite::{Row, ToSql};
 use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
@@ -53,7 +53,7 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal<'_> {
 
     fn return_all_payment_backups(&self) -> Vec<PaymentBackupRecord> {
         let mut stm = self.conn.prepare("select rowid, transaction_hash, amount, payment_timestamp, attempt from pending_payments where process_error is null").expect("Internal error");
-        stm.query_map(NO_PARAMS, |row| {
+        stm.query_map([], |row| {
             let rowid: i64 = Self::get_with_expect(row, 0);
             let transaction_hash: String = Self::get_with_expect(row, 1);
             let amount: i64 = Self::get_with_expect(row, 2);
@@ -186,7 +186,7 @@ mod tests {
     use crate::database::db_migrations::MigratorConfig;
     use ethereum_types::BigEndianHash;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection, Error, OpenFlags, Row, NO_PARAMS};
+    use rusqlite::{Connection, Error, OpenFlags, Row};
     use std::str::FromStr;
     use std::time::SystemTime;
     use web3::types::{H256, U256};
@@ -214,7 +214,7 @@ mod tests {
             .prepare("select * from pending_payments")
             .unwrap();
         let record = stm
-            .query_row(NO_PARAMS, |row| {
+            .query_row([], |row| {
                 let rowid: i64 = row.get(0).unwrap();
                 let hash: String = row.get(1).unwrap();
                 let amount: i64 = row.get(2).unwrap();
@@ -311,7 +311,7 @@ mod tests {
             let mut stm = wrapped_conn
                 .prepare("select * from pending_payments")
                 .unwrap();
-            let res = stm.query_row(NO_PARAMS, |_row| Ok(()));
+            let res = stm.query_row([], |_row| Ok(()));
             let err = res.unwrap_err();
             assert_eq!(err, Error::QueryReturnedNoRows);
         }
@@ -565,7 +565,7 @@ mod tests {
             .unwrap();
         let mut assert_closure = || {
             assert_stm
-                .query_row(NO_PARAMS, |row| {
+                .query_row([], |row| {
                     let rowid: i64 = row.get(0).unwrap();
                     let transaction_hash: String = row.get(1).unwrap();
                     let amount: i64 = row.get(2).unwrap();
