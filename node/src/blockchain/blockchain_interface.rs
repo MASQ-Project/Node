@@ -1673,14 +1673,15 @@ mod tests {
 
         let result = subject.get_transaction_receipt(tx_hash);
 
-        assert_eq!(
-            result,
-            Err(BlockchainError::QueryFailed(
-                "Transport error: Error(Connect, Os \
-         { code: 111, kind: ConnectionRefused, message: \"Connection refused\" })"
-                    .to_string()
-            ))
-        )
+        match result {
+            Err(BlockchainError::QueryFailed(err_message)) => assert!(
+                err_message.contains("Transport error: Error(Connect, Os"),
+                "we got this error msg: {}",
+                err_message
+            ),
+            Err(e) => panic!("we expected a different error than: {}", e),
+            Ok(x) => panic!("we expected an error, but got: {:?}", x),
+        };
     }
 
     #[test]
