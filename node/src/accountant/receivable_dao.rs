@@ -83,8 +83,8 @@ impl ReceivableDao for ReceivableDaoReal {
         wallet: &Wallet,
         amount: u64,
     ) -> Result<(), DebtRecordingError> {
-        let signed_amount = jackass_unsigned_to_signed(amount)
-            .map_err(|err_num| DebtRecordingError::SignConversion(err_num))?;
+        let signed_amount =
+            jackass_unsigned_to_signed(amount).map_err(DebtRecordingError::SignConversion)?;
         match self.try_update(wallet, signed_amount) {
             Ok(true) => Ok(()),
             Ok(false) => match self.try_insert(wallet, signed_amount) {

@@ -331,7 +331,6 @@ impl NodeStartupConfig {
                 let keypair = Bip32ECKeyProvider::try_from((
                     Seed::new(&mnemonic, "passphrase").as_ref(),
                     derivation_path.as_str(),
-                    Bip32ECKeyPairToolsWrapperReal,
                 ))
                 .unwrap();
                 Wallet::from(keypair)
@@ -353,7 +352,6 @@ impl NodeStartupConfig {
                 let keypair = Bip32ECKeyProvider::try_from((
                     Seed::new(&mnemonic, "passphrase").as_ref(),
                     derivation_path.as_str(),
-                    Bip32ECKeyPairToolsWrapperReal,
                 ))
                 .unwrap();
                 Some(Wallet::from(keypair))

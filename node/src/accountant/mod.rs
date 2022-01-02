@@ -79,7 +79,6 @@ lazy_static! {
 pub const DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS: u64 = 5_000;
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
-//TODO I may need to have two types for both payable and receivable
 #[derive(Debug, PartialEq)]
 pub enum DebtRecordingError {
     SignConversion(u64),
@@ -1205,10 +1204,9 @@ fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
 
 #[derive(Debug, PartialEq, Clone)]
 enum PendingTransactionStatus {
-    StillPending(TransactionId), //will go back, may change the record, wait an interval, and start a new round
+    StillPending(TransactionId), //will go back, update slightly the record, wait in an interval, and start a new round
     Failure(TransactionId),      //official tx failure
     Confirmed(PaymentBackupRecord), //tx was fully processed and successful
-    ConfirmationProcessCrashed(TransactionId), //failure within our confirming process
 }
 
 impl PendingTransactionStatus {
@@ -4523,11 +4521,6 @@ pub mod tests {
         );
         assert_eq!(
             PendingTransactionStatus::Confirmed(make_payment_backup()).is_non_pending(),
-            true
-        );
-        assert_eq!(
-            PendingTransactionStatus::ConfirmationProcessCrashed(make_transaction_id())
-                .is_non_pending(),
             true
         );
         assert_eq!(

@@ -4,7 +4,6 @@
 pub mod channel_wrapper_mocks;
 pub mod data_hunk;
 pub mod data_hunk_framer;
-#[cfg(test)]
 pub mod database_utils;
 pub mod little_tcp_server;
 pub mod logfile_name_guard;

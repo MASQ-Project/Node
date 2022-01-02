@@ -71,6 +71,7 @@ pub(in crate::accountant) mod accountant_tools {
         as_any_impl!();
     }
 
+    #[derive(Default)]
     pub struct TransactionConfirmationTools {
         pub notify_later_handle_scan_for_pending_payments:
             Box<dyn NotifyLaterHandle<ScanForPendingPayments>>,
@@ -78,17 +79,6 @@ pub(in crate::accountant) mod accountant_tools {
         pub notify_handle_confirm_transaction: Box<dyn NotifyHandle<ConfirmPendingTransaction>>,
         pub notify_handle_cancel_failed_transaction:
             Box<dyn NotifyHandle<CancelFailedPendingTransaction>>,
-    }
-
-    impl Default for TransactionConfirmationTools {
-        fn default() -> Self {
-            Self {
-                notify_later_handle_scan_for_pending_payments: Default::default(),
-                request_transaction_receipts_subs_opt: None,
-                notify_handle_confirm_transaction: Default::default(),
-                notify_handle_cancel_failed_transaction: Default::default(),
-            }
-        }
     }
 }
 

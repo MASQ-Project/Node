@@ -1,5 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+#![cfg(test)]
+
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_migrations::DbMigrator;
 use crate::sub_lib::logger::Logger;
@@ -83,4 +85,24 @@ pub fn assurance_query_for_config_table(
             Ok((r.get(0).unwrap(), r.get(1).unwrap(), r.get(2).unwrap()))
         })
         .unwrap_or_else(|e| panic!("panicked at {} for statement: {}", e, stm))
+}
+
+pub fn query_specific_schema_information(
+    conn: &dyn ConnectionWrapper,
+    query_object: &str,
+) -> Vec<String> {
+    let mut table_stm = conn
+        .prepare(&format!(
+            "SELECT sql FROM sqlite_master WHERE type='{}'",
+            query_object
+        ))
+        .unwrap();
+    table_stm
+        .query_map(NO_PARAMS, |row| {
+            Ok(row.get::<usize, Option<String>>(0).unwrap())
+        })
+        .unwrap()
+        .flatten()
+        .flatten()
+        .collect()
 }

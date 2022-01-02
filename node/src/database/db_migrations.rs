@@ -51,10 +51,6 @@ trait DatabaseMigration: Debug {
         mig_declaration_utilities: Box<dyn MigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()>;
     fn old_version(&self) -> usize;
-    #[cfg(test)]
-    fn is_interim_placeholder(&self) -> bool {
-        false
-    }
 }
 
 trait MigDeclarationUtilities {
@@ -170,10 +166,7 @@ impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
                 match transaction.execute(stm, NO_PARAMS) {
                     Ok(_) => Ok(()),
                     Err(e) if e == Error::ExecuteReturnedResults => Ok(()),
-                    Err(e) => {
-                        eprintln!("{}", stm);
-                        Err(e)
-                    }
+                    Err(e) => Err(e),
                 }
             } else {
                 so_far
@@ -302,7 +295,9 @@ impl DatabaseMigration for Migrate_4_to_5 {
             .flatten()
             .collect();
         if !unresolved_pending_transactions.is_empty() {
-            todo!()
+            warning!(declaration_utils.logger(),"Migration from 4 to 5: database belonging to the chain '{}'; \
+             we discovered possibly abandoned transactions that are said yet to be pending, these are: '{}'; \
+              continuing",declaration_utils.external_parameters().chain.rec().literal_identifier,unresolved_pending_transactions.join("', '") )
         } else {
             debug!(
                 declaration_utils.logger(),
@@ -508,7 +503,7 @@ impl MigratorConfig {
     #[cfg(test)]
     pub fn test_default() -> Self {
         Self {
-            should_be_suppressed: Suppression::No,
+            should_be_suppressed: Suppression::Yes,
             external_dataset: Some(ExternalData {
                 chain: TEST_DEFAULT_CHAIN,
                 neighborhood_mode: NeighborhoodModeLight::Standard,
@@ -562,15 +557,12 @@ impl DatabaseMigration for InterimMigrationPlaceholder {
     fn old_version(&self) -> usize {
         self.0 - 1
     }
-
-    fn is_interim_placeholder(&self) -> bool {
-        true
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+    use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, DATABASE_FILE,
@@ -581,20 +573,26 @@ mod tests {
     };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
     use crate::sub_lib::logger::Logger;
+    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
+        query_specific_schema_information,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::test_utils::make_wallet;
+    use ethereum_types::BigEndianHash;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::NeighborhoodModeLight;
-    use rusqlite::{Connection, Error, OptionalExtension, Statement, Transaction, NO_PARAMS};
+    use rusqlite::{Connection, Error, OptionalExtension, ToSql, Transaction, NO_PARAMS};
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
     use std::iter::once;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
+    use std::time::SystemTime;
+    use web3::types::{H256, U256};
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
@@ -828,7 +826,6 @@ mod tests {
         old_version_result: RefCell<usize>,
         migrate_params: Arc<Mutex<Vec<()>>>,
         migrate_result: RefCell<Vec<rusqlite::Result<()>>>,
-        is_interim_placeholder_results: RefCell<bool>,
     }
 
     impl DBMigrationRecordMock {
@@ -844,11 +841,6 @@ mod tests {
 
         fn migrate_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
             self.migrate_params = params.clone();
-            self
-        }
-
-        fn is_interim_placeholder_result(self, result: bool) -> Self {
-            self.is_interim_placeholder_results.replace(result);
             self
         }
 
@@ -876,21 +868,13 @@ mod tests {
         fn old_version(&self) -> usize {
             *self.old_version_result.borrow()
         }
-
-        fn is_interim_placeholder(&self) -> bool {
-            *self.is_interim_placeholder_results.borrow()
-        }
     }
 
     #[test]
     #[should_panic(expected = "The list of database migrations is not ordered properly")]
     fn list_validation_check_works_for_badly_ordered_migrations_when_inside() {
-        let fake_one = DBMigrationRecordMock::default()
-            .old_version_result(6)
-            .is_interim_placeholder_result(false);
-        let fake_two = DBMigrationRecordMock::default()
-            .old_version_result(2)
-            .is_interim_placeholder_result(false);
+        let fake_one = DBMigrationRecordMock::default().old_version_result(6);
+        let fake_two = DBMigrationRecordMock::default().old_version_result(2);
         let list: &[&dyn DatabaseMigration] = &[&Migrate_0_to_1, &fake_one, &fake_two];
 
         let _ = list_validation_check(list);
@@ -899,32 +883,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "The list of database migrations is not ordered properly")]
     fn list_validation_check_works_for_badly_ordered_migrations_when_at_the_end() {
-        let fake_one = DBMigrationRecordMock::default()
-            .old_version_result(1)
-            .is_interim_placeholder_result(false);
-        let fake_two = DBMigrationRecordMock::default()
-            .old_version_result(3)
-            .is_interim_placeholder_result(false);
+        let fake_one = DBMigrationRecordMock::default().old_version_result(1);
+        let fake_two = DBMigrationRecordMock::default().old_version_result(3);
         let list: &[&dyn DatabaseMigration] = &[&Migrate_0_to_1, &fake_one, &fake_two];
-
-        let _ = list_validation_check(list);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "The list of database migrations contains an interim migration placeholder - remove it before finishing"
-    )]
-    fn list_validation_check_works_for_detecting_interim_placeholders() {
-        let fake_one = DBMigrationRecordMock::default()
-            .old_version_result(3)
-            .is_interim_placeholder_result(false);
-        let fake_two = DBMigrationRecordMock::default()
-            .old_version_result(4)
-            .is_interim_placeholder_result(false);
-        let fake_three = DBMigrationRecordMock::default()
-            .old_version_result(5)
-            .is_interim_placeholder_result(true);
-        let list: &[&dyn DatabaseMigration] = &[&fake_one, &fake_two, &fake_three];
 
         let _ = list_validation_check(list);
     }
@@ -943,8 +904,7 @@ mod tests {
             assert!(
                 two_numbers_are_sequential(first.old_version(), second.old_version()),
                 "The list of database migrations is not ordered properly"
-            );
-            assert_eq!(first.is_interim_placeholder(),false,"The list of database migrations contains an interim migration placeholder - remove it before finishing")
+            )
         });
     }
 
@@ -1385,6 +1345,7 @@ mod tests {
 
     #[test]
     fn migration_from_1_to_2_is_properly_set() {
+        init_test_logging();
         let start_at = 1;
         let dir_path = ensure_node_home_directory_exists("db_migrations", "1_to_2");
         let db_path = dir_path.join(DATABASE_FILE);
@@ -1425,6 +1386,9 @@ mod tests {
         assert_eq!(cs_name, "schema_version".to_string());
         assert_eq!(cs_value, Some("2".to_string()));
         assert_eq!(cs_encrypted, 0);
+        TestLogHandler::new().exists_log_containing(
+            "DbMigrator: Database successfully migrated from version 1 to 2",
+        );
     }
 
     #[test]
@@ -1483,10 +1447,13 @@ mod tests {
     }
 
     #[test]
-    fn migration_from_4_to_5_is_properly_set() {
+    fn migration_from_4_to_5_without_pending_transactions() {
         init_test_logging();
         let start_at = 4;
-        let dir_path = ensure_node_home_directory_exists("db_migrations", "4_to_5");
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_4_to_5_without_pending_transactions",
+        );
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
@@ -1507,25 +1474,91 @@ mod tests {
                 start_at + 1,
                 false,
                 MigratorConfig::create_or_migrate(ExternalData::new(
-                    DEFAULT_CHAIN,
+                    TEST_DEFAULT_CHAIN,
                     NeighborhoodModeLight::ConsumeOnly,
                 )),
             )
             .unwrap();
 
-        let table_stm = conn_schema5
-            .prepare("SELECT sql FROM sqlite_master WHERE type='table'")
+        assert_on_schema_5_was_adopted(conn_schema5.as_ref());
+        TestLogHandler::new().exists_log_containing("DEBUG: DbMigrator: Migration from 4 to 5: no previous pending transactions found; continuing");
+    }
+
+    #[test]
+    fn migration_from_4_to_5_with_pending_transactions() {
+        init_test_logging();
+        let start_at = 4;
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_4_to_5_with_pending_transactions",
+        );
+        let db_path = dir_path.join(DATABASE_FILE);
+        let conn = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let wallet_1 = make_wallet("james_bond");
+        let transaction_hash_1 = H256::from_uint(&U256::from(45454545));
+        let wallet_2 = make_wallet("robinson_crusoe");
+        let transaction_hash_2 = H256::from_uint(&U256::from(999888));
+        let subject = DbInitializerReal::default();
+        {
+            let _ = subject
+                .initialize_to_version(
+                    &dir_path,
+                    start_at,
+                    true,
+                    MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                )
+                .unwrap();
+        }
+        fn prepare_account_with_pending_transaction(
+            conn: &Connection,
+            transaction_hash: H256,
+            wallet: &Wallet,
+            amount: i64,
+            timestamp: SystemTime,
+        ) {
+            let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?,?,?,?)").unwrap();
+            let params: &[&dyn ToSql] = &[
+                &wallet,
+                &amount,
+                &to_time_t(timestamp),
+                &format!("{:x}", transaction_hash),
+            ];
+            let row_count = stm.execute(params).unwrap();
+            assert_eq!(row_count, 1);
+        }
+        prepare_account_with_pending_transaction(
+            &conn,
+            transaction_hash_1,
+            &wallet_1,
+            555555,
+            SystemTime::now(),
+        );
+        prepare_account_with_pending_transaction(
+            &conn,
+            transaction_hash_2,
+            &wallet_2,
+            1111111,
+            from_time_t(200_000_000),
+        );
+        let conn_schema5 = subject
+            .initialize_to_version(
+                &dir_path,
+                start_at + 1,
+                false,
+                MigratorConfig::create_or_migrate(ExternalData::new(
+                    TEST_DEFAULT_CHAIN,
+                    NeighborhoodModeLight::ConsumeOnly,
+                )),
+            )
             .unwrap();
-        let query = |mut stm: Statement| -> Vec<_> {
-            stm.query_map(NO_PARAMS, |row| {
-                Ok(row.get::<usize, Option<String>>(0).unwrap())
-            })
-            .unwrap()
-            .flatten()
-            .flatten() //rusqlite started to treat the sql parameter as optional so I have to query Option<String>
-            .collect()
-        };
-        let tables_schema5 = query(table_stm);
+
+        assert_on_schema_5_was_adopted(conn_schema5.as_ref());
+        TestLogHandler::new().exists_log_containing("WARN: DbMigrator: Migration from 4 to 5: database belonging to the chain 'eth-ropsten'; \
+         we discovered possibly abandoned transactions that are said yet to be pending, these are: '0000000000000000000000000000000000000000000000000000000002b594d1', '00000000000000000000000000000000000000000000000000000000000f41d0'; continuing");
+    }
+
+    fn assert_on_schema_5_was_adopted(conn_schema5: &dyn ConnectionWrapper) {
+        let tables_schema5 = query_specific_schema_information(conn_schema5, "table");
         assert!(
             tables_schema5.contains(
                 &"\
@@ -1558,10 +1591,7 @@ mod tests {
             "{:?}",
             tables_schema5
         );
-        let indexes_stm = conn_schema5
-            .prepare("SELECT sql FROM sqlite_master WHERE type='index'")
-            .unwrap();
-        let indexes_schema5 = query(indexes_stm);
+        let indexes_schema5 = query_specific_schema_information(conn_schema5, "index");
         assert!(!indexes_schema5.contains(
             &"CREATE UNIQUE INDEX idx_receivable_wallet_address on receivable (wallet_address)"
                 .to_string()
@@ -1573,6 +1603,5 @@ mod tests {
             &"CREATE UNIQUE INDEX pending_payments_hash_idx ON pending_payments (transaction_hash)"
                 .to_string()
         ));
-        TestLogHandler::new().exists_log_containing("DEBUG: DbMigrator: Migration from 4 to 5: no previous pending transactions found; continuing");
     }
 }

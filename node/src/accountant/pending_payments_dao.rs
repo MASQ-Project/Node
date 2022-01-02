@@ -80,7 +80,7 @@ impl PendingPaymentsDao for PendingPaymentsDaoReal<'_> {
         timestamp: SystemTime,
     ) -> Result<(), PendingPaymentDaoError> {
         let signed_amount = jackass_unsigned_to_signed(amount)
-            .map_err(|e| PendingPaymentDaoError::SignConversionError(e))?;
+            .map_err(PendingPaymentDaoError::SignConversionError)?;
         let mut stm = self.conn.prepare("insert into pending_payments (rowid, transaction_hash, amount, payment_timestamp, attempt, process_error) values (?,?,?,?,?,?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[
             &Null, //to let it increment automatically by SQLite

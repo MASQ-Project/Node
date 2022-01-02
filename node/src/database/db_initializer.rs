@@ -5,6 +5,7 @@ use crate::database::db_migrations::{
 };
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
+use indoc::indoc;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -271,12 +272,14 @@ impl DbInitializerReal {
 
     fn create_payable_table(&self, conn: &Connection) {
         conn.execute(
-            "create table if not exists payable (
+            indoc!(
+                "create table if not exists payable (
                 wallet_address text primary key,
                 balance integer not null,
                 last_paid_timestamp integer not null,
                 pending_payment_rowid integer null
-            )",
+            )"
+            ),
             NO_PARAMS,
         )
         .expect("Can't create payable table");
@@ -289,17 +292,20 @@ impl DbInitializerReal {
 
     fn create_pending_payments_table(&self, conn: &Connection) {
         conn.execute(
-            "create table if not exists pending_payments (
+            indoc!(
+                "
+            create table if not exists pending_payments (
                 rowid integer primary key,
                 transaction_hash text not null,
                 amount integer not null,
                 payment_timestamp integer not null,
                 attempt integer not null,
                 process_error text null
-            )",
+            )"
+            ),
             NO_PARAMS,
         )
-        .expect("Can't create pending_payments table"); //TODO I could write some tests to test an existent of the index etc...
+        .expect("Can't create pending_payments table");
         conn.execute(
             "CREATE UNIQUE INDEX pending_payments_hash_idx ON pending_payments (transaction_hash)",
             NO_PARAMS,
@@ -309,11 +315,13 @@ impl DbInitializerReal {
 
     fn create_receivable_table(&self, conn: &Connection) {
         conn.execute(
-            "create table if not exists receivable (
+            indoc!(
+                "create table if not exists receivable (
                 wallet_address text primary key,
                 balance integer not null,
                 last_received_timestamp integer not null
-            )",
+            )"
+            ),
             NO_PARAMS,
         )
         .expect("Can't create receivable table");
@@ -602,14 +610,16 @@ mod tests {
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
-        DbMigratorMock,
+        query_specific_schema_information, DbMigratorMock,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use itertools::Itertools;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
         TEST_DEFAULT_CHAIN,
     };
+    use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::types::Type::Null;
     use rusqlite::{Error, OpenFlags};
     use std::fs::File;
@@ -666,16 +676,26 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        subject
+        let conn = subject
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
-        let mut flags = OpenFlags::empty();
-        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
-        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-        let mut stmt = conn.prepare ("select rowid, transaction_hash, amount, payment_timestamp, attempt, process_error from pending_payments").unwrap ();
+        let mut stmt = conn.prepare("select rowid, transaction_hash, amount, payment_timestamp, attempt, process_error from pending_payments").unwrap ();
         let mut payable_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
+        //caution: the words 'if not exists' are left out in the schema's data
+        let expected_sql_used_to_create_this_table = indoc!(
+            "
+            create table pending_payments (
+                rowid integer primary key,
+                transaction_hash text not null,
+                amount integer not null,
+                payment_timestamp integer not null,
+                attempt integer not null,
+                process_error text null
+            )"
+        );
+        assert_on_part_of_the_schema(conn.as_ref(), expected_sql_used_to_create_this_table);
     }
 
     #[test]
@@ -686,16 +706,23 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        subject
+        let conn = subject
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
-        let mut flags = OpenFlags::empty();
-        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
-        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
         let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payment_rowid from payable").unwrap ();
         let mut payable_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
+        //caution: the words 'if not exists' are left out in the schema's data
+        let expected_sql_used_to_create_this_table = indoc!(
+            "create table payable (
+                wallet_address text primary key,
+                balance integer not null,
+                last_paid_timestamp integer not null,
+                pending_payment_rowid integer null
+            )"
+        );
+        assert_on_part_of_the_schema(conn.as_ref(), expected_sql_used_to_create_this_table);
     }
 
     #[test]
@@ -706,38 +733,58 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        subject
+        let conn = subject
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
-        let mut flags = OpenFlags::empty();
-        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
-        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
         let mut stmt = conn
             .prepare("select wallet_address, balance, last_received_timestamp from receivable")
             .unwrap();
         let mut receivable_contents = stmt.query_map(NO_PARAMS, |_| Ok(())).unwrap();
         assert!(receivable_contents.next().is_none());
+        //caution: the words 'if not exists' are left out in the schema's data
+        let expected_sql_used_to_create_this_table = indoc!(
+            "create table receivable (
+                wallet_address text primary key,
+                balance integer not null,
+                last_received_timestamp integer not null
+            )"
+        );
+        assert_on_part_of_the_schema(conn.as_ref(), expected_sql_used_to_create_this_table);
     }
 
     #[test]
     fn db_initialize_creates_banned_table() {
+        init_test_logging();
         let home_dir = ensure_node_home_directory_does_not_exist(
             "db_initializer",
             "db_initialize_creates_banned_table",
         );
         let subject = DbInitializerReal::default();
 
-        subject
+        let conn = subject
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
-        let mut flags = OpenFlags::empty();
-        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
-        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
         let mut banned_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
         assert!(banned_contents.next().is_none());
+        let expected_sql_used_to_create_the_table =
+            "create table banned ( wallet_address text primary key )";
+        assert_on_part_of_the_schema(conn.as_ref(), expected_sql_used_to_create_the_table);
+    }
+
+    fn assert_on_part_of_the_schema(conn: &dyn ConnectionWrapper, searched_sql: &str) {
+        let found_table_sqls = query_specific_schema_information(conn, "table");
+        let findings_all_lowercase = found_table_sqls
+            .into_iter()
+            .map(|element| element.to_lowercase())
+            .collect_vec();
+        assert!(
+            findings_all_lowercase.contains(&searched_sql.to_string()),
+            "we got this wrong data: {:?}",
+            findings_all_lowercase
+        )
     }
 
     #[test]
@@ -941,7 +988,14 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         let _ = subject
-            .initialize(&updated_db_path_dir, true, MigratorConfig::test_default())
+            .initialize(
+                &updated_db_path_dir,
+                true,
+                MigratorConfig::create_or_migrate(ExternalData {
+                    chain: Chain::EthRopsten,
+                    neighborhood_mode: NeighborhoodModeLight::Standard,
+                }),
+            )
             .unwrap();
         let _ = subject
             .initialize(
