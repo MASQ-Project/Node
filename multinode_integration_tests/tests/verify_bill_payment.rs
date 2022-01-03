@@ -403,7 +403,7 @@ fn expire_payables(path: PathBuf) {
         .unwrap();
     let mut statement = conn
         .prepare(
-            "update payable set last_paid_timestamp = 0 where pending_payment_transaction is null",
+            "update payable set last_paid_timestamp = 0 where pending_payment_rowid is null",
         )
         .unwrap();
     statement.execute([]).unwrap();
