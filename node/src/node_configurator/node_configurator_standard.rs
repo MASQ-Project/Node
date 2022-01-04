@@ -745,26 +745,6 @@ mod tests {
     }
 
     #[test]
-    fn get_earning_wallet_handles_error_retrieving_earning_wallet() {
-        let args = ArgsBuilder::new().param(
-            "--earning-wallet",
-            "0x0123456789012345678901234567890123456789",
-        );
-        let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_result(Err(PersistentConfigError::NotPresent));
-
-        let result = get_earning_wallet(&multi_config, &persistent_config);
-
-        assert_eq!(
-            result,
-            Err(PersistentConfigError::NotPresent.into_configurator_error("earning-wallet"))
-        );
-    }
-
-    #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {
         let multi_config = make_simplified_multi_config([
             "MASQNode",
@@ -783,27 +763,6 @@ mod tests {
                 "Mismatched chains. You are requiring access to 'eth-mainnet' (masq://eth-mainnet:<public key>@<node address>) with descriptor belonging to 'eth-ropsten'"
             )
         )
-    }
-
-    #[test]
-    fn get_earning_wallet_handles_attempted_wallet_change() {
-        running_test();
-        let args = ArgsBuilder::new().param(
-            "--earning-wallet",
-            "0x0123456789012345678901234567890123456789",
-        );
-        let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let persistent_config = PersistentConfigurationMock::new().earning_wallet_result(Ok(Some(
-            Wallet::new("0x9876543210987654321098765432109876543210"),
-        )));
-
-        let result = get_earning_wallet(&multi_config, &persistent_config)
-            .err()
-            .unwrap();
-
-        assert_eq! (result, ConfiguratorError::required("earning-wallet", "Cannot change to an address (0x0123456789012345678901234567890123456789) different from that previously set (0x9876543210987654321098765432109876543210)"))
     }
 
     #[test]
@@ -2359,41 +2318,5 @@ mod tests {
 
         let expected = ExternalData::new(DEFAULT_CHAIN, NeighborhoodModeLight::ZeroHop, None);
         assert_eq!(result, expected)
-    }
-
-    fn get_earning_wallet(
-        multi_config: &MultiConfig,
-        persistent_config: &dyn PersistentConfiguration,
-    ) -> Result<Option<Wallet>, ConfiguratorError> {
-        let earning_wallet_from_command_line_opt = value_m!(multi_config, "earning-wallet", String);
-        let earning_wallet_from_database_opt = match persistent_config.earning_wallet() {
-            Ok(ewfdo) => ewfdo,
-            Err(e) => return Err(e.into_configurator_error("earning-wallet")),
-        };
-        match (
-            earning_wallet_from_command_line_opt,
-            earning_wallet_from_database_opt,
-        ) {
-            (None, None) => Ok(None),
-            (Some(address), None) => Ok(Some(
-                Wallet::from_str(&address)
-                    .expect("--earning-wallet not properly constrained by clap"),
-            )),
-            (None, Some(wallet)) => Ok(Some(wallet)),
-            (Some(address), Some(wallet)) => {
-                if wallet.to_string().to_lowercase() == address.to_lowercase() {
-                    Ok(Some(wallet))
-                } else {
-                    Err(ConfiguratorError::required(
-                        "earning-wallet",
-                        &format!(
-                            "Cannot change to an address ({}) different from that previously set ({})",
-                            address.to_lowercase(),
-                            wallet.to_string().to_lowercase()
-                        ),
-                    ))
-                }
-            }
-        }
     }
 }

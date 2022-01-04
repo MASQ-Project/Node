@@ -4,20 +4,29 @@
 
 use bip39::{Language, Mnemonic, Seed};
 use jsonrpc_core as rpc;
+use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 use web3::{Error, RequestId, Transport};
 
-pub fn make_meaningless_phrase() -> String {
-    "phrase donate agent satoshi burst end company pear obvious achieve depth advice".to_string()
+lazy_static! {
+    static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
+        "parent", "prevent", "vehicle", "tooth", "crazy", "cruel", "update", "mango", "female",
+        "mad", "spread", "plunge", "tiny", "inch", "under", "engine", "enforce", "film", "awesome",
+        "plunge", "cloud", "spell", "empower", "pipe",
+    ];
 }
 
 pub fn make_meaningless_phrase_words() -> Vec<String> {
-    make_meaningless_phrase()
-        .split(" ")
-        .map(|x| x.to_string())
+    BIG_MEANINGLESS_PHRASE
+        .iter()
+        .map(|word| word.to_string())
         .collect()
+}
+
+pub fn make_meaningless_phrase() -> String {
+    make_meaningless_phrase_words().join(" ").to_string()
 }
 
 pub fn make_meaningless_seed() -> Seed {

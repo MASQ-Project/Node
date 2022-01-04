@@ -493,6 +493,10 @@ pub mod test_utils {
     unsafe impl<'a: 'b, 'b> Send for ConnectionWrapperMock<'a, 'b> {}
 
     impl<'a: 'b, 'b> ConnectionWrapperMock<'a, 'b> {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
         pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
             self.prepare_results.borrow_mut().push(result);
             self
@@ -583,7 +587,7 @@ mod tests {
     use super::*;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
     use crate::test_utils::database_utils::{
-        assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
+        bring_db_of_version_0_back_to_life_and_return_connection, retrieve_config_row,
         DbMigratorMock,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -1021,10 +1025,8 @@ mod tests {
         let result = subject.initialize(&data_dir, false, MigratorConfig::migration_suppressed());
 
         let wrapped_connection = result.unwrap();
-        let (_, schema_version_after, _) = assurance_query_for_config_table(
-            wrapped_connection.as_ref(),
-            "select name, value, encrypted from config where name = 'schema_version'",
-        );
+        let (schema_version_after, _) =
+            retrieve_config_row(wrapped_connection.as_ref(), "schema_version");
         assert_eq!(schema_version_after.unwrap(), schema_version_before)
     }
 

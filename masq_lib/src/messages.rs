@@ -478,6 +478,8 @@ pub struct UiConfigurationResponse {
     pub start_block: u64,
     #[serde(rename = "consumingWalletPrivateKeyOpt")]
     pub consuming_wallet_private_key_opt: Option<String>,
+    // This item is calculated from the private key, not stored in the database, so that
+    // the UI doesn't need to code to derive address from private key.
     #[serde(rename = "consumingWalletAddressOpt")]
     pub consuming_wallet_address_opt: Option<String>,
     #[serde(rename = "pastNeighbors")]

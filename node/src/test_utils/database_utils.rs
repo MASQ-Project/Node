@@ -73,14 +73,14 @@ impl DbMigrator for DbMigratorMock {
     }
 }
 
-pub fn assurance_query_for_config_table(
-    conn: &dyn ConnectionWrapper,
-    stm: &str,
-) -> (String, Option<String>, u16) {
-    let mut statement = conn.prepare(stm).unwrap();
+pub fn retrieve_config_row(conn: &dyn ConnectionWrapper, name: &str) -> (Option<String>, bool) {
+    let sql = "select value, encrypted from config where name = ?";
+    let mut statement = conn.prepare(sql).unwrap();
     statement
-        .query_row([], |r| {
-            Ok((r.get(0).unwrap(), r.get(1).unwrap(), r.get(2).unwrap()))
+        .query_row([name], |r| {
+            let value_opt: Option<String> = r.get(0).unwrap();
+            let encrypted_num: u64 = r.get(1).unwrap();
+            Ok((value_opt, encrypted_num > 0))
         })
-        .unwrap_or_else(|e| panic!("panicked at {} for statement: {}", e, stm))
+        .unwrap_or_else(|e| panic!("panicked at {} for statement: {}", e, sql))
 }

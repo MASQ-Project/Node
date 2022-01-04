@@ -477,7 +477,7 @@ mod tests {
             earning_path_opt: Some("m/44'/60'/0'/100/0/201".to_string()),
         };
 
-        subject.execute(&mut context).err().unwrap();
+        subject.execute(&mut context).err().unwrap(); // don't need success, just request translation
 
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -512,7 +512,7 @@ mod tests {
             earning_path_opt: None,
         };
 
-        subject.execute(&mut context).err().unwrap();
+        subject.execute(&mut context).err().unwrap(); // don't need success, just request translation
 
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

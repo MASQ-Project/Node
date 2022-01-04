@@ -90,11 +90,14 @@ impl Command for RecoverWalletsCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiRecoverWalletsRequest {
             db_password: self.db_password.clone(),
-            seed_spec_opt: self.seed_spec_opt.as_ref().map(|ss| UiRecoverSeedSpec {
-                mnemonic_phrase: ss.mnemonic_phrase.clone(),
-                mnemonic_phrase_language: ss.language.clone(),
-                mnemonic_passphrase_opt: ss.passphrase_opt.clone(),
-            }),
+            seed_spec_opt: self
+                .seed_spec_opt
+                .as_ref()
+                .map(|seed_spec| UiRecoverSeedSpec {
+                    mnemonic_phrase: seed_spec.mnemonic_phrase.clone(),
+                    mnemonic_phrase_language: seed_spec.language.clone(),
+                    mnemonic_passphrase_opt: seed_spec.passphrase_opt.clone(),
+                }),
             consuming_derivation_path_opt: match &self.consuming {
                 Either::Left(_) => None,
                 Either::Right(path) => Some(path.clone()),
@@ -157,7 +160,7 @@ pub fn recover_wallets_subcommand() -> App<'static, 'static> {
                 "Italian", "Japanese", "Korean", "Spanish"])
         )
         .arg(Arg::with_name ("consuming-path")
-            .help ("Derivation path from which the consuming wallet from which your bills will be paid was generated. Remember to put it in double quotes; otherwise the single quotes will cause problems")
+            .help ("Derivation that was used to generate the consuming wallet from which your bills will be paid. Remember to put it in double quotes; otherwise the single quotes will cause problems")
             .long ("consuming-path")
             .value_name ("CONSUMING-PATH")
             .required (false)
@@ -171,7 +174,7 @@ pub fn recover_wallets_subcommand() -> App<'static, 'static> {
             .takes_value (true)
         )
         .arg(Arg::with_name ("earning-path")
-            .help ("Derivation path from which to generate the earning wallet from which your bills will be paid. Can be the same as consuming-path. Remember to put it in double quotes; otherwise the single quotes will cause problems")
+            .help ("Derivation path that was used to generate the earning wallet from which your bills will be paid. Can be the same as consuming-path. Remember to put it in double quotes; otherwise the single quotes will cause problems")
             .long ("earning-path")
             .value_name ("EARNING-PATH")
             .required (false)
@@ -408,7 +411,7 @@ mod tests {
                 passphrase_opt: Some("booga".to_string()),
             }),
             consuming: Either::Right("consuming path".to_string()),
-            earning: Either::Right("earning wallet".to_string()),
+            earning: Either::Right("earning path".to_string()),
         };
 
         let result = subject.execute(&mut context);
@@ -427,7 +430,7 @@ mod tests {
                     }),
                     consuming_derivation_path_opt: Some("consuming path".to_string()),
                     consuming_private_key_opt: None,
-                    earning_derivation_path_opt: Some("earning wallet".to_string()),
+                    earning_derivation_path_opt: Some("earning path".to_string()),
                     earning_address_opt: None,
                 }
                 .tmb(0),

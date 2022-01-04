@@ -571,16 +571,19 @@ of payments that have not yet been confirmed. Only cumulative account balances a
 }
 ```
 ##### Description:
-This message directs the Node to generate a pair of wallets and report their vital statistic back to the UI. 
+This message directs the Node to generate a pair of wallets and report their vital statistics back to the UI. 
 If the database already contains a wallet pair, the wallet generation will fail.
 
-Wallets can be generated in two ways:
+Wallets can be generated in several ways:
 
 * Using derivation paths from a seed: in this case the request should contain a specification for the seed and 
   a derivation path for each wallet, and the response will contain a mnemonic phrase representing the generated
   seed, along with the address and private key for each wallet generated.
 * Entirely at random: in this case no direction should be given in the request, and the response will contain
   only the address and private key for each wallet generated.
+* With one wallet generated using a seed and a derivation path, and the other generated at random: in this case,
+  there should be a specification for the seed and a derivation path for only the seed/path wallet; the other
+  wallet will be generated randomly.
 
 `dbPassword` is the current database password. If this is incorrect or absent, the wallet generation will fail.
 
@@ -700,8 +703,9 @@ giving its address. (The Node does not need (and will not accept) the private ke
 it ever has to do is deposit funds in it from other Nodes. The private key can be derived from the seed and the
 derivation path, but the Node does not store it.)
 
-Private key/address are preferred; if you provide both that and the derivation path for either wallet, the derivation
-path will be ignored.
+This message schema allows you to provide more information than is necessary: for example, both earning address
+and earning derivation path (which may conflict), or both consuming private key and consuming derivation path
+(which also may conflict). If you do so, the derivation path will be overridden by the key or address and ignored.
 
 If you expect the derivation path to be used for either wallet, you must also provide the seed specification.
 

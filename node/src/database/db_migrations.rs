@@ -569,7 +569,7 @@ mod tests {
     use crate::db_config::typed_config_layer::encode_bytes;
     use crate::sub_lib::cryptde::PlainData;
     use crate::test_utils::database_utils::{
-        assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
+        bring_db_of_version_0_back_to_life_and_return_connection, retrieve_config_row,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
@@ -1307,22 +1307,12 @@ mod tests {
             MigratorConfig::create_or_migrate(make_external_migration_parameters()),
         );
         let connection = result.unwrap();
-        let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'mapping_protocol'",
-            );
-        let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'schema_version'",
-            );
-        assert_eq!(mp_name, "mapping_protocol".to_string());
+        let (mp_value, mp_encrypted) = retrieve_config_row(connection.as_ref(), "mapping_protocol");
+        let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
         assert_eq!(mp_value, None);
-        assert_eq!(mp_encrypted, 0);
-        assert_eq!(cs_name, "schema_version".to_string());
+        assert_eq!(mp_encrypted, false);
         assert_eq!(cs_value, Some("1".to_string()));
-        assert_eq!(cs_encrypted, 0)
+        assert_eq!(cs_encrypted, false)
     }
 
     #[test]
@@ -1351,22 +1341,12 @@ mod tests {
         );
 
         let connection = result.unwrap();
-        let (chn_name, chn_value, chn_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'chain_name'",
-            );
-        let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'schema_version'",
-            );
-        assert_eq!(chn_name, "chain_name".to_string());
+        let (chn_value, chn_encrypted) = retrieve_config_row(connection.as_ref(), "chain_name");
+        let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
         assert_eq!(chn_value, Some("eth-ropsten".to_string()));
-        assert_eq!(chn_encrypted, 0);
-        assert_eq!(cs_name, "schema_version".to_string());
+        assert_eq!(chn_encrypted, false);
         assert_eq!(cs_value, Some("2".to_string()));
-        assert_eq!(cs_encrypted, 0);
+        assert_eq!(cs_encrypted, false);
     }
 
     #[test]
@@ -1399,30 +1379,17 @@ mod tests {
         );
 
         let connection = result.unwrap();
-        let (bchs_name, bchs_value, bchs_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'blockchain_service_url'",
-            );
-        assert_eq!(bchs_name, "blockchain_service_url".to_string());
+        let (bchs_value, bchs_encrypted) =
+            retrieve_config_row(connection.as_ref(), "blockchain_service_url");
         assert_eq!(bchs_value, None);
-        assert_eq!(bchs_encrypted, 0);
-        let (nm_name, nm_value, nm_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'neighborhood_mode'",
-            );
-        assert_eq!(nm_name, "neighborhood_mode".to_string());
+        assert_eq!(bchs_encrypted, false);
+        let (nm_value, nm_encrypted) =
+            retrieve_config_row(connection.as_ref(), "neighborhood_mode");
         assert_eq!(nm_value, Some("consume-only".to_string()));
-        assert_eq!(nm_encrypted, 0);
-        let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'schema_version'",
-            );
-        assert_eq!(cs_name, "schema_version".to_string());
+        assert_eq!(nm_encrypted, false);
+        let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
         assert_eq!(cs_value, Some("3".to_string()));
-        assert_eq!(cs_encrypted, 0);
+        assert_eq!(cs_encrypted, false);
     }
 
     #[test]
@@ -1490,25 +1457,20 @@ mod tests {
         };
 
         let migrated_private_key = {
-            let schema4_conn = subject
+            let mut schema4_conn = subject
                 .initialize_to_version(&data_path, 4, false, migrator_config)
                 .unwrap();
-            let mut stmt = schema4_conn.prepare ("select count(*) from config where name in ('consuming_wallet_derivation_path', 'consuming_wallet_public_key', 'seed')").unwrap();
-            let cruft = stmt
-                .query_row([], |row| Ok(row.get::<usize, u32>(0)))
-                .unwrap()
-                .unwrap();
-            assert_eq!(cruft, 0);
-            let mut stmt = schema4_conn.prepare ("select value, encrypted from config where name = 'consuming_wallet_private_key'").unwrap();
-            let (private_key_encrypted, encrypted) = stmt
-                .query_row([], |row| {
-                    Ok((
-                        row.get::<usize, Option<String>>(0).unwrap(),
-                        row.get::<usize, u8>(1).unwrap(),
-                    ))
-                })
-                .unwrap();
-            assert_eq!(encrypted, 1);
+            {
+                let mut stmt = schema4_conn.prepare("select count(*) from config where name in ('consuming_wallet_derivation_path', 'consuming_wallet_public_key', 'seed')").unwrap();
+                let cruft = stmt
+                    .query_row([], |row| Ok(row.get::<usize, u32>(0)))
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(cruft, 0);
+            }
+            let (private_key_encrypted, encrypted) =
+                retrieve_config_row(schema4_conn.as_mut(), "consuming_wallet_private_key");
+            assert_eq!(encrypted, true);
             let private_key = Bip39::decrypt_bytes(
                 &private_key_encrypted.unwrap(),
                 password_opt.as_ref().unwrap(),
@@ -1538,30 +1500,21 @@ mod tests {
             .unwrap()
             .db_password_opt = password_opt.clone();
 
-        let schema4_conn = subject
+        let mut schema4_conn = subject
             .initialize_to_version(&data_path, 4, false, migrator_config)
             .unwrap();
 
-        let mut stmt = schema4_conn.prepare ("select count(*) from config where name in ('consuming_wallet_derivation_path', 'consuming_wallet_public_key', 'seed')").unwrap();
-        let cruft = stmt
-            .query_row([], |row| Ok(row.get::<usize, u32>(0)))
-            .unwrap()
-            .unwrap();
-        assert_eq!(cruft, 0);
-        let mut stmt = schema4_conn
-            .prepare(
-                "select value, encrypted from config where name = 'consuming_wallet_private_key'",
-            )
-            .unwrap();
-        let (private_key_encrypted, encrypted) = stmt
-            .query_row([], |row| {
-                Ok((
-                    row.get::<usize, Option<String>>(0).unwrap(),
-                    row.get::<usize, u8>(1).unwrap(),
-                ))
-            })
-            .unwrap();
+        {
+            let mut stmt = schema4_conn.prepare("select count(*) from config where name in ('consuming_wallet_derivation_path', 'consuming_wallet_public_key', 'seed')").unwrap();
+            let cruft = stmt
+                .query_row([], |row| Ok(row.get::<usize, u32>(0)))
+                .unwrap()
+                .unwrap();
+            assert_eq!(cruft, 0);
+        }
+        let (private_key_encrypted, encrypted) =
+            retrieve_config_row(schema4_conn.as_mut(), "consuming_wallet_private_key");
         assert_eq!(private_key_encrypted, None);
-        assert_eq!(encrypted, 1);
+        assert_eq!(encrypted, true);
     }
 }

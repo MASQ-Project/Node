@@ -12,8 +12,6 @@ use std::str::FromStr;
 use std::time::Duration;
 
 lazy_static! {
-    // TODO: How is this used? Does it ever get stored in the database, or is it a default assigned
-    // if the database is blank?
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
     // TODO: The consuming wallet should never be defaulted; it should always come in from a
     // (possibly-complicated) command-line parameter, or the bidirectional GUI.

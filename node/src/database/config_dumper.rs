@@ -509,7 +509,6 @@ mod tests {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
-        eprintln!("{:?}", map);
         let conn = DbInitializerReal::default()
             .initialize(&data_dir, false, MigratorConfig::panic_on_migration())
             .unwrap();

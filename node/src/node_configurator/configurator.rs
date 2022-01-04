@@ -214,8 +214,14 @@ impl Configurator {
             (Ok(Some(_)), Ok(None)) => {
                 panic!("Database corrupted: consuming wallet exists but earning wallet does not")
             }
-            (Err(ce), _) => Err((CONFIGURATOR_READ_ERROR, format!("{:?}", ce))),
-            (_, Err(ee)) => Err((CONFIGURATOR_READ_ERROR, format!("{:?}", ee))),
+            (Err(ce), _) => Err((
+                CONFIGURATOR_READ_ERROR,
+                format!("Consuming wallet error: {:?}", ce),
+            )),
+            (_, Err(ee)) => Err((
+                CONFIGURATOR_READ_ERROR,
+                format!("Earning wallet error: {:?}", ee),
+            )),
         }
     }
 
@@ -1088,12 +1094,12 @@ mod tests {
                 path: MessagePath::Conversation(1234),
                 payload: Err((
                     CONFIGURATOR_READ_ERROR,
-                    r#"DatabaseError("Unknown error 3")"#.to_string()
+                    r#"Consuming wallet error: DatabaseError("Unknown error 3")"#.to_string()
                 ))
             }
         );
         TestLogHandler::new().exists_log_containing(
-            r#"WARN: Configurator: Failed to obtain wallet addresses: 281474976710657, DatabaseError("Unknown error 3")"#,
+            r#"WARN: Configurator: Failed to obtain wallet addresses: 281474976710657, Consuming wallet error: DatabaseError("Unknown error 3")"#,
         );
     }
 
@@ -1121,12 +1127,12 @@ mod tests {
                 path: MessagePath::Conversation(1234),
                 payload: Err((
                     CONFIGURATOR_READ_ERROR,
-                    r#"DatabaseError("Unknown error 3")"#.to_string()
+                    r#"Earning wallet error: DatabaseError("Unknown error 3")"#.to_string()
                 ))
             }
         );
         TestLogHandler::new().exists_log_containing(
-            r#"WARN: Configurator: Failed to obtain wallet addresses: 281474976710657, DatabaseError("Unknown error 3")"#,
+            r#"WARN: Configurator: Failed to obtain wallet addresses: 281474976710657, Earning wallet error: DatabaseError("Unknown error 3")"#,
         );
     }
 
@@ -1699,10 +1705,9 @@ mod tests {
                 .set_wallet_info_result(Ok(())),
         );
 
-        let result =
-            Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
+        let _ = Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config)
+            .unwrap();
 
-        assert_eq!(result.is_ok(), true);
         let set_wallet_info_params = set_wallet_info_params_arc.lock().unwrap();
         assert_eq!(
             *set_wallet_info_params,
@@ -1734,7 +1739,7 @@ mod tests {
         let db_password = "password".to_string();
         let earning_address = "0x0123456789012345678901234567890123456789".to_string();
         let msg = UiRecoverWalletsRequest {
-            db_password: db_password.clone(),
+            db_password,
             seed_spec_opt: Some(UiRecoverSeedSpec {
                 mnemonic_phrase: make_meaningless_phrase_words(),
                 mnemonic_phrase_language: "English".to_string(),
@@ -1743,7 +1748,7 @@ mod tests {
             consuming_derivation_path_opt: None,
             consuming_private_key_opt: None,
             earning_derivation_path_opt: None,
-            earning_address_opt: Some(earning_address.clone()),
+            earning_address_opt: Some(earning_address),
         };
         let mut persistent_config: Box<dyn PersistentConfiguration> =
             Box::new(make_default_persistent_configuration().check_password_result(Ok(true)));
@@ -1760,14 +1765,14 @@ mod tests {
         let consuming_private_key =
             "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
         let msg = UiRecoverWalletsRequest {
-            db_password: db_password.clone(),
+            db_password,
             seed_spec_opt: Some(UiRecoverSeedSpec {
                 mnemonic_phrase: make_meaningless_phrase_words(),
                 mnemonic_phrase_language: "English".to_string(),
                 mnemonic_passphrase_opt: None,
             }),
             consuming_derivation_path_opt: None,
-            consuming_private_key_opt: Some(consuming_private_key.clone()),
+            consuming_private_key_opt: Some(consuming_private_key),
             earning_derivation_path_opt: None,
             earning_address_opt: None,
         };
@@ -2058,7 +2063,7 @@ mod tests {
             .current_schema_version_result("1.2.3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
-            .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key.clone())))
+            .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key)))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::Standard))
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
@@ -2315,21 +2320,13 @@ mod tests {
         UiRecoverWalletsRequest {
             db_password: "password".to_string(),
             seed_spec_opt: Some(UiRecoverSeedSpec {
-                mnemonic_phrase: vec![
-                    "parent", "prevent", "vehicle", "tooth", "crazy", "cruel", "update", "mango",
-                    "female", "mad", "spread", "plunge", "tiny", "inch", "under", "engine",
-                    "enforce", "film", "awesome", "plunge", "cloud", "spell", "empower", "pipe",
-                ]
-                .into_iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<String>>(),
+                mnemonic_phrase: make_meaningless_phrase_words(),
                 mnemonic_passphrase_opt: Some("ebullient".to_string()),
                 mnemonic_phrase_language: "English".to_string(),
             }),
             consuming_derivation_path_opt: Some(derivation_path(0, 4)),
             consuming_private_key_opt: None,
             earning_derivation_path_opt: Some(derivation_path(0, 5)),
-            // earning_wallet: "0x005e288d713a5fb3d7c9cf1b43810a98688c7223".to_string(),
             earning_address_opt: None,
         }
     }
