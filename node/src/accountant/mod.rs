@@ -1101,8 +1101,8 @@ impl Accountant {
                 None => handle_none_receipt(payment, self.config.when_pending_too_long_sec, logger),
                 Some(status_code) =>
                     match status_code.as_u64(){
-                    0 => handle_status_with_success(payment,logger),
-                    1 => handle_status_with_failure(&payment,logger),
+                    0 => handle_status_with_failure(&payment,logger),
+                    1 => handle_status_with_success(payment,logger),
                     other => unreachable!("tx receipt for pending '{}' - tx status: code other than 0 or 1 shouldn't be possible, but was {}",payment.hash,other)
                 }
             }
@@ -2188,13 +2188,12 @@ pub mod tests {
             from: paying_wallet.clone(),
             gwei_amount: amount,
         }];
-        let (blockchain_bridge_mock, blockchain_bridge_awaiter, blockchain_bridge_recording) =
-            make_recorder();
+        let (blockchain_bridge_mock, _, blockchain_bridge_recording) = make_recorder();
         let blockchain_bridge_mock = blockchain_bridge_mock
             .retrieve_transactions_response(Ok(vec![]))
             .retrieve_transactions_response(Ok(expected_transactions.clone()))
             .retrieve_transactions_response(Ok(vec![]));
-        let (accountant_mock, accountant_awaiter, accountant_recording_arc) = make_recorder();
+        let (accountant_mock, _, accountant_recording_arc) = make_recorder();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
@@ -2212,7 +2211,10 @@ pub mod tests {
             .new_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![])
-            .paid_delinquencies_result(vec![]); //extra last, because it has some inertia
+            .paid_delinquencies_result(vec![]) //extra last, because it has some inertia
+            .paid_delinquencies_result(vec![]); //TODO remove this extra supply later, not sure why needed and either if it can help
+                                                //TODO: it sometimes fails for Mac, later when we have configurable scanning intervals we will be able to set these intervals some to be short and a long one for the last cycle (GH-485)
+                                                // GH-492 may be also help, since it looks like it squeals because of the futures and run_interval() which still there
         receivable_dao.have_new_delinquencies_shutdown_the_system = true;
         let config_mock = PersistentConfigurationMock::new()
             .start_block_result(Ok(5))
@@ -2238,7 +2240,6 @@ pub mod tests {
 
         system.run();
 
-        blockchain_bridge_awaiter.await_message_count(1);
         let retrieve_transactions_recording = blockchain_bridge_recording.lock().unwrap();
         let retrieve_transactions_message_1 =
             retrieve_transactions_recording.get_record::<RetrieveTransactions>(0);
@@ -2258,7 +2259,6 @@ pub mod tests {
                 recipient: earning_wallet,
             }
         );
-        accountant_awaiter.await_message_count(1);
         let received_payments_recording = accountant_recording_arc.lock().unwrap();
         let received_payments_message =
             received_payments_recording.get_record::<ReceivedPayments>(0);
@@ -2268,6 +2268,8 @@ pub mod tests {
             },
             received_payments_message
         );
+        let new_delinquencies_params = new_delinquencies_params_arc.lock().unwrap();
+        assert_eq!(new_delinquencies_params.len(), 3) //the third is supposed to kill the system
     }
 
     #[test]
@@ -2692,7 +2694,8 @@ pub mod tests {
             .new_delinquencies_result(vec![make_receivable_account(1234, true)])
             .paid_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![])
-            .paid_delinquencies_result(vec![]); //because the system has some inertia before it shuts down
+            .paid_delinquencies_result(vec![]) //because the system has some inertia before it shuts down
+            .paid_delinquencies_result(vec![]); //TODO this is even one more extra; remove it when GH-485 or GH-492 are done, both offers options to break the race
         receivable_dao.have_new_delinquencies_shutdown_the_system = true;
         let banned_dao = BannedDaoMock::new()
             .ban_parameters(&ban_parameters_arc_inner)
@@ -4013,10 +4016,10 @@ pub mod tests {
         let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
         let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_1_third_round = TransactionReceipt::default();
-        transaction_receipt_tx_1_third_round.status = Some(U64::from(1)); //failure
+        transaction_receipt_tx_1_third_round.status = Some(U64::from(0)); //failure
         let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
-        transaction_receipt_tx_2_fourth_round.status = Some(U64::from(0)); // confirmed
+        transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
@@ -4345,7 +4348,7 @@ pub mod tests {
         let transaction_hash_1 = H256::from_uint(&U256::from(4545));
         let mut transaction_receipt_1 = TransactionReceipt::default();
         transaction_receipt_1.transaction_hash = transaction_hash_1;
-        transaction_receipt_1.status = Some(U64::from(0)); //success
+        transaction_receipt_1.status = Some(U64::from(1)); //success
         let payment_backup_1 = PaymentBackupRecord {
             rowid: 5,
             timestamp: from_time_t(200_000_000),
@@ -4357,7 +4360,7 @@ pub mod tests {
         let transaction_hash_2 = H256::from_uint(&U256::from(3333333));
         let mut transaction_receipt_2 = TransactionReceipt::default();
         transaction_receipt_2.transaction_hash = transaction_hash_2;
-        transaction_receipt_2.status = Some(U64::from(0)); //success
+        transaction_receipt_2.status = Some(U64::from(1)); //success
         let payment_backup_2 = PaymentBackupRecord {
             rowid: 10,
             timestamp: from_time_t(199_780_000),
@@ -4397,7 +4400,7 @@ pub mod tests {
         init_test_logging();
         let subject = AccountantBuilder::default().build();
         let mut tx_receipt = TransactionReceipt::default();
-        tx_receipt.status = Some(U64::from(1)); //failure
+        tx_receipt.status = Some(U64::from(0)); //failure
         let hash = H256::from_uint(&U256::from(4567));
         let pending_payment_backup = PaymentBackupRecord {
             rowid: 777777,

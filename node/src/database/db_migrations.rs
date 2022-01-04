@@ -575,7 +575,7 @@ mod tests {
     use crate::sub_lib::logger::Logger;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::database_utils::{
-        assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
+        assurance_query_for_config_table, bring_db_0_back_to_life_and_return_connection,
         query_specific_schema_information,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -1313,7 +1313,7 @@ mod tests {
         let dir_path = ensure_node_home_directory_exists("db_migrations", "0_to_1");
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join(DATABASE_FILE);
-        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
 
         let result = subject.initialize_to_version(
@@ -1347,7 +1347,7 @@ mod tests {
         let start_at = 1;
         let dir_path = ensure_node_home_directory_exists("db_migrations", "1_to_2");
         let db_path = dir_path.join(DATABASE_FILE);
-        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
         {
             subject
@@ -1394,7 +1394,7 @@ mod tests {
         let start_at = 2;
         let dir_path = ensure_node_home_directory_exists("db_migrations", "2_to_3");
         let db_path = dir_path.join(DATABASE_FILE);
-        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
         {
             subject
@@ -1453,7 +1453,7 @@ mod tests {
             "migration_from_4_to_5_without_pending_transactions",
         );
         let db_path = dir_path.join(DATABASE_FILE);
-        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
         {
             subject
@@ -1491,7 +1491,7 @@ mod tests {
             "migration_from_4_to_5_with_pending_transactions",
         );
         let db_path = dir_path.join(DATABASE_FILE);
-        let conn = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let conn = bring_db_0_back_to_life_and_return_connection(&db_path);
         let wallet_1 = make_wallet("james_bond");
         let transaction_hash_1 = H256::from_uint(&U256::from(45454545));
         let wallet_2 = make_wallet("robinson_crusoe");

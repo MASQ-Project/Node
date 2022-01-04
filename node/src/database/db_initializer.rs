@@ -609,7 +609,7 @@ mod tests {
     use super::*;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
     use crate::test_utils::database_utils::{
-        assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
+        assurance_query_for_config_table, bring_db_0_back_to_life_and_return_connection,
         query_specific_schema_information, DbMigratorMock,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -816,7 +816,7 @@ mod tests {
             "panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_migration",
         );
         let db_file_path = home_dir.join(DATABASE_FILE);
-        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_file_path);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_file_path);
         let target_version = 1;
         //schema_version equals to 0 but current schema version must be at least 1 and more
 
@@ -978,9 +978,7 @@ mod tests {
         std::fs::create_dir(updated_db_path_dir).unwrap();
         std::fs::create_dir(from_scratch_db_path_dir).unwrap();
         {
-            bring_db_of_version_0_back_to_life_and_return_connection(
-                &updated_db_path_dir.join(DATABASE_FILE),
-            );
+            bring_db_0_back_to_life_and_return_connection(&updated_db_path_dir.join(DATABASE_FILE));
         }
         let subject = DbInitializerReal::default();
 
@@ -1090,8 +1088,7 @@ mod tests {
             "db_initializer",
             "database_migration_can_be_suppressed",
         );
-        let conn =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         let subject = DbInitializerReal::default();
@@ -1113,8 +1110,7 @@ mod tests {
             "db_initializer",
             "database_migration_causes_panic_if_not_allowed",
         );
-        let _ =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let _ = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         let subject = DbInitializerReal::default();
 
         let _ = subject.initialize(&data_dir, false, MigratorConfig::panic_on_migration());
@@ -1142,8 +1138,7 @@ mod tests {
             "db_initializer",
             "database_migration_can_be_suppressed_and_give_an_initialization_error",
         );
-        let conn =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         let subject = DbInitializerReal::default();

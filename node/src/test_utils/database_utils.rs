@@ -13,7 +13,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-pub fn bring_db_of_version_0_back_to_life_and_return_connection(db_path: &PathBuf) -> Connection {
+pub fn bring_db_0_back_to_life_and_return_connection(db_path: &PathBuf) -> Connection {
     match remove_file(db_path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
         Err(e) => panic!("Unexpected but serious error: {}", e),

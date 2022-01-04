@@ -870,7 +870,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
-    use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
+    use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::{
@@ -1700,8 +1700,7 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_does_not_support_database_migration",
         );
-        let conn =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, "0");
@@ -1769,8 +1768,7 @@ mod tests {
             "setup_reporter",
             "run_configuration_suppresses_db_migration_which_is_why_it_refuses_to_initiate_persistent_config",
         );
-        let conn =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         conn.execute("update config set value = 55 where name = 'gas_price'", [])
             .unwrap();
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
