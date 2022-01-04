@@ -171,24 +171,9 @@ impl Handler<StartMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_start_message();
-
-        let closure = Box::new(|msg: ScanForPendingPayments, interval: Duration| {
-            ctx.notify_later(msg, interval)
-        });
-        self.transaction_confirmation
-            .notify_later_handle_scan_for_pending_payments
-            .notify_later(
-                ScanForPendingPayments {},
-                self.config.pending_payments_scan_interval,
-                closure,
-            );
-
-        ctx.notify_later(ScanForPayables {}, self.config.payables_scan_interval);
-
-        ctx.run_interval(self.config.receivables_scan_interval, |accountant, _ctx| {
-            accountant.handle_scan_for_receivables()
-        });
+        ctx.notify(ScanForPendingPayments {});
+        ctx.notify(ScanForPayables {});
+        ctx.notify(ScanForReceivables {});
     }
 }
 
@@ -196,7 +181,7 @@ impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.scan_for_payables();
+        self.scanners.payables.scan(self);
         let _ = ctx.notify_later(msg, self.config.payables_scan_interval);
     }
 }
@@ -205,17 +190,17 @@ impl Handler<ScanForPendingPayments> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: ScanForPendingPayments, ctx: &mut Self::Context) -> Self::Result {
-        self.scan_for_pending_payments();
-        let closure = Box::new(|msg: ScanForPendingPayments, interval: Duration| {
-            ctx.notify_later(msg, interval)
-        });
-        self.transaction_confirmation
-            .notify_later_handle_scan_for_pending_payments
-            .notify_later(
-                ScanForPendingPayments {},
-                self.config.pending_payments_scan_interval,
-                closure,
-            );
+        self.scanners.pending_payments.scan(self);
+        self.pending_payments_notify_later_assertable(ctx);
+    }
+}
+
+impl Handler<ScanForReceivables> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
+        self.scanners.receivables.scan(self);
+        let _ = ctx.notify_later(msg, self.config.receivables_scan_interval);
     }
 }
 
@@ -567,6 +552,20 @@ impl Accountant {
         }
     }
 
+    fn pending_payments_notify_later_assertable(&self, ctx: &mut Context<Self>) {
+        let closure = Box::new(|msg: ScanForPendingPayments, interval: Duration| {
+            ctx.notify_later(msg, interval)
+        });
+        let _ = self
+            .transaction_confirmation
+            .notify_later_handle_scan_for_pending_payments
+            .notify_later(
+                ScanForPendingPayments {},
+                self.config.pending_payments_scan_interval,
+                closure,
+            );
+    }
+
     fn balance_and_age(account: &ReceivableAccount) -> (String, Duration) {
         let balance = format!("{}", (account.balance as f64) / 1_000_000_000.0);
         let age = account
@@ -773,17 +772,6 @@ impl Accountant {
                 .request_transaction_receipts,
         );
         info!(self.logger, "Accountant bound");
-    }
-
-    fn handle_start_message(&self) {
-        self.scanners.pending_payments.scan(self);
-        self.scanners.payables.scan(self);
-        self.scanners.receivables.scan(self);
-    }
-
-    fn handle_scan_for_receivables(&self) {
-        self.scan_for_received_payments();
-        self.scan_for_delinquencies();
     }
 
     fn handle_received_payments(&mut self, received_payments: ReceivedPayments) {
@@ -1994,7 +1982,7 @@ pub mod tests {
         let mut subject = make_accountant(
             Some(bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
-                    payables_scan_interval: Duration::from_secs(100), //scan intervals deliberately big to demonstrate that we don't do the intervals yet
+                    payables_scan_interval: Duration::from_secs(100),
                     receivables_scan_interval: Duration::from_secs(100),
                     pending_payments_scan_interval: Duration::from_secs(100),
                     when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
@@ -2211,10 +2199,7 @@ pub mod tests {
             .new_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![])
-            .paid_delinquencies_result(vec![]) //extra last, because it has some inertia
-            .paid_delinquencies_result(vec![]); //TODO remove this extra supply later, not sure why needed and either if it can help
-                                                //TODO: it sometimes fails for Mac, later when we have configurable scanning intervals we will be able to set these intervals some to be short and a long one for the last cycle (GH-485)
-                                                // GH-492 may be also help, since it looks like it squeals because of the futures and run_interval() which still there
+            .paid_delinquencies_result(vec![]); //extra last, because it has some inertia
         receivable_dao.have_new_delinquencies_shutdown_the_system = true;
         let config_mock = PersistentConfigurationMock::new()
             .start_block_result(Ok(5))
@@ -2694,8 +2679,7 @@ pub mod tests {
             .new_delinquencies_result(vec![make_receivable_account(1234, true)])
             .paid_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![])
-            .paid_delinquencies_result(vec![]) //because the system has some inertia before it shuts down
-            .paid_delinquencies_result(vec![]); //TODO this is even one more extra; remove it when GH-485 or GH-492 are done, both offers options to break the race
+            .paid_delinquencies_result(vec![]); //because the system has some inertia before it shuts down
         receivable_dao.have_new_delinquencies_shutdown_the_system = true;
         let banned_dao = BannedDaoMock::new()
             .ban_parameters(&ban_parameters_arc_inner)
@@ -3962,24 +3946,6 @@ pub mod tests {
 
     #[test]
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
-        //TODO change the description
-        //We send a list of creditor accounts with mature debts to BlockchainBridge,
-        //he acts like he's sending transactions for paying them (the transacting part is mocked),
-        //next BlockchainBridge relies payments to Accountant with PaymentSent message. There we take care of an update
-        //of the payable table, marking a pending tx, after which we register a delayed self-notification
-        //to send a message requesting fetching tx receipts, when we get the receipts we process
-        //them and make and either registr another self-notification to repeat the cycle (that is for a still
-        //pending transaction) or we can demand a cancellation for the reason of either getting a confirmation for
-        //the transaction or for having a failure on that transaction.
-        //One transaction is canceled after failure detected and the other is successfully confirmed.
-        //When a transaction is being clean out, we remove marks from both payable and pending_payments tables.
-        //It's a very similar procedure as for a confirmation or remotely happened failure (not a procedural
-        //error within our code)
-        //Extending beyond the scope of this test: If it were a failure occurred after the moment of sending
-        //a theoretically correct transaction what we also call a post-transaction time and if it stands that
-        //we can reach a solid backup of the payment we will do just a partial clean-up, leaving the confirmation
-        //for another periodical scan for listed but still unconfirmed transactions (but this part is not a part
-        //of this test)
         init_test_logging();
         let mark_pending_payment_params_arc = Arc::new(Mutex::new(vec![]));
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3999,7 +3965,6 @@ pub mod tests {
         let notify_confirm_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_confirm_transaction_params_arc_cloned =
             notify_confirm_transaction_params_arc.clone(); //because it moves into a closure
-                                                           //these belongs to 'pending_payment' table
         let pending_tx_hash_1 = H256::from_uint(&U256::from(123));
         let pending_tx_hash_2 = H256::from_uint(&U256::from(567));
         let rowid_for_account_1 = 3;
@@ -4023,7 +3988,7 @@ pub mod tests {
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
-            //because we cannot have both, resolution on the higher level and also regarding what's inside blockchain interface,
+            //because we cannot have both, resolution on the high level and also regarding what's inside blockchain interface,
             //there is (only) one component that is missing in this wholesome test - the part where we send a request to create
             //a backup for the payment's parameters in the DB - this happens inside send_raw_transaction()
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
@@ -4188,10 +4153,8 @@ pub mod tests {
 
         send_start_message!(accountant_subs);
 
-        //I need one more actor on an Arbiter's thread (able to invoke a panic if something's wrong);
-        //the main subject - BlockchainBridge - is clumsy regarding combining its creation and an Arbiter, so I used this solution
         dummy_actor_addr
-            .try_send(CleanUpMessage { sleep_ms: 3000 })
+            .try_send(CleanUpMessage { sleep_ms: 1000 })
             .unwrap();
         assert_eq!(system.run(), 0);
         let mut mark_pending_payment_parameters = mark_pending_payment_params_arc.lock().unwrap();
@@ -4274,7 +4237,6 @@ pub mod tests {
             ScanForPendingPayments {},
             Duration::from_millis(pending_payments_scan_interval),
         );
-
         let notify_later_check_for_confirmation = notify_later_scan_for_pending_payments_params_arc
             .lock()
             .unwrap();
