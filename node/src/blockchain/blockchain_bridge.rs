@@ -216,7 +216,11 @@ impl BlockchainBridge {
                     payments: transactions,
                 })
                 .expect("Accountant is dead."),
-            Err(e) => warning!(self.logger, "{}", e),
+            Err(e) => warning!(
+                self.logger,
+                "Attempted to retrieve received payments but failed: {:?}",
+                e
+            ),
         }
     }
 
@@ -352,46 +356,6 @@ mod tests {
             DEFAULT_CHAIN,
         );
     }
-
-    //TODO I believe this test is now redundant and will go away
-    /*#[test]
-    fn ask_me_about_my_transactions() {
-        let system = System::new("ask_me_about_my_transactions");
-        let block_no = 37;
-        let expected_results = vec![Transaction {
-            block_number: 42u64,
-            from: make_wallet("some_address"),
-            gwei_amount: 21,
-        }];
-        let result = Ok(expected_results.clone());
-        let wallet = make_wallet("smelly");
-        let blockchain_interface_mock = BlockchainInterfaceMock::default()
-            .retrieve_transactions_result(result)
-            .contract_address_result(TEST_DEFAULT_CHAIN.rec().contract);
-        let retrieve_transactions_parameters = blockchain_interface_mock
-            .retrieve_transactions_parameters
-            .clone();
-        let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            None,
-        );
-        let addr = subject.start();
-
-        let request = addr.send(RetrieveTransactions {
-            start_block: block_no,
-            recipient: wallet.clone(),
-        });
-        System::current().stop();
-        system.run();
-
-        let retrieve_transactions_parameters = retrieve_transactions_parameters.lock().unwrap();
-        assert_eq!((block_no, wallet), retrieve_transactions_parameters[0]);
-
-        let result = request.wait().unwrap();
-        assert_eq!(expected_results, result);
-    }*/
 
     #[test]
     fn report_accounts_payable_returns_error_for_blockchain_error() {
@@ -561,15 +525,14 @@ mod tests {
     }
 
     #[test]
-    fn handle_retrieve_transactions_transacts_and_sends_received_payments_to_blockchain_interface()
-    {
+    fn handle_retrieve_transactions_sends_received_payments_back_to_accountant() {
+        let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
         let system =
-            System::new("retrieve_transactions_sends_transactions_to_blockchain_interface");
+            System::new("handle_retrieve_transactions_sends_received_payments_back_to_accountant");
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let earning_wallet = make_wallet("somewallet");
         let amount = 42;
         let amount2 = 55;
-        let expected_gas_price = 5;
         let expected_transactions = vec![
             Transaction {
                 block_number: 7,
@@ -583,12 +546,11 @@ mod tests {
             },
         ];
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .retrieve_transactions_params(&retrieve_transactions_params_arc)
             .retrieve_transactions_result(Ok(expected_transactions.clone()));
-        let persistent_configuration_mock =
-            PersistentConfigurationMock::default().gas_price_result(Ok(expected_gas_price));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
-            Box::new(persistent_configuration_mock),
+            Box::new(PersistentConfigurationMock::default()),
             false,
             Some(earning_wallet.clone()),
         );
@@ -596,24 +558,27 @@ mod tests {
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
-
         let retrieve_transactions = RetrieveTransactions {
-            start_block: 0,
+            start_block: 6,
             recipient: earning_wallet.clone(),
         };
 
         addr.try_send(retrieve_transactions)
             .expect("Blockchain bridge is dead");
+
         System::current().stop();
         system.run();
-
+        let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
+        assert_eq!(*retrieve_transactions_params, vec![(6, earning_wallet)]);
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
-        let retrieve_transactions_msg =
-            accountant_received_payment.get_record::<ReceivedPayments>(0);
-        let retrieve_transactions_cloned = retrieve_transactions_msg.payments.clone();
-        let expected_transactions_cloned = expected_transactions.clone();
-        assert_eq!(retrieve_transactions_cloned, expected_transactions_cloned)
+        let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
+        assert_eq!(
+            received_payments,
+            &ReceivedPayments {
+                payments: expected_transactions
+            }
+        );
     }
 
     #[test]
@@ -643,6 +608,31 @@ mod tests {
 
         TestLogHandler::new().exists_log_containing(
             "WARN: BlockchainBridge: ReportAccountPayable: gas-price: TransactionError",
+        );
+    }
+
+    #[test]
+    fn blockchain_bridge_logs_error_from_retrieving_received_payments() {
+        init_test_logging();
+        let blockchain_interface = BlockchainInterfaceMock::default().retrieve_transactions_result(
+            Err(BlockchainError::QueryFailed("we have no luck".to_string())),
+        );
+        let subject = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Box::new(PersistentConfigurationMock::default()),
+            false,
+            None,
+        );
+        let msg = RetrieveTransactions {
+            start_block: 5,
+            recipient: make_wallet("blah"),
+        };
+
+        let _ = subject.handle_retrieve_transactions(msg);
+
+        TestLogHandler::new().exists_log_containing(
+            "WARN: BlockchainBridge: Attempted to retrieve \
+         received payments but failed: QueryFailed(\"we have no luck\")",
         );
     }
 

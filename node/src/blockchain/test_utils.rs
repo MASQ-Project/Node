@@ -40,6 +40,11 @@ pub struct BlockchainInterfaceMock {
 }
 
 impl BlockchainInterfaceMock {
+    pub fn retrieve_transactions_params(mut self, params: &Arc<Mutex<Vec<(u64, Wallet)>>>) -> Self {
+        self.retrieve_transactions_parameters = params.clone();
+        self
+    }
+
     pub fn retrieve_transactions_result(
         self,
         result: Result<Vec<Transaction>, BlockchainError>,

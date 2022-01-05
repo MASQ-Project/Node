@@ -1,8 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::payable_dao::Payment;
 use crate::accountant::{ReceivedPayments, ScanForPayables, ScanForReceivables, SentPayments};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainResult, Transaction};
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
 use crate::neighborhood::gossip::Gossip_0v1;
@@ -59,8 +57,6 @@ pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
-    retrieve_transactions_responses: Vec<Result<Vec<Transaction>, BlockchainError>>,
-    report_accounts_payable_responses: Vec<Result<Vec<BlockchainResult<Payment>>, String>>,
 }
 
 #[derive(Default)]
@@ -208,22 +204,6 @@ impl Recorder {
 
     pub fn route_query_response(mut self, response: Option<RouteQueryResponse>) -> Recorder {
         self.route_query_responses.push(response);
-        self
-    }
-
-    pub fn retrieve_transactions_response(
-        mut self,
-        response: Result<Vec<Transaction>, BlockchainError>,
-    ) -> Recorder {
-        self.retrieve_transactions_responses.push(response);
-        self
-    }
-
-    pub fn report_accounts_payable_response(
-        mut self,
-        response: Result<Vec<BlockchainResult<Payment>>, String>,
-    ) -> Recorder {
-        self.report_accounts_payable_responses.push(response);
         self
     }
 }
