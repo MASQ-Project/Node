@@ -9,6 +9,8 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use rusqlite::Transaction;
 use std::fmt::Debug;
+use crate::accountant::PAYMENT_CURVES;
+use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -296,20 +298,36 @@ impl DatabaseMigration for Migrate_5_to_6 {
         &self,
         declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()> {
-        let statement_1 =
-            "INSERT INTO config (name, value, encrypted) VALUES ('blockchain_service_url', null, 0)";
-        let statement_2 = format!(
-            "INSERT INTO config (name, value, encrypted) VALUES ('neighborhood_mode', '{}', 0)",
-            declaration_utils
-                .external_parameters()
-                .neighborhood_mode
-                .to_string()
-        );
-        declaration_utils.execute_upon_transaction(&[statement_1, statement_2.as_str()])
+        let sql_strings = vec![
+            ("payment_suggested_after_sec", PAYMENT_CURVES.payment_suggested_after_sec),
+            ("payment_grace_before_ban_sec", PAYMENT_CURVES.payment_grace_before_ban_sec),
+            ("permanent_debt_allowed_gwei", PAYMENT_CURVES.permanent_debt_allowed_gwei),
+            ("balance_to_decrease_from_gwei", PAYMENT_CURVES.balance_to_decrease_from_gwei),
+            ("balance_decreases_for_sec", PAYMENT_CURVES.balance_decreases_for_sec),
+            ("unban_when_balance_below_gwei", PAYMENT_CURVES.unban_when_balance_below_gwei),
+            ("routing_byte_rate", DEFAULT_RATE_PACK.routing_byte_rate as i64),
+            ("routing_service_rate", DEFAULT_RATE_PACK.routing_service_rate as i64),
+            ("exit_byte_rate", DEFAULT_RATE_PACK.exit_byte_rate as i64),
+            ("exit_service_rate", DEFAULT_RATE_PACK.exit_service_rate as i64),
+        ].into_iter()
+            .map (Self::make_initialization_statement)
+            .collect::<Vec<String>>();
+        let sql_strs = sql_strings.iter()
+            .map (|s| s.as_str())
+            .collect::<Vec<&str>>();
+        declaration_utils.execute_upon_transaction(&sql_strs)
     }
 
     fn old_version(&self) -> usize {
         5
+    }
+}
+
+impl Migrate_5_to_6 {
+    fn make_initialization_statement (name_and_value: (&str, i64)) -> String {
+        let (name, value) = name_and_value;
+        format!("INSERT INTO config (name, value, encrypted) VALUES ('{}', '{}', 0)",
+            name, value)
     }
 }
 
