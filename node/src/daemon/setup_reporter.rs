@@ -964,7 +964,6 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::AutomapProtocol;
-    use rusqlite::NO_PARAMS;
     use std::cell::RefCell;
     use std::convert::TryFrom;
     #[cfg(not(target_os = "windows"))]
@@ -1884,11 +1883,8 @@ mod tests {
         );
         let conn =
             bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
-        conn.execute(
-            "update config set value = 55 where name = 'gas_price'",
-            NO_PARAMS,
-        )
-        .unwrap();
+        conn.execute("update config set value = 55 where name = 'gas_price'", [])
+            .unwrap();
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let updated_gas_price = dao.get("gas_price").unwrap().value_opt.unwrap();
         assert_eq!(updated_gas_price, "55");

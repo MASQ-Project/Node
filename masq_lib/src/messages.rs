@@ -5,11 +5,13 @@ use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use itertools::Itertools;
+use serde::__private::fmt::Error;
+use serde::__private::Formatter;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use std::fmt::{Debug, Error, Formatter};
+use std::fmt::Debug;
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 

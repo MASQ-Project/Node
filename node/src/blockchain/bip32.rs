@@ -8,6 +8,7 @@ use serde::ser;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
+use std::num::NonZeroU32;
 use tiny_hderive::bip32::ExtendedPrivKey;
 
 #[allow(clippy::upper_case_acronyms)]
@@ -120,7 +121,10 @@ impl Serialize for Bip32ECKeyProvider {
     {
         let secret: EthsignSecretKey = self.into();
         let result = secret
-            .to_crypto(&Protected::from("secret"), 1)
+            .to_crypto(
+                &Protected::from("secret"),
+                u32::from(NonZeroU32::new(1).expect("Could not create")),
+            )
             .map_err(ser::Error::custom)?;
         result.serialize(serializer)
     }
