@@ -61,10 +61,10 @@ lazy_static! {
     pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
         payment_suggested_after_sec: SECONDS_PER_DAY,
         payment_grace_before_ban_sec: SECONDS_PER_DAY,
-        permanent_debt_allowed_gwub: 10_000_000,
-        balance_to_decrease_from_gwub: 1_000_000_000,
+        permanent_debt_allowed_gwei: 10_000_000,
+        balance_to_decrease_from_gwei: 1_000_000_000,
         balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
-        unban_when_balance_below_gwub: 10_000_000,
+        unban_when_balance_below_gwei: 10_000_000,
     };
 }
 
@@ -77,10 +77,10 @@ pub enum PaymentError {
 pub struct PaymentCurves {
     pub payment_suggested_after_sec: i64,
     pub payment_grace_before_ban_sec: i64,
-    pub permanent_debt_allowed_gwub: i64,
-    pub balance_to_decrease_from_gwub: i64,
+    pub permanent_debt_allowed_gwei: i64,
+    pub balance_to_decrease_from_gwei: i64,
     pub balance_decreases_for_sec: i64,
-    pub unban_when_balance_below_gwub: i64,
+    pub unban_when_balance_below_gwei: i64,
 }
 
 impl PaymentCurves {
@@ -460,7 +460,7 @@ impl Accountant {
             return None;
         }
 
-        if payable.balance <= PAYMENT_CURVES.permanent_debt_allowed_gwub {
+        if payable.balance <= PAYMENT_CURVES.permanent_debt_allowed_gwei {
             return None;
         }
 
@@ -473,11 +473,11 @@ impl Accountant {
     }
 
     fn calculate_payout_threshold(x: u64) -> f64 {
-        let m = -((PAYMENT_CURVES.balance_to_decrease_from_gwub as f64
-            - PAYMENT_CURVES.permanent_debt_allowed_gwub as f64)
+        let m = -((PAYMENT_CURVES.balance_to_decrease_from_gwei as f64
+            - PAYMENT_CURVES.permanent_debt_allowed_gwei as f64)
             / (PAYMENT_CURVES.balance_decreases_for_sec as f64
                 - PAYMENT_CURVES.payment_suggested_after_sec as f64));
-        let b = PAYMENT_CURVES.balance_to_decrease_from_gwub as f64
+        let b = PAYMENT_CURVES.balance_to_decrease_from_gwei as f64
             - m * PAYMENT_CURVES.payment_suggested_after_sec as f64;
         m * x as f64 + b
     }
@@ -1538,7 +1538,7 @@ pub mod tests {
         let expected_wallet = make_wallet("blah");
         let expected_wallet_inner = expected_wallet.clone();
         let expected_amount =
-            u64::try_from(PAYMENT_CURVES.permanent_debt_allowed_gwub + 1000).unwrap();
+            u64::try_from(PAYMENT_CURVES.permanent_debt_allowed_gwei + 1000).unwrap();
 
         let expected_pending_payment_transaction = H256::from("transaction_hash".keccak256());
         let expected_pending_payment_transaction_inner =
@@ -1547,7 +1547,7 @@ pub mod tests {
         let payable_dao = PayableDaoMock::new()
             .non_pending_payables_result(vec![PayableAccount {
                 wallet: expected_wallet.clone(),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1000,
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwei + 1000,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
                 ),
@@ -1627,7 +1627,7 @@ pub mod tests {
         let payable_dao = PayableDaoMock::new()
             .non_pending_payables_result(vec![PayableAccount {
                 wallet: expected_wallet.clone(),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1000,
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwei + 1000,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
                 ),
@@ -1946,7 +1946,7 @@ pub mod tests {
             // slightly above minimum balance, to the right of the curve (time intersection)
             let account0 = PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1,
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwei + 1,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
                 ),
@@ -1954,7 +1954,7 @@ pub mod tests {
             };
             let account1 = PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 2,
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwei + 2,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 12,
                 ),
@@ -2031,7 +2031,7 @@ pub mod tests {
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub - 1,
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwei - 1,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
                 ),
@@ -2040,7 +2040,7 @@ pub mod tests {
             // above balance intersection, to the left of minimum time (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 1,
+                balance: PAYMENT_CURVES.balance_to_decrease_from_gwei + 1,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.payment_suggested_after_sec + 10,
                 ),
@@ -2049,7 +2049,7 @@ pub mod tests {
             // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
             PayableAccount {
                 wallet: make_wallet("wallet2"),
-                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub - 1000,
+                balance: PAYMENT_CURVES.balance_to_decrease_from_gwei - 1000,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.payment_suggested_after_sec - 1,
                 ),
@@ -2093,7 +2093,7 @@ pub mod tests {
             // slightly above minimum balance, to the right of the curve (time intersection)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1,
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwei + 1,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
                 ),
@@ -2102,7 +2102,7 @@ pub mod tests {
             // slightly above the curve (balance intersection), to the right of minimum time
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 1,
+                balance: PAYMENT_CURVES.balance_to_decrease_from_gwei + 1,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.payment_suggested_after_sec - 10,
                 ),
@@ -2985,7 +2985,7 @@ pub mod tests {
         let qualified_payables = &[
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1000,
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwei + 1000,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 1234,
                 ),
@@ -2993,7 +2993,7 @@ pub mod tests {
             },
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwub + 1,
+                balance: PAYMENT_CURVES.permanent_debt_allowed_gwei + 1,
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 1,
                 ),

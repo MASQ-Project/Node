@@ -253,6 +253,66 @@ impl DatabaseMigration for Migrate_2_to_3 {
     }
 }
 
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+struct Migrate_3_to_4;
+
+impl DatabaseMigration for Migrate_3_to_4 {
+    fn migrate<'a>(
+        &self,
+        _: Box<dyn MigDeclarationUtilities + 'a>,
+    ) -> rusqlite::Result<()> {
+        Ok(())
+    }
+
+    fn old_version(&self) -> usize {
+        3
+    }
+}
+
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+struct Migrate_4_to_5;
+
+impl DatabaseMigration for Migrate_4_to_5 {
+    fn migrate<'a>(
+        &self,
+        _: Box<dyn MigDeclarationUtilities + 'a>,
+    ) -> rusqlite::Result<()> {
+        Ok(())
+    }
+
+    fn old_version(&self) -> usize {
+        4
+    }
+}
+
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+struct Migrate_5_to_6;
+
+impl DatabaseMigration for Migrate_5_to_6 {
+    fn migrate<'a>(
+        &self,
+        declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
+    ) -> rusqlite::Result<()> {
+        let statement_1 =
+            "INSERT INTO config (name, value, encrypted) VALUES ('blockchain_service_url', null, 0)";
+        let statement_2 = format!(
+            "INSERT INTO config (name, value, encrypted) VALUES ('neighborhood_mode', '{}', 0)",
+            declaration_utils
+                .external_parameters()
+                .neighborhood_mode
+                .to_string()
+        );
+        declaration_utils.execute_upon_transaction(&[statement_1, statement_2.as_str()])
+    }
+
+    fn old_version(&self) -> usize {
+        5
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 impl DbMigratorReal {
@@ -264,7 +324,8 @@ impl DbMigratorReal {
     }
 
     fn list_of_migrations<'a>() -> &'a [&'a dyn DatabaseMigration] {
-        &[&Migrate_0_to_1, &Migrate_1_to_2, &Migrate_2_to_3]
+        &[&Migrate_0_to_1, &Migrate_1_to_2, &Migrate_2_to_3, &Migrate_3_to_4, &Migrate_4_to_5,
+          &Migrate_5_to_6]
     }
 
     fn initiate_migrations<'a>(
@@ -470,6 +531,8 @@ mod tests {
     use std::fs::create_dir_all;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
+    use crate::accountant::PAYMENT_CURVES;
+    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
@@ -1115,7 +1178,7 @@ mod tests {
 
     #[test]
     fn migration_from_0_to_1_is_properly_set() {
-        let dir_path = ensure_node_home_directory_exists("db_migrations", "0_to_1");
+        let dir_path = ensure_node_home_directory_exists("db_migrations", "migration_from_0_to_1_is_properly_set");
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
@@ -1149,7 +1212,7 @@ mod tests {
     #[test]
     fn migration_from_1_to_2_is_properly_set() {
         let start_at = 1;
-        let dir_path = ensure_node_home_directory_exists("db_migrations", "1_to_2");
+        let dir_path = ensure_node_home_directory_exists("db_migrations", "migration_from_1_to_2_is_properly_set");
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
@@ -1193,7 +1256,7 @@ mod tests {
     #[test]
     fn migration_from_2_to_3_is_properly_set() {
         let start_at = 2;
-        let dir_path = ensure_node_home_directory_exists("db_migrations", "2_to_3");
+        let dir_path = ensure_node_home_directory_exists("db_migrations", "migration_from_2_to_3_is_properly_set");
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
@@ -1243,5 +1306,57 @@ mod tests {
         assert_eq!(cs_name, "schema_version".to_string());
         assert_eq!(cs_value, Some("3".to_string()));
         assert_eq!(cs_encrypted, 0);
+    }
+
+    #[test]
+    fn migration_from_5_to_6_works() {
+        let dir_path = ensure_node_home_directory_exists("db_migrations", "migration_from_5_to_6_works");
+        let db_path = dir_path.join(DATABASE_FILE);
+        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let subject = DbInitializerReal::default();
+        {
+            subject
+                .initialize_to_version(
+                    &dir_path,
+                    6,
+                    true,
+                    MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                )
+                .unwrap();
+        }
+
+        let result = subject.initialize_to_version(
+            &dir_path,
+            6,
+            true,
+            MigratorConfig::create_or_migrate(ExternalData::new(
+                DEFAULT_CHAIN,
+                NeighborhoodModeLight::ConsumeOnly,
+            )),
+        );
+
+        let connection = result.unwrap();
+        verify_configuration_value (connection.as_ref(), "payment_suggested_after_sec", Some (format!("{}", PAYMENT_CURVES.payment_suggested_after_sec)), false);
+        verify_configuration_value (connection.as_ref(), "payment_grace_before_ban_sec", Some (format!("{}", PAYMENT_CURVES.payment_grace_before_ban_sec)), false);
+        verify_configuration_value (connection.as_ref(), "permanent_debt_allowed_gwei", Some (format!("{}", PAYMENT_CURVES.permanent_debt_allowed_gwei)), false);
+        verify_configuration_value (connection.as_ref(), "balance_to_decrease_from_gwei", Some (format!("{}", PAYMENT_CURVES.balance_to_decrease_from_gwei)), false);
+        verify_configuration_value (connection.as_ref(), "balance_decreases_for_sec", Some (format!("{}", PAYMENT_CURVES.balance_decreases_for_sec)), false);
+        verify_configuration_value (connection.as_ref(), "unban_when_balance_below_gwei", Some (format!("{}", PAYMENT_CURVES.unban_when_balance_below_gwei)), false);
+        verify_configuration_value (connection.as_ref(), "routing_byte_rate", Some (format!("{}", DEFAULT_RATE_PACK.routing_byte_rate)), false);
+        verify_configuration_value (connection.as_ref(), "routing_service_rate", Some (format!("{}", DEFAULT_RATE_PACK.routing_service_rate)), false);
+        verify_configuration_value (connection.as_ref(), "exit_byte_rate", Some (format!("{}", DEFAULT_RATE_PACK.exit_byte_rate)), false);
+        verify_configuration_value (connection.as_ref(), "exit_service_rate", Some (format!("{}", DEFAULT_RATE_PACK.exit_service_rate)), false);
+    }
+
+    fn verify_configuration_value (conn: &dyn ConnectionWrapper, name: &str, value_opt: Option<String>, encrypted: bool) {
+        // GH-477 should severely simplify this
+        let (actual_name, actual_value_opt, actual_encrypted): (String, Option<String>, u16) =
+            assurance_query_for_config_table(
+                conn,
+                &format!("select name, value, encrypted from config where name = '{}'", name),
+            );
+        assert_eq!(actual_name, name.to_string()); // unnecessary
+        assert_eq!(actual_value_opt, value_opt);
+        assert_eq!(actual_encrypted, if encrypted {1} else {0});
     }
 }
