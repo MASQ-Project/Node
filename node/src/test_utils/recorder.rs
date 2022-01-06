@@ -1,8 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::payable_dao::Payment;
-use crate::accountant::{ReceivedPayments, SentPayments};
+use crate::accountant::{ReceivedPayments, ScanForPayables, ScanForReceivables, SentPayments};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainResult, Transaction};
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
 use crate::neighborhood::gossip::Gossip_0v1;
@@ -42,11 +40,11 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::test_utils::to_millis;
-use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
+use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::Any;
 use std::sync::{Arc, Mutex};
@@ -59,8 +57,6 @@ pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
-    retrieve_transactions_responses: Vec<Result<Vec<Transaction>, BlockchainError>>,
-    report_accounts_payable_responses: Vec<Result<Vec<BlockchainResult<Payment>>, String>>,
 }
 
 #[derive(Default)]
@@ -128,6 +124,10 @@ recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
+recorder_message_handler!(ReportAccountsPayable);
+recorder_message_handler!(ScanForReceivables);
+recorder_message_handler!(ScanForPayables);
+recorder_message_handler!(RetrieveTransactions);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -157,38 +157,6 @@ impl Handler<RouteQueryMessage> for Recorder {
         MessageResult(extract_response(
             &mut self.route_query_responses,
             "No RouteQueryResponses prepared for RouteQueryMessage",
-        ))
-    }
-}
-
-impl Handler<RetrieveTransactions> for Recorder {
-    type Result = MessageResult<RetrieveTransactions>;
-
-    fn handle(
-        &mut self,
-        msg: RetrieveTransactions,
-        _ctx: &mut Self::Context,
-    ) -> <Self as Handler<RetrieveTransactions>>::Result {
-        self.record(msg);
-        MessageResult(extract_response(
-            &mut self.retrieve_transactions_responses,
-            "No RetrieveTransactionsResponses prepared for RetrieveTransactions",
-        ))
-    }
-}
-
-impl Handler<ReportAccountsPayable> for Recorder {
-    type Result = MessageResult<ReportAccountsPayable>;
-
-    fn handle(
-        &mut self,
-        msg: ReportAccountsPayable,
-        _ctx: &mut Self::Context,
-    ) -> <Self as Handler<ReportAccountsPayable>>::Result {
-        self.record(msg);
-        MessageResult(extract_response(
-            &mut self.report_accounts_payable_responses,
-            "No ReportAccountsPayableResponses prepared for ReportAccountsPayable",
         ))
     }
 }
@@ -238,22 +206,6 @@ impl Recorder {
         self.route_query_responses.push(response);
         self
     }
-
-    pub fn retrieve_transactions_response(
-        mut self,
-        response: Result<Vec<Transaction>, BlockchainError>,
-    ) -> Recorder {
-        self.retrieve_transactions_responses.push(response);
-        self
-    }
-
-    pub fn report_accounts_payable_response(
-        mut self,
-        response: Result<Vec<BlockchainResult<Payment>>, String>,
-    ) -> Recorder {
-        self.report_accounts_payable_responses.push(response);
-        self
-    }
 }
 
 impl Recording {
@@ -265,7 +217,10 @@ impl Recording {
         self.len() == 0
     }
 
-    pub fn get<T: Any + Send + Clone>(recording_arc: &Arc<Mutex<Recording>>, index: usize) -> T {
+    pub fn get<T: Any + Send + Clone + Message>(
+        recording_arc: &Arc<Mutex<Recording>>,
+        index: usize,
+    ) -> T {
         let recording_arc_clone = recording_arc.clone();
         let recording = recording_arc_clone.lock().unwrap();
         recording.get_record::<T>(index).clone()
@@ -275,22 +230,36 @@ impl Recording {
     where
         T: Any + Send,
     {
+        self.get_record_inner_body(index)
+            .unwrap_or_else(|e| panic!("{}", e))
+    }
+
+    pub fn get_record_opt<T>(&self, index: usize) -> Option<&T>
+    where
+        T: Any + Send,
+    {
+        self.get_record_inner_body(index).ok()
+    }
+
+    fn get_record_inner_body<T: 'static>(&self, index: usize) -> Result<&T, String> {
         let item_box = match self.messages.get(index) {
             Some(item_box) => item_box,
-            None => panic!(
-                "Only {} messages recorded: no message #{} in the recording",
-                self.messages.len(),
-                index
-            ),
+            None => {
+                return Err(format!(
+                    "Only {} messages recorded: no message #{} in the recording",
+                    self.messages.len(),
+                    index
+                ))
+            }
         };
         let item_opt = item_box.downcast_ref::<T>();
 
         match item_opt {
-            Some(item) => item,
-            None => panic!(
+            Some(item) => Ok(item),
+            None => Err(format!(
                 "Message {:?} could not be downcast to the expected type",
                 item_box
-            ),
+            )),
         }
     }
 }
