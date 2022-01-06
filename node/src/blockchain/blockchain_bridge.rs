@@ -208,6 +208,9 @@ impl BlockchainBridge {
             .blockchain_interface
             .retrieve_transactions(msg.start_block, &msg.recipient);
         match retrieved_transactions {
+            Ok(transactions) if transactions.is_empty() => {
+                debug!(self.logger, "No new receivable detected")
+            }
             Ok(transactions) => self
                 .received_payments_subs_opt
                 .as_ref()
@@ -359,14 +362,13 @@ mod tests {
 
     #[test]
     fn report_accounts_payable_returns_error_for_blockchain_error() {
+        let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .get_transaction_count_params(&get_transaction_count_params_arc)
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .send_transaction_result(Err(BlockchainError::TransactionFailed(String::from(
                 "mock payment failure",
             ))));
-        let transaction_count_parameters = blockchain_interface_mock
-            .get_transaction_count_parameters
-            .clone();
         let consuming_wallet = make_wallet("somewallet");
         let persistent_configuration_mock =
             PersistentConfigurationMock::new().gas_price_result(Ok(3u64));
@@ -393,7 +395,7 @@ mod tests {
                 "mock payment failure"
             )))])
         );
-        let actual_wallet = transaction_count_parameters.lock().unwrap().remove(0);
+        let actual_wallet = get_transaction_count_params_arc.lock().unwrap().remove(0);
         assert_eq!(actual_wallet, consuming_wallet);
     }
 
@@ -450,25 +452,29 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
 
-        let _ = addr.try_send(ReportAccountsPayable {
-            accounts: vec![
-                PayableAccount {
-                    wallet: make_wallet("blah"),
-                    balance: 420,
-                    last_paid_timestamp: from_time_t(150_000_000),
-                    pending_payment_transaction: None,
-                },
-                PayableAccount {
-                    wallet: make_wallet("foo"),
-                    balance: 210,
-                    last_paid_timestamp: from_time_t(120_000_000),
-                    pending_payment_transaction: None,
-                },
-            ],
-        });
-        System::current().stop();
-        system.run();
+        let _ = addr
+            .try_send(ReportAccountsPayable {
+                accounts: vec![
+                    PayableAccount {
+                        wallet: make_wallet("blah"),
+                        balance: 420,
+                        last_paid_timestamp: from_time_t(150_000_000),
+                        pending_payment_transaction: None,
+                    },
+                    PayableAccount {
+                        wallet: make_wallet("foo"),
+                        balance: 210,
+                        last_paid_timestamp: from_time_t(120_000_000),
+                        pending_payment_transaction: None,
+                    },
+                ],
+            })
+            .unwrap();
 
+        System::current().stop();
+        let before = SystemTime::now();
+        system.run();
+        let after = SystemTime::now();
         let send_transaction_params = send_transaction_params_arc.lock().unwrap();
         assert_eq!(
             *send_transaction_params,
@@ -498,12 +504,13 @@ mod tests {
         assert_eq!(accountant_received_payment.len(), 1);
         let sent_payment_msg = accountant_received_payment.get_record::<SentPayments>(0);
         let mut sent_payments_cloned = sent_payment_msg.payments.clone();
+        let mut list_of_timestamps = vec![];
         sent_payments_cloned
             .iter_mut()
             .for_each(|payment_in_result| {
-                if let Ok(payment) = payment_in_result {
-                    payment.timestamp = from_time_t(0)
-                }
+                let payment = payment_in_result.as_mut().unwrap();
+                list_of_timestamps.push(payment.timestamp);
+                payment.timestamp = from_time_t(0)
             });
         assert_eq!(
             sent_payments_cloned,
@@ -521,64 +528,16 @@ mod tests {
                     transaction: H256::from("someothertransactionhash".keccak256())
                 })
             ]
-        )
-    }
-
-    #[test]
-    fn handle_retrieve_transactions_sends_received_payments_back_to_accountant() {
-        let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
-        let system =
-            System::new("handle_retrieve_transactions_sends_received_payments_back_to_accountant");
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let earning_wallet = make_wallet("somewallet");
-        let amount = 42;
-        let amount2 = 55;
-        let expected_transactions = vec![
-            Transaction {
-                block_number: 7,
-                from: earning_wallet.clone(),
-                gwei_amount: amount,
-            },
-            Transaction {
-                block_number: 9,
-                from: earning_wallet.clone(),
-                gwei_amount: amount2,
-            },
-        ];
-        let blockchain_interface_mock = BlockchainInterfaceMock::default()
-            .retrieve_transactions_params(&retrieve_transactions_params_arc)
-            .retrieve_transactions_result(Ok(expected_transactions.clone()));
-        let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            Some(earning_wallet.clone()),
         );
-        let addr = subject.start();
-        let subject_subs = BlockchainBridge::make_subs_from(&addr);
-        let peer_actors = peer_actors_builder().accountant(accountant).build();
-        send_bind_message!(subject_subs, peer_actors);
-        let retrieve_transactions = RetrieveTransactions {
-            start_block: 6,
-            recipient: earning_wallet.clone(),
-        };
-
-        addr.try_send(retrieve_transactions)
-            .expect("Blockchain bridge is dead");
-
-        System::current().stop();
-        system.run();
-        let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
-        assert_eq!(*retrieve_transactions_params, vec![(6, earning_wallet)]);
-        let accountant_received_payment = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_received_payment.len(), 1);
-        let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
-        assert_eq!(
-            received_payments,
-            &ReceivedPayments {
-                payments: expected_transactions
-            }
-        );
+        list_of_timestamps.iter().for_each(|stamp| {
+            assert!(
+                before < *stamp && *stamp < after,
+                "before: {:?}, actual: {:?}, after: {:?}",
+                before,
+                stamp,
+                after
+            )
+        })
     }
 
     #[test]
@@ -634,6 +593,85 @@ mod tests {
             "WARN: BlockchainBridge: Attempted to retrieve \
          received payments but failed: QueryFailed(\"we have no luck\")",
         );
+    }
+
+    #[test]
+    fn handle_retrieve_transactions_sends_received_payments_back_to_accountant() {
+        let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
+        let system =
+            System::new("handle_retrieve_transactions_sends_received_payments_back_to_accountant");
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let earning_wallet = make_wallet("somewallet");
+        let amount = 42;
+        let amount2 = 55;
+        let expected_transactions = vec![
+            Transaction {
+                block_number: 7,
+                from: earning_wallet.clone(),
+                gwei_amount: amount,
+            },
+            Transaction {
+                block_number: 9,
+                from: earning_wallet.clone(),
+                gwei_amount: amount2,
+            },
+        ];
+        let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .retrieve_transactions_params(&retrieve_transactions_params_arc)
+            .retrieve_transactions_result(Ok(expected_transactions.clone()));
+        let subject = BlockchainBridge::new(
+            Box::new(blockchain_interface_mock),
+            Box::new(PersistentConfigurationMock::default()),
+            false,
+            Some(make_wallet("consuming")),
+        );
+        let addr = subject.start();
+        let subject_subs = BlockchainBridge::make_subs_from(&addr);
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        send_bind_message!(subject_subs, peer_actors);
+        let retrieve_transactions = RetrieveTransactions {
+            start_block: 6,
+            recipient: earning_wallet.clone(),
+        };
+
+        let _ = addr.try_send(retrieve_transactions).unwrap();
+
+        System::current().stop();
+        system.run();
+        let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
+        assert_eq!(*retrieve_transactions_params, vec![(6, earning_wallet)]);
+        let accountant_received_payment = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_received_payment.len(), 1);
+        let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
+        assert_eq!(
+            received_payments,
+            &ReceivedPayments {
+                payments: expected_transactions
+            }
+        );
+    }
+
+    #[test]
+    fn processing_of_received_payments_does_not_continue_if_no_payments_detected() {
+        init_test_logging();
+        let blockchain_interface_mock =
+            BlockchainInterfaceMock::default().retrieve_transactions_result(Ok(vec![]));
+        let subject = BlockchainBridge::new(
+            Box::new(blockchain_interface_mock),
+            Box::new(PersistentConfigurationMock::default()),
+            false,
+            None, //not needed in this test
+        );
+        let retrieve_transactions = RetrieveTransactions {
+            start_block: 6,
+            recipient: make_wallet("somewallet"),
+        };
+
+        let _ = subject.handle_retrieve_transactions(retrieve_transactions);
+
+        TestLogHandler::new()
+            .exists_log_containing("DEBUG: BlockchainBridge: No new receivable detected");
+        //the test did not panic, meaning we did not try to send the actor message
     }
 
     #[test]

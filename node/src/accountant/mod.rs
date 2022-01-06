@@ -50,9 +50,8 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-//TODO evaluate if these should be configurable by user in UI and/or CLI
 pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 3600; // one hour
-pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 300; // one hour
+pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 3600; // one hour
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
@@ -1493,7 +1492,7 @@ pub mod tests {
         let accounts = vec![
             PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 100,
+                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 55,
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now()) - PAYMENT_CURVES.payment_suggested_after_sec - 5,
                 ),
@@ -1501,9 +1500,9 @@ pub mod tests {
             },
             PayableAccount {
                 wallet: make_wallet("foo"),
-                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 100,
+                balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 66,
                 last_paid_timestamp: from_time_t(
-                    to_time_t(SystemTime::now()) - PAYMENT_CURVES.payment_suggested_after_sec - 5,
+                    to_time_t(SystemTime::now()) - PAYMENT_CURVES.payment_suggested_after_sec - 500,
                 ),
                 pending_payment_transaction: None,
             },
@@ -1549,12 +1548,12 @@ pub mod tests {
     }
 
     #[test]
-    fn accountant_scans_for_received_payments_and_sends_message_to_blockchain_bridge() {
+    fn accountant_sends_a_request_to_blockchain_bridge_to_scan_for_received_payments() {
         init_test_logging();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let earning_wallet = make_wallet("someearningwallet");
         let system = System::new(
-            "accountant_scans_for_received_payments_and_sends_message_to_blockchain_bridge",
+            "accountant_sends_a_request_to_blockchain_bridge_to_scan_for_received_payments",
         );
         let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let persistent_config =
@@ -1577,8 +1576,8 @@ pub mod tests {
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();
-
         send_bind_message!(accountant_subs, peer_actors);
+
         send_start_message!(accountant_subs);
 
         System::current().stop();
@@ -1616,8 +1615,7 @@ pub mod tests {
             balance: 4567,
             last_received_timestamp: from_time_t(200_000_000),
         };
-        let system =
-            System::new("accountant_payment_received_scan_timer_triggers_scanning_for_payments");
+        let system = System::new("periodical_scanning_for_receivables_and_delinquencies_works");
         let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let banned_dao = BannedDaoMock::new().ban_parameters(&ban_params_arc);
         let mut receivable_dao = ReceivableDaoMock::new()
@@ -1682,58 +1680,7 @@ pub mod tests {
     }
 
     #[test]
-    fn accountant_logs_if_no_transactions_were_detected() {
-        init_test_logging();
-        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
-        let earning_wallet = make_wallet("someearningwallet");
-        let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
-        let receivable_dao = ReceivableDaoMock::new()
-            .new_delinquencies_result(vec![])
-            .paid_delinquencies_result(vec![]);
-        let system = System::new("accountant_logs_if_no_transactions_were_detected");
-        let config_mock = PersistentConfigurationMock::new().start_block_result(Ok(5));
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(10_000),
-                receivables_scan_interval: Duration::from_millis(100),
-            },
-            earning_wallet.clone(),
-        );
-        let subject = make_subject(
-            Some(config),
-            Some(payable_dao),
-            Some(receivable_dao),
-            None,
-            Some(config_mock),
-        );
-        let accountant_addr = subject.start();
-        let accountant_subs = Accountant::make_subs_from(&accountant_addr);
-        let peer_actors = peer_actors_builder()
-            .blockchain_bridge(blockchain_bridge)
-            .build();
-        send_bind_message!(accountant_subs, peer_actors);
-        send_start_message!(accountant_subs);
-
-        System::current().stop();
-        system.run();
-
-        let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
-        assert_eq!(blockchain_bridge_recorder.len(), 1);
-        let retrieve_transactions_message =
-            blockchain_bridge_recorder.get_record::<RetrieveTransactions>(0);
-        assert_eq!(
-            &RetrieveTransactions {
-                start_block: 5u64,
-                recipient: earning_wallet,
-            },
-            retrieve_transactions_message
-        );
-        TestLogHandler::new().exists_log_containing("DEBUG: Accountant: Scanning for payments");
-    }
-
-    #[test]
     fn accountant_receives_new_payments_to_the_receivables_dao() {
-        init_test_logging();
         let wallet = make_wallet("wallet0");
         let earning_wallet = make_wallet("earner3000");
         let gwei_amount = 42u64;
@@ -1792,7 +1739,8 @@ pub mod tests {
         let receivable_dao = ReceivableDaoMock::new()
             .new_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![]);
-        let system = System::new("accountant_payable_scan_timer_triggers_scanning_for_payables");
+        let system =
+            System::new("accountant_payable_scan_timer_triggers_periodical_scanning_for_payables");
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
                 payables_scan_interval: Duration::from_millis(100),
@@ -1801,7 +1749,6 @@ pub mod tests {
             make_wallet("hi"),
         );
         let now = to_time_t(SystemTime::now());
-        // slightly above minimum balance, to the right of the curve (time intersection)
         let account = PayableAccount {
             wallet: make_wallet("wallet"),
             balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 5,
@@ -1848,17 +1795,12 @@ pub mod tests {
                 accounts: vec![account]
             }]
         );
-        TestLogHandler::new().assert_logs_contain_in_order(vec![
-            "DEBUG: Accountant: Scanning for payables",
-            "DEBUG: Accountant: Scanning for payables",
-        ]);
     }
 
     #[test]
     fn accountant_scans_after_startup() {
         init_test_logging();
         let (blockchain_bridge, _, _) = make_recorder();
-
         let system = System::new("accountant_scans_after_startup");
         let config = bc_from_ac_plus_wallets(
             AccountantConfig {
@@ -1882,7 +1824,7 @@ pub mod tests {
         System::current().stop();
         system.run();
         let tlh = TestLogHandler::new();
-        tlh.await_log_containing("DEBUG: Accountant: Scanning for payables", 1000u64);
+        tlh.exists_log_containing("DEBUG: Accountant: Scanning for payables");
         tlh.exists_log_containing(&format!(
             "DEBUG: Accountant: Scanning for payments to {}",
             make_wallet("hi")
