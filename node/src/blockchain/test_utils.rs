@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::blockchain::blockchain_interface::{
-    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, Transaction,
+    Balance, BlockchainInterface, BlockchainResult, Nonce,
     Transactions,
 };
 use crate::blockchain::tool_wrappers::{
@@ -31,7 +31,7 @@ pub fn make_meaningless_seed() -> Seed {
 #[derive(Debug, Default)]
 pub struct BlockchainInterfaceMock {
     pub retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
-    pub retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
+    pub retrieve_transactions_results: RefCell<Vec<Transactions>>,
     pub send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
     pub send_transaction_results: RefCell<Vec<BlockchainResult<H256>>>,
     pub contract_address_results: RefCell<Vec<Address>>,
@@ -47,7 +47,7 @@ impl BlockchainInterfaceMock {
 
     pub fn retrieve_transactions_result(
         self,
-        result: Result<Vec<Transaction>, BlockchainError>,
+        result: Transactions,
     ) -> Self {
         self.retrieve_transactions_results.borrow_mut().push(result);
         self

@@ -208,7 +208,7 @@ impl BlockchainBridge {
             .blockchain_interface
             .retrieve_transactions(msg.start_block, &msg.recipient);
         match retrieved_transactions {
-            Ok(transactions) if transactions.is_empty() => {
+            Ok(transactions) if transactions.transactions.is_empty() => {
                 debug!(self.logger, "No new receivable detected")
             }
             Ok(transactions) => self
@@ -216,7 +216,7 @@ impl BlockchainBridge {
                 .as_ref()
                 .expect("Accountant is unbound")
                 .try_send(ReceivedPayments {
-                    payments: transactions,
+                    payments: transactions.transactions,
                 })
                 .expect("Accountant is dead."),
             Err(e) => warning!(
@@ -269,7 +269,7 @@ mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
+    use crate::blockchain::blockchain_interface::{BlockchainError, RetrievedTransactions, Transaction};
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
@@ -604,18 +604,21 @@ mod tests {
         let earning_wallet = make_wallet("somewallet");
         let amount = 42;
         let amount2 = 55;
-        let expected_transactions = vec![
-            Transaction {
-                block_number: 7,
-                from: earning_wallet.clone(),
-                gwei_amount: amount,
-            },
-            Transaction {
-                block_number: 9,
-                from: earning_wallet.clone(),
-                gwei_amount: amount2,
-            },
-        ];
+        let expected_transactions = RetrievedTransactions {
+            new_start_block: 1234,
+            transactions: vec![
+                Transaction {
+                    block_number: 7,
+                    from: earning_wallet.clone(),
+                    gwei_amount: amount,
+                },
+                Transaction {
+                    block_number: 9,
+                    from: earning_wallet.clone(),
+                    gwei_amount: amount2,
+                },
+            ]
+        };
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
             .retrieve_transactions_result(Ok(expected_transactions.clone()));
@@ -646,7 +649,7 @@ mod tests {
         assert_eq!(
             received_payments,
             &ReceivedPayments {
-                payments: expected_transactions
+                payments: expected_transactions.transactions
             }
         );
     }
@@ -655,7 +658,7 @@ mod tests {
     fn processing_of_received_payments_does_not_continue_if_no_payments_detected() {
         init_test_logging();
         let blockchain_interface_mock =
-            BlockchainInterfaceMock::default().retrieve_transactions_result(Ok(vec![]));
+            BlockchainInterfaceMock::default().retrieve_transactions_result(Ok(RetrievedTransactions {new_start_block: 6, transactions: vec![]}));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(PersistentConfigurationMock::default()),
