@@ -1414,7 +1414,7 @@ mod tests {
             ),
         );
         subject.data_directory = data_dir;
-        let addr: Addr<Neighborhood> = subject.start();
+        let addr = subject.start();
         let sub = addr.clone().recipient::<StartMessage>();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
@@ -1474,7 +1474,7 @@ mod tests {
             ),
         );
         subject.data_directory = data_dir;
-        let addr: Addr<Neighborhood> = subject.start();
+        let addr = subject.start();
         let sub = addr.clone().recipient::<StartMessage>();
         let peer_actors = peer_actors_builder().build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -1587,7 +1587,7 @@ mod tests {
             0,
         );
         let system = System::new("responds_with_none_when_initially_configured_with_no_data");
-        let addr: Addr<Neighborhood> = subject.start();
+        let addr = subject.start();
         let sub = addr.recipient::<ExpiredCoresPackage<GossipFailure_0v1>>();
 
         sub.try_send(ecp1).unwrap();
@@ -1605,7 +1605,7 @@ mod tests {
     fn node_query_responds_with_none_when_initially_configured_with_no_data() {
         let system = System::new("responds_with_none_when_initially_configured_with_no_data");
         let subject = make_standard_subject();
-        let addr: Addr<Neighborhood> = subject.start();
+        let addr = subject.start();
         let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
 
         let future = sub.send(NodeQueryMessage::PublicKey(PublicKey::new(&b"booga"[..])));

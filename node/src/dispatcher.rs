@@ -183,7 +183,6 @@ mod tests {
     use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
-    use actix::Addr;
     use actix::System;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::messages::{ToMessageBody, UiDescriptorResponse};
@@ -196,7 +195,7 @@ mod tests {
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
         let system = System::new("test");
         let subject = Dispatcher::new("descriptor".to_string(), false);
-        let subject_addr: Addr<Dispatcher> = subject.start();
+        let subject_addr = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
         let proxy_server = Recorder::new();
         let recording_arc = proxy_server.get_recording();
@@ -237,7 +236,7 @@ mod tests {
     fn sends_inbound_data_for_hopper_to_hopper() {
         let system = System::new("test");
         let subject = Dispatcher::new("descriptor".to_string(), false);
-        let subject_addr: Addr<Dispatcher> = subject.start();
+        let subject_addr = subject.start();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let reception_port = Some(8080);
@@ -276,7 +275,7 @@ mod tests {
     fn inbound_client_data_handler_panics_when_proxy_server_is_unbound() {
         let system = System::new("test");
         let subject = Dispatcher::new("descriptor".to_string(), false);
-        let subject_addr: Addr<Dispatcher> = subject.start();
+        let subject_addr = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
         let reception_port = Some(1234);
@@ -301,7 +300,7 @@ mod tests {
     fn inbound_client_data_handler_panics_when_hopper_is_unbound() {
         let system = System::new("test");
         let subject = Dispatcher::new("descriptor".to_string(), false);
-        let subject_addr: Addr<Dispatcher> = subject.start();
+        let subject_addr = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
         let reception_port = Some(1234);
@@ -326,7 +325,7 @@ mod tests {
     fn panics_when_stream_handler_pool_is_unbound() {
         let system = System::new("test");
         let subject = Dispatcher::new("descriptor".to_string(), false);
-        let subject_addr: Addr<Dispatcher> = subject.start();
+        let subject_addr = subject.start();
         let subject_obcd = subject_addr.recipient::<TransmitDataMsg>();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let data: Vec<u8> = vec![9, 10, 11];
@@ -347,7 +346,7 @@ mod tests {
     fn forwards_outbound_data_to_stream_handler_pool() {
         let system = System::new("test");
         let subject = Dispatcher::new("descriptor".to_string(), false);
-        let subject_addr: Addr<Dispatcher> = subject.start();
+        let subject_addr = subject.start();
         let subject_obcd = subject_addr.clone().recipient::<TransmitDataMsg>();
         let stream_handler_pool = Recorder::new();
         let recording_arc = stream_handler_pool.get_recording();

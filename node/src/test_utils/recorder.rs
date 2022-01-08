@@ -1,12 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::payable_dao::Payment;
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanForPayables, ScanForReceivables, SentPayments,
 };
 use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainResult, Transaction};
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
 use crate::neighborhood::gossip::Gossip_0v1;
@@ -63,8 +61,6 @@ pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
-    retrieve_transactions_responses: Vec<Result<Vec<Transaction>, BlockchainError>>,
-    report_accounts_payable_responses: Vec<Result<Vec<BlockchainResult<Payment>>, String>>,
 }
 
 #[derive(Default)]
@@ -133,6 +129,7 @@ recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
 recorder_message_handler!(PaymentBackupRecord);
+recorder_message_handler!(RetrieveTransactions);
 recorder_message_handler!(RequestTransactionReceipts);
 recorder_message_handler!(ReportTransactionReceipts);
 recorder_message_handler!(ReportAccountsPayable);
@@ -167,22 +164,6 @@ impl Handler<RouteQueryMessage> for Recorder {
         MessageResult(extract_response(
             &mut self.route_query_responses,
             "No RouteQueryResponses prepared for RouteQueryMessage",
-        ))
-    }
-}
-
-impl Handler<RetrieveTransactions> for Recorder {
-    type Result = MessageResult<RetrieveTransactions>;
-
-    fn handle(
-        &mut self,
-        msg: RetrieveTransactions,
-        _ctx: &mut Self::Context,
-    ) -> <Self as Handler<RetrieveTransactions>>::Result {
-        self.record(msg);
-        MessageResult(extract_response(
-            &mut self.retrieve_transactions_responses,
-            "No RetrieveTransactionsResponses prepared for RetrieveTransactions",
         ))
     }
 }
@@ -230,22 +211,6 @@ impl Recorder {
 
     pub fn route_query_response(mut self, response: Option<RouteQueryResponse>) -> Recorder {
         self.route_query_responses.push(response);
-        self
-    }
-
-    pub fn retrieve_transactions_response(
-        mut self,
-        response: Result<Vec<Transaction>, BlockchainError>,
-    ) -> Recorder {
-        self.retrieve_transactions_responses.push(response);
-        self
-    }
-
-    pub fn report_accounts_payable_response(
-        mut self,
-        response: Result<Vec<BlockchainResult<Payment>>, String>,
-    ) -> Recorder {
-        self.report_accounts_payable_responses.push(response);
         self
     }
 }
