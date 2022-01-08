@@ -58,26 +58,28 @@ use std::time::{Duration, SystemTime};
 use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-//TODO evaluate if these should be configurable by user in UI and/or CLI
-pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 300; // 5 minutes
-pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 300; // 5 minutes
 
-const SECONDS_PER_DAY: i64 = 86_400;
+pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 300; // every 5 min
+pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 300; //  every 5 min
+
+//const SECONDS_PER_DAY: i64 = 86_400;
+const DEBT_MATURE_AFTER: i64 = 720; // 12 min
+const DEBT_CONSIDERED_BIG_FROM: i64 = 5_000_000;
 
 lazy_static! {
     pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
-        payment_suggested_after_sec: SECONDS_PER_DAY,
-        payment_grace_before_ban_sec: SECONDS_PER_DAY,
-        permanent_debt_allowed_gwub: 10_000_000,
-        balance_to_decrease_from_gwub: 1_000_000_000,
-        balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
-        unban_when_balance_below_gwub: 10_000_000,
+        payment_suggested_after_sec: DEBT_MATURE_AFTER,
+        payment_grace_before_ban_sec: DEBT_MATURE_AFTER,
+        permanent_debt_allowed_gwub: DEBT_CONSIDERED_BIG_FROM, //10_000_000
+        balance_to_decrease_from_gwub: 10_000_000,     //1_000_000_000
+        balance_decreases_for_sec: 30 * DEBT_MATURE_AFTER,  //30*86400
+        unban_when_balance_below_gwub: DEBT_CONSIDERED_BIG_FROM, //10_000_000
     };
 }
 
 //TODO this might become chain specific later on
-pub const DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS: u64 = 5_000;
-pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
+pub const DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS: u64 = 30_000;
+pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 120; //21 600 <=> 6h
 
 #[derive(Debug, PartialEq)]
 pub enum DebtRecordingError {
@@ -3939,8 +3941,8 @@ pub mod tests {
 
         assert_eq!(result,
                    "Paying qualified debts:\n\
-                   10001000 owed for 2593234sec exceeds threshold: 9512428; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   10000001 owed for 2592001sec exceeds threshold: 9999604; creditor: 0x0000000000000000000000000077616c6c657431"
+                   5001000 owed for 22834sec exceeds threshold: 4704501; creditor: 0x0000000000000000000000000077616c6c657430\n\
+                   5000001 owed for 21601sec exceeds threshold: 4999760; creditor: 0x0000000000000000000000000077616c6c657431"
         )
     }
 
@@ -4454,7 +4456,7 @@ pub mod tests {
         );
         TestLogHandler::new().exists_log_containing(
             "WARN: receipt_check_logger: Pending transaction '0x0000…0237' has exceeded the \
-             maximum time allowed (21600sec) for being pending and the confirmation process is going to \
+             maximum time allowed (120sec) for being pending and the confirmation process is going to \
               be aborted now at the finished attempt 10; manual resolving is required from the user to \
                make the transaction paid",
         );
