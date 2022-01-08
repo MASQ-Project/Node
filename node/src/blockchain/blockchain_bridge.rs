@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::{PayableAccount, Payment};
-use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::accountant::{ReceivedPayments, SentPayments};
+use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
     BlockchainInterfaceNonClandestine, BlockchainResult, SendTransactionInputs,
@@ -530,8 +530,14 @@ mod tests {
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
             .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
             .send_transaction_params(&send_transaction_params_arc)
-            .send_transaction_result(Ok((H256::from("sometransactionhash".keccak256()), from_time_t(150_000_000))))
-            .send_transaction_result(Ok((H256::from("someothertransactionhash".keccak256()),from_time_t(160_000_000))));
+            .send_transaction_result(Ok((
+                H256::from("sometransactionhash".keccak256()),
+                from_time_t(150_000_000),
+            )))
+            .send_transaction_result(Ok((
+                H256::from("someothertransactionhash".keccak256()),
+                from_time_t(160_000_000),
+            )));
         let expected_gas_price = 5u64;
         let persistent_configuration_mock =
             PersistentConfigurationMock::default().gas_price_result(Ok(expected_gas_price));

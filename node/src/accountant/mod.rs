@@ -1475,7 +1475,7 @@ pub mod tests {
                 && self.have_new_delinquencies_shutdown_the_system
             {
                 System::current().stop();
-                return vec![]
+                return vec![];
             }
             self.new_delinquencies_results.borrow_mut().remove(0)
         }
@@ -1925,7 +1925,7 @@ pub mod tests {
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now()) - PAYMENT_CURVES.payment_suggested_after_sec - 5,
                 ),
-                pending_payment_rowid_opt: None
+                pending_payment_rowid_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("foo"),
@@ -1933,7 +1933,7 @@ pub mod tests {
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now()) - PAYMENT_CURVES.payment_suggested_after_sec - 500,
                 ),
-                pending_payment_rowid_opt: None
+                pending_payment_rowid_opt: None,
             },
         ];
         let payable_dao = PayableDaoMock::new().non_pending_payables_result(accounts.clone());
@@ -2015,8 +2015,8 @@ pub mod tests {
             None,
             Some(persistent_config),
         );
-       subject.scanners.pending_payments = Box::new(NullScanner);
-       subject.scanners.payables = Box::new(NullScanner);
+        subject.scanners.pending_payments = Box::new(NullScanner);
+        subject.scanners.payables = Box::new(NullScanner);
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
@@ -2225,7 +2225,7 @@ pub mod tests {
             Some(config),
             None,
             Some(receivable_dao),
-                None,
+            None,
             Some(banned_dao),
             Some(persistent_config),
         );
@@ -2274,8 +2274,7 @@ pub mod tests {
     }
 
     #[test]
-    fn periodical_scanning_for_pending_payments_works(
-    ) {
+    fn periodical_scanning_for_pending_payments_works() {
         //in the very first round we scan without waiting but we cannot find any pending payments
         init_test_logging();
         let return_unresolved_backup_records_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2513,7 +2512,7 @@ pub mod tests {
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();
-        let mut subject = make_accountant(Some(config), Some(payable_dao), None, None, None,None);
+        let mut subject = make_accountant(Some(config), Some(payable_dao), None, None, None, None);
         subject.scanners.pending_payments = Box::new(NullScanner);
         subject.scanners.receivables = Box::new(NullScanner);
         let subject_addr = subject.start();
