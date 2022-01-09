@@ -68,6 +68,8 @@ lazy_static! {
     };
 }
 
+pub const DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS: u64 = 3_600_000;
+
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum PaymentError {
     SignConversion(u64),

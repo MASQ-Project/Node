@@ -9,7 +9,7 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use rusqlite::Transaction;
 use std::fmt::Debug;
-use crate::accountant::PAYMENT_CURVES;
+use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL, DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
 pub trait DbMigrator {
@@ -309,6 +309,9 @@ impl DatabaseMigration for Migrate_5_to_6 {
             ("routing_service_rate", DEFAULT_RATE_PACK.routing_service_rate as i64),
             ("exit_byte_rate", DEFAULT_RATE_PACK.exit_byte_rate as i64),
             ("exit_service_rate", DEFAULT_RATE_PACK.exit_service_rate as i64),
+            ("pending_payment_scan_interval", (DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000) as i64),
+            ("payable_scan_interval", DEFAULT_PAYABLE_SCAN_INTERVAL as i64),
+            ("receivable_scan_interval", DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL as i64)
         ].into_iter()
             .map (Self::make_initialization_statement)
             .collect::<Vec<String>>();
@@ -545,11 +548,11 @@ mod tests {
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::{Connection, Error, OptionalExtension};
     use std::cell::RefCell;
-    use std::fmt::Debug;
+    use std::fmt::{Debug};
     use std::fs::create_dir_all;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
-    use crate::accountant::PAYMENT_CURVES;
+    use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL, DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES};
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
     #[derive(Default)]
@@ -1364,6 +1367,9 @@ mod tests {
         verify_configuration_value (connection.as_ref(), "routing_service_rate", Some (format!("{}", DEFAULT_RATE_PACK.routing_service_rate)), false);
         verify_configuration_value (connection.as_ref(), "exit_byte_rate", Some (format!("{}", DEFAULT_RATE_PACK.exit_byte_rate)), false);
         verify_configuration_value (connection.as_ref(), "exit_service_rate", Some (format!("{}", DEFAULT_RATE_PACK.exit_service_rate)), false);
+        verify_configuration_value(connection.as_ref(),"pending_payment_scan_interval", Some(format!("{}",DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000)),false);
+        verify_configuration_value(connection.as_ref(),"payable_scan_interval", Some(format!("{}", DEFAULT_PAYABLE_SCAN_INTERVAL)),false);
+        verify_configuration_value(connection.as_ref(),"receivable_scan_interval", Some(format!("{}", DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL)), false)
     }
 
     fn verify_configuration_value (conn: &dyn ConnectionWrapper, name: &str, value_opt: Option<String>, encrypted: bool) {
