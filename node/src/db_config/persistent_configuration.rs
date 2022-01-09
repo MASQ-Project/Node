@@ -386,7 +386,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn start_block(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("start_block")?.value_opt) {
-            Ok(val) => Ok(val.expect("ever-supplied value missing; database is corrupt!")),
+            Ok(val_opt) => Ok(val_opt.expect("ever-supplied value missing; database is corrupt!")),
             Err(e) => Err(PersistentConfigError::from(e)),
         }
     }

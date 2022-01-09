@@ -12,7 +12,6 @@ use masq_lib::constants::DEFAULT_CHAIN;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
-use bytes::Buf;
 use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
 use web3::types::{

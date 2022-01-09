@@ -363,21 +363,10 @@ impl Accountant {
             self.logger,
             "Scanning for payments to {}", self.earning_wallet
         );
-        let start_block = match self.persistent_configuration.start_block() {
-            Ok(start_block) => start_block,
-            Err(pce) => {
-                error!(
-                    self.logger,
-                    "Could not retrieve start block: {:?} - aborting received-payment scan", pce
-                );
-                return;
-            }
-        };
         self.retrieve_transactions_sub
             .as_ref()
             .expect("BlockchainBridge is unbound")
             .try_send(RetrieveTransactions {
-                start_block,
                 recipient: self.earning_wallet.clone(),
             })
             .expect("BlockchainBridge is dead");
@@ -773,7 +762,6 @@ pub mod tests {
     use crate::database::dao_utils::to_time_t;
     use crate::db_config::config_dao::ConfigDao;
     use crate::db_config::mocks::ConfigDaoMock;
-    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::wallet::Wallet;
@@ -1557,7 +1545,7 @@ pub mod tests {
         );
         let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let persistent_config =
-            PersistentConfigurationMock::default().start_block_result(Ok(1_000_000));
+            PersistentConfigurationMock::default();
         let subject = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
@@ -1589,7 +1577,6 @@ pub mod tests {
         assert_eq!(
             retrieve_transactions_msg,
             &RetrieveTransactions {
-                start_block: 1_000_000,
                 recipient: earning_wallet.clone()
             }
         );
@@ -1657,15 +1644,12 @@ pub mod tests {
             *retrieve_transactions_msgs,
             vec![
                 &RetrieveTransactions {
-                    start_block: 5,
                     recipient: earning_wallet.clone()
                 },
                 &RetrieveTransactions {
-                    start_block: 8,
                     recipient: earning_wallet.clone()
                 },
                 &RetrieveTransactions {
-                    start_block: 10,
                     recipient: earning_wallet.clone()
                 }
             ]
@@ -1947,19 +1931,6 @@ pub mod tests {
             blockchain_bridge_recordings.get_record::<ReportAccountsPayable>(0),
             &ReportAccountsPayable { accounts }
         );
-    }
-
-    #[test]
-    fn scan_for_received_payments_handles_error_retrieving_start_block() {
-        init_test_logging();
-        let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Err(PersistentConfigError::NotPresent));
-        let mut subject = make_subject(None, None, None, None, Some(persistent_config));
-
-        subject.scan_for_received_payments();
-
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_matching("ERROR: Accountant: Could not retrieve start block: NotPresent - aborting received-payment scan");
     }
 
     #[test]
