@@ -17,6 +17,7 @@ use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::{NeighborhoodModeLight, WrapResult};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
+use nix::sys::personality::Persona;
 use websocket::url::Url;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -73,6 +74,10 @@ impl PersistentConfigError {
 }
 
 pub trait PersistentConfiguration {
+    fn balance_decreases_for_sec(&self) -> Result<u64,PersistentConfigError>;
+    fn set_balance_decreases_for_sec(&mut self, unit_of_decrease: u64) -> Result<(),PersistentConfigError>;
+    fn balance_to_decrease_from_gwei(&self) -> Result<u64,PersistentConfigError>;
+    fn set_balance_to_decrease_from_gwei(&mut self, level: u64) -> Result<(),PersistentConfigError>;
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError>;
     fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError>;
     fn current_schema_version(&self) -> String;
@@ -88,25 +93,28 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn clandestine_port(&self) -> Result<u16, PersistentConfigError>;
     fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError>;
-    fn gas_price(&self) -> Result<u64, PersistentConfigError>;
-    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
-    fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError>;
-    fn mnemonic_seed_exists(&self) -> Result<bool, PersistentConfigError>;
-    // WARNING: Actors should get consuming-wallet information from their startup config, not from here
     fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
-
-    fn set_wallet_info(
+    fn exit_byte_rate(&self) -> Result<u64, PersistentConfigError>;
+    fn set_exit_byte_rate(&mut self, rate: u64) -> Result<(),PersistentConfigError>;
+    fn exit_service_rate(&self)-> Result<u64,PersistentConfigError>;
+    fn set_exit_service_rate(&mut self, rate: u64)-> Result<(),PersistentConfigError>;
+    fn gas_price(&self) -> Result<u64, PersistentConfigError>;
+    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
+    fn set_mapping_protocol(&mut self, value: AutomapProtocol)
+                            -> Result<(), PersistentConfigError>;
+    fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError>;
+    fn mnemonic_seed_exists(&self) -> Result<bool, PersistentConfigError>;
+    // WARNING: Actors should get consuming-wallet information from their startup config, not from here
+    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError>;
+    fn set_neighborhood_mode(
         &mut self,
-        mnemonic_seed: &dyn AsRef<[u8]>,
-        consuming_wallet_derivation_path: &str,
-        earning_wallet_address: &str,
-        db_password: &str,
+        value: NeighborhoodModeLight,
     ) -> Result<(), PersistentConfigError>;
-
     fn past_neighbors(
         &self,
         db_password: &str,
@@ -116,16 +124,32 @@ pub trait PersistentConfiguration {
         node_descriptors_opt: Option<Vec<NodeDescriptor>>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
+    fn payable_scan_interval(&self) -> Result<u64,PersistentConfigError>;
+    fn set_payable_scan_interval(&mut self, interval_sec: u64)-> Result<(),PersistentConfigError>;
+    fn payment_grace_before_ban_sec(&self)->Result<u64,PersistentConfigError>;
+    fn set_payment_grace_before_ban_sec(&mut self, period_sec: u64)-> Result<(),PersistentConfigError>;
+    fn pending_payment_scan_interval(&self)-> Result<u64,PersistentConfigError>;
+    fn set_pending_payment_scan_interval(&mut self, interval_sec: u64)->Result<(),PersistentConfigError>;
+    fn permanent_debt_allowed_gwei(&self)->Result<u64,PersistentConfigError>;
+    fn set_permanent_debt_allowed_gwei(&mut self, debt_amount: u64)-> Result<(),PersistentConfigError>;
+    fn receivable_scan_interval(&self)-> Result<u64,PersistentConfigError>;
+    fn set_receivable_scan_interval(&mut self, interval_sec: u64) -> Result<(),PersistentConfigError>;
+    fn routing_byte_rate(&self) -> Result<u64,PersistentConfigError>;
+    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<u64,PersistentConfigError>;
+    fn routing_service_rate(&self)-> Result<u64,PersistentConfigError>;
+    fn set_routing_service_rate(&mut self, rate: u64)-> Result<(),PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
-    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
-    fn set_mapping_protocol(&mut self, value: AutomapProtocol)
-        -> Result<(), PersistentConfigError>;
-    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError>;
-    fn set_neighborhood_mode(
+    fn unban_when_balance_below_gwei(&self)-> Result<u64,PersistentConfigError>;
+    fn set_unban_when_balance_below_gwei(&mut self, level: u64)-> Result<(),PersistentConfigError>;
+    fn set_wallet_info(
         &mut self,
-        value: NeighborhoodModeLight,
+        mnemonic_seed: &dyn AsRef<[u8]>,
+        consuming_wallet_derivation_path: &str,
+        earning_wallet_address: &str,
+        db_password: &str,
     ) -> Result<(), PersistentConfigError>;
+
 }
 
 pub struct PersistentConfigurationReal {
@@ -134,6 +158,14 @@ pub struct PersistentConfigurationReal {
 }
 
 impl PersistentConfiguration for PersistentConfigurationReal {
+    fn balance_decreases_for_sec(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_balance_decreases_for_sec(&mut self, decrease: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
         match self.dao.get("blockchain_service_url")?.value_opt {
             None => Ok(None),
@@ -432,6 +464,94 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         let mut writer = self.dao.start_transaction()?;
         writer.set("neighborhood_mode", Some(value.to_string()))?;
         Ok(writer.commit()?)
+    }
+
+    fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_balance_to_decrease_from_gwei(&mut self, level: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn exit_byte_rate(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_exit_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn exit_service_rate(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_exit_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn payable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_payable_scan_interval(&mut self, interval_sec: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn payment_grace_before_ban_sec(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_payment_grace_before_ban_sec(&mut self, period_sec: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_pending_payment_scan_interval(&mut self, interval_sec: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn permanent_debt_allowed_gwei(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_permanent_debt_allowed_gwei(&mut self, debt_amount: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn receivable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_receivable_scan_interval(&mut self, interval_sec: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn routing_service_rate(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_routing_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn unban_when_balance_below_gwei(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_unban_when_balance_below_gwei(&mut self, level: u64) -> Result<(), PersistentConfigError> {
+        todo!()
     }
 }
 
