@@ -4045,6 +4045,12 @@ pub mod tests {
         let notify_later_check_for_confirmation = notify_later_scan_for_pending_payments_params_arc
             .lock()
             .unwrap();
+        //TODO in Actions, Mac is slow, I had to add a cycle to be sure we make at least these five and so I take the first five because they are certain; GH-485 should fix these troubles
+        let notify_later_check_for_confirmation = notify_later_check_for_confirmation
+            .iter()
+            .take(5)
+            .cloned()
+            .collect_vec();
         assert_eq!(
             *notify_later_check_for_confirmation,
             vec![
@@ -4053,7 +4059,6 @@ pub mod tests {
                 expected_scan_pending_payments_msg_and_interval.clone(),
                 expected_scan_pending_payments_msg_and_interval.clone(),
                 expected_scan_pending_payments_msg_and_interval.clone(),
-                expected_scan_pending_payments_msg_and_interval //TODO this is an extra one, GH-485 should eliminate this one
             ]
         );
         let mut notify_confirm_transaction_params =
