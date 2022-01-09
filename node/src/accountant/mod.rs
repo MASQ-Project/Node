@@ -3970,7 +3970,7 @@ pub mod tests {
         send_start_message!(accountant_subs);
 
         dummy_actor_addr
-            .try_send(CleanUpMessage { sleep_ms: 1010 })
+            .try_send(CleanUpMessage { sleep_ms: 1090 })
             .unwrap();
         assert_eq!(system.run(), 0);
         let mut mark_pending_payment_parameters = mark_pending_payment_params_arc.lock().unwrap();
