@@ -3843,7 +3843,7 @@ pub mod tests {
             last_paid_timestamp: payment_timestamp_2,
             pending_payment_rowid_opt: None,
         };
-        let pending_payments_scan_interval = 200;
+        let pending_payments_scan_interval = 200; //should be slightly less than 1/5 of the time until shutting the system
         let payable_dao = PayableDaoMock::new()
             .non_pending_payables_params(&non_pending_payables_params_arc)
             .non_pending_payables_result(vec![account_1, account_2])
@@ -3906,7 +3906,7 @@ pub mod tests {
                 payment_2_backup_third_round,
             ])
             .return_all_payment_backups_result(vec![payment_2_backup_fourth_round.clone()])
-            .return_all_payment_backups_result(vec![]) //in case we are too fast at some machine
+            .return_all_payment_backups_result(vec![]) //TODO in case we are too fast at some machine; we will be able to make this maximally efficient with GH-485
             .insert_payment_backup_params(&insert_record_params_arc)
             .insert_payment_backup_result(Ok(()))
             .insert_payment_backup_result(Ok(()))
@@ -3972,7 +3972,7 @@ pub mod tests {
         send_start_message!(accountant_subs);
 
         dummy_actor_addr
-            .try_send(CleanUpMessage { sleep_ms: 1000 })
+            .try_send(CleanUpMessage { sleep_ms: 1090 })
             .unwrap();
         assert_eq!(system.run(), 0);
         let mut mark_pending_payment_parameters = mark_pending_payment_params_arc.lock().unwrap();
@@ -4033,25 +4033,11 @@ pub mod tests {
         assert_eq!(*mark_failure_params, vec![rowid_for_account_1]);
         let delete_record_params = delete_record_params_arc.lock().unwrap();
         assert_eq!(*delete_record_params, vec![rowid_for_account_2]);
-        let expected_params_for_payment_2 = Payment {
-            to: wallet_account_2,
-            amount: payable_account_balance_2 as u64,
-            timestamp: from_time_t(0), //deliberately wrong; I cannot compare the right ones
-            transaction: pending_tx_hash_2,
-        };
-        let mut transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
-        let payment_confirmed = transaction_confirmed_params.remove(0);
-        assert!(transaction_confirmed_params.is_empty());
-        assert_eq!(payment_confirmed.process_error, None);
+        let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
         assert_eq!(
-            payment_confirmed.amount,
-            expected_params_for_payment_2.amount
+            *transaction_confirmed_params,
+            vec![payment_2_backup_fourth_round.clone()]
         );
-        assert_eq!(
-            payment_confirmed.hash,
-            expected_params_for_payment_2.transaction
-        );
-        assert_eq!(payment_confirmed.rowid, rowid_for_account_2);
         let expected_scan_pending_payments_msg_and_interval = (
             ScanForPendingPayments {},
             Duration::from_millis(pending_payments_scan_interval),
@@ -4066,7 +4052,8 @@ pub mod tests {
                 expected_scan_pending_payments_msg_and_interval.clone(),
                 expected_scan_pending_payments_msg_and_interval.clone(),
                 expected_scan_pending_payments_msg_and_interval.clone(),
-                expected_scan_pending_payments_msg_and_interval
+                expected_scan_pending_payments_msg_and_interval.clone(),
+                expected_scan_pending_payments_msg_and_interval //TODO this is an extra one, GH-485 should eliminate this one
             ]
         );
         let mut notify_confirm_transaction_params =
