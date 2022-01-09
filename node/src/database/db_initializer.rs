@@ -1,10 +1,15 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::{
+    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+    DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES,
+};
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
 use crate::database::db_migrations::{
     DbMigrator, DbMigratorReal, ExternalData, MigratorConfig, Suppression,
 };
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
+use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -18,8 +23,6 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use tokio::net::TcpListener;
-use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL, DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES};
-use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: usize = 6;
@@ -260,19 +263,100 @@ impl DbInitializerReal {
                 external_params.chain.rec().literal_identifier
             ),
         );
-        Self::set_config_value(conn, "payment_suggested_after_sec",  Some(&PAYMENT_CURVES.payment_suggested_after_sec.to_string()), false, "how long are your debts ignored");
-        Self::set_config_value(conn, "payment_grace_before_ban_sec",  Some(&PAYMENT_CURVES.payment_grace_before_ban_sec.to_string()), false, "grace period added to tolerate foreigner's debt");
-        Self::set_config_value(conn,"permanent_debt_allowed_gwei", Some(&PAYMENT_CURVES.permanent_debt_allowed_gwei.to_string()),false, "all debts under thi level are tolerated");
-        Self::set_config_value(conn,"balance_to_decrease_from_gwei", Some(&PAYMENT_CURVES.balance_to_decrease_from_gwei.to_string()), false, "the highest point of the decreasing part");
-        Self::set_config_value(conn, "balance_decreases_for_sec", Some(&PAYMENT_CURVES.balance_decreases_for_sec.to_string()),false, "how much the limiting slope declined after a second passes");
-        Self::set_config_value(conn,"unban_when_balance_below_gwei",Some(&PAYMENT_CURVES.unban_when_balance_below_gwei.to_string()),false, "when debts become tolerable and the debtors are unban");
-        Self::set_config_value(conn,"routing_byte_rate", Some(&DEFAULT_RATE_PACK.routing_byte_rate.to_string()),false, "standard rate for one byte routed");
-        Self::set_config_value(conn, "routing_service_rate", Some(&DEFAULT_RATE_PACK.routing_service_rate.to_string()),false,"standard rate for provided service");
-        Self::set_config_value(conn,"exit_byte_rate", Some(&DEFAULT_RATE_PACK.exit_byte_rate.to_string()),false, "rate for one byte when being the exit Node");
-        Self::set_config_value(conn,"exit_service_rate", Some(&DEFAULT_RATE_PACK.exit_service_rate.to_string()),false, "rate for provided service when being the exit Node");
-        Self::set_config_value(conn,"pending_payment_scan_interval", Some(&format!("{}",DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000)),false, "the next scan for pending payments will run after this interval");
-        Self::set_config_value(conn,"payable_scan_interval", Some(&DEFAULT_PAYABLE_SCAN_INTERVAL.to_string()),false,"the next scan for payable will run after this interval");
-        Self::set_config_value(conn,"receivable_scan_interval", Some(&DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL.to_string()),false, "the next scan for receivable will run after this interval");
+        Self::set_config_value(
+            conn,
+            "payment_suggested_after_sec",
+            Some(&PAYMENT_CURVES.payment_suggested_after_sec.to_string()),
+            false,
+            "how long are your debts ignored",
+        );
+        Self::set_config_value(
+            conn,
+            "payment_grace_before_ban_sec",
+            Some(&PAYMENT_CURVES.payment_grace_before_ban_sec.to_string()),
+            false,
+            "grace period added to tolerate foreigner's debt",
+        );
+        Self::set_config_value(
+            conn,
+            "permanent_debt_allowed_gwei",
+            Some(&PAYMENT_CURVES.permanent_debt_allowed_gwei.to_string()),
+            false,
+            "all debts under thi level are tolerated",
+        );
+        Self::set_config_value(
+            conn,
+            "balance_to_decrease_from_gwei",
+            Some(&PAYMENT_CURVES.balance_to_decrease_from_gwei.to_string()),
+            false,
+            "the highest point of the decreasing part",
+        );
+        Self::set_config_value(
+            conn,
+            "balance_decreases_for_sec",
+            Some(&PAYMENT_CURVES.balance_decreases_for_sec.to_string()),
+            false,
+            "how much the limiting slope declined after a second passes",
+        );
+        Self::set_config_value(
+            conn,
+            "unban_when_balance_below_gwei",
+            Some(&PAYMENT_CURVES.unban_when_balance_below_gwei.to_string()),
+            false,
+            "when debts become tolerable and the debtors are unban",
+        );
+        Self::set_config_value(
+            conn,
+            "routing_byte_rate",
+            Some(&DEFAULT_RATE_PACK.routing_byte_rate.to_string()),
+            false,
+            "standard rate for one byte routed",
+        );
+        Self::set_config_value(
+            conn,
+            "routing_service_rate",
+            Some(&DEFAULT_RATE_PACK.routing_service_rate.to_string()),
+            false,
+            "standard rate for provided service",
+        );
+        Self::set_config_value(
+            conn,
+            "exit_byte_rate",
+            Some(&DEFAULT_RATE_PACK.exit_byte_rate.to_string()),
+            false,
+            "rate for one byte when being the exit Node",
+        );
+        Self::set_config_value(
+            conn,
+            "exit_service_rate",
+            Some(&DEFAULT_RATE_PACK.exit_service_rate.to_string()),
+            false,
+            "rate for provided service when being the exit Node",
+        );
+        Self::set_config_value(
+            conn,
+            "pending_payment_scan_interval",
+            Some(&format!(
+                "{}",
+                DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000
+            )),
+            false,
+            "the next scan for pending payments will run after this interval",
+        );
+        Self::set_config_value(
+            conn,
+            "payable_scan_interval",
+            Some(&DEFAULT_PAYABLE_SCAN_INTERVAL.to_string()),
+            false,
+            "the next scan for payable will run after this interval",
+        );
+        Self::set_config_value(
+            conn,
+            "receivable_scan_interval",
+            Some(&DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL.to_string()),
+            false,
+            "the next scan for receivable will run after this interval",
+        );
         Self::set_config_value(
             conn,
             "gas_price",
@@ -593,7 +677,9 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::PAYMENT_CURVES;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
+    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
         DbMigratorMock,
@@ -613,8 +699,6 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
-    use crate::accountant::PAYMENT_CURVES;
-    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
     #[test]
     fn db_initialize_does_not_create_if_directed_not_to_and_directory_does_not_exist() {
@@ -802,8 +886,16 @@ mod tests {
             assert_eq!(actual_name, expected_name);
             value
         };
-        verify(&mut config_vec, "balance_decreases_for_sec", Some(&PAYMENT_CURVES.balance_decreases_for_sec.to_string()));
-        verify(&mut config_vec, "balance_to_decrease_from_gwei", Some(&PAYMENT_CURVES.balance_to_decrease_from_gwei.to_string()));
+        verify(
+            &mut config_vec,
+            "balance_decreases_for_sec",
+            Some(&PAYMENT_CURVES.balance_decreases_for_sec.to_string()),
+        );
+        verify(
+            &mut config_vec,
+            "balance_to_decrease_from_gwei",
+            Some(&PAYMENT_CURVES.balance_to_decrease_from_gwei.to_string()),
+        );
         verify(&mut config_vec, "blockchain_service_url", None);
         verify(
             &mut config_vec,
@@ -818,8 +910,16 @@ mod tests {
         verify(&mut config_vec, "consuming_wallet_public_key", None);
         verify(&mut config_vec, "earning_wallet_address", None);
         verify(&mut config_vec, EXAMPLE_ENCRYPTED, None);
-        verify(&mut config_vec, "exit_byte_rate", Some(&DEFAULT_RATE_PACK.exit_byte_rate.to_string()));
-        verify(&mut config_vec, "exit_service_rate", Some(&DEFAULT_RATE_PACK.exit_service_rate.to_string()));
+        verify(
+            &mut config_vec,
+            "exit_byte_rate",
+            Some(&DEFAULT_RATE_PACK.exit_byte_rate.to_string()),
+        );
+        verify(
+            &mut config_vec,
+            "exit_service_rate",
+            Some(&DEFAULT_RATE_PACK.exit_service_rate.to_string()),
+        );
         verify(
             &mut config_vec,
             "gas_price",
@@ -828,15 +928,50 @@ mod tests {
         verify(&mut config_vec, "mapping_protocol", None);
         verify(&mut config_vec, "neighborhood_mode", Some("standard"));
         verify(&mut config_vec, "past_neighbors", None);
-        verify(&mut config_vec,"payable_scan_interval", Some(&DEFAULT_PAYABLE_SCAN_INTERVAL.to_string()));
-        verify(&mut config_vec, "payment_grace_before_ban_sec", Some(&PAYMENT_CURVES.payment_grace_before_ban_sec.to_string()));
-        verify(&mut config_vec, "payment_suggested_after_sec", Some(&PAYMENT_CURVES.payment_suggested_after_sec.to_string()));
-        verify(&mut config_vec, "pending_payment_scan_interval",Some(&format!("{}",DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000)));
-        verify(&mut config_vec, "permanent_debt_allowed_gwei", Some(&PAYMENT_CURVES.permanent_debt_allowed_gwei.to_string()));
+        verify(
+            &mut config_vec,
+            "payable_scan_interval",
+            Some(&DEFAULT_PAYABLE_SCAN_INTERVAL.to_string()),
+        );
+        verify(
+            &mut config_vec,
+            "payment_grace_before_ban_sec",
+            Some(&PAYMENT_CURVES.payment_grace_before_ban_sec.to_string()),
+        );
+        verify(
+            &mut config_vec,
+            "payment_suggested_after_sec",
+            Some(&PAYMENT_CURVES.payment_suggested_after_sec.to_string()),
+        );
+        verify(
+            &mut config_vec,
+            "pending_payment_scan_interval",
+            Some(&format!(
+                "{}",
+                DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000
+            )),
+        );
+        verify(
+            &mut config_vec,
+            "permanent_debt_allowed_gwei",
+            Some(&PAYMENT_CURVES.permanent_debt_allowed_gwei.to_string()),
+        );
         verify(&mut config_vec, "preexisting", Some("yes")); // making sure we opened the preexisting database
-        verify(&mut config_vec, "receivable_scan_interval", Some(&DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL.to_string()));
-        verify(&mut config_vec, "routing_byte_rate", Some(&DEFAULT_RATE_PACK.routing_byte_rate.to_string()));
-        verify(&mut config_vec, "routing_service_rate", Some(&DEFAULT_RATE_PACK.routing_service_rate.to_string()));
+        verify(
+            &mut config_vec,
+            "receivable_scan_interval",
+            Some(&DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL.to_string()),
+        );
+        verify(
+            &mut config_vec,
+            "routing_byte_rate",
+            Some(&DEFAULT_RATE_PACK.routing_byte_rate.to_string()),
+        );
+        verify(
+            &mut config_vec,
+            "routing_service_rate",
+            Some(&DEFAULT_RATE_PACK.routing_service_rate.to_string()),
+        );
         verify(
             &mut config_vec,
             "schema_version",
@@ -851,7 +986,11 @@ mod tests {
                 &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string()
             )),
         );
-        verify(&mut config_vec, "unban_when_balance_below_gwei", Some(&PAYMENT_CURVES.unban_when_balance_below_gwei.to_string()));
+        verify(
+            &mut config_vec,
+            "unban_when_balance_below_gwei",
+            Some(&PAYMENT_CURVES.unban_when_balance_below_gwei.to_string()),
+        );
         assert_eq!(config_vec, vec![]);
     }
 

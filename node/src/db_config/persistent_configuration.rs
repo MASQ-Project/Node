@@ -1,3 +1,4 @@
+
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::Bip39;
@@ -103,22 +104,21 @@ pub trait PersistentConfiguration {
     fn exit_service_rate(&self)-> Result<u64,PersistentConfigError>;
     fn set_exit_service_rate(&mut self, rate: u64)-> Result<(),PersistentConfigError>;
     fn gas_price(&self) -> Result<u64, PersistentConfigError>;
-    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
-    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
-    fn set_mapping_protocol(&mut self, value: AutomapProtocol)
-                            -> Result<(), PersistentConfigError>;
+    fn set_gas_price(&mut self, gas_price: u64);
+    fn mapping_protocol(&self)->Option<AutomapProtocol>;
+    fn set_mapping_protocol(&mut self, value: AutomapProtocol);
     fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError>;
     fn mnemonic_seed_exists(&self) -> Result<bool, PersistentConfigError>;
     // WARNING: Actors should get consuming-wallet information from their startup config, not from here
-    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError>;
+    fn neighborhood_mode(&self) -> NeighborhoodModeLight;
     fn set_neighborhood_mode(
         &mut self,
         value: NeighborhoodModeLight,
-    ) -> Result<(), PersistentConfigError>;
+    );
     fn past_neighbors(
         &self,
         db_password: &str,
-    ) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>;
+    ) -> Option<Vec<NodeDescriptor>>;
     fn set_past_neighbors(
         &mut self,
         node_descriptors_opt: Option<Vec<NodeDescriptor>>,

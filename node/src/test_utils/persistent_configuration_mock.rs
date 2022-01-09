@@ -59,7 +59,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         todo!()
     }
 
-    fn set_balance_decreases_for_sec(&mut self, decrease: u64) -> Result<(), PersistentConfigError> {
+    fn set_balance_decreases_for_sec(
+        &mut self,
+        decrease: u64,
+    ) -> Result<(), PersistentConfigError> {
         todo!()
     }
 
@@ -236,7 +239,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         todo!()
     }
 
-    fn set_balance_to_decrease_from_gwei(&mut self, level: u64) -> Result<(), PersistentConfigError> {
+    fn set_balance_to_decrease_from_gwei(
+        &mut self,
+        level: u64,
+    ) -> Result<(), PersistentConfigError> {
         todo!()
     }
 
@@ -260,7 +266,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         todo!()
     }
 
-    fn set_payable_scan_interval(&mut self, interval_sec: u64) -> Result<(), PersistentConfigError> {
+    fn set_payable_scan_interval(
+        &mut self,
+        interval_sec: u64,
+    ) -> Result<(), PersistentConfigError> {
         todo!()
     }
 
@@ -268,7 +277,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         todo!()
     }
 
-    fn set_payment_grace_before_ban_sec(&mut self, period_sec: u64) -> Result<(), PersistentConfigError> {
+    fn set_payment_grace_before_ban_sec(
+        &mut self,
+        period_sec: u64,
+    ) -> Result<(), PersistentConfigError> {
         todo!()
     }
 
@@ -276,7 +288,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         todo!()
     }
 
-    fn set_pending_payment_scan_interval(&mut self, interval_sec: u64) -> Result<(), PersistentConfigError> {
+    fn set_pending_payment_scan_interval(
+        &mut self,
+        interval_sec: u64,
+    ) -> Result<(), PersistentConfigError> {
         todo!()
     }
 
@@ -284,7 +299,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         todo!()
     }
 
-    fn set_permanent_debt_allowed_gwei(&mut self, debt_amount: u64) -> Result<(), PersistentConfigError> {
+    fn set_permanent_debt_allowed_gwei(
+        &mut self,
+        debt_amount: u64,
+    ) -> Result<(), PersistentConfigError> {
         todo!()
     }
 
@@ -292,7 +310,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         todo!()
     }
 
-    fn set_receivable_scan_interval(&mut self, interval_sec: u64) -> Result<(), PersistentConfigError> {
+    fn set_receivable_scan_interval(
+        &mut self,
+        interval_sec: u64,
+    ) -> Result<(), PersistentConfigError> {
         todo!()
     }
 
@@ -316,7 +337,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         todo!()
     }
 
-    fn set_unban_when_balance_below_gwei(&mut self, level: u64) -> Result<(), PersistentConfigError> {
+    fn set_unban_when_balance_below_gwei(
+        &mut self,
+        level: u64,
+    ) -> Result<(), PersistentConfigError> {
         todo!()
     }
 }

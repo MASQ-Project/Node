@@ -145,6 +145,10 @@ fn distill_args(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::{
+        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES,
+    };
     use crate::blockchain::bip39::Bip39;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
@@ -154,7 +158,7 @@ mod tests {
     };
     use crate::db_config::typed_config_layer::encode_bytes;
     use crate::sub_lib::cryptde::PlainData;
-    use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, NodeDescriptor};
+    use crate::sub_lib::neighborhood::{NodeDescriptor, DEFAULT_RATE_PACK};
     use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
     use crate::test_utils::{main_cryptde, ArgsBuilder};
     use bip39::{Language, MnemonicType, Seed};
@@ -165,7 +169,6 @@ mod tests {
     use std::fs::File;
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL, DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES};
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {
@@ -337,20 +340,75 @@ mod tests {
         assert!(output.ends_with("\n}\n")) //asserting that there is a blank line at the end
     }
 
-    fn assert_payment_curves_then_rates_and_then_scan_intervals(map: &Map<String,Value>) {
-        assert_value("paymentSuggestedAfterSec", &PAYMENT_CURVES.payment_suggested_after_sec.to_string(), map);
-        assert_value("paymentGraceBeforeBanSec", &PAYMENT_CURVES.payment_grace_before_ban_sec.to_string(), map);
-        assert_value("permanentDebtAllowedGwei", &PAYMENT_CURVES.permanent_debt_allowed_gwei.to_string(), map);
-        assert_value("balanceToDecreaseFromGwei", &PAYMENT_CURVES.balance_to_decrease_from_gwei.to_string(), map);
-        assert_value("balanceDecreasesForSec", &PAYMENT_CURVES.balance_decreases_for_sec.to_string(), map);
-        assert_value("unbanWhenBalanceBelowGwei", &PAYMENT_CURVES.unban_when_balance_below_gwei.to_string(), map);
-        assert_value("routingByteRate", &DEFAULT_RATE_PACK.routing_byte_rate.to_string(), map);
-        assert_value("routingServiceRate", &DEFAULT_RATE_PACK.routing_service_rate.to_string(), map);
-        assert_value("exitByteRate", &DEFAULT_RATE_PACK.exit_byte_rate.to_string(), map);
-        assert_value("exitServiceRate", &DEFAULT_RATE_PACK.exit_service_rate.to_string(), map);
-        assert_value("pendingPaymentScanInterval", &format!("{}", DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000), map);
-        assert_value("payableScanInterval", &DEFAULT_PAYABLE_SCAN_INTERVAL.to_string(), map);
-        assert_value("receivableScanInterval", &DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL.to_string(), map)
+    fn assert_payment_curves_then_rates_and_then_scan_intervals(map: &Map<String, Value>) {
+        assert_value(
+            "paymentSuggestedAfterSec",
+            &PAYMENT_CURVES.payment_suggested_after_sec.to_string(),
+            map,
+        );
+        assert_value(
+            "paymentGraceBeforeBanSec",
+            &PAYMENT_CURVES.payment_grace_before_ban_sec.to_string(),
+            map,
+        );
+        assert_value(
+            "permanentDebtAllowedGwei",
+            &PAYMENT_CURVES.permanent_debt_allowed_gwei.to_string(),
+            map,
+        );
+        assert_value(
+            "balanceToDecreaseFromGwei",
+            &PAYMENT_CURVES.balance_to_decrease_from_gwei.to_string(),
+            map,
+        );
+        assert_value(
+            "balanceDecreasesForSec",
+            &PAYMENT_CURVES.balance_decreases_for_sec.to_string(),
+            map,
+        );
+        assert_value(
+            "unbanWhenBalanceBelowGwei",
+            &PAYMENT_CURVES.unban_when_balance_below_gwei.to_string(),
+            map,
+        );
+        assert_value(
+            "routingByteRate",
+            &DEFAULT_RATE_PACK.routing_byte_rate.to_string(),
+            map,
+        );
+        assert_value(
+            "routingServiceRate",
+            &DEFAULT_RATE_PACK.routing_service_rate.to_string(),
+            map,
+        );
+        assert_value(
+            "exitByteRate",
+            &DEFAULT_RATE_PACK.exit_byte_rate.to_string(),
+            map,
+        );
+        assert_value(
+            "exitServiceRate",
+            &DEFAULT_RATE_PACK.exit_service_rate.to_string(),
+            map,
+        );
+        assert_value(
+            "pendingPaymentScanInterval",
+            &format!(
+                "{}",
+                DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000
+            ),
+            map,
+        );
+        assert_value(
+            "payableScanInterval",
+            &DEFAULT_PAYABLE_SCAN_INTERVAL.to_string(),
+            map,
+        );
+        assert_value(
+            "receivableScanInterval",
+            &DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL.to_string(),
+            map,
+        )
     }
 
     #[test]

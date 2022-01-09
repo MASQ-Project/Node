@@ -1,16 +1,19 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::{
+    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+    DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES,
+};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
+use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use masq_lib::blockchains::chains::Chain;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use rusqlite::Transaction;
 use std::fmt::Debug;
-use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL, DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES};
-use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -260,10 +263,7 @@ impl DatabaseMigration for Migrate_2_to_3 {
 struct Migrate_3_to_4;
 
 impl DatabaseMigration for Migrate_3_to_4 {
-    fn migrate<'a>(
-        &self,
-        _: Box<dyn MigDeclarationUtilities + 'a>,
-    ) -> rusqlite::Result<()> {
+    fn migrate<'a>(&self, _: Box<dyn MigDeclarationUtilities + 'a>) -> rusqlite::Result<()> {
         Ok(())
     }
 
@@ -277,10 +277,7 @@ impl DatabaseMigration for Migrate_3_to_4 {
 struct Migrate_4_to_5;
 
 impl DatabaseMigration for Migrate_4_to_5 {
-    fn migrate<'a>(
-        &self,
-        _: Box<dyn MigDeclarationUtilities + 'a>,
-    ) -> rusqlite::Result<()> {
+    fn migrate<'a>(&self, _: Box<dyn MigDeclarationUtilities + 'a>) -> rusqlite::Result<()> {
         Ok(())
     }
 
@@ -299,24 +296,62 @@ impl DatabaseMigration for Migrate_5_to_6 {
         declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()> {
         let sql_strings = vec![
-            ("payment_suggested_after_sec", PAYMENT_CURVES.payment_suggested_after_sec),
-            ("payment_grace_before_ban_sec", PAYMENT_CURVES.payment_grace_before_ban_sec),
-            ("permanent_debt_allowed_gwei", PAYMENT_CURVES.permanent_debt_allowed_gwei),
-            ("balance_to_decrease_from_gwei", PAYMENT_CURVES.balance_to_decrease_from_gwei),
-            ("balance_decreases_for_sec", PAYMENT_CURVES.balance_decreases_for_sec),
-            ("unban_when_balance_below_gwei", PAYMENT_CURVES.unban_when_balance_below_gwei),
-            ("routing_byte_rate", DEFAULT_RATE_PACK.routing_byte_rate as i64),
-            ("routing_service_rate", DEFAULT_RATE_PACK.routing_service_rate as i64),
+            (
+                "payment_suggested_after_sec",
+                PAYMENT_CURVES.payment_suggested_after_sec,
+            ),
+            (
+                "payment_grace_before_ban_sec",
+                PAYMENT_CURVES.payment_grace_before_ban_sec,
+            ),
+            (
+                "permanent_debt_allowed_gwei",
+                PAYMENT_CURVES.permanent_debt_allowed_gwei,
+            ),
+            (
+                "balance_to_decrease_from_gwei",
+                PAYMENT_CURVES.balance_to_decrease_from_gwei,
+            ),
+            (
+                "balance_decreases_for_sec",
+                PAYMENT_CURVES.balance_decreases_for_sec,
+            ),
+            (
+                "unban_when_balance_below_gwei",
+                PAYMENT_CURVES.unban_when_balance_below_gwei,
+            ),
+            (
+                "routing_byte_rate",
+                DEFAULT_RATE_PACK.routing_byte_rate as i64,
+            ),
+            (
+                "routing_service_rate",
+                DEFAULT_RATE_PACK.routing_service_rate as i64,
+            ),
             ("exit_byte_rate", DEFAULT_RATE_PACK.exit_byte_rate as i64),
-            ("exit_service_rate", DEFAULT_RATE_PACK.exit_service_rate as i64),
-            ("pending_payment_scan_interval", (DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000) as i64),
-            ("payable_scan_interval", DEFAULT_PAYABLE_SCAN_INTERVAL as i64),
-            ("receivable_scan_interval", DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL as i64)
-        ].into_iter()
-            .map (Self::make_initialization_statement)
-            .collect::<Vec<String>>();
-        let sql_strs = sql_strings.iter()
-            .map (|s| s.as_str())
+            (
+                "exit_service_rate",
+                DEFAULT_RATE_PACK.exit_service_rate as i64,
+            ),
+            (
+                "pending_payment_scan_interval",
+                (DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000) as i64,
+            ),
+            (
+                "payable_scan_interval",
+                DEFAULT_PAYABLE_SCAN_INTERVAL as i64,
+            ),
+            (
+                "receivable_scan_interval",
+                DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL as i64,
+            ),
+        ]
+        .into_iter()
+        .map(Self::make_initialization_statement)
+        .collect::<Vec<String>>();
+        let sql_strs = sql_strings
+            .iter()
+            .map(|s| s.as_str())
             .collect::<Vec<&str>>();
         declaration_utils.execute_upon_transaction(&sql_strs)
     }
@@ -327,10 +362,12 @@ impl DatabaseMigration for Migrate_5_to_6 {
 }
 
 impl Migrate_5_to_6 {
-    fn make_initialization_statement (name_and_value: (&str, i64)) -> String {
+    fn make_initialization_statement(name_and_value: (&str, i64)) -> String {
         let (name, value) = name_and_value;
-        format!("INSERT INTO config (name, value, encrypted) VALUES ('{}', '{}', 0)",
-            name, value)
+        format!(
+            "INSERT INTO config (name, value, encrypted) VALUES ('{}', '{}', 0)",
+            name, value
+        )
     }
 }
 
@@ -345,8 +382,14 @@ impl DbMigratorReal {
     }
 
     fn list_of_migrations<'a>() -> &'a [&'a dyn DatabaseMigration] {
-        &[&Migrate_0_to_1, &Migrate_1_to_2, &Migrate_2_to_3, &Migrate_3_to_4, &Migrate_4_to_5,
-          &Migrate_5_to_6]
+        &[
+            &Migrate_0_to_1,
+            &Migrate_1_to_2,
+            &Migrate_2_to_3,
+            &Migrate_3_to_4,
+            &Migrate_4_to_5,
+            &Migrate_5_to_6,
+        ]
     }
 
     fn initiate_migrations<'a>(
@@ -529,6 +572,10 @@ impl From<(MigratorConfig, bool)> for ExternalData {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::{
+        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES,
+    };
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
@@ -539,6 +586,7 @@ mod tests {
         ExternalData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, Suppression,
     };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
+    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
     };
@@ -548,12 +596,10 @@ mod tests {
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::{Connection, Error, OptionalExtension};
     use std::cell::RefCell;
-    use std::fmt::{Debug};
+    use std::fmt::Debug;
     use std::fs::create_dir_all;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
-    use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL, DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES};
-    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
@@ -1199,7 +1245,10 @@ mod tests {
 
     #[test]
     fn migration_from_0_to_1_is_properly_set() {
-        let dir_path = ensure_node_home_directory_exists("db_migrations", "migration_from_0_to_1_is_properly_set");
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_0_to_1_is_properly_set",
+        );
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
@@ -1233,7 +1282,10 @@ mod tests {
     #[test]
     fn migration_from_1_to_2_is_properly_set() {
         let start_at = 1;
-        let dir_path = ensure_node_home_directory_exists("db_migrations", "migration_from_1_to_2_is_properly_set");
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_1_to_2_is_properly_set",
+        );
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
@@ -1277,7 +1329,10 @@ mod tests {
     #[test]
     fn migration_from_2_to_3_is_properly_set() {
         let start_at = 2;
-        let dir_path = ensure_node_home_directory_exists("db_migrations", "migration_from_2_to_3_is_properly_set");
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_2_to_3_is_properly_set",
+        );
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
@@ -1331,7 +1386,8 @@ mod tests {
 
     #[test]
     fn migration_from_5_to_6_works() {
-        let dir_path = ensure_node_home_directory_exists("db_migrations", "migration_from_5_to_6_works");
+        let dir_path =
+            ensure_node_home_directory_exists("db_migrations", "migration_from_5_to_6_works");
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
@@ -1357,30 +1413,106 @@ mod tests {
         );
 
         let connection = result.unwrap();
-        verify_configuration_value (connection.as_ref(), "payment_suggested_after_sec", Some (format!("{}", PAYMENT_CURVES.payment_suggested_after_sec)), false);
-        verify_configuration_value (connection.as_ref(), "payment_grace_before_ban_sec", Some (format!("{}", PAYMENT_CURVES.payment_grace_before_ban_sec)), false);
-        verify_configuration_value (connection.as_ref(), "permanent_debt_allowed_gwei", Some (format!("{}", PAYMENT_CURVES.permanent_debt_allowed_gwei)), false);
-        verify_configuration_value (connection.as_ref(), "balance_to_decrease_from_gwei", Some (format!("{}", PAYMENT_CURVES.balance_to_decrease_from_gwei)), false);
-        verify_configuration_value (connection.as_ref(), "balance_decreases_for_sec", Some (format!("{}", PAYMENT_CURVES.balance_decreases_for_sec)), false);
-        verify_configuration_value (connection.as_ref(), "unban_when_balance_below_gwei", Some (format!("{}", PAYMENT_CURVES.unban_when_balance_below_gwei)), false);
-        verify_configuration_value (connection.as_ref(), "routing_byte_rate", Some (format!("{}", DEFAULT_RATE_PACK.routing_byte_rate)), false);
-        verify_configuration_value (connection.as_ref(), "routing_service_rate", Some (format!("{}", DEFAULT_RATE_PACK.routing_service_rate)), false);
-        verify_configuration_value (connection.as_ref(), "exit_byte_rate", Some (format!("{}", DEFAULT_RATE_PACK.exit_byte_rate)), false);
-        verify_configuration_value (connection.as_ref(), "exit_service_rate", Some (format!("{}", DEFAULT_RATE_PACK.exit_service_rate)), false);
-        verify_configuration_value(connection.as_ref(),"pending_payment_scan_interval", Some(format!("{}",DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000)),false);
-        verify_configuration_value(connection.as_ref(),"payable_scan_interval", Some(format!("{}", DEFAULT_PAYABLE_SCAN_INTERVAL)),false);
-        verify_configuration_value(connection.as_ref(),"receivable_scan_interval", Some(format!("{}", DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL)), false)
+        verify_configuration_value(
+            connection.as_ref(),
+            "payment_suggested_after_sec",
+            Some(format!("{}", PAYMENT_CURVES.payment_suggested_after_sec)),
+            false,
+        );
+        verify_configuration_value(
+            connection.as_ref(),
+            "payment_grace_before_ban_sec",
+            Some(format!("{}", PAYMENT_CURVES.payment_grace_before_ban_sec)),
+            false,
+        );
+        verify_configuration_value(
+            connection.as_ref(),
+            "permanent_debt_allowed_gwei",
+            Some(format!("{}", PAYMENT_CURVES.permanent_debt_allowed_gwei)),
+            false,
+        );
+        verify_configuration_value(
+            connection.as_ref(),
+            "balance_to_decrease_from_gwei",
+            Some(format!("{}", PAYMENT_CURVES.balance_to_decrease_from_gwei)),
+            false,
+        );
+        verify_configuration_value(
+            connection.as_ref(),
+            "balance_decreases_for_sec",
+            Some(format!("{}", PAYMENT_CURVES.balance_decreases_for_sec)),
+            false,
+        );
+        verify_configuration_value(
+            connection.as_ref(),
+            "unban_when_balance_below_gwei",
+            Some(format!("{}", PAYMENT_CURVES.unban_when_balance_below_gwei)),
+            false,
+        );
+        verify_configuration_value(
+            connection.as_ref(),
+            "routing_byte_rate",
+            Some(format!("{}", DEFAULT_RATE_PACK.routing_byte_rate)),
+            false,
+        );
+        verify_configuration_value(
+            connection.as_ref(),
+            "routing_service_rate",
+            Some(format!("{}", DEFAULT_RATE_PACK.routing_service_rate)),
+            false,
+        );
+        verify_configuration_value(
+            connection.as_ref(),
+            "exit_byte_rate",
+            Some(format!("{}", DEFAULT_RATE_PACK.exit_byte_rate)),
+            false,
+        );
+        verify_configuration_value(
+            connection.as_ref(),
+            "exit_service_rate",
+            Some(format!("{}", DEFAULT_RATE_PACK.exit_service_rate)),
+            false,
+        );
+        verify_configuration_value(
+            connection.as_ref(),
+            "pending_payment_scan_interval",
+            Some(format!(
+                "{}",
+                DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000
+            )),
+            false,
+        );
+        verify_configuration_value(
+            connection.as_ref(),
+            "payable_scan_interval",
+            Some(format!("{}", DEFAULT_PAYABLE_SCAN_INTERVAL)),
+            false,
+        );
+        verify_configuration_value(
+            connection.as_ref(),
+            "receivable_scan_interval",
+            Some(format!("{}", DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL)),
+            false,
+        )
     }
 
-    fn verify_configuration_value (conn: &dyn ConnectionWrapper, name: &str, value_opt: Option<String>, encrypted: bool) {
+    fn verify_configuration_value(
+        conn: &dyn ConnectionWrapper,
+        name: &str,
+        value_opt: Option<String>,
+        encrypted: bool,
+    ) {
         // GH-477 should severely simplify this
         let (actual_name, actual_value_opt, actual_encrypted): (String, Option<String>, u16) =
             assurance_query_for_config_table(
                 conn,
-                &format!("select name, value, encrypted from config where name = '{}'", name),
+                &format!(
+                    "select name, value, encrypted from config where name = '{}'",
+                    name
+                ),
             );
         assert_eq!(actual_name, name.to_string()); // unnecessary
         assert_eq!(actual_value_opt, value_opt);
-        assert_eq!(actual_encrypted, if encrypted {1} else {0});
+        assert_eq!(actual_encrypted, if encrypted { 1 } else { 0 });
     }
 }
