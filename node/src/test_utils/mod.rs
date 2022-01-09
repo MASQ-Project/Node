@@ -632,8 +632,8 @@ pub mod pure_test_utils {
     impl Handler<CleanUpMessage> for DummyActor {
         type Result = ();
 
-        fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
-            thread::sleep(Duration::from_millis(1500));
+        fn handle(&mut self, msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
+            thread::sleep(Duration::from_millis(msg.sleep_ms));
             if let Some(sender) = &self.system_stop_signal_opt {
                 let _ = sender.send(());
             };
