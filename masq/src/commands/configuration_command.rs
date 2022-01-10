@@ -72,7 +72,6 @@ impl ConfigurationCommand {
         })
     }
 
-    //put non-secret parameters first with both sorts alphabetical ordered
     fn dump_configuration(stream: &mut dyn Write, configuration: UiConfigurationResponse) {
         Self::dump_configuration_line(stream, "NAME", "VALUE");
         Self::dump_configuration_line(
@@ -128,6 +127,71 @@ impl ConfigurationCommand {
         );
         Self::dump_configuration_line(
             stream,
+            "Balance decreases for sec:",
+            &configuration.balance_decreases_for_sec.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Balance to decrease from gwei:",
+            &configuration.balance_to_decrease_from_gwei.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Exit byte rate:",
+            &configuration.exit_byte_rate.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Exit service rate:",
+            &configuration.exit_service_rate.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Payable scan interval:",
+            &configuration.payable_scan_interval.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Payment suggested after sec:",
+            &configuration.payment_suggested_after_sec.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Payment grace before ban sec:",
+            &configuration.payment_grace_before_ban_sec.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Pending payment scan interval:",
+            &configuration.pending_payment_scan_interval.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Permanent debt allowed gwei:",
+            &configuration.permanent_debt_allowed_gwei.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Receivable scan interval:",
+            &configuration.receivable_scan_interval.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Routing byte rate:",
+            &configuration.routing_byte_rate.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Routing service rate:",
+            &configuration.routing_service_rate.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
+            "Unban when balance below gwei:",
+            &configuration.unban_when_balance_below_gwei.to_string(),
+        );
+        Self::dump_configuration_line(
+            stream,
             "Mnemonic seed:",
             &configuration
                 .mnemonic_seed_opt
@@ -166,7 +230,11 @@ mod tests {
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::automap_tools::AutomapProtocol;
-    use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
+    use masq_lib::constants::{
+        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, DEFAULT_RATE_PACK,
+        NODE_NOT_RUNNING_ERROR, PAYMENT_CURVES,
+    };
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
     use std::sync::{Arc, Mutex};
 
@@ -246,6 +314,19 @@ mod tests {
             consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
             port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
+            balance_decreases_for_sec: PAYMENT_CURVES.balance_decreases_for_sec as u64,
+            balance_to_decrease_from_gwei: PAYMENT_CURVES.balance_to_decrease_from_gwei as u64,
+            exit_byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
+            exit_service_rate: DEFAULT_RATE_PACK.exit_service_rate,
+            payable_scan_interval: DEFAULT_PAYABLE_SCAN_INTERVAL,
+            payment_suggested_after_sec: PAYMENT_CURVES.payment_suggested_after_sec as u64,
+            payment_grace_before_ban_sec: PAYMENT_CURVES.payment_grace_before_ban_sec as u64,
+            pending_payment_scan_interval: DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000,
+            permanent_debt_allowed_gwei: PAYMENT_CURVES.permanent_debt_allowed_gwei as u64,
+            receivable_scan_interval: DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+            routing_byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
+            routing_service_rate: DEFAULT_RATE_PACK.routing_service_rate,
+            unban_when_balance_below_gwei: PAYMENT_CURVES.unban_when_balance_below_gwei as u64,
             past_neighbors: vec!["neighbor 1".to_string(), "neighbor 2".to_string()],
             start_block: 3456,
         };
@@ -274,7 +355,8 @@ mod tests {
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
-            "\
+            format!(
+                "\
 |NAME                              VALUE\n\
 |Blockchain service URL:           https://infura.io/ID\n\
 |Chain                             ropsten\n\
@@ -286,10 +368,37 @@ mod tests {
 |Neighborhood mode:                standard\n\
 |Port mapping protocol:            PCP\n\
 |Start block:                      3456\n\
+|Balance decreases for sec:        {}\n\
+|Balance to decrease from gwei:    {}\n\
+|Exit byte rate:                   {}\n\
+|Exit service rate:                {}\n\
+|Payable scan interval:            {}\n\
+|Payment suggested after sec:      {}\n\
+|Payment grace before ban sec:     {}\n\
+|Pending payment scan interval:    {}\n\
+|Permanent debt allowed gwei:      {}\n\
+|Receivable scan interval:         {}\n\
+|Routing byte rate:                {}\n\
+|Routing service rate:             {}\n\
+|Unban when balance below gwei:    {}\n\
 |Mnemonic seed:                    mnemonic seed\n\
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
-"
+",
+                PAYMENT_CURVES.balance_decreases_for_sec,
+                PAYMENT_CURVES.balance_to_decrease_from_gwei,
+                DEFAULT_RATE_PACK.exit_byte_rate,
+                DEFAULT_RATE_PACK.exit_service_rate,
+                DEFAULT_PAYABLE_SCAN_INTERVAL,
+                PAYMENT_CURVES.payment_suggested_after_sec,
+                PAYMENT_CURVES.payment_grace_before_ban_sec,
+                DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000,
+                PAYMENT_CURVES.permanent_debt_allowed_gwei,
+                DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+                DEFAULT_RATE_PACK.routing_byte_rate,
+                DEFAULT_RATE_PACK.routing_service_rate,
+                PAYMENT_CURVES.unban_when_balance_below_gwei,
+            )
             .replace('|', "")
             .to_string()
         );
@@ -310,6 +419,19 @@ mod tests {
             consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
             earning_wallet_address_opt: Some("earning wallet".to_string()),
             port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
+            balance_decreases_for_sec: PAYMENT_CURVES.balance_decreases_for_sec as u64,
+            balance_to_decrease_from_gwei: PAYMENT_CURVES.balance_to_decrease_from_gwei as u64,
+            exit_byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
+            exit_service_rate: DEFAULT_RATE_PACK.exit_service_rate,
+            payable_scan_interval: DEFAULT_PAYABLE_SCAN_INTERVAL,
+            payment_suggested_after_sec: PAYMENT_CURVES.payment_suggested_after_sec as u64,
+            payment_grace_before_ban_sec: PAYMENT_CURVES.payment_grace_before_ban_sec as u64,
+            pending_payment_scan_interval: DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000,
+            permanent_debt_allowed_gwei: PAYMENT_CURVES.permanent_debt_allowed_gwei as u64,
+            receivable_scan_interval: DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+            routing_byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
+            routing_service_rate: DEFAULT_RATE_PACK.routing_service_rate,
+            unban_when_balance_below_gwei: PAYMENT_CURVES.unban_when_balance_below_gwei as u64,
             past_neighbors: vec![],
             start_block: 3456,
         };
@@ -336,7 +458,8 @@ mod tests {
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
-            "\
+            format!(
+                "\
 NAME                              VALUE\n\
 Blockchain service URL:           https://infura.io/ID\n\
 Chain                             mumbai\n\
@@ -348,10 +471,36 @@ Gas price:                        2345\n\
 Neighborhood mode:                zero-hop\n\
 Port mapping protocol:            PCP\n\
 Start block:                      3456\n\
+Balance decreases for sec:        {}\n\
+Balance to decrease from gwei:    {}\n\
+Exit byte rate:                   {}\n\
+Exit service rate:                {}\n\
+Payable scan interval:            {}\n\
+Payment suggested after sec:      {}\n\
+Payment grace before ban sec:     {}\n\
+Pending payment scan interval:    {}\n\
+Permanent debt allowed gwei:      {}\n\
+Receivable scan interval:         {}\n\
+Routing byte rate:                {}\n\
+Routing service rate:             {}\n\
+Unban when balance below gwei:    {}\n\
 Mnemonic seed:                    [?]\n\
 Past neighbors:                   [?]\n\
-"
-            .to_string()
+",
+                PAYMENT_CURVES.balance_decreases_for_sec,
+                PAYMENT_CURVES.balance_to_decrease_from_gwei,
+                DEFAULT_RATE_PACK.exit_byte_rate,
+                DEFAULT_RATE_PACK.exit_service_rate,
+                DEFAULT_PAYABLE_SCAN_INTERVAL,
+                PAYMENT_CURVES.payment_suggested_after_sec,
+                PAYMENT_CURVES.payment_grace_before_ban_sec,
+                DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000,
+                PAYMENT_CURVES.permanent_debt_allowed_gwei,
+                DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+                DEFAULT_RATE_PACK.routing_byte_rate,
+                DEFAULT_RATE_PACK.routing_service_rate,
+                PAYMENT_CURVES.unban_when_balance_below_gwei,
+            )
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), "");
     }

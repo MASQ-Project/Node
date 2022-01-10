@@ -20,27 +20,16 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::blockchain_records::CHAINS;
 use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
-use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX};
+use masq_lib::constants::{
+    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX, ZERO_RATE_PACK,
+};
+use masq_lib::payment_curves_and_rate_pack::RatePack;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
-
-pub const DEFAULT_RATE_PACK: RatePack = RatePack {
-    routing_byte_rate: 100,
-    routing_service_rate: 10000,
-    exit_byte_rate: 101,
-    exit_service_rate: 10001,
-};
-
-pub const ZERO_RATE_PACK: RatePack = RatePack {
-    routing_byte_rate: 0,
-    routing_service_rate: 0,
-    exit_byte_rate: 0,
-    exit_service_rate: 0,
-};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NeighborhoodMode {
@@ -447,27 +436,6 @@ pub struct RemoveNeighborMessage {
 #[derive(Clone, Debug, Message, PartialEq)]
 pub enum NodeRecordMetadataMessage {
     Desirable(PublicKey, bool),
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct RatePack {
-    pub routing_byte_rate: u64,
-    pub routing_service_rate: u64,
-    pub exit_byte_rate: u64,
-    pub exit_service_rate: u64,
-}
-
-impl fmt::Display for RatePack {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}+{}b route {}+{}b exit",
-            self.routing_service_rate,
-            self.routing_byte_rate,
-            self.exit_service_rate,
-            self.exit_byte_rate
-        )
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

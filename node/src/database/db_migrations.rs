@@ -1,14 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::{
-    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
-    DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES,
-};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::{
+    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+    DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, DEFAULT_RATE_PACK, PAYMENT_CURVES,
+};
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
@@ -572,10 +571,6 @@ impl From<(MigratorConfig, bool)> for ExternalData {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::{
-        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
-        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES,
-    };
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
@@ -586,12 +581,14 @@ mod tests {
         ExternalData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, Suppression,
     };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
-    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::constants::{
+        DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, DEFAULT_RATE_PACK, PAYMENT_CURVES,
+    };
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::{Connection, Error, OptionalExtension};

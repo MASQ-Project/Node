@@ -145,10 +145,6 @@ fn distill_args(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::{
-        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
-        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES,
-    };
     use crate::blockchain::bip39::Bip39;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
@@ -158,10 +154,14 @@ mod tests {
     };
     use crate::db_config::typed_config_layer::encode_bytes;
     use crate::sub_lib::cryptde::PlainData;
-    use crate::sub_lib::neighborhood::{NodeDescriptor, DEFAULT_RATE_PACK};
+    use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
     use crate::test_utils::{main_cryptde, ArgsBuilder};
     use bip39::{Language, MnemonicType, Seed};
+    use masq_lib::constants::{
+        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, DEFAULT_RATE_PACK, PAYMENT_CURVES,
+    };
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};

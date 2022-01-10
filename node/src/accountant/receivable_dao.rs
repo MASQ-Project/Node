@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{jackass_unsigned_to_signed, PaymentCurves, PaymentError};
+use crate::accountant::{jackass_unsigned_to_signed, PaymentError};
 use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -9,6 +9,7 @@ use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
+use masq_lib::payment_curves_and_rate_pack::PaymentCurves;
 use rusqlite::named_params;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row};

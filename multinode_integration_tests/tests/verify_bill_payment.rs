@@ -78,7 +78,7 @@ fn verify_bill_payment() {
         build_config(&blockchain_server, &seed, derivation_path(0, 3));
 
     let amount = 10u64
-        * u64::try_from(node_lib::accountant::PAYMENT_CURVES.permanent_debt_allowed_gwub).unwrap();
+        * u64::try_from(node_lib::accountant::PAYMENT_CURVES.permanent_debt_allowed_gwei).unwrap();
 
     let project_root = MASQNodeUtils::find_project_root();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);

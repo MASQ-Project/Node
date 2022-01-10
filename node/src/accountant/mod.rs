@@ -38,7 +38,7 @@ use actix::Message;
 use actix::Recipient;
 use futures::future::Future;
 use itertools::Itertools;
-use lazy_static::lazy_static;
+use masq_lib::constants::PAYMENT_CURVES;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
@@ -52,47 +52,10 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
-pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
-
-const SECONDS_PER_DAY: i64 = 86_400;
-
-lazy_static! {
-    pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
-        payment_suggested_after_sec: SECONDS_PER_DAY,
-        payment_grace_before_ban_sec: SECONDS_PER_DAY,
-        permanent_debt_allowed_gwei: 10_000_000,
-        balance_to_decrease_from_gwei: 1_000_000_000,
-        balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
-        unban_when_balance_below_gwei: 10_000_000,
-    };
-}
-
-pub const DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS: u64 = 3_600_000;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum PaymentError {
     SignConversion(u64),
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub struct PaymentCurves {
-    pub payment_suggested_after_sec: i64,
-    pub payment_grace_before_ban_sec: i64,
-    pub permanent_debt_allowed_gwei: i64,
-    pub balance_to_decrease_from_gwei: i64,
-    pub balance_decreases_for_sec: i64,
-    pub unban_when_balance_below_gwei: i64,
-}
-
-impl PaymentCurves {
-    pub fn sugg_and_grace(&self, now: i64) -> i64 {
-        now - self.payment_suggested_after_sec - self.payment_grace_before_ban_sec
-    }
-
-    pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
-        self.sugg_and_grace(now) - self.balance_decreases_for_sec
-    }
 }
 
 pub struct Accountant {
@@ -840,6 +803,7 @@ pub mod tests {
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
+    use masq_lib::payment_curves_and_rate_pack::PaymentCurves;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
     use std::cell::RefCell;

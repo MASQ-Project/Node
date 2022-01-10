@@ -455,7 +455,6 @@ pub struct UiConfigurationRequest {
 }
 conversation_message!(UiConfigurationRequest, "configuration");
 
-//put non-secret parameters first with both sorts alphabetical ordered
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiConfigurationResponse {
     #[serde(rename = "blockchainServiceUrlOpt")]
@@ -476,6 +475,32 @@ pub struct UiConfigurationResponse {
     pub neighborhood_mode: String,
     #[serde(rename = "portMappingProtocol")]
     pub port_mapping_protocol_opt: Option<AutomapProtocol>,
+    #[serde(rename = "balanceDecreasesForSec")]
+    pub balance_decreases_for_sec: u64,
+    #[serde(rename = "balanceToDecreaseFromGwei")]
+    pub balance_to_decrease_from_gwei: u64,
+    #[serde(rename = "exitByteRate")]
+    pub exit_byte_rate: u64,
+    #[serde(rename = "exitServiceRate")]
+    pub exit_service_rate: u64,
+    #[serde(rename = "payableScanInterval")]
+    pub payable_scan_interval: u64,
+    #[serde(rename = "paymentSuggestedAfterSec")]
+    pub payment_suggested_after_sec: u64,
+    #[serde(rename = "paymentGraceBeforeBanSec")]
+    pub payment_grace_before_ban_sec: u64,
+    #[serde(rename = "pendingPaymentScanInterval")]
+    pub pending_payment_scan_interval: u64,
+    #[serde(rename = "permanentDebtAllowedGwei")]
+    pub permanent_debt_allowed_gwei: u64,
+    #[serde(rename = "receivableScanInterval")]
+    pub receivable_scan_interval: u64,
+    #[serde(rename = "routingByteRate")]
+    pub routing_byte_rate: u64,
+    #[serde(rename = "routingServiceRate")]
+    pub routing_service_rate: u64,
+    #[serde(rename = "unbanWhenBalanceBelowGwei")]
+    pub unban_when_balance_below_gwei: u64,
     #[serde(rename = "startBlock")]
     pub start_block: u64,
     #[serde(rename = "mnemonicSeedOpt")]
@@ -483,6 +508,7 @@ pub struct UiConfigurationResponse {
     #[serde(rename = "pastNeighbors")]
     pub past_neighbors: Vec<String>,
 }
+
 conversation_message!(UiConfigurationResponse, "configuration");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

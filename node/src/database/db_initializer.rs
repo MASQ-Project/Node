@@ -1,17 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{
-    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
-    DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, PAYMENT_CURVES,
-};
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
 use crate::database::db_migrations::{
     DbMigrator, DbMigratorReal, ExternalData, MigratorConfig, Suppression,
 };
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use masq_lib::constants::{
-    DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
+    DEFAULT_GAS_PRICE, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+    DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, DEFAULT_RATE_PACK,
+    HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT, PAYMENT_CURVES,
 };
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
@@ -282,7 +279,7 @@ impl DbInitializerReal {
             "permanent_debt_allowed_gwei",
             Some(&PAYMENT_CURVES.permanent_debt_allowed_gwei.to_string()),
             false,
-            "all debts under thi level are tolerated",
+            "all debts under this level are tolerated",
         );
         Self::set_config_value(
             conn,
@@ -677,9 +674,7 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::PAYMENT_CURVES;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
-    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
         DbMigratorMock,

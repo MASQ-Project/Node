@@ -3,12 +3,12 @@
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::migrations::utils::value_to_type;
-use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::versioned_data::{
     MigrationError, Migrations, StepError, VersionedData, FUTURE_VERSION,
 };
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
+use masq_lib::payment_curves_and_rate_pack::RatePack;
 use serde_cbor::Value;
 use std::collections::BTreeSet;
 use std::convert::TryFrom;
@@ -159,8 +159,9 @@ impl NodeRecordInner_0v1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::versioned_data::DataVersion;
+    use masq_lib::constants::DEFAULT_RATE_PACK;
+    use masq_lib::payment_curves_and_rate_pack::RatePack;
     use serde_derive::{Deserialize, Serialize};
     use std::iter::FromIterator;
 

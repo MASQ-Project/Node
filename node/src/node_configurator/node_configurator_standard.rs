@@ -28,16 +28,16 @@ use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
-use crate::sub_lib::neighborhood::{
-    NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, DEFAULT_RATE_PACK,
-};
+use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_UI_PORT, HTTP_PORT, MASQ_URL_PREFIX, TLS_PORT};
+use masq_lib::constants::{
+    DEFAULT_CHAIN, DEFAULT_RATE_PACK, DEFAULT_UI_PORT, HTTP_PORT, MASQ_URL_PREFIX, TLS_PORT,
+};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use masq_lib::shared_schema::ParamError;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
