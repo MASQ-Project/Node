@@ -566,8 +566,21 @@ impl Configurator {
             consuming_wallet_derivation_path_opt,
             earning_wallet_address_opt,
             port_mapping_protocol_opt,
+            balance_decreases_for_sec: 0,
+            balance_to_decrease_from_gwei: 0,
+            exit_byte_rate: 0,
+            exit_service_rate: 0,
+            payable_scan_interval: 0,
+            payment_suggested_after_sec: 0,
+            payment_grace_before_ban_sec: 0,
+            pending_payment_scan_interval: 0,
+            permanent_debt_allowed_gwei: 0,
+            receivable_scan_interval: 0,
+            routing_byte_rate: 0,
+            routing_service_rate: 0,
             past_neighbors,
             start_block,
+            unban_when_balance_below_gwei: 0,
         };
         Ok(response.tmb(context_id))
     }
@@ -1993,8 +2006,21 @@ mod tests {
                 consuming_wallet_derivation_path_opt: None,
                 earning_wallet_address_opt: None,
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),
+                balance_decreases_for_sec: 0,
+                balance_to_decrease_from_gwei: 0,
+                exit_byte_rate: 0,
+                exit_service_rate: 0,
+                payable_scan_interval: 0,
+                payment_suggested_after_sec: 0,
+                payment_grace_before_ban_sec: 0,
+                pending_payment_scan_interval: 0,
+                permanent_debt_allowed_gwei: 0,
+                receivable_scan_interval: 0,
+                routing_byte_rate: 0,
+                routing_service_rate: 0,
                 past_neighbors: vec![],
-                start_block: 3456
+                start_block: 3456,
+                unban_when_balance_below_gwei: 0
             }
         );
     }
@@ -2067,8 +2093,21 @@ mod tests {
                 consuming_wallet_derivation_path_opt: Some(consuming_wallet_derivation_path),
                 earning_wallet_address_opt: Some(earning_wallet_address),
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),
+                balance_decreases_for_sec: 0,
+                balance_to_decrease_from_gwei: 0,
+                exit_byte_rate: 0,
+                exit_service_rate: 0,
+                payable_scan_interval: 0,
+                payment_suggested_after_sec: 0,
+                payment_grace_before_ban_sec: 0,
+                pending_payment_scan_interval: 0,
+                permanent_debt_allowed_gwei: 0,
+                receivable_scan_interval: 0,
+                routing_byte_rate: 0,
+                routing_service_rate: 0,
                 past_neighbors: vec![node_descriptor.to_string(main_cryptde())],
-                start_block: 3456
+                start_block: 3456,
+                unban_when_balance_below_gwei: 0
             }
         );
         let mnemonic_seed_params = mnemonic_seed_params_arc.lock().unwrap();
