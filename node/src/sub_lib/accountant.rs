@@ -20,8 +20,8 @@ lazy_static! {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct AccountantConfig {
-    pub payable_scan_interval: Duration,
-    pub payment_received_scan_interval: Duration,
+    pub payables_scan_interval: Duration,
+    pub receivables_scan_interval: Duration,
 }
 
 #[derive(Clone)]

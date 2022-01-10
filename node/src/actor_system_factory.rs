@@ -743,7 +743,7 @@ mod tests {
                     .recipient::<ReportExitServiceConsumedMessage>(),
                 report_new_payments: recipient!(addr, ReceivedPayments),
                 report_sent_payments: recipient!(addr, SentPayments),
-                ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+                ui_message_sub: recipient!(addr, NodeFromUiMessage),
             }
         }
 
@@ -924,8 +924,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -994,8 +994,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1106,8 +1106,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1163,8 +1163,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
