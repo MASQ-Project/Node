@@ -98,12 +98,27 @@ pub struct PersistentConfigurationMock {
 
 impl PersistentConfiguration for PersistentConfigurationMock {
     fn balance_decreases_for_sec(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        self.balance_decreases_for_sec_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn set_balance_decreases_for_sec(
         &mut self,
         decrease: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError> {
+        self.balance_to_decrease_from_gwei_results
+            .borrow_mut()
+            .remove(0)
+    }
+
+    fn set_balance_to_decrease_from_gwei(
+        &mut self,
+        level: u64,
     ) -> Result<(), PersistentConfigError> {
         todo!()
     }
@@ -162,6 +177,34 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_clandestine_port_results.borrow_mut().remove(0)
     }
 
+    fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError> {
+        Self::result_from(&self.consuming_wallet_derivation_path_results)
+    }
+
+    fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError> {
+        Self::result_from(&self.earning_wallet_from_address_results)
+    }
+
+    fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError> {
+        Self::result_from(&self.earning_wallet_address_results)
+    }
+
+    fn exit_byte_rate(&self) -> Result<u64, PersistentConfigError> {
+        self.exit_byte_rate_results.borrow_mut().remove(0)
+    }
+
+    fn set_exit_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn exit_service_rate(&self) -> Result<u64, PersistentConfigError> {
+        self.exit_service_rate_results.borrow_mut().remove(0)
+    }
+
+    fn set_exit_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {
         Self::result_from(&self.gas_price_results)
     }
@@ -169,6 +212,21 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
         self.set_gas_price_params.lock().unwrap().push(gas_price);
         self.set_gas_price_results.borrow_mut().remove(0)
+    }
+
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
+        self.mapping_protocol_results.borrow_mut().pop().unwrap()
+    }
+
+    fn set_mapping_protocol(
+        &mut self,
+        value: AutomapProtocol,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_mapping_protocol_params.lock().unwrap().push(value);
+        self.set_mapping_protocol_results
+            .borrow_mut()
+            .pop()
+            .unwrap()
     }
 
     fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError> {
@@ -184,32 +242,19 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.mnemonic_seed_exists_results)
     }
 
-    fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError> {
-        Self::result_from(&self.consuming_wallet_derivation_path_results)
+    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
+        self.neighborhood_mode_results.borrow_mut().remove(0)
     }
 
-    fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError> {
-        Self::result_from(&self.earning_wallet_from_address_results)
-    }
-
-    fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError> {
-        Self::result_from(&self.earning_wallet_address_results)
-    }
-
-    fn set_wallet_info(
+    fn set_neighborhood_mode(
         &mut self,
-        mnemonic_seed: &dyn AsRef<[u8]>,
-        consuming_wallet_derivation_path: &str,
-        earning_wallet_address: &str,
-        db_password: &str,
+        value: NeighborhoodModeLight,
     ) -> Result<(), PersistentConfigError> {
-        self.set_wallet_info_params.lock().unwrap().push((
-            PlainData::new(mnemonic_seed.as_ref()),
-            consuming_wallet_derivation_path.to_string(),
-            earning_wallet_address.to_string(),
-            db_password.to_string(),
-        ));
-        self.set_wallet_info_results.borrow_mut().remove(0)
+        self.set_neighborhood_mode_params
+            .lock()
+            .unwrap()
+            .push(value);
+        self.set_neighborhood_mode_results.borrow_mut().remove(0)
     }
 
     fn past_neighbors(
@@ -235,6 +280,96 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_past_neighbors_results.borrow_mut().remove(0)
     }
 
+    fn payable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
+        self.payable_scan_interval_results.borrow_mut().remove(0)
+    }
+
+    fn set_payable_scan_interval(
+        &mut self,
+        interval_sec: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn payment_grace_before_ban_sec(&self) -> Result<u64, PersistentConfigError> {
+        self.payment_grace_before_ban_sec_results
+            .borrow_mut()
+            .remove(0)
+    }
+
+    fn set_payment_grace_before_ban_sec(
+        &mut self,
+        period_sec: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn payment_suggested_after_sec(&self) -> Result<u64, PersistentConfigError> {
+        self.payment_suggested_after_sec_results
+            .borrow_mut()
+            .remove(0)
+    }
+
+    fn set_payment_suggested_after_sec(
+        &mut self,
+        period: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError> {
+        self.pending_payment_scan_interval_results
+            .borrow_mut()
+            .remove(0)
+    }
+
+    fn set_pending_payment_scan_interval(
+        &mut self,
+        interval_sec: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn permanent_debt_allowed_gwei(&self) -> Result<u64, PersistentConfigError> {
+        self.permanent_debt_allowed_gwei_results
+            .borrow_mut()
+            .remove(0)
+    }
+
+    fn set_permanent_debt_allowed_gwei(
+        &mut self,
+        debt_amount: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn receivable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
+        self.receivable_scan_interval_results.borrow_mut().remove(0)
+    }
+
+    fn set_receivable_scan_interval(
+        &mut self,
+        interval_sec: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError> {
+        self.routing_byte_rate_results.borrow_mut().remove(0)
+    }
+
+    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn routing_service_rate(&self) -> Result<u64, PersistentConfigError> {
+        self.routing_services_rate_results.borrow_mut().remove(0)
+    }
+
+    fn set_routing_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
     fn start_block(&self) -> Result<u64, PersistentConfigError> {
         if self.start_block_results.borrow().is_empty() {
             return Ok(0);
@@ -247,136 +382,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.set_start_block_results)
     }
 
-    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
-        self.mapping_protocol_results.borrow_mut().pop().unwrap()
-    }
-
-    fn set_mapping_protocol(
-        &mut self,
-        value: AutomapProtocol,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_mapping_protocol_params.lock().unwrap().push(value);
-        self.set_mapping_protocol_results
-            .borrow_mut()
-            .pop()
-            .unwrap()
-    }
-
-    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
-        self.neighborhood_mode_results.borrow_mut().remove(0)
-    }
-
-    fn set_neighborhood_mode(
-        &mut self,
-        value: NeighborhoodModeLight,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_neighborhood_mode_params
-            .lock()
-            .unwrap()
-            .push(value);
-        self.set_neighborhood_mode_results.borrow_mut().remove(0)
-    }
-
-    fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
-    }
-
-    fn set_balance_to_decrease_from_gwei(
-        &mut self,
-        level: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn exit_byte_rate(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
-    }
-
-    fn set_exit_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn exit_service_rate(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
-    }
-
-    fn set_exit_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn payable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
-    }
-
-    fn set_payable_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn payment_grace_before_ban_sec(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
-    }
-
-    fn set_payment_grace_before_ban_sec(
-        &mut self,
-        period_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
-    }
-
-    fn set_pending_payment_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn permanent_debt_allowed_gwei(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
-    }
-
-    fn set_permanent_debt_allowed_gwei(
-        &mut self,
-        debt_amount: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn receivable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
-    }
-
-    fn set_receivable_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
-    }
-
-    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<u64, PersistentConfigError> {
-        todo!()
-    }
-
-    fn routing_service_rate(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
-    }
-
-    fn set_routing_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
     fn unban_when_balance_below_gwei(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        self.unban_when_balance_below_gwei_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn set_unban_when_balance_below_gwei(
@@ -384,6 +393,22 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         level: u64,
     ) -> Result<(), PersistentConfigError> {
         todo!()
+    }
+
+    fn set_wallet_info(
+        &mut self,
+        mnemonic_seed: &dyn AsRef<[u8]>,
+        consuming_wallet_derivation_path: &str,
+        earning_wallet_address: &str,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_wallet_info_params.lock().unwrap().push((
+            PlainData::new(mnemonic_seed.as_ref()),
+            consuming_wallet_derivation_path.to_string(),
+            earning_wallet_address.to_string(),
+            db_password.to_string(),
+        ));
+        self.set_wallet_info_results.borrow_mut().remove(0)
     }
 }
 

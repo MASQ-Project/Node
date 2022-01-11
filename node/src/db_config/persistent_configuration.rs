@@ -137,6 +137,9 @@ pub trait PersistentConfiguration {
         &mut self,
         period_sec: u64,
     ) -> Result<(), PersistentConfigError>;
+    fn payment_suggested_after_sec(&self) -> Result<u64, PersistentConfigError>;
+    fn set_payment_suggested_after_sec(&mut self, period: u64)
+        -> Result<(), PersistentConfigError>;
     fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError>;
     fn set_pending_payment_scan_interval(
         &mut self,
@@ -594,6 +597,17 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     fn set_unban_when_balance_below_gwei(
         &mut self,
         level: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn payment_suggested_after_sec(&self) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_payment_suggested_after_sec(
+        &mut self,
+        period: u64,
     ) -> Result<(), PersistentConfigError> {
         todo!()
     }

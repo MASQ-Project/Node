@@ -555,6 +555,52 @@ impl Configurator {
             }
             None => (None, vec![]),
         };
+        let balance_decreases_for_sec = Self::value_required(
+            persistent_config.balance_decreases_for_sec(),
+            "balanceDecreasesForSec",
+        )?;
+        let balance_to_decrease_from_gwei = Self::value_required(
+            persistent_config.balance_to_decrease_from_gwei(),
+            "balanceToDecreaseFromGwei",
+        )?;
+        let exit_byte_rate =
+            Self::value_required(persistent_config.exit_byte_rate(), "exitByteRate")?;
+        let exit_service_rate =
+            Self::value_required(persistent_config.exit_service_rate(), "exitServiceRate")?;
+        let payable_scan_interval = Self::value_required(
+            persistent_config.payable_scan_interval(),
+            "payableScanInterval",
+        )?;
+        let payment_grace_before_ban_sec = Self::value_required(
+            persistent_config.payment_grace_before_ban_sec(),
+            "paymentGraceBeforeBanSec",
+        )?;
+        let payment_suggested_after_sec = Self::value_required(
+            persistent_config.payment_suggested_after_sec(),
+            "paymentSuggestedAfterSec",
+        )?;
+        let pending_payment_scan_interval = Self::value_required(
+            persistent_config.pending_payment_scan_interval(),
+            "pendingPaymentScanInterval",
+        )?;
+        let permanent_debt_allowed_gwei = Self::value_required(
+            persistent_config.permanent_debt_allowed_gwei(),
+            "permanentDebtAllowedGwei",
+        )?;
+        let receivable_scan_interval = Self::value_required(
+            persistent_config.receivable_scan_interval(),
+            "receivableScanInterval",
+        )?;
+        let routing_byte_rate =
+            Self::value_required(persistent_config.routing_byte_rate(), "routingByteRate")?;
+        let routing_service_rate = Self::value_required(
+            persistent_config.routing_service_rate(),
+            "routingServiceRate",
+        )?;
+        let unban_when_balance_below_gwei = Self::value_required(
+            persistent_config.unban_when_balance_below_gwei(),
+            "unbanWhenBalanceBelowGwei",
+        )?;
         let response = UiConfigurationResponse {
             blockchain_service_url_opt,
             current_schema_version,
@@ -566,21 +612,21 @@ impl Configurator {
             consuming_wallet_derivation_path_opt,
             earning_wallet_address_opt,
             port_mapping_protocol_opt,
-            balance_decreases_for_sec: 0,
-            balance_to_decrease_from_gwei: 0,
-            exit_byte_rate: 0,
-            exit_service_rate: 0,
-            payable_scan_interval: 0,
-            payment_suggested_after_sec: 0,
-            payment_grace_before_ban_sec: 0,
-            pending_payment_scan_interval: 0,
-            permanent_debt_allowed_gwei: 0,
-            receivable_scan_interval: 0,
-            routing_byte_rate: 0,
-            routing_service_rate: 0,
+            balance_decreases_for_sec,
+            balance_to_decrease_from_gwei,
+            exit_byte_rate,
+            exit_service_rate,
+            payable_scan_interval,
+            payment_suggested_after_sec,
+            payment_grace_before_ban_sec,
+            pending_payment_scan_interval,
+            permanent_debt_allowed_gwei,
+            receivable_scan_interval,
+            routing_byte_rate,
+            routing_service_rate,
+            unban_when_balance_below_gwei,
             past_neighbors,
             start_block,
-            unban_when_balance_below_gwei: 0,
         };
         Ok(response.tmb(context_id))
     }
@@ -1980,7 +2026,20 @@ mod tests {
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::Standard))
             .earning_wallet_address_result(Ok(None))
-            .start_block_result(Ok(3456));
+            .start_block_result(Ok(3456))
+            .balance_decreases_for_sec_result(Ok(10_000))
+            .balance_to_decrease_from_gwei_result(Ok(5_000_000))
+            .exit_byte_rate_result(Ok(10))
+            .exit_service_rate_result(Ok(13))
+            .payable_scan_interval_result(Ok(120))
+            .payment_suggested_after_sec_result(Ok(1200))
+            .payment_grace_before_ban_sec_result(Ok(1000))
+            .pending_payment_scan_interval_result(Ok(120))
+            .permanent_debt_allowed_gwei_result(Ok(20_000))
+            .receivable_scan_interval_result(Ok(120))
+            .routing_byte_rate_result(Ok(6))
+            .routing_service_rate_result(Ok(8))
+            .unban_when_balance_below_gwei_result(Ok(20_000));
         let mut subject = make_subject(Some(persistent_config));
 
         let (configuration, context_id) =
@@ -2006,21 +2065,21 @@ mod tests {
                 consuming_wallet_derivation_path_opt: None,
                 earning_wallet_address_opt: None,
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),
-                balance_decreases_for_sec: 0,
-                balance_to_decrease_from_gwei: 0,
-                exit_byte_rate: 0,
-                exit_service_rate: 0,
-                payable_scan_interval: 0,
-                payment_suggested_after_sec: 0,
-                payment_grace_before_ban_sec: 0,
-                pending_payment_scan_interval: 0,
-                permanent_debt_allowed_gwei: 0,
-                receivable_scan_interval: 0,
-                routing_byte_rate: 0,
-                routing_service_rate: 0,
+                balance_decreases_for_sec: 10_000,
+                balance_to_decrease_from_gwei: 5_000_000,
+                exit_byte_rate: 10,
+                exit_service_rate: 13,
+                payable_scan_interval: 120,
+                payment_suggested_after_sec: 1200,
+                payment_grace_before_ban_sec: 1000,
+                pending_payment_scan_interval: 120,
+                permanent_debt_allowed_gwei: 20_000,
+                receivable_scan_interval: 120,
+                routing_byte_rate: 6,
+                routing_service_rate: 8,
+                unban_when_balance_below_gwei: 20_000,
                 past_neighbors: vec![],
                 start_block: 3456,
-                unban_when_balance_below_gwei: 0
             }
         );
     }
@@ -2067,7 +2126,21 @@ mod tests {
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
             .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
-            .start_block_result(Ok(3456));
+            .start_block_result(Ok(3456))
+            .start_block_result(Ok(3456))
+            .balance_decreases_for_sec_result(Ok(10_000))
+            .balance_to_decrease_from_gwei_result(Ok(5_000_000))
+            .exit_byte_rate_result(Ok(10))
+            .exit_service_rate_result(Ok(13))
+            .payable_scan_interval_result(Ok(120))
+            .payment_suggested_after_sec_result(Ok(1200))
+            .payment_grace_before_ban_sec_result(Ok(1000))
+            .pending_payment_scan_interval_result(Ok(120))
+            .permanent_debt_allowed_gwei_result(Ok(20_000))
+            .receivable_scan_interval_result(Ok(120))
+            .routing_byte_rate_result(Ok(6))
+            .routing_service_rate_result(Ok(8))
+            .unban_when_balance_below_gwei_result(Ok(20_000));
         let mut subject = make_subject(Some(persistent_config));
 
         let (configuration, context_id) =
@@ -2093,21 +2166,21 @@ mod tests {
                 consuming_wallet_derivation_path_opt: Some(consuming_wallet_derivation_path),
                 earning_wallet_address_opt: Some(earning_wallet_address),
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),
-                balance_decreases_for_sec: 0,
-                balance_to_decrease_from_gwei: 0,
-                exit_byte_rate: 0,
-                exit_service_rate: 0,
-                payable_scan_interval: 0,
-                payment_suggested_after_sec: 0,
-                payment_grace_before_ban_sec: 0,
-                pending_payment_scan_interval: 0,
-                permanent_debt_allowed_gwei: 0,
-                receivable_scan_interval: 0,
-                routing_byte_rate: 0,
-                routing_service_rate: 0,
+                balance_decreases_for_sec: 10_000,
+                balance_to_decrease_from_gwei: 5_000_000,
+                exit_byte_rate: 10,
+                exit_service_rate: 13,
+                payable_scan_interval: 120,
+                payment_suggested_after_sec: 1200,
+                payment_grace_before_ban_sec: 1000,
+                pending_payment_scan_interval: 120,
+                permanent_debt_allowed_gwei: 20_000,
+                receivable_scan_interval: 120,
+                routing_byte_rate: 6,
+                routing_service_rate: 8,
+                unban_when_balance_below_gwei: 20_000,
                 past_neighbors: vec![node_descriptor.to_string(main_cryptde())],
                 start_block: 3456,
-                unban_when_balance_below_gwei: 0
             }
         );
         let mnemonic_seed_params = mnemonic_seed_params_arc.lock().unwrap();
