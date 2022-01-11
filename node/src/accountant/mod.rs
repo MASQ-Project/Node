@@ -56,10 +56,10 @@ use std::time::{Duration, SystemTime};
 use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 300; // every 5 min
-pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 300; //  every 5 min
+pub const DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL: u64 = 300; //5 mins
+pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 300; //5 mins
+pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 300; //5 mins
 
-//const SECONDS_PER_DAY: i64 = 86_400;
 const DEBT_MATURE_AFTER: i64 = 720; // 12 min
 const DEBT_CONSIDERED_BIG_FROM: i64 = 5_000_000;
 
@@ -74,9 +74,7 @@ lazy_static! {
     };
 }
 
-//TODO this might become chain specific later on
-pub const DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS: u64 = 300_000;
-pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 120; //21 600 <=> 6h
+pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 120; //formerly 21 600 <=> 6h
 
 #[derive(Debug, PartialEq)]
 pub enum DebtRecordingError {
@@ -1661,9 +1659,7 @@ pub mod tests {
                 AccountantConfig {
                     payables_scan_interval: Duration::from_millis(10_000),
                     receivables_scan_interval: Duration::from_millis(10_000),
-                    pending_payments_scan_interval: Duration::from_millis(
-                        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
-                    ),
+                    pending_payments_scan_interval: Duration::from_millis(10_000),
                     when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 },
                 make_wallet("some_wallet_address"),
@@ -1760,9 +1756,7 @@ pub mod tests {
                 AccountantConfig {
                     payables_scan_interval: Duration::from_millis(10_000),
                     receivables_scan_interval: Duration::from_millis(10_000),
-                    pending_payments_scan_interval: Duration::from_millis(
-                        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
-                    ),
+                    pending_payments_scan_interval: Duration::from_millis(10_000),
                     when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 },
                 make_wallet("some_wallet_address"),
@@ -1945,9 +1939,7 @@ pub mod tests {
                 AccountantConfig {
                     payables_scan_interval: Duration::from_secs(100_000),
                     receivables_scan_interval: Duration::from_secs(100_000),
-                    pending_payments_scan_interval: Duration::from_millis(
-                        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
-                    ),
+                    pending_payments_scan_interval: Duration::from_secs(100_000),
                     when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 },
                 make_wallet("some_wallet_address"),
@@ -2004,9 +1996,7 @@ pub mod tests {
                 AccountantConfig {
                     payables_scan_interval: Duration::from_secs(100_000),
                     receivables_scan_interval: Duration::from_secs(100_000),
-                    pending_payments_scan_interval: Duration::from_millis(
-                        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
-                    ),
+                    pending_payments_scan_interval: Duration::from_secs(100_000),
                     when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 },
                 earning_wallet.clone(),
