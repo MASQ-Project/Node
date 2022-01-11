@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{
     DEFAULT_PAYABLES_SCAN_INTERVAL, DEFAULT_PENDING_TOO_LONG_SEC,
-    DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, DEFAULT_RECEIVABLES_SCAN_INTERVAL,
+    DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL, DEFAULT_RECEIVABLES_SCAN_INTERVAL,
 };
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
@@ -332,7 +332,7 @@ impl BootstrapperConfig {
                 payables_scan_interval: Duration::from_secs(DEFAULT_PAYABLES_SCAN_INTERVAL),
                 receivables_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLES_SCAN_INTERVAL),
                 pending_payments_scan_interval: Duration::from_secs(
-                    DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
+                    DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL,
                 ),
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
@@ -644,6 +644,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::time::Duration;
 
     use actix::Recipient;
     use actix::System;
@@ -660,6 +661,10 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 
+    use crate::accountant::{
+        DEFAULT_PAYABLES_SCAN_INTERVAL, DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL,
+        DEFAULT_RECEIVABLES_SCAN_INTERVAL,
+    };
     use crate::actor_system_factory::{ActorFactory, ActorSystemFactory, ActorSystemFactoryTools};
     use crate::bootstrapper::{
         main_cryptde_ref, Bootstrapper, BootstrapperConfig, EnvironmentWrapper, PortConfiguration,
@@ -1941,6 +1946,24 @@ mod tests {
                 Some(PathBuf::from("/wibble/whop/ooga"))
             )
         );
+    }
+
+    #[test]
+    fn default_bootstrapper_config_has_scan_intervals_in_proper_units() {
+        let result = BootstrapperConfig::new();
+
+        assert_eq!(
+            result.accountant_config.pending_payments_scan_interval,
+            Duration::from_secs(DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL)
+        );
+        assert_eq!(
+            result.accountant_config.payables_scan_interval,
+            Duration::from_secs(DEFAULT_PAYABLES_SCAN_INTERVAL)
+        );
+        assert_eq!(
+            result.accountant_config.receivables_scan_interval,
+            Duration::from_secs(DEFAULT_RECEIVABLES_SCAN_INTERVAL)
+        )
     }
 
     struct StreamHandlerPoolCluster {
