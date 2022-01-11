@@ -787,6 +787,84 @@ impl ValueRetriever for Neighbors {
     }
 }
 
+struct BalanceToDecreaseFromGwei{}
+impl ValueRetriever for BalanceToDecreaseFromGwei{
+    fn value_name(&self) -> &'static str {
+        "balance-to-decrease-from"
+    }
+}
+
+struct ExitByteRate{}
+impl ValueRetriever for ExitByteRate{
+    fn value_name(&self) -> &'static str {
+        "exit-byte-rate"
+    }
+}
+struct ExitServiceRate{}
+impl ValueRetriever for ExitServiceRate{
+    fn value_name(&self) -> &'static str {
+        "exit-service-rate"
+    }
+}
+struct PayableScanInterval{}
+impl ValueRetriever for PayableScanInterval{
+    fn value_name(&self) -> &'static str {
+        "payable-scan-interval"
+    }
+}
+struct PaymentSuggestedAfterSec{}
+impl ValueRetriever for PaymentSuggestedAfterSec{
+    fn value_name(&self) -> &'static str {
+        "payment-suggested-after"
+    }
+}
+struct PaymentGraceBeforeBanSec{}
+impl ValueRetriever for PaymentGraceBeforeBanSec{
+    fn value_name(&self) -> &'static str {
+        "payment-grace-before-ban"
+    }
+}
+struct PendingPaymentScanInterval{}
+impl ValueRetriever for PendingPaymentScanInterval{
+    fn value_name(&self) -> &'static str {
+        "pending-payment-scan-interval"
+    }
+}
+struct PermanentDebtAllowedGwei{}
+impl ValueRetriever for PermanentDebtAllowedGwei{
+    fn value_name(&self) -> &'static str {
+        "permanent-debt-allowed"
+    }
+}
+
+struct ReceivableScanInterval{}
+impl ValueRetriever for ReceivableScanInterval{
+    fn value_name(&self) -> &'static str {
+        "receivable-scan-interval"
+    }
+}
+
+struct RoutingByteRate{}
+impl ValueRetriever for RoutingByteRate{
+    fn value_name(&self) -> &'static str {
+        "routing-byte-rate"
+    }
+}
+
+struct RoutingServiceRate{}
+impl ValueRetriever for RoutingServiceRate{
+    fn value_name(&self) -> &'static str {
+        "routing-service-rate"
+    }
+}
+
+struct UnbanWhenBalanceBelowGwei{}
+impl ValueRetriever for UnbanWhenBalanceBelowGwei{
+    fn value_name(&self) -> &'static str {
+        "unban-when-balance-below"
+    }
+}
+
 struct RealUser {
     #[allow(dead_code)]
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -847,8 +925,20 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(LogLevel {}),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
+        Box::new(BalanceToDecreaseFromGwei{}),
+        Box::new(ExitByteRate{}),
+        Box::new(ExitServiceRate{}),
+        Box::new(PayableScanInterval{}),
+        Box::new(PaymentSuggestedAfterSec{}),
+        Box::new(PaymentGraceBeforeBanSec{}),
+        Box::new(PendingPaymentScanInterval{}),
+        Box::new(PermanentDebtAllowedGwei{}),
+        Box::new(ReceivableScanInterval{}),
         #[cfg(not(target_os = "windows"))]
         Box::new(RealUser::new(dirs_wrapper)),
+        Box::new(RoutingByteRate{}),
+        Box::new(RoutingServiceRate{}),
+        Box::new(UnbanWhenBalanceBelowGwei{}),
     ]
 }
 
@@ -877,7 +967,7 @@ mod tests {
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use masq_lib::blockchains::chains::Chain as Blockchain;
-    use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL, PAYMENT_CURVES};
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
@@ -1078,6 +1168,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_everything_preexistent",
         );
         let existing_setup = setup_cluster_from(vec![
+            ("balance-to-decrease-from", "50000",Set),
             ("blockchain-service-url", "https://example.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
@@ -1087,13 +1178,24 @@ mod tests {
             ("db-password", "password", Set),
             ("dns-servers", "8.8.8.8", Set),
             ("earning-wallet", "0x0123456789012345678901234567890123456789", Set),
+            ("exit-byte-rate","3",Set),
+            ("exit-service-rate","8",Set),
             ("gas-price", "50", Set),
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("payable-scan-interval","150",Set),
+            ("payment-grace-before-ban","1000",Set),
+            ("payment-suggested-after","1000",Set),
+            ("pending-payment-scan-interval","150",Set),
+            ("permanent-debt-allowed","20000",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
+            ("receivable-scan-interval","150",Set),
+            ("routing-byte-rate","1",Set),
+            ("routing-service-rate","3",Set),
+            ("unban-when-balance-below","20000",Set)
         ]);
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
@@ -1101,6 +1203,7 @@ mod tests {
         let result = subject.get_modified_setup(existing_setup, vec![]).unwrap();
 
         let expected_result = vec![
+            ("balance-to-decrease-from", "50000",Set),
             ("blockchain-service-url", "https://example.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
@@ -1111,13 +1214,24 @@ mod tests {
             ("db-password", "password", Set),
             ("dns-servers", "8.8.8.8", Set),
             ("earning-wallet", "0x0123456789012345678901234567890123456789", Set),
+            ("exit-byte-rate","3",Set),
+            ("exit-service-rate","8",Set),
             ("gas-price", "50", Set),
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("payable-scan-interval","150",Set),
+            ("payment-grace-before-ban","1000",Set),
+            ("payment-suggested-after","1000",Set),
+            ("pending-payment-scan-interval","150",Set),
+            ("permanent-debt-allowed","20000",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
+            ("receivable-scan-interval","150",Set),
+            ("routing-byte-rate","1",Set),
+            ("routing-service-rate","3",Set),
+            ("unban-when-balance-below","20000",Set)
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1136,6 +1250,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_everything_set",
         );
         let incoming_setup = vec![
+            ("balance-to-decrease-from", "50000"),
             ("blockchain-service-url", "https://example.com"),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("clandestine-port", "1234"),
@@ -1145,13 +1260,24 @@ mod tests {
             ("db-password", "password"),
             ("dns-servers", "8.8.8.8"),
             ("earning-wallet", "0x0123456789012345678901234567890123456789"),
+            ("exit-byte-rate","3"),
+            ("exit-service-rate","8"),
             ("gas-price", "50"),
             ("ip", "4.3.2.1"),
             ("log-level", "error"),
             ("neighborhood-mode", "originate-only"),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("payable-scan-interval","150"),
+            ("payment-grace-before-ban","1000"),
+            ("payment-suggested-after","1000"),
+            ("pending-payment-scan-interval","150"),
+            ("permanent-debt-allowed","20000"),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga"),
+            ("receivable-scan-interval","150"),
+            ("routing-byte-rate","1"),
+            ("routing-service-rate","3"),
+            ("unban-when-balance-below","20000")
         ].into_iter()
             .map (|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
@@ -1163,6 +1289,7 @@ mod tests {
             .unwrap();
 
         let expected_result = vec![
+            ("balance-to-decrease-from", "50000",Set),
             ("blockchain-service-url", "https://example.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
@@ -1173,13 +1300,24 @@ mod tests {
             ("db-password", "password", Set),
             ("dns-servers", "8.8.8.8", Set),
             ("earning-wallet", "0x0123456789012345678901234567890123456789", Set),
+            ("exit-byte-rate","3",Set),
+            ("exit-service-rate","8",Set),
             ("gas-price", "50", Set),
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("payable-scan-interval","150",Set),
+            ("payment-grace-before-ban","1000",Set),
+            ("payment-suggested-after","1000",Set),
+            ("pending-payment-scan-interval","150",Set),
+            ("permanent-debt-allowed","20000",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
+            ("receivable-scan-interval","150",Set),
+            ("routing-byte-rate","1",Set),
+            ("routing-service-rate","3",Set),
+            ("unban-when-balance-below","20000",Set)
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1336,6 +1474,7 @@ mod tests {
         let result = subject.get_modified_setup(existing_setup, params).unwrap();
 
         let expected_result = vec![
+            ("balance-to-decrease-from", PAYMENT_CURVES.balance_to_decrease_from_gwei.to_string().as_str(), Default),
             (
                 "blockchain-service-url",
                 "https://www.ropsten.com",
@@ -1362,11 +1501,18 @@ mod tests {
                 "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 Configured,
             ),
+            ("exit-byte-rate",&DEFAULT_RATE_PACK.exit_byte_rate.to_string(),Default),
+            ("exit-service-rate",&DEFAULT_RATE_PACK.exit_service_rate.to_string(),Default),
             ("gas-price", "88", Configured),
             ("ip", "", Blank),
             ("log-level", "debug", Configured),
             ("neighborhood-mode", "zero-hop", Configured),
             ("neighbors", "", Blank),
+            ("payable-scan-interval",&DEFAULT_PAYABLE_SCAN_INTERVAL.to_string(),Default),
+            ("payment-grace-before-ban",&PAYMENT_CURVES.payment_grace_before_ban_sec.to_string(),Default),
+            ("payment-suggested-after",&PAYMENT_CURVES.payment_suggested_after_sec.to_string(),Default),
+            ("pending-payment-scan-interval",&DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL.to_string(),Default),
+            ("permanent-debt-allowed",&PAYMENT_CURVES.permanent_debt_allowed_gwei.to_string(),Default),
             #[cfg(not(target_os = "windows"))]
             (
                 "real-user",
@@ -1375,6 +1521,10 @@ mod tests {
                     .to_string(),
                 Default,
             ),
+            ("receivable-scan-interval",&DEFAULT_RECEIVABLE_SCAN_INTERVAL.to_string(),Default),
+            ("routing-byte-rate",&DEFAULT_RATE_PACK.routing_byte_rate.to_string(),Default),
+            ("routing-service-rate",&DEFAULT_RATE_PACK.routing_service_rate.to_string(),Default),
+            ("unban-when-balance-below",&PAYMENT_CURVES.unban_when_balance_below_gwei.to_string(),Default)
         ]
         .into_iter()
         .map(|(name, value, status)| {

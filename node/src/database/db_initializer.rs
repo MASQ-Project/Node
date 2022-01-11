@@ -6,9 +6,9 @@ use crate::database::db_migrations::{
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
 use masq_lib::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_PAYABLES_SCAN_INTERVAL,
-    DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, DEFAULT_RATE_PACK,
-    DEFAULT_RECEIVABLES_SCAN_INTERVAL, HIGHEST_RANDOM_CLANDESTINE_PORT,
+    DEFAULT_GAS_PRICE, DEFAULT_PAYABLE_SCAN_INTERVAL,
+    DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK,
+    DEFAULT_RECEIVABLE_SCAN_INTERVAL, HIGHEST_RANDOM_CLANDESTINE_PORT,
     LOWEST_USABLE_INSECURE_PORT, PAYMENT_CURVES,
 };
 use rand::prelude::*;
@@ -336,7 +336,7 @@ impl DbInitializerReal {
             "pending_payment_scan_interval",
             Some(&format!(
                 "{}",
-                DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000
+                DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000
             )),
             false,
             "the next scan for pending payments will run after this interval",
@@ -344,14 +344,14 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "payable_scan_interval",
-            Some(&DEFAULT_PAYABLES_SCAN_INTERVAL.to_string()),
+            Some(&DEFAULT_PAYABLE_SCAN_INTERVAL.to_string()),
             false,
             "the next scan for payable will run after this interval",
         );
         Self::set_config_value(
             conn,
             "receivable_scan_interval",
-            Some(&DEFAULT_RECEIVABLES_SCAN_INTERVAL.to_string()),
+            Some(&DEFAULT_RECEIVABLE_SCAN_INTERVAL.to_string()),
             false,
             "the next scan for receivable will run after this interval",
         );
@@ -927,7 +927,7 @@ mod tests {
         verify(
             &mut config_vec,
             "payable_scan_interval",
-            Some(&DEFAULT_PAYABLES_SCAN_INTERVAL.to_string()),
+            Some(&DEFAULT_PAYABLE_SCAN_INTERVAL.to_string()),
         );
         verify(
             &mut config_vec,
@@ -944,7 +944,7 @@ mod tests {
             "pending_payment_scan_interval",
             Some(&format!(
                 "{}",
-                DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000
+                DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000
             )),
         );
         verify(
@@ -956,7 +956,7 @@ mod tests {
         verify(
             &mut config_vec,
             "receivable_scan_interval",
-            Some(&DEFAULT_RECEIVABLES_SCAN_INTERVAL.to_string()),
+            Some(&DEFAULT_RECEIVABLE_SCAN_INTERVAL.to_string()),
         );
         verify(
             &mut config_vec,

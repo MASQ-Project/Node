@@ -5,8 +5,8 @@ use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
-    DEFAULT_PAYABLES_SCAN_INTERVAL, DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
-    DEFAULT_RATE_PACK, DEFAULT_RECEIVABLES_SCAN_INTERVAL, PAYMENT_CURVES,
+    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
+    DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL, PAYMENT_CURVES,
 };
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -334,15 +334,15 @@ impl DatabaseMigration for Migrate_5_to_6 {
             ),
             (
                 "pending_payment_scan_interval",
-                (DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000) as i64,
+                (DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000) as i64,
             ),
             (
                 "payable_scan_interval",
-                DEFAULT_PAYABLES_SCAN_INTERVAL as i64,
+                DEFAULT_PAYABLE_SCAN_INTERVAL as i64,
             ),
             (
                 "receivable_scan_interval",
-                DEFAULT_RECEIVABLES_SCAN_INTERVAL as i64,
+                DEFAULT_RECEIVABLE_SCAN_INTERVAL as i64,
             ),
         ]
         .into_iter()
@@ -586,9 +586,9 @@ mod tests {
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::constants::{
-        DEFAULT_CHAIN, DEFAULT_PAYABLES_SCAN_INTERVAL,
-        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, DEFAULT_RATE_PACK,
-        DEFAULT_RECEIVABLES_SCAN_INTERVAL, PAYMENT_CURVES,
+        DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL,
+        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK,
+        DEFAULT_RECEIVABLE_SCAN_INTERVAL, PAYMENT_CURVES,
     };
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::NeighborhoodModeLight;
@@ -1476,20 +1476,20 @@ mod tests {
             "pending_payment_scan_interval",
             Some(format!(
                 "{}",
-                DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000
+                DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000
             )),
             false,
         );
         verify_configuration_value(
             connection.as_ref(),
             "payable_scan_interval",
-            Some(format!("{}", DEFAULT_PAYABLES_SCAN_INTERVAL)),
+            Some(format!("{}", DEFAULT_PAYABLE_SCAN_INTERVAL)),
             false,
         );
         verify_configuration_value(
             connection.as_ref(),
             "receivable_scan_interval",
-            Some(format!("{}", DEFAULT_RECEIVABLES_SCAN_INTERVAL)),
+            Some(format!("{}", DEFAULT_RECEIVABLE_SCAN_INTERVAL)),
             false,
         )
     }

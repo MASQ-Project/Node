@@ -38,10 +38,7 @@ use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::{
-    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, DEFAULT_PAYABLES_SCAN_INTERVAL,
-    DEFAULT_RECEIVABLES_SCAN_INTERVAL, DEFAULT_UI_PORT, MASQ_URL_PREFIX,
-};
+use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_RECEIVABLE_SCAN_INTERVAL, DEFAULT_UI_PORT, MASQ_URL_PREFIX};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
@@ -326,8 +323,8 @@ impl BootstrapperConfig {
             log_level: LevelFilter::Off,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payables_scan_interval: Duration::from_secs(DEFAULT_PAYABLES_SCAN_INTERVAL),
-                receivables_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLES_SCAN_INTERVAL),
+                payables_scan_interval: Duration::from_secs(DEFAULT_PAYABLE_SCAN_INTERVAL),
+                receivables_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLE_SCAN_INTERVAL),
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],

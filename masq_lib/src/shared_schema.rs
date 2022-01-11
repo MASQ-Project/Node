@@ -6,6 +6,7 @@ use crate::constants::{
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
 use lazy_static::lazy_static;
+use websocket::url::form_urlencoded::parse;
 
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
@@ -226,11 +227,19 @@ pub fn ui_port_arg(help: &str) -> Arg {
         .help(help)
 }
 
+    fn ordinary_parameter_with_u64_values(name: &str)->Arg{
+    Arg::with_name(name)
+        .long(name)
+        .value_name(Box::leak(name.to_uppercase().into_boxed_str()))
+        .min_values(0)
+        .max_values(1)
+        .validator(common_validators::validate_u64)
+}
+
 pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
     head.arg(
         Arg::with_name("blockchain-service-url")
             .long("blockchain-service-url")
-            .empty_values(false)
             .value_name("URL")
             .min_values(0)
             .max_values(1)
@@ -240,7 +249,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
         Arg::with_name("clandestine-port")
             .long("clandestine-port")
             .value_name("CLANDESTINE-PORT")
-            .empty_values(false)
             .min_values(0)
             .validator(common_validators::validate_clandestine_port)
             .help(&CLANDESTINE_PORT_HELP),
@@ -335,6 +343,18 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(NEIGHBORS_HELP),
     )
     .arg(real_user_arg())
+    .arg(ordinary_parameter_with_u64_values("balance-to-decrease-from"))
+    .arg(ordinary_parameter_with_u64_values("exit-byte-rate"))
+    .arg(ordinary_parameter_with_u64_values("exit-service-rate"))
+    .arg(ordinary_parameter_with_u64_values("payable-scan-interval"))
+    .arg(ordinary_parameter_with_u64_values("payment-suggested-after"))
+    .arg(ordinary_parameter_with_u64_values("payment-grace-before-ban"))
+    .arg(ordinary_parameter_with_u64_values("pending-payment-scan-interval"))
+    .arg(ordinary_parameter_with_u64_values("permanent-debt-allowed"))
+    .arg(ordinary_parameter_with_u64_values("receivable-scan-interval"))
+    .arg(ordinary_parameter_with_u64_values("routing-byte-rate"))
+    .arg(ordinary_parameter_with_u64_values("routing-service-rate"))
+    .arg(ordinary_parameter_with_u64_values("unban-when-balance-below"))
 }
 
 pub mod common_validators {
@@ -452,6 +472,10 @@ pub mod common_validators {
             Ok(_) => Ok(()),
             Err(_) => Err(port),
         }
+    }
+
+    pub fn validate_u64(number: String)-> Result<(),String>{
+       number.parse::<u64>().map_err(|e|e.to_string()).map(|_ok|())
     }
 }
 
@@ -600,39 +624,35 @@ mod tests {
     fn validate_clandestine_port_rejects_port_number_too_high() {
         let result = common_validators::validate_clandestine_port(String::from("65536"));
 
-        assert_eq!(Err(String::from("65536")), result);
+        assert_eq!(result, Err(String::from("65536")));
     }
 
     #[test]
     fn validate_clandestine_port_accepts_port_if_provided() {
         let result = common_validators::validate_clandestine_port(String::from("4567"));
 
-        assert!(result.is_ok());
-        assert_eq!(Ok(()), result);
+        assert_eq!(result, Ok(()));
     }
 
     #[test]
     fn validate_gas_price_zero() {
         let result = common_validators::validate_gas_price("0".to_string());
 
-        assert!(result.is_err());
-        assert_eq!(Err(String::from("0")), result);
+        assert_eq!(result,Err(String::from("0")));
     }
 
     #[test]
     fn validate_gas_price_normal_ropsten() {
         let result = common_validators::validate_gas_price("2".to_string());
 
-        assert!(result.is_ok());
-        assert_eq!(Ok(()), result);
+        assert_eq!(result, Ok(()));
     }
 
     #[test]
     fn validate_gas_price_normal_mainnet() {
         let result = common_validators::validate_gas_price("20".to_string());
 
-        assert!(result.is_ok());
-        assert_eq!(Ok(()), result);
+        assert_eq!(result, Ok(()));
     }
 
     #[test]
@@ -646,15 +666,22 @@ mod tests {
     #[test]
     fn validate_gas_price_not_digits_fails() {
         let result = common_validators::validate_gas_price("not".to_string());
-        assert!(result.is_err());
-        assert_eq!(Err(String::from("not")), result);
+
+        assert_eq!(result,Err(String::from("not")));
     }
 
     #[test]
     fn validate_gas_price_hex_fails() {
         let result = common_validators::validate_gas_price("0x0".to_string());
-        assert!(result.is_err());
-        assert_eq!(Err(String::from("0x0")), result);
+
+        assert_eq!(result, Err(String::from("0x0")));
+    }
+
+    #[test]
+    fn validate_u64_happy_path(){
+       let result = common_validators::validate_u64("4567");
+
+       assert_eq!(result, Ok(()))
     }
 
     #[test]

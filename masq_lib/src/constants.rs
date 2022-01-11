@@ -53,9 +53,9 @@ pub const ZERO_RATE_PACK: RatePack = RatePack {
     exit_service_rate: 0,
 };
 
-pub const DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS: u64 = 3_600_000;
-pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 3600; // one hour
-pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 3600; // one hour
+pub const DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL: u64 = 3_600_000; //TODO in ms but will be fixed by previous cards, GH-523 namely
+pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
+pub const DEFAULT_RECEIVABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 
 //error codes
 
