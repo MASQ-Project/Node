@@ -231,9 +231,9 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::constants::{
-        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
-        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, DEFAULT_RATE_PACK,
-        NODE_NOT_RUNNING_ERROR, PAYMENT_CURVES,
+        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
+        DEFAULT_RATE_PACK, DEFAULT_RECEIVABLES_SCAN_INTERVAL, NODE_NOT_RUNNING_ERROR,
+        PAYMENT_CURVES,
     };
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
     use std::sync::{Arc, Mutex};
@@ -323,7 +323,7 @@ mod tests {
             payment_grace_before_ban_sec: PAYMENT_CURVES.payment_grace_before_ban_sec as u64,
             pending_payment_scan_interval: DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000,
             permanent_debt_allowed_gwei: PAYMENT_CURVES.permanent_debt_allowed_gwei as u64,
-            receivable_scan_interval: DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+            receivable_scan_interval: DEFAULT_RECEIVABLES_SCAN_INTERVAL,
             routing_byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
             routing_service_rate: DEFAULT_RATE_PACK.routing_service_rate,
             unban_when_balance_below_gwei: PAYMENT_CURVES.unban_when_balance_below_gwei as u64,
@@ -394,7 +394,7 @@ mod tests {
                 PAYMENT_CURVES.payment_grace_before_ban_sec,
                 DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000,
                 PAYMENT_CURVES.permanent_debt_allowed_gwei,
-                DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+                DEFAULT_RECEIVABLES_SCAN_INTERVAL,
                 DEFAULT_RATE_PACK.routing_byte_rate,
                 DEFAULT_RATE_PACK.routing_service_rate,
                 PAYMENT_CURVES.unban_when_balance_below_gwei,
@@ -428,7 +428,7 @@ mod tests {
             payment_grace_before_ban_sec: PAYMENT_CURVES.payment_grace_before_ban_sec as u64,
             pending_payment_scan_interval: DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000,
             permanent_debt_allowed_gwei: PAYMENT_CURVES.permanent_debt_allowed_gwei as u64,
-            receivable_scan_interval: DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+            receivable_scan_interval: DEFAULT_RECEIVABLES_SCAN_INTERVAL,
             routing_byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
             routing_service_rate: DEFAULT_RATE_PACK.routing_service_rate,
             unban_when_balance_below_gwei: PAYMENT_CURVES.unban_when_balance_below_gwei as u64,
@@ -496,7 +496,7 @@ Past neighbors:                   [?]\n\
                 PAYMENT_CURVES.payment_grace_before_ban_sec,
                 DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS / 1000,
                 PAYMENT_CURVES.permanent_debt_allowed_gwei,
-                DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+                DEFAULT_RECEIVABLES_SCAN_INTERVAL,
                 DEFAULT_RATE_PACK.routing_byte_rate,
                 DEFAULT_RATE_PACK.routing_service_rate,
                 PAYMENT_CURVES.unban_when_balance_below_gwei,

@@ -6,9 +6,10 @@ use crate::database::db_migrations::{
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
 use masq_lib::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
+    DEFAULT_GAS_PRICE, DEFAULT_PAYABLES_SCAN_INTERVAL,
     DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, DEFAULT_RATE_PACK,
-    HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT, PAYMENT_CURVES,
+    DEFAULT_RECEIVABLES_SCAN_INTERVAL, HIGHEST_RANDOM_CLANDESTINE_PORT,
+    LOWEST_USABLE_INSECURE_PORT, PAYMENT_CURVES,
 };
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
@@ -343,14 +344,14 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "payable_scan_interval",
-            Some(&DEFAULT_PAYABLE_SCAN_INTERVAL.to_string()),
+            Some(&DEFAULT_PAYABLES_SCAN_INTERVAL.to_string()),
             false,
             "the next scan for payable will run after this interval",
         );
         Self::set_config_value(
             conn,
             "receivable_scan_interval",
-            Some(&DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL.to_string()),
+            Some(&DEFAULT_RECEIVABLES_SCAN_INTERVAL.to_string()),
             false,
             "the next scan for receivable will run after this interval",
         );
@@ -926,7 +927,7 @@ mod tests {
         verify(
             &mut config_vec,
             "payable_scan_interval",
-            Some(&DEFAULT_PAYABLE_SCAN_INTERVAL.to_string()),
+            Some(&DEFAULT_PAYABLES_SCAN_INTERVAL.to_string()),
         );
         verify(
             &mut config_vec,
@@ -955,7 +956,7 @@ mod tests {
         verify(
             &mut config_vec,
             "receivable_scan_interval",
-            Some(&DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL.to_string()),
+            Some(&DEFAULT_RECEIVABLES_SCAN_INTERVAL.to_string()),
         );
         verify(
             &mut config_vec,

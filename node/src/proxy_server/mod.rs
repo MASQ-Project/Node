@@ -542,7 +542,7 @@ impl ProxyServer {
                                 Err(e) => {
                                     error!(
                                         logger,
-                                        "Neighborhood refused to answer route request: {}", e
+                                        "Neighborhood refused to answer route request: {:?}", e
                                     );
                                 }
                             };

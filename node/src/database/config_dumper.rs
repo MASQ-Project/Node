@@ -159,8 +159,8 @@ mod tests {
     use crate::test_utils::{main_cryptde, ArgsBuilder};
     use bip39::{Language, MnemonicType, Seed};
     use masq_lib::constants::{
-        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
-        DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS, DEFAULT_RATE_PACK, PAYMENT_CURVES,
+        DEFAULT_PAYABLES_SCAN_INTERVAL, DEFAULT_PENDING_TRANSACTION_CHECKOUT_INTERVAL_MS,
+        DEFAULT_RATE_PACK, DEFAULT_RECEIVABLES_SCAN_INTERVAL, PAYMENT_CURVES,
     };
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
@@ -401,12 +401,12 @@ mod tests {
         );
         assert_value(
             "payableScanInterval",
-            &DEFAULT_PAYABLE_SCAN_INTERVAL.to_string(),
+            &DEFAULT_PAYABLES_SCAN_INTERVAL.to_string(),
             map,
         );
         assert_value(
             "receivableScanInterval",
-            &DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL.to_string(),
+            &DEFAULT_RECEIVABLES_SCAN_INTERVAL.to_string(),
             map,
         )
     }
