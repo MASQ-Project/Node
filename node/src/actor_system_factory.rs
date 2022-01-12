@@ -923,10 +923,7 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            accountant_config: AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
+            accountant_config: AccountantConfig::default(),
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -993,10 +990,7 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            accountant_config: AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
+            accountant_config: AccountantConfig::default(),
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1105,10 +1099,7 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            accountant_config: AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
+            accountant_config: AccountantConfig::default(),
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1162,10 +1153,7 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            accountant_config: AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
+            accountant_config: AccountantConfig::default(),
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {

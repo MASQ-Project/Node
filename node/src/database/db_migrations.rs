@@ -5,8 +5,8 @@ use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
-    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
-    DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL, PAYMENT_CURVES,
+    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
+    DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
 };
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -297,27 +297,27 @@ impl DatabaseMigration for Migrate_5_to_6 {
         let sql_strings = vec![
             (
                 "payment_suggested_after_sec",
-                PAYMENT_CURVES.payment_suggested_after_sec,
+                DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec,
             ),
             (
                 "payment_grace_before_ban_sec",
-                PAYMENT_CURVES.payment_grace_before_ban_sec,
+                DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec,
             ),
             (
                 "permanent_debt_allowed_gwei",
-                PAYMENT_CURVES.permanent_debt_allowed_gwei,
+                DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei,
             ),
             (
                 "balance_to_decrease_from_gwei",
-                PAYMENT_CURVES.balance_to_decrease_from_gwei,
+                DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei,
             ),
             (
                 "balance_decreases_for_sec",
-                PAYMENT_CURVES.balance_decreases_for_sec,
+                DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec,
             ),
             (
                 "unban_when_balance_below_gwei",
-                PAYMENT_CURVES.unban_when_balance_below_gwei,
+                DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei,
             ),
             (
                 "routing_byte_rate",
@@ -586,9 +586,8 @@ mod tests {
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::constants::{
-        DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL,
-        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK,
-        DEFAULT_RECEIVABLE_SCAN_INTERVAL, PAYMENT_CURVES,
+        DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
+        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
     };
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::NeighborhoodModeLight;
@@ -1414,37 +1413,55 @@ mod tests {
         verify_configuration_value(
             connection.as_ref(),
             "payment_suggested_after_sec",
-            Some(format!("{}", PAYMENT_CURVES.payment_suggested_after_sec)),
+            Some(format!(
+                "{}",
+                DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec
+            )),
             false,
         );
         verify_configuration_value(
             connection.as_ref(),
             "payment_grace_before_ban_sec",
-            Some(format!("{}", PAYMENT_CURVES.payment_grace_before_ban_sec)),
+            Some(format!(
+                "{}",
+                DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec
+            )),
             false,
         );
         verify_configuration_value(
             connection.as_ref(),
             "permanent_debt_allowed_gwei",
-            Some(format!("{}", PAYMENT_CURVES.permanent_debt_allowed_gwei)),
+            Some(format!(
+                "{}",
+                DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei
+            )),
             false,
         );
         verify_configuration_value(
             connection.as_ref(),
             "balance_to_decrease_from_gwei",
-            Some(format!("{}", PAYMENT_CURVES.balance_to_decrease_from_gwei)),
+            Some(format!(
+                "{}",
+                DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei
+            )),
             false,
         );
         verify_configuration_value(
             connection.as_ref(),
             "balance_decreases_for_sec",
-            Some(format!("{}", PAYMENT_CURVES.balance_decreases_for_sec)),
+            Some(format!(
+                "{}",
+                DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec
+            )),
             false,
         );
         verify_configuration_value(
             connection.as_ref(),
             "unban_when_balance_below_gwei",
-            Some(format!("{}", PAYMENT_CURVES.unban_when_balance_below_gwei)),
+            Some(format!(
+                "{}",
+                DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei
+            )),
             false,
         );
         verify_configuration_value(
@@ -1474,10 +1491,7 @@ mod tests {
         verify_configuration_value(
             connection.as_ref(),
             "pending_payment_scan_interval",
-            Some(format!(
-                "{}",
-                DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000
-            )),
+            Some(format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000)),
             false,
         );
         verify_configuration_value(

@@ -6,7 +6,6 @@ use crate::constants::{
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
 use lazy_static::lazy_static;
-use websocket::url::form_urlencoded::parse;
 
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
@@ -227,7 +226,7 @@ pub fn ui_port_arg(help: &str) -> Arg {
         .help(help)
 }
 
-    fn ordinary_parameter_with_u64_values(name: &str)->Arg{
+fn ordinary_parameter_with_u64_values(name: &str) -> Arg {
     Arg::with_name(name)
         .long(name)
         .value_name(Box::leak(name.to_uppercase().into_boxed_str()))
@@ -343,18 +342,30 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(NEIGHBORS_HELP),
     )
     .arg(real_user_arg())
-    .arg(ordinary_parameter_with_u64_values("balance-to-decrease-from"))
+    .arg(ordinary_parameter_with_u64_values(
+        "balance-to-decrease-from",
+    ))
     .arg(ordinary_parameter_with_u64_values("exit-byte-rate"))
     .arg(ordinary_parameter_with_u64_values("exit-service-rate"))
     .arg(ordinary_parameter_with_u64_values("payable-scan-interval"))
-    .arg(ordinary_parameter_with_u64_values("payment-suggested-after"))
-    .arg(ordinary_parameter_with_u64_values("payment-grace-before-ban"))
-    .arg(ordinary_parameter_with_u64_values("pending-payment-scan-interval"))
+    .arg(ordinary_parameter_with_u64_values(
+        "payment-suggested-after",
+    ))
+    .arg(ordinary_parameter_with_u64_values(
+        "payment-grace-before-ban",
+    ))
+    .arg(ordinary_parameter_with_u64_values(
+        "pending-payment-scan-interval",
+    ))
     .arg(ordinary_parameter_with_u64_values("permanent-debt-allowed"))
-    .arg(ordinary_parameter_with_u64_values("receivable-scan-interval"))
+    .arg(ordinary_parameter_with_u64_values(
+        "receivable-scan-interval",
+    ))
     .arg(ordinary_parameter_with_u64_values("routing-byte-rate"))
     .arg(ordinary_parameter_with_u64_values("routing-service-rate"))
-    .arg(ordinary_parameter_with_u64_values("unban-when-balance-below"))
+    .arg(ordinary_parameter_with_u64_values(
+        "unban-when-balance-below",
+    ))
 }
 
 pub mod common_validators {
@@ -474,8 +485,11 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_u64(number: String)-> Result<(),String>{
-       number.parse::<u64>().map_err(|e|e.to_string()).map(|_ok|())
+    pub fn validate_u64(number: String) -> Result<(), String> {
+        number
+            .parse::<u64>()
+            .map_err(|e| e.to_string())
+            .map(|_ok| ())
     }
 }
 
@@ -638,7 +652,7 @@ mod tests {
     fn validate_gas_price_zero() {
         let result = common_validators::validate_gas_price("0".to_string());
 
-        assert_eq!(result,Err(String::from("0")));
+        assert_eq!(result, Err(String::from("0")));
     }
 
     #[test]
@@ -667,7 +681,7 @@ mod tests {
     fn validate_gas_price_not_digits_fails() {
         let result = common_validators::validate_gas_price("not".to_string());
 
-        assert_eq!(result,Err(String::from("not")));
+        assert_eq!(result, Err(String::from("not")));
     }
 
     #[test]
@@ -678,10 +692,10 @@ mod tests {
     }
 
     #[test]
-    fn validate_u64_happy_path(){
-       let result = common_validators::validate_u64("4567");
+    fn validate_u64_happy_path() {
+        let result = common_validators::validate_u64("4567");
 
-       assert_eq!(result, Ok(()))
+        assert_eq!(result, Ok(()))
     }
 
     #[test]

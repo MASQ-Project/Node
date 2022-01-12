@@ -29,7 +29,7 @@ pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 18_750_537;
 const SECONDS_PER_DAY: i64 = 86_400;
 
 lazy_static! {
-    pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
+    pub static ref DEFAULT_PAYMENT_CURVES: PaymentCurves = PaymentCurves {
         payment_suggested_after_sec: SECONDS_PER_DAY,
         payment_grace_before_ban_sec: SECONDS_PER_DAY,
         permanent_debt_allowed_gwei: 10_000_000,
@@ -58,6 +58,7 @@ pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_RECEIVABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 
 //error codes
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //moved from configurator
 pub const CONFIGURATOR_PREFIX: u64 = 0x0001_0000_0000_0000;
@@ -82,6 +83,8 @@ pub const NODE_ALREADY_RUNNING_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 3;
 pub const UNMARSHAL_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 4;
 pub const SETUP_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 5;
 pub const TIMEOUT_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 6;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //descriptor
 pub const CENTRAL_DELIMITER: char = '@';

@@ -159,8 +159,8 @@ mod tests {
     use crate::test_utils::{main_cryptde, ArgsBuilder};
     use bip39::{Language, MnemonicType, Seed};
     use masq_lib::constants::{
-        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
-        DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL, PAYMENT_CURVES,
+        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
+        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
     };
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
@@ -343,32 +343,42 @@ mod tests {
     fn assert_payment_curves_then_rates_and_then_scan_intervals(map: &Map<String, Value>) {
         assert_value(
             "paymentSuggestedAfterSec",
-            &PAYMENT_CURVES.payment_suggested_after_sec.to_string(),
+            &DEFAULT_PAYMENT_CURVES
+                .payment_suggested_after_sec
+                .to_string(),
             map,
         );
         assert_value(
             "paymentGraceBeforeBanSec",
-            &PAYMENT_CURVES.payment_grace_before_ban_sec.to_string(),
+            &DEFAULT_PAYMENT_CURVES
+                .payment_grace_before_ban_sec
+                .to_string(),
             map,
         );
         assert_value(
             "permanentDebtAllowedGwei",
-            &PAYMENT_CURVES.permanent_debt_allowed_gwei.to_string(),
+            &DEFAULT_PAYMENT_CURVES
+                .permanent_debt_allowed_gwei
+                .to_string(),
             map,
         );
         assert_value(
             "balanceToDecreaseFromGwei",
-            &PAYMENT_CURVES.balance_to_decrease_from_gwei.to_string(),
+            &DEFAULT_PAYMENT_CURVES
+                .balance_to_decrease_from_gwei
+                .to_string(),
             map,
         );
         assert_value(
             "balanceDecreasesForSec",
-            &PAYMENT_CURVES.balance_decreases_for_sec.to_string(),
+            &DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec.to_string(),
             map,
         );
         assert_value(
             "unbanWhenBalanceBelowGwei",
-            &PAYMENT_CURVES.unban_when_balance_below_gwei.to_string(),
+            &DEFAULT_PAYMENT_CURVES
+                .unban_when_balance_below_gwei
+                .to_string(),
             map,
         );
         assert_value(
@@ -393,10 +403,7 @@ mod tests {
         );
         assert_value(
             "pendingPaymentScanInterval",
-            &format!(
-                "{}",
-                DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000
-            ),
+            &format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000),
             map,
         );
         assert_value(

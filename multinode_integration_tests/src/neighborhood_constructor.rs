@@ -6,6 +6,7 @@ use crate::masq_node_cluster::MASQNodeCluster;
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::{make_consuming_wallet_info, NodeStartupConfigBuilder};
 use crate::multinode_gossip::{Standard, StandardBuilder};
+use masq_lib::constants::DEFAULT_RATE_PACK;
 use node_lib::neighborhood::gossip::Gossip_0v1;
 use node_lib::neighborhood::gossip_producer::{GossipProducer, GossipProducerReal};
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;

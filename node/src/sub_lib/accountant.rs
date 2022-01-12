@@ -5,6 +5,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use lazy_static::lazy_static;
+use masq_lib::payment_curves_and_rate_pack::PaymentCurves;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
@@ -18,10 +19,12 @@ lazy_static! {
     pub static ref TEMPORARY_CONSUMING_WALLET: Wallet = Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct AccountantConfig {
-    pub payables_scan_interval: Duration,
-    pub receivables_scan_interval: Duration,
+    pub pending_payment_scan_interval_opt: Option<Duration>,
+    pub payable_scan_interval_opt: Option<Duration>,
+    pub receivable_scan_interval_opt: Option<Duration>,
+    pub payment_curves_opt: Option<PaymentCurves>,
 }
 
 #[derive(Clone)]

@@ -37,12 +37,13 @@ use actix::Handler;
 use actix::Message;
 use actix::Recipient;
 use itertools::Itertools;
-use masq_lib::constants::PAYMENT_CURVES;
+use masq_lib::constants::DEFAULT_PAYMENT_CURVES;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::utils::ExpectValue;
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::ops::Add;
@@ -132,7 +133,14 @@ impl Handler<ScanForPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_scan_for_payables();
-        ctx.notify_later(msg, self.config.payables_scan_interval);
+        ctx.notify_later(
+            msg,
+            *self
+                .config
+                .payable_scan_interval_opt
+                .as_ref()
+                .expectv("payable scan interval"),
+        );
     }
 }
 
@@ -141,7 +149,14 @@ impl Handler<ScanForReceivables> for Accountant {
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_scan_for_receivables();
-        ctx.notify_later(msg, self.config.receivables_scan_interval);
+        ctx.notify_later(
+            msg,
+            *self
+                .config
+                .receivable_scan_interval_opt
+                .as_ref()
+                .expectv("receivable scan interval"),
+        );
     }
 }
 
@@ -267,7 +282,7 @@ impl Accountant {
         );
         let qualified_payables = all_non_pending_payables
             .into_iter()
-            .filter(Accountant::should_pay)
+            .filter(|account| self.should_pay(account))
             .collect::<Vec<PayableAccount>>();
         info!(
             self.logger,
@@ -277,7 +292,7 @@ impl Accountant {
         debug!(
             self.logger,
             "{}",
-            Self::payments_debug_summary(&qualified_payables)
+            self.payments_debug_summary(&qualified_payables)
         );
         if !qualified_payables.is_empty() {
             self.report_accounts_payable_sub
@@ -294,7 +309,13 @@ impl Accountant {
         debug!(self.logger, "Scanning for delinquencies");
         let now = SystemTime::now();
         self.receivable_dao
-            .new_delinquencies(now, &PAYMENT_CURVES)
+            .new_delinquencies(
+                now,
+                self.config
+                    .payment_curves_opt
+                    .as_ref()
+                    .expectv("payment curves"),
+            )
             .into_iter()
             .for_each(|account| {
                 self.banned_dao.ban(&account.wallet);
@@ -308,7 +329,12 @@ impl Accountant {
                 )
             });
         self.receivable_dao
-            .paid_delinquencies(&PAYMENT_CURVES)
+            .paid_delinquencies(
+                self.config
+                    .payment_curves_opt
+                    .as_ref()
+                    .expectv("payment curves"),
+            )
             .into_iter()
             .for_each(|account| {
                 self.banned_dao.unban(&account.wallet);
@@ -357,26 +383,26 @@ impl Accountant {
         (balance, age)
     }
 
-    fn should_pay(payable: &PayableAccount) -> bool {
-        Self::payable_exceeded_threshold(payable).is_some()
+    fn should_pay(&self, payable: &PayableAccount) -> bool {
+        self.payable_exceeded_threshold(payable).is_some()
     }
 
-    fn payable_exceeded_threshold(payable: &PayableAccount) -> Option<u64> {
+    fn payable_exceeded_threshold(&self, payable: &PayableAccount) -> Option<u64> {
         // TODO: This calculation should be done in the database, if possible
         let time_since_last_paid = SystemTime::now()
             .duration_since(payable.last_paid_timestamp)
             .expect("Internal error")
             .as_secs();
 
-        if time_since_last_paid <= PAYMENT_CURVES.payment_suggested_after_sec as u64 {
+        if time_since_last_paid <= DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec as u64 {
             return None;
         }
 
-        if payable.balance <= PAYMENT_CURVES.permanent_debt_allowed_gwei {
+        if payable.balance <= DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei {
             return None;
         }
 
-        let threshold = Accountant::calculate_payout_threshold(time_since_last_paid);
+        let threshold = Accountant::calculate_payout_threshold(&self, time_since_last_paid);
         if payable.balance as f64 > threshold {
             Some(threshold as u64)
         } else {
@@ -384,13 +410,18 @@ impl Accountant {
         }
     }
 
-    fn calculate_payout_threshold(x: u64) -> f64 {
-        let m = -((PAYMENT_CURVES.balance_to_decrease_from_gwei as f64
-            - PAYMENT_CURVES.permanent_debt_allowed_gwei as f64)
-            / (PAYMENT_CURVES.balance_decreases_for_sec as f64
-                - PAYMENT_CURVES.payment_suggested_after_sec as f64));
-        let b = PAYMENT_CURVES.balance_to_decrease_from_gwei as f64
-            - m * PAYMENT_CURVES.payment_suggested_after_sec as f64;
+    fn calculate_payout_threshold(&self, x: u64) -> f64 {
+        let payment_curves = self
+            .config
+            .payment_curves_opt
+            .as_ref()
+            .expectv("payment curves");
+        let m = -((payment_curves.balance_to_decrease_from_gwei as f64
+            - payment_curves.permanent_debt_allowed_gwei as f64)
+            / (payment_curves.balance_decreases_for_sec as f64
+                - payment_curves.payment_suggested_after_sec as f64));
+        let b = payment_curves.balance_to_decrease_from_gwei as f64
+            - m * payment_curves.payment_suggested_after_sec as f64;
         m * x as f64 + b
     }
 
@@ -515,7 +546,7 @@ impl Accountant {
         }
     }
 
-    fn payments_debug_summary(qualified_payables: &[PayableAccount]) -> String {
+    fn payments_debug_summary(&self, qualified_payables: &[PayableAccount]) -> String {
         let now = SystemTime::now();
         let list = qualified_payables
             .iter()
@@ -523,8 +554,9 @@ impl Accountant {
                 let p_age = now
                     .duration_since(payable.last_paid_timestamp)
                     .expect("Payable time is corrupt");
-                let threshold =
-                    Self::payable_exceeded_threshold(payable).expect("Threshold suddenly changed!");
+                let threshold = self
+                    .payable_exceeded_threshold(payable)
+                    .expect("Threshold suddenly changed!");
                 format!(
                     "{} owed for {}sec exceeds threshold: {}; creditor: {}",
                     payable.balance,
@@ -1288,10 +1320,7 @@ pub mod tests {
         let system = System::new("test");
         let subject = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
-                AccountantConfig {
-                    payables_scan_interval: Duration::from_millis(10_000),
-                    receivables_scan_interval: Duration::from_millis(10_000),
-                },
+                AccountantConfig::default(),
                 make_wallet("some_wallet_address"),
             )),
             Some(payable_dao),
@@ -1378,10 +1407,7 @@ pub mod tests {
         let system = System::new("accountant_calls_payable_dao_payment_sent_when_sent_payments");
         let accountant = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
-                AccountantConfig {
-                    payables_scan_interval: Duration::from_millis(100),
-                    receivables_scan_interval: Duration::from_secs(10_000),
-                },
+                AccountantConfig::default(),
                 make_wallet("some_wallet_address"),
             )),
             Some(payable_dao),
@@ -1421,10 +1447,7 @@ pub mod tests {
         let system = System::new("accountant_calls_payable_dao_payment_sent_when_sent_payments");
         let accountant = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
-                AccountantConfig {
-                    payables_scan_interval: Duration::from_millis(100),
-                    receivables_scan_interval: Duration::from_secs(10_000),
-                },
+                AccountantConfig::default(),
                 make_wallet("some_wallet_address"),
             )),
             Some(payable_dao),
@@ -1458,17 +1481,21 @@ pub mod tests {
         let accounts = vec![
             PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: PAYMENT_CURVES.balance_to_decrease_from_gwei + 55,
+                balance: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 55,
                 last_paid_timestamp: from_time_t(
-                    to_time_t(SystemTime::now()) - PAYMENT_CURVES.payment_suggested_after_sec - 5,
+                    to_time_t(SystemTime::now())
+                        - DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec
+                        - 5,
                 ),
                 pending_payment_transaction: None,
             },
             PayableAccount {
                 wallet: make_wallet("foo"),
-                balance: PAYMENT_CURVES.balance_to_decrease_from_gwei + 66,
+                balance: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 66,
                 last_paid_timestamp: from_time_t(
-                    to_time_t(SystemTime::now()) - PAYMENT_CURVES.payment_suggested_after_sec - 500,
+                    to_time_t(SystemTime::now())
+                        - DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec
+                        - 500,
                 ),
                 pending_payment_transaction: None,
             },
@@ -1478,8 +1505,10 @@ pub mod tests {
         let subject = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
-                    payables_scan_interval: Duration::from_secs(100_000),
-                    receivables_scan_interval: Duration::from_secs(100_000),
+                    pending_payment_scan_interval_opt: None,
+                    payable_scan_interval_opt: Some(Duration::from_secs(1000)),
+                    receivable_scan_interval_opt: Some(Duration::from_secs(1000)),
+                    payment_curves_opt: Some(DEFAULT_PAYMENT_CURVES.clone()),
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1493,8 +1522,8 @@ pub mod tests {
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();
-
         send_bind_message!(accountant_subs, peer_actors);
+
         send_start_message!(accountant_subs);
 
         System::current().stop();
@@ -1527,8 +1556,10 @@ pub mod tests {
         let subject = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
-                    payables_scan_interval: Duration::from_secs(100_000),
-                    receivables_scan_interval: Duration::from_secs(100_000),
+                    pending_payment_scan_interval_opt: None,
+                    payable_scan_interval_opt: Some(Duration::from_secs(1000)),
+                    receivable_scan_interval_opt: Some(Duration::from_secs(1000)),
+                    payment_curves_opt: Some(DEFAULT_PAYMENT_CURVES.clone()),
                 },
                 earning_wallet.clone(),
             )),
@@ -1571,8 +1602,10 @@ pub mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_millis(100),
+                pending_payment_scan_interval_opt: None,
+                payable_scan_interval_opt: Some(Duration::from_secs(1000)),
+                receivable_scan_interval_opt: Some(Duration::from_millis(100)),
+                payment_curves_opt: Some(DEFAULT_PAYMENT_CURVES.clone()),
             },
             earning_wallet.clone(),
         );
@@ -1662,10 +1695,7 @@ pub mod tests {
             .more_money_received_result(Ok(()));
         let accountant = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
-                AccountantConfig {
-                    payables_scan_interval: Duration::from_secs(10_000),
-                    receivables_scan_interval: Duration::from_secs(10_000),
-                },
+                AccountantConfig::default(),
                 earning_wallet.clone(),
             )),
             Some(PayableDaoMock::new().non_pending_payables_result(vec![])),
@@ -1709,16 +1739,20 @@ pub mod tests {
             System::new("accountant_payable_scan_timer_triggers_periodical_scanning_for_payables");
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payables_scan_interval: Duration::from_millis(100),
-                receivables_scan_interval: Duration::from_secs(50_000), //deliberately big to refrain from starting off this scanning
+                pending_payment_scan_interval_opt: None,
+                payable_scan_interval_opt: Some(Duration::from_millis(100)),
+                receivable_scan_interval_opt: Some(Duration::from_secs(50_000)), //deliberately big to refrain from starting off this scanning
+                payment_curves_opt: Some(DEFAULT_PAYMENT_CURVES.clone()),
             },
             make_wallet("hi"),
         );
         let now = to_time_t(SystemTime::now());
         let account = PayableAccount {
             wallet: make_wallet("wallet"),
-            balance: PAYMENT_CURVES.balance_to_decrease_from_gwei + 5,
-            last_paid_timestamp: from_time_t(now - PAYMENT_CURVES.balance_decreases_for_sec - 10),
+            balance: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 5,
+            last_paid_timestamp: from_time_t(
+                now - DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec - 10,
+            ),
             pending_payment_transaction: None,
         };
         let mut payable_dao = PayableDaoMock::new()
@@ -1770,8 +1804,10 @@ pub mod tests {
         let system = System::new("accountant_scans_after_startup");
         let config = bc_from_ac_plus_wallets(
             AccountantConfig {
-                payables_scan_interval: Duration::from_secs(1000),
-                receivables_scan_interval: Duration::from_secs(1000),
+                pending_payment_scan_interval_opt: None,
+                payable_scan_interval_opt: Some(Duration::from_secs(1000)),
+                receivable_scan_interval_opt: Some(Duration::from_secs(1000)),
+                payment_curves_opt: Some(DEFAULT_PAYMENT_CURVES.clone()),
             },
             make_wallet("buy"),
             make_wallet("hi"),
@@ -1801,39 +1837,35 @@ pub mod tests {
     #[test]
     fn scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve() {
         init_test_logging();
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(1000),
-            },
-            make_wallet("mine"),
-        );
+        let mut accountant_config = AccountantConfig::default();
+        accountant_config.payment_curves_opt = Some(DEFAULT_PAYMENT_CURVES.clone());
+        let config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
         let now = to_time_t(SystemTime::now());
         let accounts = vec![
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwei - 1,
+                balance: DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei - 1,
                 last_paid_timestamp: from_time_t(
-                    now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
+                    now - DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec - 10,
                 ),
                 pending_payment_transaction: None,
             },
             // above balance intersection, to the left of minimum time (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: PAYMENT_CURVES.balance_to_decrease_from_gwei + 1,
+                balance: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 1,
                 last_paid_timestamp: from_time_t(
-                    now - PAYMENT_CURVES.payment_suggested_after_sec + 10,
+                    now - DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec + 10,
                 ),
                 pending_payment_transaction: None,
             },
             // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
             PayableAccount {
                 wallet: make_wallet("wallet2"),
-                balance: PAYMENT_CURVES.balance_to_decrease_from_gwei - 1000,
+                balance: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei - 1000,
                 last_paid_timestamp: from_time_t(
-                    now - PAYMENT_CURVES.payment_suggested_after_sec - 1,
+                    now - DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec - 1,
                 ),
                 pending_payment_transaction: None,
             },
@@ -1864,8 +1896,10 @@ pub mod tests {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payables_scan_interval: Duration::from_millis(100),
-                receivables_scan_interval: Duration::from_millis(1_000),
+                pending_payment_scan_interval_opt: None,
+                payable_scan_interval_opt: Some(Duration::from_millis(100)),
+                receivable_scan_interval_opt: Some(Duration::from_millis(1_000)),
+                payment_curves_opt: Some(DEFAULT_PAYMENT_CURVES.clone()),
             },
             make_wallet("mine"),
         );
@@ -1874,18 +1908,18 @@ pub mod tests {
             // slightly above minimum balance, to the right of the curve (time intersection)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwei + 1,
+                balance: DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei + 1,
                 last_paid_timestamp: from_time_t(
-                    now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
+                    now - DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec - 10,
                 ),
                 pending_payment_transaction: None,
             },
             // slightly above the curve (balance intersection), to the right of minimum time
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: PAYMENT_CURVES.balance_to_decrease_from_gwei + 1,
+                balance: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 1,
                 last_paid_timestamp: from_time_t(
-                    now - PAYMENT_CURVES.payment_suggested_after_sec - 10,
+                    now - DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec - 10,
                 ),
                 pending_payment_transaction: None,
             },
@@ -1931,13 +1965,9 @@ pub mod tests {
     #[test]
     fn scan_for_delinquencies_triggers_bans_and_unbans() {
         init_test_logging();
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(1000),
-            },
-            make_wallet("mine"),
-        );
+        let mut accountant_config = AccountantConfig::default();
+        accountant_config.payment_curves_opt = Some(DEFAULT_PAYMENT_CURVES.clone());
+        let config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
         let newly_banned_1 = make_receivable_account(1234, true);
         let newly_banned_2 = make_receivable_account(2345, true);
         let newly_unbanned_1 = make_receivable_account(3456, false);
@@ -1968,10 +1998,16 @@ pub mod tests {
 
         let new_delinquencies_parameters: MutexGuard<Vec<(SystemTime, PaymentCurves)>> =
             new_delinquencies_parameters_arc.lock().unwrap();
-        assert_eq!(PAYMENT_CURVES.clone(), new_delinquencies_parameters[0].1);
+        assert_eq!(
+            DEFAULT_PAYMENT_CURVES.clone(),
+            new_delinquencies_parameters[0].1
+        );
         let paid_delinquencies_parameters: MutexGuard<Vec<PaymentCurves>> =
             paid_delinquencies_parameters_arc.lock().unwrap();
-        assert_eq!(PAYMENT_CURVES.clone(), paid_delinquencies_parameters[0]);
+        assert_eq!(
+            DEFAULT_PAYMENT_CURVES.clone(),
+            paid_delinquencies_parameters[0]
+        );
         let ban_parameters = ban_parameters_arc.lock().unwrap();
         assert!(ban_parameters.contains(&newly_banned_1.wallet));
         assert!(ban_parameters.contains(&newly_banned_2.wallet));
@@ -1990,13 +2026,7 @@ pub mod tests {
     #[test]
     fn report_routing_service_provided_message_is_received() {
         init_test_logging();
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
-            make_wallet("hi"),
-        );
+        let config = bc_from_ac_plus_earning_wallet(AccountantConfig::default(), make_wallet("hi"));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
@@ -2045,10 +2075,7 @@ pub mod tests {
         init_test_logging();
         let consuming_wallet = make_wallet("our consuming wallet");
         let config = bc_from_ac_plus_wallets(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
+            AccountantConfig::default(),
             consuming_wallet.clone(),
             make_wallet("our earning wallet"),
         );
@@ -2097,13 +2124,8 @@ pub mod tests {
     fn report_routing_service_provided_message_is_received_from_our_earning_wallet() {
         init_test_logging();
         let earning_wallet = make_wallet("our earning wallet");
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
-            earning_wallet.clone(),
-        );
+        let config =
+            bc_from_ac_plus_earning_wallet(AccountantConfig::default(), earning_wallet.clone());
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
@@ -2148,13 +2170,7 @@ pub mod tests {
     #[test]
     fn report_routing_service_consumed_message_is_received() {
         init_test_logging();
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
-            make_wallet("hi"),
-        );
+        let config = bc_from_ac_plus_earning_wallet(AccountantConfig::default(), make_wallet("hi"));
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
@@ -2196,10 +2212,7 @@ pub mod tests {
         init_test_logging();
         let consuming_wallet = make_wallet("the consuming wallet");
         let config = bc_from_ac_plus_wallets(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
+            AccountantConfig::default(),
             consuming_wallet.clone(),
             make_wallet("the earning wallet"),
         );
@@ -2239,13 +2252,8 @@ pub mod tests {
     fn report_routing_service_consumed_message_is_received_for_our_earning_wallet() {
         init_test_logging();
         let earning_wallet = make_wallet("the earning wallet");
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
-            earning_wallet.clone(),
-        );
+        let config =
+            bc_from_ac_plus_earning_wallet(AccountantConfig::default(), earning_wallet.clone());
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
@@ -2281,13 +2289,7 @@ pub mod tests {
     #[test]
     fn report_exit_service_provided_message_is_received() {
         init_test_logging();
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
-            make_wallet("hi"),
-        );
+        let config = bc_from_ac_plus_earning_wallet(AccountantConfig::default(), make_wallet("hi"));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
@@ -2336,10 +2338,7 @@ pub mod tests {
         init_test_logging();
         let consuming_wallet = make_wallet("my consuming wallet");
         let config = bc_from_ac_plus_wallets(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
+            AccountantConfig::default(),
             consuming_wallet.clone(),
             make_wallet("my earning wallet"),
         );
@@ -2388,13 +2387,8 @@ pub mod tests {
     fn report_exit_service_provided_message_is_received_from_our_earning_wallet() {
         init_test_logging();
         let earning_wallet = make_wallet("my earning wallet");
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
-            earning_wallet.clone(),
-        );
+        let config =
+            bc_from_ac_plus_earning_wallet(AccountantConfig::default(), earning_wallet.clone());
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
@@ -2439,13 +2433,7 @@ pub mod tests {
     #[test]
     fn report_exit_service_consumed_message_is_received() {
         init_test_logging();
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
-            make_wallet("hi"),
-        );
+        let config = bc_from_ac_plus_earning_wallet(AccountantConfig::default(), make_wallet("hi"));
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
@@ -2488,10 +2476,7 @@ pub mod tests {
         init_test_logging();
         let consuming_wallet = make_wallet("own consuming wallet");
         let config = bc_from_ac_plus_wallets(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
+            AccountantConfig::default(),
             consuming_wallet.clone(),
             make_wallet("own earning wallet"),
         );
@@ -2531,13 +2516,8 @@ pub mod tests {
     fn report_exit_service_consumed_message_is_received_for_our_earning_wallet() {
         init_test_logging();
         let earning_wallet = make_wallet("own earning wallet");
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-            },
-            earning_wallet.clone(),
-        );
+        let config =
+            bc_from_ac_plus_earning_wallet(AccountantConfig::default(), earning_wallet.clone());
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
@@ -2706,23 +2686,26 @@ pub mod tests {
         let qualified_payables = &[
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwei + 1000,
+                balance: DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei + 1000,
                 last_paid_timestamp: from_time_t(
-                    now - PAYMENT_CURVES.balance_decreases_for_sec - 1234,
+                    now - DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec - 1234,
                 ),
                 pending_payment_transaction: None,
             },
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: PAYMENT_CURVES.permanent_debt_allowed_gwei + 1,
+                balance: DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei + 1,
                 last_paid_timestamp: from_time_t(
-                    now - PAYMENT_CURVES.balance_decreases_for_sec - 1,
+                    now - DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec - 1,
                 ),
                 pending_payment_transaction: None,
             },
         ];
+        let mut config = BootstrapperConfig::default();
+        config.accountant_config.payment_curves_opt = Some(DEFAULT_PAYMENT_CURVES.clone());
+        let subject = make_subject(Some(config), None, None, None, None);
 
-        let result = Accountant::payments_debug_summary(qualified_payables);
+        let result = subject.payments_debug_summary(qualified_payables);
 
         assert_eq!(result,
                    "Paying qualified debts:\n\

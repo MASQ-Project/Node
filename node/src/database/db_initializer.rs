@@ -6,10 +6,9 @@ use crate::database::db_migrations::{
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::logger::Logger;
 use masq_lib::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_PAYABLE_SCAN_INTERVAL,
-    DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK,
-    DEFAULT_RECEIVABLE_SCAN_INTERVAL, HIGHEST_RANDOM_CLANDESTINE_PORT,
-    LOWEST_USABLE_INSECURE_PORT, PAYMENT_CURVES,
+    DEFAULT_GAS_PRICE, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
+    DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+    HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
@@ -264,42 +263,62 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "payment_suggested_after_sec",
-            Some(&PAYMENT_CURVES.payment_suggested_after_sec.to_string()),
+            Some(
+                &DEFAULT_PAYMENT_CURVES
+                    .payment_suggested_after_sec
+                    .to_string(),
+            ),
             false,
             "how long are your debts ignored",
         );
         Self::set_config_value(
             conn,
             "payment_grace_before_ban_sec",
-            Some(&PAYMENT_CURVES.payment_grace_before_ban_sec.to_string()),
+            Some(
+                &DEFAULT_PAYMENT_CURVES
+                    .payment_grace_before_ban_sec
+                    .to_string(),
+            ),
             false,
             "grace period added to tolerate foreigner's debt",
         );
         Self::set_config_value(
             conn,
             "permanent_debt_allowed_gwei",
-            Some(&PAYMENT_CURVES.permanent_debt_allowed_gwei.to_string()),
+            Some(
+                &DEFAULT_PAYMENT_CURVES
+                    .permanent_debt_allowed_gwei
+                    .to_string(),
+            ),
             false,
             "all debts under this level are tolerated",
         );
         Self::set_config_value(
             conn,
             "balance_to_decrease_from_gwei",
-            Some(&PAYMENT_CURVES.balance_to_decrease_from_gwei.to_string()),
+            Some(
+                &DEFAULT_PAYMENT_CURVES
+                    .balance_to_decrease_from_gwei
+                    .to_string(),
+            ),
             false,
             "the highest point of the decreasing part",
         );
         Self::set_config_value(
             conn,
             "balance_decreases_for_sec",
-            Some(&PAYMENT_CURVES.balance_decreases_for_sec.to_string()),
+            Some(&DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec.to_string()),
             false,
             "how much the limiting slope declined after a second passes",
         );
         Self::set_config_value(
             conn,
             "unban_when_balance_below_gwei",
-            Some(&PAYMENT_CURVES.unban_when_balance_below_gwei.to_string()),
+            Some(
+                &DEFAULT_PAYMENT_CURVES
+                    .unban_when_balance_below_gwei
+                    .to_string(),
+            ),
             false,
             "when debts become tolerable and the debtors are unban",
         );
@@ -334,10 +353,7 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "pending_payment_scan_interval",
-            Some(&format!(
-                "{}",
-                DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000
-            )),
+            Some(&format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000)),
             false,
             "the next scan for pending payments will run after this interval",
         );
@@ -885,12 +901,16 @@ mod tests {
         verify(
             &mut config_vec,
             "balance_decreases_for_sec",
-            Some(&PAYMENT_CURVES.balance_decreases_for_sec.to_string()),
+            Some(&DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec.to_string()),
         );
         verify(
             &mut config_vec,
             "balance_to_decrease_from_gwei",
-            Some(&PAYMENT_CURVES.balance_to_decrease_from_gwei.to_string()),
+            Some(
+                &DEFAULT_PAYMENT_CURVES
+                    .balance_to_decrease_from_gwei
+                    .to_string(),
+            ),
         );
         verify(&mut config_vec, "blockchain_service_url", None);
         verify(
@@ -932,25 +952,34 @@ mod tests {
         verify(
             &mut config_vec,
             "payment_grace_before_ban_sec",
-            Some(&PAYMENT_CURVES.payment_grace_before_ban_sec.to_string()),
+            Some(
+                &DEFAULT_PAYMENT_CURVES
+                    .payment_grace_before_ban_sec
+                    .to_string(),
+            ),
         );
         verify(
             &mut config_vec,
             "payment_suggested_after_sec",
-            Some(&PAYMENT_CURVES.payment_suggested_after_sec.to_string()),
+            Some(
+                &DEFAULT_PAYMENT_CURVES
+                    .payment_suggested_after_sec
+                    .to_string(),
+            ),
         );
         verify(
             &mut config_vec,
             "pending_payment_scan_interval",
-            Some(&format!(
-                "{}",
-                DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000
-            )),
+            Some(&format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000)),
         );
         verify(
             &mut config_vec,
             "permanent_debt_allowed_gwei",
-            Some(&PAYMENT_CURVES.permanent_debt_allowed_gwei.to_string()),
+            Some(
+                &DEFAULT_PAYMENT_CURVES
+                    .permanent_debt_allowed_gwei
+                    .to_string(),
+            ),
         );
         verify(&mut config_vec, "preexisting", Some("yes")); // making sure we opened the preexisting database
         verify(
@@ -985,7 +1014,11 @@ mod tests {
         verify(
             &mut config_vec,
             "unban_when_balance_below_gwei",
-            Some(&PAYMENT_CURVES.unban_when_balance_below_gwei.to_string()),
+            Some(
+                &DEFAULT_PAYMENT_CURVES
+                    .unban_when_balance_below_gwei
+                    .to_string(),
+            ),
         );
         assert_eq!(config_vec, vec![]);
     }

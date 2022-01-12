@@ -38,7 +38,10 @@ use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_RECEIVABLE_SCAN_INTERVAL, DEFAULT_UI_PORT, MASQ_URL_PREFIX};
+use masq_lib::constants::{
+    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+    DEFAULT_UI_PORT, MASQ_URL_PREFIX,
+};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
@@ -50,7 +53,6 @@ use std::fmt::{Debug, Display, Error, Formatter};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::time::Duration;
 use std::vec::Vec;
 use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
@@ -322,10 +324,7 @@ impl BootstrapperConfig {
             // These fields can be set while privileged without penalty
             log_level: LevelFilter::Off,
             dns_servers: vec![],
-            accountant_config: AccountantConfig {
-                payables_scan_interval: Duration::from_secs(DEFAULT_PAYABLE_SCAN_INTERVAL),
-                receivables_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLE_SCAN_INTERVAL),
-            },
+            accountant_config: AccountantConfig::default(),
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
             ui_gateway_config: UiGatewayConfig {
@@ -506,19 +505,32 @@ impl Bootstrapper {
         alias_cryptde_null_opt: &Option<&dyn CryptDE>,
         chain: Chain,
     ) -> (&'a dyn CryptDE, &'b dyn CryptDE) {
-        match main_cryptde_null_opt {
-            Some(cryptde) => unsafe {
-                MAIN_CRYPTDE_BOX_OPT = Some(Box::new(<&CryptDENull>::from(*cryptde).clone()))
-            },
-            None => unsafe { MAIN_CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain))) },
-        }
-        match alias_cryptde_null_opt {
-            Some(cryptde) => unsafe {
-                ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(<&CryptDENull>::from(*cryptde).clone()))
-            },
-            None => unsafe { ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain))) },
+        unsafe {
+            Self::initialize_single_cryptde(main_cryptde_null_opt, &mut MAIN_CRYPTDE_BOX_OPT, chain)
+        };
+        unsafe {
+            Self::initialize_single_cryptde(
+                alias_cryptde_null_opt,
+                &mut ALIAS_CRYPTDE_BOX_OPT,
+                chain,
+            )
         }
         (main_cryptde_ref(), alias_cryptde_ref())
+    }
+
+    fn initialize_single_cryptde(
+        cryptde_null_opt: &Option<&dyn CryptDE>,
+        boxed_cryptde: &mut Option<Box<dyn CryptDE>>,
+        chain: Chain,
+    ) {
+        match cryptde_null_opt {
+            Some(cryptde) => {
+                let _ = boxed_cryptde.replace(Box::new(<&CryptDENull>::from(*cryptde).clone()));
+            }
+            None => {
+                let _ = boxed_cryptde.replace(Box::new(CryptDEReal::new(chain)));
+            }
+        }
     }
 
     fn report_local_descriptor(
