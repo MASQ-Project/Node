@@ -39,8 +39,7 @@ use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
 use masq_lib::constants::{
-    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
-    DEFAULT_UI_PORT, MASQ_URL_PREFIX,
+    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, DEFAULT_UI_PORT, MASQ_URL_PREFIX,
 };
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::multi_config::MultiConfig;

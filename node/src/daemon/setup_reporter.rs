@@ -24,7 +24,7 @@ use clap::value_t;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain as BlockChain;
-use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_PAYMENT_CURVES};
+use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES};
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
 use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupResponseValueStatus};
 use masq_lib::multi_config::{
@@ -36,7 +36,6 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
 lazy_static! {
     //should stay private
@@ -798,8 +797,8 @@ impl ValueRetriever for Neighbors {
     }
 }
 
-struct BalanceToDecreaseFrom {}
-impl ValueRetriever for BalanceToDecreaseFrom {
+struct BalanceToDecreaseFromGwei {}
+impl ValueRetriever for BalanceToDecreaseFromGwei {
     fn value_name(&self) -> &'static str {
         "balance-to-decrease-from"
     }
@@ -877,9 +876,20 @@ impl ValueRetriever for PayableScanInterval {
         persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        computed_default_payment_curves_rate_pack_and_scan_intervals(
-            bootstrapper_config,
-            persistent_config_opt,
+        let bootstrapper_config_value_opt = bootstrapper_config
+            .accountant_config
+            .payable_scan_interval_opt
+            .as_ref()
+            .map(|interval| interval.as_secs());
+        let persistent_config_value_opt = persistent_config_opt.as_ref().map(|config| {
+            config
+                .payable_scan_interval()
+                .expectv("payable scan interval")
+        });
+        computed_default_payment_curves_rate_pack_and_scan_intervals_generic(
+            &bootstrapper_config_value_opt,
+            &persistent_config_value_opt,
+            DEFAULT_PAYABLE_SCAN_INTERVAL,
         )
     }
 
@@ -1124,7 +1134,7 @@ impl RealUser {
 
 fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetriever>> {
     vec![
-        Box::new(BalanceToDecreaseFrom {}),
+        Box::new(BalanceToDecreaseFromGwei {}),
         Box::new(BlockchainServiceUrl {}),
         Box::new(Chain {}),
         Box::new(ClandestinePort {}),
@@ -1172,10 +1182,10 @@ where
     T: PartialEq + Display,
 {
     match (bootstrapper_config_value_opt, persistent_config_value_opt) {
-        (None, None) => Some((default.to_string(),Default)),
-        (None, Some(val)) if val == &default => Some((val.to_string(),Default)),
-        (None, Some(val)) => Some((val.to_string(),Configured)),
-        (Some(val), _) => None
+        (None, None) => Some((default.to_string(), Default)),
+        (None, Some(val)) if val == &default => Some((val.to_string(), Default)),
+        (None, Some(val)) => Some((val.to_string(), Configured)),
+        (Some(val), _) => None,
     }
 }
 
@@ -1203,6 +1213,7 @@ mod tests {
     use crate::test_utils::pure_test_utils::{
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
+    use core::time::Duration;
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::constants::{
         DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
@@ -3051,100 +3062,37 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    #[test]
-    fn unbane_when_balance_below_computed_default_all_absent(){
-        let subject = UnbanWhenBalanceBelowGwei {};
+    proc_macros::quad_tests_computed_default!(
+        payable_scan_interval,
+        DEFAULT_PAYABLE_SCAN_INTERVAL,
+        accountant_config.payable_scan_interval_opt,
+        u64,
+        Duration
+    );
 
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &None,
-            &None,
-        );
+    proc_macros::quad_tests_computed_default!(
+        payment_grace_before_ban_sec,
+        DEFAULT_PAYMENT_CURVES.,
+        accountant_config.payment_curves_opt,
+        u64,
+        u64
+    );
 
-        assert_eq!(
-            result,
-            Some((
-                DEFAULT_PAYMENT_CURVES
-                    .unban_when_balance_below_gwei
-                    .to_string(),
-                Default
-            ))
-        )
-    }
+    proc_macros::quad_tests_computed_default!(
+        permanent_debt_allowed_gwei,
+        DEFAULT_PAYMENT_CURVES.,
+        accountant_config.payment_curves_opt,
+        u64,
+        u64
+    );
 
-    #[test]
-    fn unbane_when_balance_below_computed_default_bootstrapper_config_absent_persistent_value_equal_to_default() {
-        let subject = UnbanWhenBalanceBelowGwei {};
-        let persistent_config = PersistentConfigurationMock::default()
-            .unban_when_balance_below_gwei_result(Ok(DEFAULT_PAYMENT_CURVES
-                .unban_when_balance_below_gwei
-                as u64));
-
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
-
-        assert_eq!(
-            result,
-            Some((
-                DEFAULT_PAYMENT_CURVES
-                    .unban_when_balance_below_gwei
-                    .to_string(),
-                Default
-            ))
-        )
-    }
-
-    #[test]
-    fn unbane_when_balance_below_computed_default_bootstrapper_config_absent_persistent_value_unequal_to_default() {
-        let subject = UnbanWhenBalanceBelowGwei {};
-        let persistent_config = PersistentConfigurationMock::default()
-            .unban_when_balance_below_gwei_result(Ok((DEFAULT_PAYMENT_CURVES
-                .unban_when_balance_below_gwei + 555)
-                as u64));
-
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
-
-        assert_eq!(
-            result,
-            Some((
-                (DEFAULT_PAYMENT_CURVES
-                    .unban_when_balance_below_gwei + 555)
-                    .to_string(),
-                Configured
-            ))
-        )
-    }
-
-    #[test]
-    fn unbane_when_balance_below_computed_default_bootstrapper_config_present_persistent_config_present() {
-        let subject = UnbanWhenBalanceBelowGwei {};
-        let persistent_config = PersistentConfigurationMock::default()
-            .unban_when_balance_below_gwei_result(Ok((DEFAULT_PAYMENT_CURVES
-                .unban_when_balance_below_gwei + 555)
-                as u64));
-        let mut bootstrapper_config = BootstrapperConfig::new();
-        let mut payment_curves = DEFAULT_PAYMENT_CURVES.clone();
-        payment_curves.unban_when_balance_below_gwei = payment_curves.unban_when_balance_below_gwei + 12345;
-        bootstrapper_config.accountant_config.payment_curves_opt = Some(payment_curves);
-
-        let result = subject.computed_default(
-            &bootstrapper_config,
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
-
-        assert_eq!(
-            result,
-            None
-        )
-    }
+    proc_macros::quad_tests_computed_default!(
+        unban_when_balance_below_gwei,
+        DEFAULT_PAYMENT_CURVES.,
+        accountant_config.payment_curves_opt,
+        u64,
+        u64
+    );
 
     fn verify_requirements(
         subject: &dyn ValueRetriever,
@@ -3234,7 +3182,7 @@ mod tests {
     #[test]
     fn dumb_requirements() {
         let params = HashMap::new();
-        assert_eq!(BalanceToDecreaseFrom {}.is_required(&params), true); //*
+        assert_eq!(BalanceToDecreaseFromGwei {}.is_required(&params), true); //*
         assert_eq!(BlockchainServiceUrl {}.is_required(&params), true);
         assert_eq!(Chain {}.is_required(&params), true);
         assert_eq!(ClandestinePort {}.is_required(&params), true);

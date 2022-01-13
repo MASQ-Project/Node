@@ -4,12 +4,10 @@ use crate::db_config::persistent_configuration::{PersistentConfigError, Persiste
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
-use ethsign::keyfile::Aes128Ctr;
 use masq_lib::automap_tools::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use web3::types::Res;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
