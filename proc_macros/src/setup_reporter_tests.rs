@@ -4,11 +4,10 @@ extern crate proc_macro;
 
 use heck::CamelCase;
 use proc_macro::TokenStream;
-use syn;
 
 pub fn quad_tests_computed_default_body(args: Vec<&str>) -> TokenStream {
     let name = args[0];
-    let early_default = args[1];
+    let full_default = args[1];
     let bootstrapper_config_destination = args[2];
     let num_cast_type = args[3];
     let alternative_data_type = args[4];
@@ -20,8 +19,7 @@ pub fn quad_tests_computed_default_body(args: Vec<&str>) -> TokenStream {
         fundamental_default = fundamental_default[..fundamental_default.len() - 1].to_string()
     };
     let name_camel_case = name.to_camel_case();
-    let fundamental_default_len = fundamental_default.len();
-    let length_differ = early_default.len() != fundamental_default_len;
+    let length_differ = full_default.len() != fundamental_default.len();
     let default_location = if length_differ {
         format!("{}.{}", fundamental_default, name)
     } else {
@@ -29,7 +27,7 @@ pub fn quad_tests_computed_default_body(args: Vec<&str>) -> TokenStream {
     };
     let conflict_section = configure_conflict_section(name, length_differ);
     let non_primitive_conversion =
-        configure_computation_and_non_primitive_conversion(alternative_data_type);
+        configure_prospective_non_primitive_conversion(alternative_data_type);
     format!(
         "
     #[test]
@@ -151,7 +149,7 @@ fn configure_conflict_section(name: &str, len_diff: bool) -> String {
     }
 }
 
-fn configure_computation_and_non_primitive_conversion(alternative_data_type: &str) -> &str {
+fn configure_prospective_non_primitive_conversion(alternative_data_type: &str) -> &str {
     match alternative_data_type.trim() {
         "u64" => "fundamental_default",
         "Duration" => "Duration::from_secs(fundamental_default)",

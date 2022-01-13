@@ -43,6 +43,7 @@ use masq_lib::constants::{
 };
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::multi_config::MultiConfig;
+use masq_lib::payment_curves_and_rate_pack::RatePack;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use std::collections::HashMap;
@@ -305,6 +306,7 @@ pub struct BootstrapperConfig {
 
     // These fields must be set without privilege: otherwise the database will be created as root
     pub db_password_opt: Option<String>,
+    pub rate_pack_opt: Option<RatePack>,
     pub clandestine_port_opt: Option<u16>,
     pub consuming_wallet: Option<Wallet>,
     pub earning_wallet: Wallet,
@@ -343,6 +345,7 @@ impl BootstrapperConfig {
 
             // These fields must be set without privilege: otherwise the database will be created as root
             db_password_opt: None,
+            rate_pack_opt: None,
             clandestine_port_opt: None,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
             consuming_wallet: None,

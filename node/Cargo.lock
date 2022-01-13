@@ -2067,6 +2067,7 @@ dependencies = [
  "native-tls",
  "nix 0.23.1",
  "openssl",
+ "paste",
  "pretty-hex",
  "primitive-types 0.5.1",
  "proc_macros",
@@ -2310,6 +2311,12 @@ dependencies = [
  "smallvec 1.6.1",
  "winapi 0.3.9",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0744126afe1a6dd7f394cb50a716dbe086cb06e255e53d8d0185d82828358fb5"
 
 [[package]]
 name = "pbkdf2"

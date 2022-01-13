@@ -83,6 +83,7 @@ simple-server = "0.4.0"
 serial_test_derive = "0.5.1"
 serial_test = "0.5.1"
 trust-dns-proto = "0.8.0"
+paste = "1.0.6"
 
 [[bin]]
 name = "MASQNode"

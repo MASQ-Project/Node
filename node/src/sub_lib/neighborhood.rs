@@ -125,8 +125,7 @@ pub struct NodeDescriptor {
     pub node_addr_opt: Option<NodeAddr>,
 }
 
-//confusing but seems like the public key in the args plays a role just in tests,
-//making the public key part of the descriptor persistent and reliable for testing
+//the public key's role as a separate arg is to enable the produced descriptor to be constant and reliable in tests
 impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&PublicKey, &NodeAddr, Chain, &dyn CryptDE)) -> Self {
         let (public_key, node_addr, blockchain, cryptde) = tuple;

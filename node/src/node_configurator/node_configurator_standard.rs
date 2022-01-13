@@ -92,7 +92,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
             true,
-            MigratorConfig::create_or_migrate(self.wrap_up_external_params_for_db(multi_config)),
+            MigratorConfig::create_or_migrate(self.wrap_up_db_externals(multi_config)),
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_parse_args(
@@ -112,7 +112,7 @@ impl NodeConfiguratorStandardUnprivileged {
         }
     }
 
-    fn wrap_up_external_params_for_db(&self, multi_config: &MultiConfig) -> ExternalData {
+    fn wrap_up_db_externals(&self, multi_config: &MultiConfig) -> ExternalData {
         ExternalData::new(
             self.privileged_config.blockchain_bridge_config.chain,
             value_m!(multi_config, "neighborhood-mode", NeighborhoodModeLight)
@@ -259,6 +259,7 @@ pub fn unprivileged_parse_args(
                 None => 1,
             }
         };
+    todo!("here I should configure the rate pack; before I potentially use it for the NeighborhoodMode config");
     let mnc_result = if let Some(persistent_config) = persistent_config_opt {
         get_wallets(multi_config, persistent_config, unprivileged_config)?;
         make_neighborhood_config(multi_config, Some(persistent_config), unprivileged_config)
@@ -430,7 +431,7 @@ pub fn convert_ci_configs(
 fn validate_descriptors_from_user(
     descriptors: Vec<String>,
     dummy_cryptde: Box<dyn CryptDE>,
-    desired_chain: Chain,
+    desired_native_chain: Chain,
 ) -> Vec<Result<NodeDescriptor, ParamError>> {
     descriptors.into_iter()
                     .map(
@@ -440,13 +441,13 @@ fn validate_descriptors_from_user(
                         Ok(descriptor) =>
                             {
                                 let competence_from_descriptor = descriptor.blockchain;
-                                if desired_chain == competence_from_descriptor {
+                                if desired_native_chain == competence_from_descriptor {
                                     validate_mandatory_node_addr(node_desc_trimmed, descriptor)
                                 } else {
-                                    let name_of_desired_chain = desired_chain.rec().literal_identifier;
+                                    let desired_chain = desired_native_chain.rec().literal_identifier;
                                     Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
-                                                                              name_of_desired_chain, MASQ_URL_PREFIX,
-                                                                              name_of_desired_chain,
+                                                                              desired_chain, MASQ_URL_PREFIX,
+                                                                              desired_chain,
                                                                               competence_from_descriptor.rec().literal_identifier)))
                                 }
                             }
@@ -2593,13 +2594,13 @@ mod tests {
     }
 
     #[test]
-    fn wrap_up_external_params_for_db_is_properly_set() {
+    fn wrap_up_db_externals_is_properly_set() {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config.blockchain_bridge_config.chain = DEFAULT_CHAIN;
         let multi_config =
             make_simplified_multi_config(["MASQNode", "--neighborhood-mode", "zero-hop"]);
 
-        let result = subject.wrap_up_external_params_for_db(&multi_config);
+        let result = subject.wrap_up_db_externals(&multi_config);
 
         let expected = ExternalData::new(DEFAULT_CHAIN, NeighborhoodModeLight::ZeroHop);
         assert_eq!(result, expected)

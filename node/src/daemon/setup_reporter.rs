@@ -16,6 +16,9 @@ use crate::node_configurator::node_configurator_standard::{
 use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
+use crate::payment_curve_params_computed_default_and_required;
+use crate::rate_pack_params_computed_default_and_required;
+use crate::scan_interval_params_computed_default_and_required;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
@@ -24,7 +27,10 @@ use clap::value_t;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain as BlockChain;
-use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES};
+use masq_lib::constants::{
+    DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
+    DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+};
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
 use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupResponseValueStatus};
 use masq_lib::multi_config::{
@@ -32,6 +38,7 @@ use masq_lib::multi_config::{
 };
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::utils::ExpectValue;
+use paste::paste;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
@@ -803,21 +810,7 @@ impl ValueRetriever for BalanceToDecreaseFromGwei {
         "balance-to-decrease-from"
     }
 
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        computed_default_payment_curves_rate_pack_and_scan_intervals(
-            bootstrapper_config,
-            persistent_config_opt,
-        )
-    }
-
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
-    }
+    payment_curve_params_computed_default_and_required!("balance_to_decrease_from_gwei");
 }
 
 struct ExitByteRate {}
@@ -826,21 +819,7 @@ impl ValueRetriever for ExitByteRate {
         "exit-byte-rate"
     }
 
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        computed_default_payment_curves_rate_pack_and_scan_intervals(
-            bootstrapper_config,
-            persistent_config_opt,
-        )
-    }
-
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
-    }
+    rate_pack_params_computed_default_and_required!("exit_byte_rate");
 }
 struct ExitServiceRate {}
 impl ValueRetriever for ExitServiceRate {
@@ -848,21 +827,7 @@ impl ValueRetriever for ExitServiceRate {
         "exit-service-rate"
     }
 
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        computed_default_payment_curves_rate_pack_and_scan_intervals(
-            bootstrapper_config,
-            persistent_config_opt,
-        )
-    }
-
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
-    }
+    rate_pack_params_computed_default_and_required!("exit_service_rate");
 }
 struct PayableScanInterval {}
 impl ValueRetriever for PayableScanInterval {
@@ -870,32 +835,10 @@ impl ValueRetriever for PayableScanInterval {
         "payable-scan-interval"
     }
 
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        let bootstrapper_config_value_opt = bootstrapper_config
-            .accountant_config
-            .payable_scan_interval_opt
-            .as_ref()
-            .map(|interval| interval.as_secs());
-        let persistent_config_value_opt = persistent_config_opt.as_ref().map(|config| {
-            config
-                .payable_scan_interval()
-                .expectv("payable scan interval")
-        });
-        computed_default_payment_curves_rate_pack_and_scan_intervals_generic(
-            &bootstrapper_config_value_opt,
-            &persistent_config_value_opt,
-            DEFAULT_PAYABLE_SCAN_INTERVAL,
-        )
-    }
-
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
-    }
+    scan_interval_params_computed_default_and_required!(
+        "payable_scan_interval",
+        DEFAULT_PAYABLE_SCAN_INTERVAL
+    );
 }
 struct PaymentSuggestedAfterSec {}
 impl ValueRetriever for PaymentSuggestedAfterSec {
@@ -903,21 +846,7 @@ impl ValueRetriever for PaymentSuggestedAfterSec {
         "payment-suggested-after"
     }
 
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        computed_default_payment_curves_rate_pack_and_scan_intervals(
-            bootstrapper_config,
-            persistent_config_opt,
-        )
-    }
-
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
-    }
+    payment_curve_params_computed_default_and_required!("payment_suggested_after_sec");
 }
 struct PaymentGraceBeforeBanSec {}
 impl ValueRetriever for PaymentGraceBeforeBanSec {
@@ -925,21 +854,7 @@ impl ValueRetriever for PaymentGraceBeforeBanSec {
         "payment-grace-before-ban"
     }
 
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        computed_default_payment_curves_rate_pack_and_scan_intervals(
-            bootstrapper_config,
-            persistent_config_opt,
-        )
-    }
-
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
-    }
+    payment_curve_params_computed_default_and_required!("payment_grace_before_ban_sec");
 }
 struct PendingPaymentScanInterval {}
 impl ValueRetriever for PendingPaymentScanInterval {
@@ -947,21 +862,10 @@ impl ValueRetriever for PendingPaymentScanInterval {
         "pending-payment-scan-interval"
     }
 
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        computed_default_payment_curves_rate_pack_and_scan_intervals(
-            bootstrapper_config,
-            persistent_config_opt,
-        )
-    }
-
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
-    }
+    scan_interval_params_computed_default_and_required!(
+        "pending_payment_scan_interval",
+        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL
+    );
 }
 struct PermanentDebtAllowedGwei {}
 impl ValueRetriever for PermanentDebtAllowedGwei {
@@ -969,21 +873,7 @@ impl ValueRetriever for PermanentDebtAllowedGwei {
         "permanent-debt-allowed"
     }
 
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        computed_default_payment_curves_rate_pack_and_scan_intervals(
-            bootstrapper_config,
-            persistent_config_opt,
-        )
-    }
-
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
-    }
+    payment_curve_params_computed_default_and_required!("permanent_debt_allowed_gwei");
 }
 
 struct ReceivableScanInterval {}
@@ -992,21 +882,10 @@ impl ValueRetriever for ReceivableScanInterval {
         "receivable-scan-interval"
     }
 
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        computed_default_payment_curves_rate_pack_and_scan_intervals(
-            bootstrapper_config,
-            persistent_config_opt,
-        )
-    }
-
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
-    }
+    scan_interval_params_computed_default_and_required!(
+        "receivable_scan_interval",
+        DEFAULT_RECEIVABLE_SCAN_INTERVAL
+    );
 }
 
 struct RoutingByteRate {}
@@ -1015,21 +894,7 @@ impl ValueRetriever for RoutingByteRate {
         "routing-byte-rate"
     }
 
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        computed_default_payment_curves_rate_pack_and_scan_intervals(
-            bootstrapper_config,
-            persistent_config_opt,
-        )
-    }
-
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
-    }
+    rate_pack_params_computed_default_and_required!("routing_byte_rate");
 }
 
 struct RoutingServiceRate {}
@@ -1038,21 +903,7 @@ impl ValueRetriever for RoutingServiceRate {
         "routing-service-rate"
     }
 
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        computed_default_payment_curves_rate_pack_and_scan_intervals(
-            bootstrapper_config,
-            persistent_config_opt,
-        )
-    }
-
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
-    }
+    rate_pack_params_computed_default_and_required!("routing_service_rate");
 }
 
 struct UnbanWhenBalanceBelowGwei {}
@@ -1060,33 +911,7 @@ impl ValueRetriever for UnbanWhenBalanceBelowGwei {
     fn value_name(&self) -> &'static str {
         "unban-when-balance-below"
     }
-
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        let bootstrapper_value_opt = bootstrapper_config
-            .accountant_config
-            .payment_curves_opt
-            .as_ref()
-            .map(|curves| curves.unban_when_balance_below_gwei);
-        let persistent_config_value_opt = persistent_config_opt.as_ref().map(|config| {
-            config
-                .unban_when_balance_below_gwei()
-                .expectv("unban when balance below") as i64
-        }); //TODO this will bring us here when we change to unsigned values
-        computed_default_payment_curves_rate_pack_and_scan_intervals_generic(
-            &bootstrapper_value_opt,
-            &persistent_config_value_opt,
-            DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei,
-        )
-    }
-
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
-    }
+    payment_curve_params_computed_default_and_required!("unban_when_balance_below_gwei");
 }
 
 struct RealUser {
@@ -1134,7 +959,6 @@ impl RealUser {
 
 fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetriever>> {
     vec![
-        Box::new(BalanceToDecreaseFromGwei {}),
         Box::new(BlockchainServiceUrl {}),
         Box::new(Chain {}),
         Box::new(ClandestinePort {}),
@@ -1150,6 +974,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(LogLevel {}),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
+        Box::new(BalanceToDecreaseFromGwei {}),
         Box::new(ExitByteRate {}),
         Box::new(ExitServiceRate {}),
         Box::new(PayableScanInterval {}),
@@ -1166,14 +991,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
     ]
 }
 
-fn computed_default_payment_curves_rate_pack_and_scan_intervals(
-    bootstrapper_config: &BootstrapperConfig,
-    persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-) -> Option<(String, UiSetupResponseValueStatus)> {
-    unimplemented!()
-}
-
-fn computed_default_payment_curves_rate_pack_and_scan_intervals_generic<T>(
+fn computed_default_payment_curves_rate_pack_scan_intervals<T>(
     bootstrapper_config_value_opt: &Option<T>,
     persistent_config_value_opt: &Option<T>,
     default: T,
@@ -1187,6 +1005,99 @@ where
         (None, Some(val)) => Some((val.to_string(), Configured)),
         (Some(val), _) => None,
     }
+}
+
+#[macro_export]
+macro_rules! payment_curve_params_computed_default_and_required {
+    ($field_name: literal) => {
+        paste! {
+                fn computed_default(
+                &self,
+                bootstrapper_config: &BootstrapperConfig,
+                pc_opt: &Option<Box<dyn PersistentConfiguration>>,
+                _db_password_opt: &Option<String>,
+            ) -> Option<(String, UiSetupResponseValueStatus)> {
+                let bootstrapper_value_opt = bootstrapper_config
+                    .accountant_config
+                    .payment_curves_opt
+                    .as_ref()
+                    .map(|curves| curves.[<$field_name>]);
+                let pc_value_opt = pc_opt.as_ref().map(|config| {
+                    config
+                        .[<$field_name>]()
+                        .expectv($field_name) as i64
+                });
+                computed_default_payment_curves_rate_pack_scan_intervals(
+                    &bootstrapper_value_opt,
+                    &pc_value_opt,
+                    DEFAULT_PAYMENT_CURVES.[<$field_name>],
+                )
+            }
+
+                fn is_required(&self, _params: &SetupCluster) -> bool {true}
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! scan_interval_params_computed_default_and_required {
+    ($field_name: literal,$default: expr) => {
+        paste! {
+                fn computed_default(
+                &self,
+                bootstrapper_config: &BootstrapperConfig,
+                pc_opt: &Option<Box<dyn PersistentConfiguration>>,
+                _db_password_opt: &Option<String>,
+            ) -> Option<(String, UiSetupResponseValueStatus)> {
+                let bootstrapper_value_opt = bootstrapper_config
+                    .accountant_config
+                    .[<$field_name _opt>]
+                    .map(|duration|duration.as_secs());
+                let pc_value_opt = pc_opt.as_ref().map(|config| {
+                    config
+                        .[<$field_name>]()
+                        .expectv($field_name)
+                });
+                computed_default_payment_curves_rate_pack_scan_intervals(
+                    &bootstrapper_value_opt,
+                    &pc_value_opt,
+                    $default,
+                )
+            }
+
+                fn is_required(&self, _params: &SetupCluster) -> bool {true}
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! rate_pack_params_computed_default_and_required {
+    ($field_name: literal) => {
+        paste! {
+                fn computed_default(
+                &self,
+                bootstrapper_config: &BootstrapperConfig,
+                pc_opt: &Option<Box<dyn PersistentConfiguration>>,
+                _db_password_opt: &Option<String>,
+            ) -> Option<(String, UiSetupResponseValueStatus)> {
+                let bootstrapper_value_opt = bootstrapper_config
+                    .rate_pack_opt.as_ref()
+                    .map(|rate_pack|rate_pack.[<$field_name>]);
+                let pc_value_opt = pc_opt.as_ref().map(|config| {
+                    config
+                        .[<$field_name>]()
+                        .expectv($field_name)
+                });
+                computed_default_payment_curves_rate_pack_scan_intervals(
+                    &bootstrapper_value_opt,
+                    &pc_value_opt,
+                    DEFAULT_RATE_PACK.[<$field_name>],
+                )
+            }
+
+                fn is_required(&self, _params: &SetupCluster) -> bool {true}
+        }
+    };
 }
 
 #[cfg(test)]
@@ -3062,12 +2973,78 @@ mod tests {
         assert_eq!(result, None);
     }
 
+    //absence/presence of the dot after the default value has a significant impact
+
+    proc_macros::quad_tests_computed_default!(
+        routing_byte_rate,
+        DEFAULT_RATE_PACK.,
+        rate_pack_opt,
+        u64,
+        u64
+    );
+
+    proc_macros::quad_tests_computed_default!(
+        routing_service_rate,
+        DEFAULT_RATE_PACK.,
+        rate_pack_opt,
+        u64,
+        u64
+    );
+
+    proc_macros::quad_tests_computed_default!(
+        exit_service_rate,
+        DEFAULT_RATE_PACK.,
+        rate_pack_opt,
+        u64,
+        u64
+    );
+
+    proc_macros::quad_tests_computed_default!(
+        exit_byte_rate,
+        DEFAULT_RATE_PACK.,
+        rate_pack_opt,
+        u64,
+        u64
+    );
+
+    proc_macros::quad_tests_computed_default!(
+        pending_payment_scan_interval,
+        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
+        accountant_config.pending_payment_scan_interval_opt,
+        u64,
+        Duration
+    );
+
     proc_macros::quad_tests_computed_default!(
         payable_scan_interval,
         DEFAULT_PAYABLE_SCAN_INTERVAL,
         accountant_config.payable_scan_interval_opt,
         u64,
         Duration
+    );
+
+    proc_macros::quad_tests_computed_default!(
+        receivable_scan_interval,
+        DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+        accountant_config.receivable_scan_interval_opt,
+        u64,
+        Duration
+    );
+
+    proc_macros::quad_tests_computed_default!(
+        balance_to_decrease_from_gwei,
+        DEFAULT_PAYMENT_CURVES.,
+        accountant_config.payment_curves_opt,
+        u64,
+        u64
+    );
+
+    proc_macros::quad_tests_computed_default!(
+        payment_suggested_after_sec,
+        DEFAULT_PAYMENT_CURVES.,
+        accountant_config.payment_curves_opt,
+        u64,
+        u64
     );
 
     proc_macros::quad_tests_computed_default!(
