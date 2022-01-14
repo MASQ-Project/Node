@@ -39,13 +39,13 @@ use masq_lib::constants::{
     DEFAULT_CHAIN, DEFAULT_RATE_PACK, DEFAULT_UI_PORT, HTTP_PORT, MASQ_URL_PREFIX, TLS_PORT,
 };
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
+use masq_lib::payment_curves_and_rate_pack::RatePack;
 use masq_lib::shared_schema::ParamError;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::WrapResult;
 use rustc_hex::FromHex;
 use std::ops::Deref;
 use std::str::FromStr;
-
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
 }
@@ -259,7 +259,11 @@ pub fn unprivileged_parse_args(
                 None => 1,
             }
         };
-    todo!("here I should configure the rate pack; before I potentially use it for the NeighborhoodMode config");
+    configure_rate_pack(
+        multi_config,
+        unprivileged_config,
+        persistent_config_opt.as_ref().map(|config| &**config),
+    )?;
     let mnc_result = if let Some(persistent_config) = persistent_config_opt {
         get_wallets(multi_config, persistent_config, unprivileged_config)?;
         make_neighborhood_config(multi_config, Some(persistent_config), unprivileged_config)
@@ -272,6 +276,79 @@ pub fn unprivileged_parse_args(
 
 fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
     multi_config.deref().occurrences_of(parameter) > 0
+}
+
+fn configure_rate_pack(
+    multi_config: &MultiConfig,
+    config: &mut BootstrapperConfig,
+    persist_conf_opt: Option<&dyn PersistentConfiguration>,
+) -> Result<(), ConfiguratorError> {
+    let routing_byte_rate = configure_single_rate(
+        multi_config,
+        "routing-byte-rate",
+        persist_conf_opt.map(|persist_conf| Box::new(|| persist_conf.routing_byte_rate())),
+        DEFAULT_RATE_PACK.routing_byte_rate,
+    )?;
+    let routing_service_rate = configure_single_rate(
+        multi_config,
+        "routing-service-rate",
+        persist_conf_opt.map(|persist_conf| Box::new(|| persist_conf.routing_service_rate())),
+        DEFAULT_RATE_PACK.routing_service_rate,
+    )?;
+    let exit_byte_rate = configure_single_rate(
+        multi_config,
+        "exit-byte-rate",
+        persist_conf_opt.map(|persist_conf| Box::new(|| persist_conf.exit_byte_rate())),
+        DEFAULT_RATE_PACK.exit_byte_rate,
+    )?;
+    let exit_service_rate = configure_single_rate(
+        multi_config,
+        "exit-service-rate",
+        persist_conf_opt.map(|persist_conf| Box::new(|| persist_conf.exit_service_rate())),
+        DEFAULT_RATE_PACK.exit_service_rate,
+    )?;
+    let configured = RatePack {
+        routing_byte_rate,
+        routing_service_rate,
+        exit_byte_rate,
+        exit_service_rate,
+    };
+    config.rate_pack_opt = Some(configured);
+    Ok(())
+}
+
+fn configure_single_rate<T: ?Sized>(
+    multi_config: &MultiConfig,
+    parameter_name: &str,
+    persistent_config_method_opt: Option<Box<T>>,
+    default_value: u64,
+) -> Result<u64, ConfiguratorError>
+where
+    T: FnOnce() -> Result<u64, PersistentConfigError>,
+{
+    Ok(
+        match (
+            value_m!(multi_config, parameter_name, String),
+            persistent_config_method_opt,
+        ) {
+            (None, None) => default_value,
+            (Some(rate), _) => match rate.parse::<u64>() {
+                Ok(rate) => rate,
+                //cannot be tested
+                Err(e) => panic!(
+                    "Clap let in bad value '{}' for {} due to {}",
+                    rate, parameter_name, e
+                ),
+            },
+            (None, Some(pc_method)) => pc_method().map_err(|e| {
+                let standard_name = parameter_name
+                    .chars()
+                    .map(|char| if char == '-' { ' ' } else { char })
+                    .collect::<String>();
+                e.into_configurator_error(standard_name.as_str())
+            })?,
+        },
+    )
 }
 
 pub fn configure_database(
@@ -729,7 +806,6 @@ mod tests {
     use masq_lib::constants::DEFAULT_GAS_PRICE;
     use masq_lib::multi_config::{NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::{running_test, SliceToVec};
     use std::fs::File;
@@ -2206,15 +2282,12 @@ mod tests {
             "node_configurator",
             "parse_args_with_invalid_consuming_wallet_private_key_panics_correctly",
         );
-
         let args = ArgsBuilder::new().param("--data-directory", home_directory.to_str().unwrap());
         let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
             &"--consuming-private-key",
             &"not valid hex",
         ))];
-
         let faux_environment = CommandLineVcl::from(vcl_args);
-
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(faux_environment),
             Box::new(CommandLineVcl::new(args.into())),
@@ -2254,7 +2327,6 @@ mod tests {
             Box::new(CommandLineVcl::new(args.into())),
         ];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let stdout_writer = &mut ByteArrayWriter::new();
 
         unprivileged_parse_args(
             &multi_config,
@@ -2263,14 +2335,143 @@ mod tests {
         )
         .unwrap();
 
-        let captured_output = stdout_writer.get_string();
-        let expected_output = "";
         assert!(config.consuming_wallet.is_some());
         assert_eq!(
             format!("{}", config.consuming_wallet.unwrap()),
             "0x8e4d2317e56c8fd1fc9f13ba2aa62df1c5a542a7".to_string()
         );
-        assert_eq!(captured_output, expected_output);
+    }
+
+    #[test]
+    fn unprivileged_parse_args_configures_rate_pack_database_ignored() {
+        running_test();
+        let home_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "unprivileged_parse_args_configures_rate_pack_database_ignored",
+        );
+        let args = [
+            "MASQNode",
+            "--ip",
+            "1.2.3.4",
+            "--blockchain-service-url",
+            "some.service.com",
+            "--gas-price",
+            "170",
+            "--data-directory",
+            home_directory.to_str().unwrap(),
+            "--routing-byte-rate",
+            "2",
+            "--routing-service-rate",
+            "2",
+            "--exit-byte-rate",
+            "3",
+            "--exit-service-rate",
+            "5",
+        ];
+        let mut config = BootstrapperConfig::new();
+        let multi_config = make_simplified_multi_config(args);
+        let mut persistent_configuration = PersistentConfigurationMock::new()
+            .earning_wallet_from_address_result(Ok(None))
+            .consuming_wallet_derivation_path_result(Ok(None))
+            .mnemonic_seed_result(Ok(None))
+            .mnemonic_seed_exists_result(Ok(false));
+        //no prepared results for the tested parameters, that is they're uncalled
+
+        unprivileged_parse_args(
+            &multi_config,
+            &mut config,
+            Some(&mut persistent_configuration),
+        )
+        .unwrap();
+
+        let actual_rate_pack = config.rate_pack_opt.take().unwrap();
+        let expected_rate_pack = RatePack {
+            routing_byte_rate: 2,
+            routing_service_rate: 2,
+            exit_byte_rate: 3,
+            exit_service_rate: 5,
+        };
+        assert_eq!(actual_rate_pack, expected_rate_pack)
+    }
+
+    #[test]
+    fn unprivileged_parse_args_configures_rate_pack_from_database() {
+        running_test();
+        let home_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "unprivileged_parse_args_configures_rate_pack_from_database",
+        );
+        let args = [
+            "MASQNode",
+            "--ip",
+            "1.2.3.4",
+            "--blockchain-service-url",
+            "some.service.com",
+            "--gas-price",
+            "170",
+            "--data-directory",
+            home_directory.to_str().unwrap(),
+        ];
+        let mut config = BootstrapperConfig::new();
+        let multi_config = make_simplified_multi_config(args);
+        let mut persistent_configuration = PersistentConfigurationMock::new()
+            .earning_wallet_from_address_result(Ok(None))
+            .consuming_wallet_derivation_path_result(Ok(None))
+            .mnemonic_seed_result(Ok(None))
+            .mnemonic_seed_exists_result(Ok(false))
+            .routing_byte_rate_result(Ok(8))
+            .routing_service_rate_result(Ok(7))
+            .exit_byte_rate_result(Ok(10))
+            .exit_service_rate_result(Ok(11));
+
+        unprivileged_parse_args(
+            &multi_config,
+            &mut config,
+            Some(&mut persistent_configuration),
+        )
+        .unwrap();
+
+        let actual_rate_pack = config.rate_pack_opt.take().unwrap();
+        let expected_rate_pack = RatePack {
+            routing_byte_rate: 8,
+            routing_service_rate: 7,
+            exit_byte_rate: 10,
+            exit_service_rate: 11,
+        };
+        assert_eq!(actual_rate_pack, expected_rate_pack)
+    }
+
+    #[test]
+    fn unprivileged_parse_args_configures_rate_pack_all_sources_absent_so_all_defaults() {
+        running_test();
+        let home_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "unprivileged_parse_args_configures_rate_pack_all_sources_absent_so_all_defaults",
+        );
+        let args = [
+            "MASQNode",
+            "--ip",
+            "1.2.3.4",
+            "--blockchain-service-url",
+            "some.service.com",
+            "--gas-price",
+            "170",
+            "--data-directory",
+            home_directory.to_str().unwrap(),
+        ];
+        let mut config = BootstrapperConfig::new();
+        let multi_config = make_simplified_multi_config(args);
+
+        unprivileged_parse_args(&multi_config, &mut config, None).unwrap();
+
+        let actual_rate_pack = config.rate_pack_opt.take().unwrap();
+        let expected_rate_pack = RatePack {
+            routing_byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
+            routing_service_rate: DEFAULT_RATE_PACK.routing_service_rate,
+            exit_byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
+            exit_service_rate: DEFAULT_RATE_PACK.exit_service_rate,
+        };
+        assert_eq!(actual_rate_pack, expected_rate_pack)
     }
 
     #[test]

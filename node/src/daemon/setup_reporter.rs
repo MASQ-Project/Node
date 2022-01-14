@@ -1003,7 +1003,7 @@ where
         (None, None) => Some((default.to_string(), Default)),
         (None, Some(val)) if val == &default => Some((val.to_string(), Default)),
         (None, Some(val)) => Some((val.to_string(), Configured)),
-        (Some(val), _) => None,
+        (Some(_), _) => None,
     }
 }
 
@@ -1601,6 +1601,16 @@ mod tests {
                 .write_all(b"db-password = \"mainnet\"\n")
                 .unwrap();
             config_file
+                .write_all(b"routing-byte-rate = \"1\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"routing-service-rate = \"3\"\n")
+                .unwrap();
+            config_file.write_all(b"exit-byte-rate = \"3\"\n").unwrap();
+            config_file
+                .write_all(b"exit-service-rate = \"7\"\n")
+                .unwrap();
+            config_file
                 .write_all(b"dns-servers = \"5.6.7.8\"\n")
                 .unwrap();
             config_file
@@ -1630,6 +1640,42 @@ mod tests {
                 .write_all(b"db-password = \"ropstenPassword\"\n")
                 .unwrap();
             config_file
+                .write_all(
+                    format!(
+                        "routing-byte-rate = \"{}\"\n",
+                        DEFAULT_RATE_PACK.routing_byte_rate
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+            config_file
+                .write_all(
+                    format!(
+                        "routing-service-rate = \"{}\"\n",
+                        DEFAULT_RATE_PACK.routing_service_rate
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+            config_file
+                .write_all(
+                    format!(
+                        "exit-byte-rate = \"{}\"\n",
+                        DEFAULT_RATE_PACK.exit_byte_rate
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+            config_file
+                .write_all(
+                    format!(
+                        "exit-service-rate = \"{}\"\n",
+                        DEFAULT_RATE_PACK.exit_service_rate
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+            config_file
                 .write_all(b"dns-servers = \"8.7.6.5\"\n")
                 .unwrap();
             config_file
@@ -1646,7 +1692,6 @@ mod tests {
                 .home_dir_result(Some(home_dir.clone()))
                 .data_dir_result(Some(data_root.clone())),
         ));
-
         let params = vec![UiSetupRequestValue::new(
             "chain",
             DEFAULT_CHAIN.rec().literal_identifier,
@@ -1697,12 +1742,12 @@ mod tests {
             (
                 "exit-byte-rate",
                 &DEFAULT_RATE_PACK.exit_byte_rate.to_string(),
-                Default,
+                Configured,
             ),
             (
                 "exit-service-rate",
                 &DEFAULT_RATE_PACK.exit_service_rate.to_string(),
-                Default,
+                Configured,
             ),
             ("gas-price", "88", Configured),
             ("ip", "", Blank),
@@ -1756,12 +1801,12 @@ mod tests {
             (
                 "routing-byte-rate",
                 &DEFAULT_RATE_PACK.routing_byte_rate.to_string(),
-                Default,
+                Configured,
             ),
             (
                 "routing-service-rate",
                 &DEFAULT_RATE_PACK.routing_service_rate.to_string(),
-                Default,
+                Configured,
             ),
             (
                 "unban-when-balance-below",
