@@ -16,9 +16,9 @@ use crate::node_configurator::node_configurator_standard::{
 use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
-use crate::payment_curve_params_computed_default_and_required;
-use crate::rate_pack_params_computed_default_and_required;
-use crate::scan_interval_params_computed_default_and_required;
+use crate::payment_curve_params_computed_default_and_is_required;
+use crate::rate_pack_params_computed_default_and_is_required;
+use crate::scan_interval_params_computed_default_and_is_required;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
@@ -300,6 +300,7 @@ impl SetupReporterReal {
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
+        eprintln!("{:?}", bootstrapper_config.rate_pack_opt);
         let mut setup = value_retrievers(dirs_wrapper)
             .into_iter()
             .map(|r| {
@@ -810,7 +811,7 @@ impl ValueRetriever for BalanceToDecreaseFromGwei {
         "balance-to-decrease-from"
     }
 
-    payment_curve_params_computed_default_and_required!("balance_to_decrease_from_gwei");
+    payment_curve_params_computed_default_and_is_required!("balance_to_decrease_from_gwei");
 }
 
 struct ExitByteRate {}
@@ -819,7 +820,7 @@ impl ValueRetriever for ExitByteRate {
         "exit-byte-rate"
     }
 
-    rate_pack_params_computed_default_and_required!("exit_byte_rate");
+    rate_pack_params_computed_default_and_is_required!("exit_byte_rate");
 }
 struct ExitServiceRate {}
 impl ValueRetriever for ExitServiceRate {
@@ -827,7 +828,7 @@ impl ValueRetriever for ExitServiceRate {
         "exit-service-rate"
     }
 
-    rate_pack_params_computed_default_and_required!("exit_service_rate");
+    rate_pack_params_computed_default_and_is_required!("exit_service_rate");
 }
 struct PayableScanInterval {}
 impl ValueRetriever for PayableScanInterval {
@@ -835,7 +836,7 @@ impl ValueRetriever for PayableScanInterval {
         "payable-scan-interval"
     }
 
-    scan_interval_params_computed_default_and_required!(
+    scan_interval_params_computed_default_and_is_required!(
         "payable_scan_interval",
         DEFAULT_PAYABLE_SCAN_INTERVAL
     );
@@ -846,7 +847,7 @@ impl ValueRetriever for PaymentSuggestedAfterSec {
         "payment-suggested-after"
     }
 
-    payment_curve_params_computed_default_and_required!("payment_suggested_after_sec");
+    payment_curve_params_computed_default_and_is_required!("payment_suggested_after_sec");
 }
 struct PaymentGraceBeforeBanSec {}
 impl ValueRetriever for PaymentGraceBeforeBanSec {
@@ -854,7 +855,7 @@ impl ValueRetriever for PaymentGraceBeforeBanSec {
         "payment-grace-before-ban"
     }
 
-    payment_curve_params_computed_default_and_required!("payment_grace_before_ban_sec");
+    payment_curve_params_computed_default_and_is_required!("payment_grace_before_ban_sec");
 }
 struct PendingPaymentScanInterval {}
 impl ValueRetriever for PendingPaymentScanInterval {
@@ -862,7 +863,7 @@ impl ValueRetriever for PendingPaymentScanInterval {
         "pending-payment-scan-interval"
     }
 
-    scan_interval_params_computed_default_and_required!(
+    scan_interval_params_computed_default_and_is_required!(
         "pending_payment_scan_interval",
         DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL
     );
@@ -873,7 +874,7 @@ impl ValueRetriever for PermanentDebtAllowedGwei {
         "permanent-debt-allowed"
     }
 
-    payment_curve_params_computed_default_and_required!("permanent_debt_allowed_gwei");
+    payment_curve_params_computed_default_and_is_required!("permanent_debt_allowed_gwei");
 }
 
 struct ReceivableScanInterval {}
@@ -882,7 +883,7 @@ impl ValueRetriever for ReceivableScanInterval {
         "receivable-scan-interval"
     }
 
-    scan_interval_params_computed_default_and_required!(
+    scan_interval_params_computed_default_and_is_required!(
         "receivable_scan_interval",
         DEFAULT_RECEIVABLE_SCAN_INTERVAL
     );
@@ -894,7 +895,7 @@ impl ValueRetriever for RoutingByteRate {
         "routing-byte-rate"
     }
 
-    rate_pack_params_computed_default_and_required!("routing_byte_rate");
+    rate_pack_params_computed_default_and_is_required!("routing_byte_rate");
 }
 
 struct RoutingServiceRate {}
@@ -903,7 +904,7 @@ impl ValueRetriever for RoutingServiceRate {
         "routing-service-rate"
     }
 
-    rate_pack_params_computed_default_and_required!("routing_service_rate");
+    rate_pack_params_computed_default_and_is_required!("routing_service_rate");
 }
 
 struct UnbanWhenBalanceBelowGwei {}
@@ -911,7 +912,7 @@ impl ValueRetriever for UnbanWhenBalanceBelowGwei {
     fn value_name(&self) -> &'static str {
         "unban-when-balance-below"
     }
-    payment_curve_params_computed_default_and_required!("unban_when_balance_below_gwei");
+    payment_curve_params_computed_default_and_is_required!("unban_when_balance_below_gwei");
 }
 
 struct RealUser {
@@ -1003,12 +1004,15 @@ where
         (None, None) => Some((default.to_string(), Default)),
         (None, Some(val)) if val == &default => Some((val.to_string(), Default)),
         (None, Some(val)) => Some((val.to_string(), Configured)),
-        (Some(_), _) => None,
+        (Some(bc_val), Some(pc_val)) if bc_val == pc_val => {
+            unimplemented!("this should say 'Configured'")
+        } //TODO add this in and change the quad tests if necessary, but maybe this function should be different for rate pack and the other parameters
+        _ => None,
     }
 }
 
 #[macro_export]
-macro_rules! payment_curve_params_computed_default_and_required {
+macro_rules! payment_curve_params_computed_default_and_is_required {
     ($field_name: literal) => {
         paste! {
                 fn computed_default(
@@ -1040,7 +1044,7 @@ macro_rules! payment_curve_params_computed_default_and_required {
 }
 
 #[macro_export]
-macro_rules! scan_interval_params_computed_default_and_required {
+macro_rules! scan_interval_params_computed_default_and_is_required {
     ($field_name: literal,$default: expr) => {
         paste! {
                 fn computed_default(
@@ -1071,7 +1075,7 @@ macro_rules! scan_interval_params_computed_default_and_required {
 }
 
 #[macro_export]
-macro_rules! rate_pack_params_computed_default_and_required {
+macro_rules! rate_pack_params_computed_default_and_is_required {
     ($field_name: literal) => {
         paste! {
                 fn computed_default(
@@ -1257,7 +1261,6 @@ mod tests {
         config
             .set_past_neighbors(Some(vec![neighbor1, neighbor2]), "password")
             .unwrap();
-
         let incoming_setup = vec![
             ("data-directory", home_dir.to_str().unwrap()),
             ("db-password", "password"),
@@ -1279,6 +1282,7 @@ mod tests {
                 None => ("".to_string(), Required),
             };
         let expected_result = vec![
+            ("balance-to-decrease-from", "1000000000", Default),
             ("blockchain-service-url", "", Required),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             ("clandestine-port", "1234", Default),

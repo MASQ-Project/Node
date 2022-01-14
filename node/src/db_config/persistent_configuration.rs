@@ -7,6 +7,7 @@ use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayer
 use crate::db_config::typed_config_layer::{
     decode_bytes, decode_u64, encode_bytes, encode_u64, TypedConfigLayerError,
 };
+use crate::persistent_config_assertion_for_simple_get_method;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
@@ -15,6 +16,7 @@ use masq_lib::automap_tools::AutomapProtocol;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::{NeighborhoodModeLight, WrapResult};
+use paste::paste;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
@@ -473,14 +475,14 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
-        NeighborhoodModeLight::from_str(
+        Ok(NeighborhoodModeLight::from_str(
             self.dao
                 .get("neighborhood_mode")?
                 .value_opt
                 .expect("ever-supplied value neighborhood_mode is missing; database is corrupt!")
                 .as_str(),
         )
-        .map_err(PersistentConfigError::UninterpretableValue)
+        .expect("value that cannot be interpreted - database corrupt!"))
     }
 
     fn set_neighborhood_mode(
@@ -493,7 +495,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("balance_to_decrease_from_gwei")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_balance_to_decrease_from_gwei(
@@ -504,7 +509,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn exit_byte_rate(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("exit_byte_rate")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_exit_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
@@ -512,7 +520,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn exit_service_rate(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("exit_service_rate")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_exit_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
@@ -520,7 +531,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn payable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("payable_scan_interval")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_payable_scan_interval(
@@ -531,7 +545,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn payment_grace_before_ban_sec(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("payment_grace_before_ban_sec")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_payment_grace_before_ban_sec(
@@ -542,7 +559,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("pending_payment_scan_interval")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_pending_payment_scan_interval(
@@ -553,7 +573,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn permanent_debt_allowed_gwei(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("permanent_debt_allowed_gwei")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_permanent_debt_allowed_gwei(
@@ -564,7 +587,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn receivable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("receivable_scan_interval")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_receivable_scan_interval(
@@ -575,7 +601,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("routing_byte_rate")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_routing_byte_rate(&mut self, rate: u64) -> Result<u64, PersistentConfigError> {
@@ -583,7 +612,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn routing_service_rate(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("routing_service_rate")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_routing_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
@@ -591,7 +623,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn unban_when_balance_below_gwei(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("unban_when_balance_below_gwei")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_unban_when_balance_below_gwei(
@@ -602,7 +637,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn payment_suggested_after_sec(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("payment_suggested_after_sec")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_payment_suggested_after_sec(
@@ -1977,25 +2015,6 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_mode_detects_specific_error() {
-        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
-            "neighborhood_mode",
-            Some("blah"),
-            false,
-        )));
-        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-
-        let result = subject.neighborhood_mode();
-
-        assert_eq!(
-            result,
-            Err(PersistentConfigError::UninterpretableValue(
-                "Invalid value read for neighborhood mode: blah".to_string()
-            ))
-        );
-    }
-
-    #[test]
     fn set_neighborhood_mode_works() {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoWriteableMock::new()
@@ -2017,5 +2036,88 @@ mod tests {
                 Some("consume-only".to_string())
             )]
         );
+    }
+
+    #[test]
+    fn routing_byte_rate_works() {
+        persistent_config_assertion_for_simple_get_method!("routing_byte_rate", 1234);
+    }
+
+    #[test]
+    fn routing_service_rate_works() {
+        persistent_config_assertion_for_simple_get_method!("routing_service_rate", 1234);
+    }
+
+    #[test]
+    fn exit_byte_rate_works() {
+        persistent_config_assertion_for_simple_get_method!("exit_byte_rate", 5);
+    }
+
+    #[test]
+    fn exit_service_rate_works() {
+        persistent_config_assertion_for_simple_get_method!("exit_service_rate", 9);
+    }
+
+    #[test]
+    fn balance_to_decrease_from_gwei_works() {
+        persistent_config_assertion_for_simple_get_method!("balance_to_decrease_from_gwei", 1234);
+    }
+
+    #[test]
+    fn payable_scan_interval_works() {
+        persistent_config_assertion_for_simple_get_method!("payable_scan_interval", 3600);
+    }
+
+    #[test]
+    fn pending_payment_scan_interval_works() {
+        persistent_config_assertion_for_simple_get_method!("pending_payment_scan_interval", 3600);
+    }
+
+    #[test]
+    fn receivable_scan_interval_works() {
+        persistent_config_assertion_for_simple_get_method!("receivable_scan_interval", 3600);
+    }
+
+    #[test]
+    fn payment_grace_before_ban_sec_works() {
+        persistent_config_assertion_for_simple_get_method!("payment_grace_before_ban_sec", 10000);
+    }
+
+    #[test]
+    fn permanent_debt_allowed_gwei_works() {
+        persistent_config_assertion_for_simple_get_method!("permanent_debt_allowed_gwei", 100000);
+    }
+
+    #[test]
+    fn unban_when_balance_below_gwei_works() {
+        persistent_config_assertion_for_simple_get_method!("unban_when_balance_below_gwei", 100000);
+    }
+
+    #[test]
+    fn payment_suggested_after_sec_works() {
+        persistent_config_assertion_for_simple_get_method!("payment_suggested_after_sec", 7200);
+    }
+
+    #[macro_export]
+    macro_rules! persistent_config_assertion_for_simple_get_method {
+        ($parameter_name: literal,$expected_value: expr) => {
+            paste! {
+                let get_params_arc = Arc::new(Mutex::new(vec![]));
+                let config_dao = ConfigDaoMock::new()
+                    .get_params(&get_params_arc)
+                    .get_result(Ok(ConfigDaoRecord::new(
+                        $parameter_name,
+                        Some($expected_value.to_string().as_str()),
+                        false,
+                    )));
+                let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+                let result = subject.[<$parameter_name>]().unwrap();
+
+                assert_eq!(result, $expected_value);
+                let get_params = get_params_arc.lock().unwrap();
+                assert_eq!(*get_params, vec![$parameter_name.to_string()]);
+            }
+        };
     }
 }
