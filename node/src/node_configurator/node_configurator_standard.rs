@@ -34,6 +34,7 @@ use crate::sub_lib::neighborhood::{
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::main_cryptde;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
@@ -100,7 +101,11 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             &mut unprivileged_config,
             Some(persistent_config.as_mut()),
         )?;
-        configure_database(&unprivileged_config, persistent_config.as_mut())?;
+        configure_database(
+            multi_config,
+            &unprivileged_config,
+            persistent_config.as_mut(),
+        )?;
         Ok(unprivileged_config)
     }
 }
@@ -274,8 +279,9 @@ fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
 }
 
 pub fn configure_database(
+    multi_config: &MultiConfig,
     config: &BootstrapperConfig,
-    persistent_config: &mut (dyn PersistentConfiguration),
+    persistent_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
     if let Some(port) = config.clandestine_port_opt {
         if let Err(pce) = persistent_config.set_clandestine_port(port) {
@@ -286,6 +292,12 @@ pub fn configure_database(
     if let Err(pce) = persistent_config.set_neighborhood_mode(neighborhood_mode_light) {
         return Err(pce.into_configurator_error("neighborhood-mode"));
     }
+    //special case of setting past neighbors up before we're connected to the network; using zero-hop mode to configure the database
+    set_neighbors_in_zero_hop_if_supplied(
+        multi_config,
+        neighborhood_mode_light,
+        persistent_config,
+    )?;
     if let Some(url) = config
         .blockchain_bridge_config
         .blockchain_service_url_opt
@@ -298,6 +310,49 @@ pub fn configure_database(
     if let Err(pce) = persistent_config.set_gas_price(config.blockchain_bridge_config.gas_price) {
         return Err(pce.into_configurator_error("gas-price"));
     }
+    Ok(())
+}
+
+fn set_neighbors_in_zero_hop_if_supplied(
+    multi_config: &MultiConfig,
+    neighborhood_mode: NeighborhoodModeLight,
+    persistent_config: &mut dyn PersistentConfiguration,
+) -> Result<(), ConfiguratorError> {
+    fn split_descriptors(whole_input: String) -> Vec<NodeDescriptor> {
+        whole_input
+            .split(',')
+            .map(|one| {
+                let trimmed = one.trim();
+                NodeDescriptor::try_from((main_cryptde(), trimmed)).unwrap_or_else(|_| {
+                    panic!(
+                        "Getting user specified descriptors being bad that sneaked through validation: {}",
+                        trimmed
+                    )
+                })
+            })
+            .collect()
+    }
+    if let NeighborhoodModeLight::ZeroHop = neighborhood_mode {
+        if let Some(neighbors) = value_m!(multi_config, "neighbors", String) {
+            //we should know at this point that the descriptors have been validated
+            match value_m!(multi_config, "db-password", String) {
+                Some(password) => {
+                    let descriptors = split_descriptors(neighbors);
+                    if let Err(e) =
+                        persistent_config.set_past_neighbors(Some(descriptors), &password)
+                    {
+                        return Err(e.into_configurator_error("neighbors"));
+                    }
+                }
+                None => {
+                    return Err(ConfiguratorError::required(
+                        "neighbors",
+                        "Cannot proceed without a password",
+                    ));
+                }
+            }
+        }
+    };
     Ok(())
 }
 
@@ -358,7 +413,6 @@ fn validate_testing_parameters(
 
 pub fn make_neighborhood_config(
     multi_config: &MultiConfig,
-
     persistent_config_opt: Option<&mut dyn PersistentConfiguration>,
     unprivileged_config: &mut BootstrapperConfig,
 ) -> Result<NeighborhoodConfig, ConfiguratorError> {
@@ -432,29 +486,36 @@ fn validate_descriptors_from_user(
     dummy_cryptde: Box<dyn CryptDE>,
     desired_chain: Chain,
 ) -> Vec<Result<NodeDescriptor, ParamError>> {
-    descriptors.into_iter()
-                    .map(
-                |node_desc_from_ci| {
-                    let node_desc_trimmed = node_desc_from_ci.trim();
-                    match NodeDescriptor::try_from((dummy_cryptde.as_ref(), node_desc_trimmed)) {
-                        Ok(descriptor) =>
-                            {
-                                let competence_from_descriptor = descriptor.blockchain;
-                                if desired_chain == competence_from_descriptor {
-                                    validate_mandatory_node_addr(node_desc_trimmed, descriptor)
-                                } else {
-                                    let name_of_desired_chain = desired_chain.rec().literal_identifier;
-                                    Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
-                                                                              name_of_desired_chain, MASQ_URL_PREFIX,
-                                                                              name_of_desired_chain,
-                                                                              competence_from_descriptor.rec().literal_identifier)))
-                                }
-                            }
-                        Err(e) => ParamError::new("neighbors", &e).wrap_to_err()
-                        }
-                    }
-                    )
-                .collect_vec()
+    fn validate(
+        descriptor: NodeDescriptor,
+        desired_chain: Chain,
+        str_descriptor_from_usr: &str,
+    ) -> Result<NodeDescriptor, ParamError> {
+        let nd_chain = descriptor.blockchain;
+        if desired_chain == nd_chain {
+            validate_mandatory_node_addr(str_descriptor_from_usr, descriptor)
+        } else {
+            let name_of_desired_chain = desired_chain.rec().literal_identifier;
+            Err(ParamError::new(
+                "neighbors",
+                &format!("Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
+                         name_of_desired_chain,
+                         MASQ_URL_PREFIX,
+                         name_of_desired_chain,
+                         nd_chain.rec().literal_identifier)
+            ))
+        }
+    }
+    descriptors
+        .into_iter()
+        .map(|node_desc_from_ci| {
+            let node_desc_trimmed = node_desc_from_ci.trim();
+            match NodeDescriptor::try_from((dummy_cryptde.as_ref(), node_desc_trimmed)) {
+                Ok(descriptor) => validate(descriptor, desired_chain, node_desc_trimmed),
+                Err(e) => Err(ParamError::new("neighbors", &e)),
+            }
+        })
+        .collect()
 }
 
 fn validate_mandatory_node_addr(
@@ -541,12 +602,7 @@ fn make_neighborhood_mode(
             }
         }
         Some(ref s) if s == "zero-hop" => {
-            if !neighbor_configs.is_empty() {
-                Err(ConfiguratorError::required(
-                    "neighborhood-mode",
-                    "Node cannot run as --neighborhood-mode zero-hop if --neighbors is specified",
-                ))
-            } else if value_m!(multi_config, "ip", IpAddr).is_some() {
+            if value_m!(multi_config, "ip", IpAddr).is_some() {
                 Err(ConfiguratorError::required(
                     "neighborhood-mode",
                     "Node cannot run as --neighborhood-mode zero-hop if --ip is specified",
@@ -735,6 +791,7 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+    use std::vec;
 
     #[test]
     fn get_wallets_handles_consuming_private_key_and_earning_wallet_address_when_database_contains_mnemonic_seed(
@@ -804,8 +861,9 @@ mod tests {
         config.clandestine_port_opt = Some(1000);
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_clandestine_port_result(Err(PersistentConfigError::TransactionError));
+        let multi_config = make_simplified_multi_config(["MASQNode"]);
 
-        let result = configure_database(&config, &mut persistent_config);
+        let result = configure_database(&multi_config, &config, &mut persistent_config);
 
         assert_eq!(
             result,
@@ -820,8 +878,9 @@ mod tests {
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_neighborhood_mode_result(Ok(()))
             .set_gas_price_result(Err(PersistentConfigError::TransactionError));
+        let multi_config = make_simplified_multi_config(["MASQNode"]);
 
-        let result = configure_database(&config, &mut persistent_config);
+        let result = configure_database(&multi_config, &config, &mut persistent_config);
 
         assert_eq!(
             result,
@@ -833,12 +892,13 @@ mod tests {
     fn configure_database_handles_error_during_setting_blockchain_service_url() {
         let mut config = BootstrapperConfig::new();
         config.blockchain_bridge_config.blockchain_service_url_opt =
-            Some("https://infura.io/ID".to_string()); //exact value not relevant
+            Some("https://infura.io/ID".to_string());
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_neighborhood_mode_result(Ok(()))
             .set_blockchain_service_url_result(Err(PersistentConfigError::TransactionError));
+        let multi_config = make_simplified_multi_config(["MASQNode"]);
 
-        let result = configure_database(&config, &mut persistent_config);
+        let result = configure_database(&multi_config, &config, &mut persistent_config);
 
         assert_eq!(
             result,
@@ -853,8 +913,9 @@ mod tests {
         config.neighborhood_config.mode = ZeroHop;
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_neighborhood_mode_result(Err(PersistentConfigError::TransactionError));
+        let multi_config = make_simplified_multi_config(["MASQNode"]);
 
-        let result = configure_database(&config, &mut persistent_config);
+        let result = configure_database(&multi_config, &config, &mut persistent_config);
 
         assert_eq!(
             result,
@@ -1326,7 +1387,8 @@ mod tests {
     }
 
     #[test]
-    fn make_neighborhood_config_zero_hop_cant_tolerate_neighbors() {
+    fn make_neighborhood_config_zero_hop_tolerates_seemingly_useless_neighbors() {
+        //we need this mode to be usable to pre-configure the database
         running_test();
         let multi_config = make_new_test_multi_config(
             &app_node(),
@@ -1351,10 +1413,45 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(ConfiguratorError::required(
-                "neighborhood-mode",
-                "Node cannot run as --neighborhood-mode zero-hop if --neighbors is specified"
-            ))
+            Ok(NeighborhoodConfig {
+                mode: NeighborhoodMode::ZeroHop
+            })
+        )
+    }
+
+    #[test]
+    fn making_sure_that_neighbors_are_validated_despite_zero_hop_mode() {
+        //we need this to be able to pre-configure the database
+        running_test();
+        let multi_config = make_new_test_multi_config(
+            &app_node(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "zero-hop")
+                    .param("--neighbors", "masq://eth-spacenet:QmlsbA@1.2.3.4:1234")
+                    .param("--fake-public-key", "booga")
+                    .into(),
+            ))],
+        )
+        .unwrap();
+
+        let result = make_neighborhood_config(
+            &multi_config,
+            Some(&mut make_default_persistent_configuration()),
+            &mut BootstrapperConfig::new(),
+        );
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError {
+                param_errors: vec![ParamError {
+                    parameter: "neighbors".to_string(),
+                    reason: "Chain identifier 'eth-spacenet' is not valid; possible values are \
+                     'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while \
+                     formatted as 'masq://<chain identifier>:<public key>@<node address>'"
+                        .to_string()
+                }]
+            })
         )
     }
 
@@ -1422,7 +1519,7 @@ mod tests {
     }
 
     #[test]
-    fn convert_ci_configs_handles_leftover_whitespaces_between_descriptors_and_commas() {
+    fn convert_ci_configs_handles_whitespaces_between_descriptors_and_commas() {
         let multi_config = make_simplified_multi_config([
             "program",
             "--chain",
@@ -2538,8 +2635,9 @@ mod tests {
             .set_neighborhood_mode_result(Ok(()))
             .set_gas_price_params(&set_gas_price_params_arc)
             .set_gas_price_result(Ok(()));
+        let multi_config = make_simplified_multi_config(["MASQNode"]);
 
-        let result = configure_database(&config, &mut persistent_config);
+        let result = configure_database(&multi_config, &config, &mut persistent_config);
 
         assert_eq!(result, Ok(()));
         let set_blockchain_service_url = set_blockchain_service_params_arc.lock().unwrap();
@@ -2559,13 +2657,137 @@ mod tests {
     }
 
     #[test]
+    fn configure_database_in_zero_hop_with_neighbors_supplied() {
+        running_test();
+        let config = BootstrapperConfig::new();
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_neighborhood_mode_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc)
+            .set_past_neighbors_result(Ok(()))
+            .set_neighborhood_mode_params(&set_neighborhood_mode_params_arc)
+            .set_neighborhood_mode_result(Ok(()))
+            .set_gas_price_result(Ok(()));
+        let multi_config = make_simplified_multi_config([
+            "MASQNode",
+            "--neighbors",
+            "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345",
+            "--db-password",
+            "password",
+        ]);
+
+        let result = configure_database(&multi_config, &config, &mut persistent_config);
+
+        assert_eq!(result, Ok(()));
+        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_past_neighbors_params,
+            vec![(
+                Some(vec![NodeDescriptor::try_from((
+                    main_cryptde(),
+                    "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"
+                ))
+                .unwrap()]),
+                "password".to_string()
+            )]
+        );
+        let neighborhood_mode_params = set_neighborhood_mode_params_arc.lock().unwrap();
+        assert_eq!(
+            *neighborhood_mode_params,
+            vec![NeighborhoodModeLight::ZeroHop]
+        )
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Getting user specified descriptors being bad that sneaked through validation: masq://faulty:AgMEBQ@2.3.4.5:2345"
+    )]
+    fn configure_database_in_zero_hop_with_bad_descriptors_that_were_supposed_to_have_been_already_checked(
+    ) {
+        running_test();
+        let config = BootstrapperConfig::new();
+        let mut persistent_config =
+            PersistentConfigurationMock::new().set_neighborhood_mode_result(Ok(()));
+        let multi_config = make_simplified_multi_config([
+            "MASQNode",
+            "--neighbors",
+            "masq://faulty:AgMEBQ@2.3.4.5:2345",
+            "--db-password",
+            "password",
+        ]);
+
+        let _ = configure_database(&multi_config, &config, &mut persistent_config);
+    }
+
+    #[test]
+    fn configure_database_in_zero_hop_with_neighbors_but_no_password() {
+        running_test();
+        let set_neighborhood_mode_params_arc = Arc::new(Mutex::new(vec![]));
+        let config = BootstrapperConfig::new();
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_neighborhood_mode_params(&set_neighborhood_mode_params_arc)
+            .set_neighborhood_mode_result(Ok(()));
+        let multi_config = make_simplified_multi_config([
+            "MASQNode",
+            "--neighbors",
+            "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345",
+        ]);
+
+        let result = configure_database(&multi_config, &config, &mut persistent_config);
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required(
+                "neighbors",
+                "Cannot proceed without a password"
+            ))
+        );
+        let neighborhood_mode_params = set_neighborhood_mode_params_arc.lock().unwrap();
+        assert_eq!(
+            *neighborhood_mode_params,
+            vec![NeighborhoodModeLight::ZeroHop]
+        )
+    }
+
+    #[test]
+    fn configure_database_in_zero_hop_with_neighbors_but_setting_values_failed() {
+        running_test();
+        let set_neighborhood_mode_params_arc = Arc::new(Mutex::new(vec![]));
+        let config = BootstrapperConfig::new();
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_neighborhood_mode_params(&set_neighborhood_mode_params_arc)
+            .set_neighborhood_mode_result(Ok(()))
+            .set_past_neighbors_result(Err(PersistentConfigError::DatabaseError(
+                "Oh yeah".to_string(),
+            )));
+        let multi_config = make_simplified_multi_config([
+            "MASQNode",
+            "--neighbors",
+            "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345",
+            "--db-password",
+            "password",
+        ]);
+
+        let result = configure_database(&multi_config, &config, &mut persistent_config);
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required(
+                "neighbors",
+                "DatabaseError(\"Oh yeah\")"
+            ))
+        );
+        let neighborhood_mode_params = set_neighborhood_mode_params_arc.lock().unwrap();
+        assert_eq!(
+            *neighborhood_mode_params,
+            vec![NeighborhoodModeLight::ZeroHop]
+        )
+    }
+
+    #[test]
     fn configure_database_with_no_data_specified() {
         running_test();
-        let mut config = BootstrapperConfig::new();
-        config.clandestine_port_opt = None;
-        config.consuming_wallet = None;
-        config.earning_wallet = DEFAULT_EARNING_WALLET.clone();
-        config.blockchain_bridge_config.blockchain_service_url_opt = None;
+        let config = BootstrapperConfig::new();
         let set_blockchain_service_params_arc = Arc::new(Mutex::new(vec![]));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_neighborhood_mode_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2575,13 +2797,14 @@ mod tests {
             .set_neighborhood_mode_params(&set_neighborhood_mode_params_arc)
             .set_neighborhood_mode_result(Ok(()))
             .set_gas_price_result(Ok(()));
+        let multi_config = make_simplified_multi_config(["MASQNode"]);
 
-        let result = configure_database(&config, &mut persistent_config);
+        let result = configure_database(&multi_config, &config, &mut persistent_config);
 
         assert_eq!(result, Ok(()));
         let set_blockchain_service_url = set_blockchain_service_params_arc.lock().unwrap();
         let no_url: Vec<String> = vec![];
-        assert_eq!(*set_blockchain_service_url, no_url); //if no value available we skip the setting
+        assert_eq!(*set_blockchain_service_url, no_url);
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         let no_ports: Vec<u16> = vec![];
         assert_eq!(*set_clandestine_port_params, no_ports);

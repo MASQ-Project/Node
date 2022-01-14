@@ -102,7 +102,7 @@ where
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum NeighborhoodModeLight {
     Standard,
     ConsumeOnly,
