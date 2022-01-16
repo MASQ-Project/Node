@@ -511,6 +511,7 @@ pub mod pure_test_utils {
     use actix::Message;
     use actix::{Actor, Addr, Context, Handler, System};
     use crossbeam_channel::{Receiver, Sender};
+    use masq_lib::constants::DEFAULT_RATE_PACK;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -537,6 +538,10 @@ pub mod pure_test_utils {
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
             .blockchain_service_url_result(Ok(None))
+            .routing_byte_rate_result(Ok(DEFAULT_RATE_PACK.routing_byte_rate))
+            .routing_service_rate_result(Ok(DEFAULT_RATE_PACK.routing_service_rate))
+            .exit_byte_rate_result(Ok(DEFAULT_RATE_PACK.exit_byte_rate))
+            .exit_service_rate_result(Ok(DEFAULT_RATE_PACK.exit_service_rate))
     }
 
     pub struct ChannelFactoryMock {

@@ -1439,8 +1439,7 @@ mod tests {
     fn get_past_neighbors_handles_good_password_but_no_past_neighbors() {
         running_test();
         let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
-        let mut persistent_config =
-            make_default_persistent_configuration().past_neighbors_result(Ok(None));
+        let mut persistent_config = make_default_persistent_configuration();
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
 
@@ -1889,6 +1888,10 @@ mod tests {
             None,
             None,
             Some("masq://eth-ropsten:AQIDBA@1.2.3.4:1234,masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"),
+            None,
+            None,
+            None,
+            None,
         )
         .past_neighbors_params(&past_neighbors_params_arc)
         .blockchain_service_url_result(Ok(None));
@@ -1928,7 +1931,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
         let mut persistent_configuration =
-            make_persistent_config(None, None, None, None, None, None)
+            make_persistent_config(None, None, None, None, None, None, None, None, None, None)
                 .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
 
         unprivileged_parse_args(
@@ -2008,6 +2011,10 @@ mod tests {
         earning_wallet_address_opt: Option<&str>,
         gas_price_opt: Option<u64>,
         past_neighbors_opt: Option<&str>,
+        routing_byte_rate_opt: Option<u64>,
+        routing_service_rate_opt: Option<u64>,
+        exit_byte_rate_opt: Option<u64>,
+        exit_service_rate_opt: Option<u64>,
     ) -> PersistentConfigurationMock {
         let (mnemonic_seed_result, mnemonic_seed_exists_result) =
             match (mnemonic_seed_prefix_opt, db_password_opt) {
@@ -2033,6 +2040,13 @@ mod tests {
             )),
             _ => Ok(None),
         };
+        let routing_byte_rate_result =
+            routing_byte_rate_opt.unwrap_or(DEFAULT_RATE_PACK.routing_byte_rate);
+        let routing_service_rate_result =
+            routing_service_rate_opt.unwrap_or(DEFAULT_RATE_PACK.routing_service_rate);
+        let exit_byte_rate_result = exit_byte_rate_opt.unwrap_or(DEFAULT_RATE_PACK.exit_byte_rate);
+        let exit_service_rate_result =
+            exit_service_rate_opt.unwrap_or(DEFAULT_RATE_PACK.exit_service_rate);
         PersistentConfigurationMock::new()
             .mnemonic_seed_result(mnemonic_seed_result)
             .mnemonic_seed_exists_result(mnemonic_seed_exists_result)
@@ -2040,6 +2054,10 @@ mod tests {
             .earning_wallet_from_address_result(Ok(earning_wallet_from_address_opt))
             .gas_price_result(Ok(gas_price))
             .past_neighbors_result(past_neighbors_result)
+            .routing_byte_rate_result(Ok(routing_byte_rate_result))
+            .routing_service_rate_result(Ok(routing_service_rate_result))
+            .exit_byte_rate_result(Ok(exit_byte_rate_result))
+            .exit_service_rate_result(Ok(exit_service_rate_result))
     }
 
     fn make_mnemonic_seed(prefix: &str) -> PlainData {
@@ -2058,7 +2076,8 @@ mod tests {
         running_test();
         let args = ["program"];
         let multi_config = pure_test_utils::make_simplified_multi_config(args);
-        let mut persistent_config = make_persistent_config(None, None, None, None, None, None);
+        let mut persistent_config =
+            make_persistent_config(None, None, None, None, None, None, None, None, None, None);
         let mut config = BootstrapperConfig::new();
 
         get_wallets(&multi_config, &mut persistent_config, &mut config).unwrap();
@@ -2122,6 +2141,10 @@ mod tests {
             Some("0x9876543210987654321098765432109876543210"),
             None,
             None,
+            None,
+            None,
+            None,
+            None,
         );
         let mut config = BootstrapperConfig::new();
 
@@ -2146,6 +2169,10 @@ mod tests {
             None,
             None,
             Some("0xB00FA567890123456789012345678901234b00fa"),
+            None,
+            None,
+            None,
+            None,
             None,
             None,
         );
@@ -2180,6 +2207,10 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
+            None,
+            None,
         );
         let mut config = BootstrapperConfig::new();
 
@@ -2209,6 +2240,10 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
+            None,
+            None,
         );
         let mut config = BootstrapperConfig::new();
 
@@ -2230,6 +2265,10 @@ mod tests {
             Some("password"),
             Some("m/44'/60'/1'/2/3"),
             Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
+            None,
+            None,
+            None,
+            None,
             None,
             None,
         )
@@ -2260,6 +2299,10 @@ mod tests {
             None,
             Some("m/44'/60'/1'/2/3"),
             Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
+            None,
+            None,
+            None,
+            None,
             None,
             None,
         )

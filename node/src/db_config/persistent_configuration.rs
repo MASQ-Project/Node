@@ -691,14 +691,22 @@ impl PersistentConfigurationReal {
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::{ConfigDaoMock, ConfigDaoWriteableMock};
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
     use crate::test_utils::main_cryptde;
     use bip39::{Language, MnemonicType};
+    use lazy_static::lazy_static;
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, find_free_port};
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
+
+    lazy_static! {
+        static ref CONFIG_TABLE_PARAMETERS: Vec<String> = list_of_config_parameters();
+    }
 
     #[test]
     fn from_config_dao_error() {
@@ -2118,6 +2126,29 @@ mod tests {
                 let get_params = get_params_arc.lock().unwrap();
                 assert_eq!(*get_params, vec![$parameter_name.to_string()]);
             }
+            assert_eq!(
+                CONFIG_TABLE_PARAMETERS
+                    .iter()
+                    .filter(|parameter_name| parameter_name.as_str() == $parameter_name)
+                    .count(),
+                1
+            )
         };
+    }
+
+    fn list_of_config_parameters() -> Vec<String> {
+        let home_dir = ensure_node_home_directory_exists(
+            "persistent_configuration",
+            "current_config_table_schema",
+        );
+        let db_conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let mut statement = db_conn.prepare("select name from config").unwrap();
+        statement
+            .query_map([], |row| Ok(row.get(0).unwrap()))
+            .unwrap()
+            .flatten()
+            .collect()
     }
 }
