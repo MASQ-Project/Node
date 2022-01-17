@@ -90,9 +90,7 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(
             stream,
             "Consuming wallet derivation path:",
-            &configuration
-                .consuming_wallet_derivation_path_opt
-                .unwrap_or_else(|| "[?]".to_string()),
+            &Self::interpret_option(&configuration.consuming_wallet_derivation_path_opt),
         );
         Self::dump_configuration_line(
             stream,
@@ -102,9 +100,7 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(
             stream,
             "Earning wallet address:",
-            &configuration
-                .earning_wallet_address_opt
-                .unwrap_or_else(|| "[?]".to_string()),
+            &Self::interpret_option(&configuration.earning_wallet_address_opt),
         );
         Self::dump_configuration_line(stream, "Gas price:", &configuration.gas_price.to_string());
         Self::dump_configuration_line(
@@ -115,10 +111,7 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(
             stream,
             "Port mapping protocol:",
-            &configuration
-                .port_mapping_protocol_opt
-                .map(|protocol| protocol.to_string())
-                .unwrap_or_else(|| "[?]".to_string()),
+            &Self::interpret_option(&configuration.port_mapping_protocol_opt),
         );
         Self::dump_configuration_line(
             stream,
@@ -219,6 +212,13 @@ impl ConfigurationCommand {
     fn dump_configuration_line(stream: &mut dyn Write, name: &str, value: &str) {
         short_writeln!(stream, "{:33} {}", name, value);
     }
+
+    fn interpret_option(value_opt: &Option<String>) -> String {
+        match value_opt {
+            None => "[?]".to_string(),
+            Some(s) => s.clone(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -229,13 +229,13 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::constants::{
         DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
         DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
         NODE_NOT_RUNNING_ERROR,
     };
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
+    use masq_lib::utils::AutomapProtocol;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -313,7 +313,7 @@ mod tests {
             neighborhood_mode: "standard".to_string(),
             consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
-            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
+            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
             balance_decreases_for_sec: DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec as u64,
             balance_to_decrease_from_gwei: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei
                 as u64,
@@ -421,7 +421,7 @@ mod tests {
             neighborhood_mode: "zero-hop".to_string(),
             consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
             earning_wallet_address_opt: Some("earning wallet".to_string()),
-            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
+            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
             balance_decreases_for_sec: DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec as u64,
             balance_to_decrease_from_gwei: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei
                 as u64,

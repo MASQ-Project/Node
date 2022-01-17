@@ -114,7 +114,7 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
 fn make_config_dao(data_directory: &Path, migrator_config: MigratorConfig) -> ConfigDaoReal {
     let conn = DbInitializerReal::default()
         .initialize(data_directory, false, migrator_config)
-        .unwrap_or_else(|e| if e == InitializationError::Nonexistent {panic!("Could not find database at: {}. Would be created when the Node firstly operates. Running --dump-config before has no effect",data_directory.to_string_lossy().to_string())} else {
+        .unwrap_or_else(|e| if e == InitializationError::Nonexistent {panic!("Could not find database at: {}. Would be created when the Node firstly operates. Running --dump-config before has no effect",data_directory.to_string_lossy())} else {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
                 data_directory.join(DATABASE_FILE),

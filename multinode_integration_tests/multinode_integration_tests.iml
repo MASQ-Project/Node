@@ -7,8 +7,9 @@
       <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/../node/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/../node/tests" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/../masq_lib/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/../node/target" />
+      <excludeFolder url="file://$MODULE_DIR$/docker/generated" />
+      <excludeFolder url="file://$MODULE_DIR$/generated" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

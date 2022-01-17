@@ -28,7 +28,7 @@ impl OpcodeData for GetOpcodeData {
                     4,
                     &self
                         .external_ip_address_opt
-                        .unwrap_or_else(||Ipv4Addr::new(0, 0, 0, 0)),
+                        .unwrap_or_else(|| Ipv4Addr::new(0, 0, 0, 0)),
                 );
                 Ok(())
             }

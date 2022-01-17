@@ -4,12 +4,12 @@ use crate::database::db_migrations::{
     DbMigrator, DbMigratorReal, ExternalData, MigratorConfig, Suppression,
 };
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
-use crate::sub_lib::logger::Logger;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
     DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
     HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
+use masq_lib::logger::Logger;
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
 use rusqlite::{Connection, OpenFlags};
@@ -23,6 +23,7 @@ use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: usize = 6;
+pub const ENCRYPTED_ROWS: &[&str] = &[EXAMPLE_ENCRYPTED, "seed", "past_neighbors"];
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -49,6 +50,7 @@ pub trait DbInitializer {
         migrator_config: MigratorConfig,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 }
+
 #[derive(Default)]
 pub struct DbInitializerReal {}
 
@@ -224,13 +226,6 @@ impl DbInitializerReal {
         );
         Self::set_config_value(
             conn,
-            "mapping_protocol",
-            None,
-            false,
-            "protocol for port mapping on the router",
-        );
-        Self::set_config_value(
-            conn,
             "neighborhood_mode",
             Some(&external_params.neighborhood_mode.to_string()),
             false,
@@ -379,6 +374,13 @@ impl DbInitializerReal {
             "gas price",
         );
         Self::set_config_value(conn, "past_neighbors", None, true, "past neighbors");
+        Self::set_config_value(
+            conn,
+            "mapping_protocol",
+            None,
+            false,
+            "last successful protocol for port mapping on the router",
+        );
     }
 
     fn create_payable_table(&self, conn: &Connection) {
@@ -527,7 +529,7 @@ impl DbInitializerReal {
         })
     }
 
-    fn choose_clandestine_port() -> u16 {
+    pub fn choose_clandestine_port() -> u16 {
         let mut rng = SmallRng::from_entropy();
         loop {
             let candidate_port: u16 =
@@ -696,8 +698,8 @@ mod tests {
         assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
         DbMigratorMock,
     };
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use itertools::Itertools;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
         TEST_DEFAULT_CHAIN,

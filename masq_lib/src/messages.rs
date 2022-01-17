@@ -1,10 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::automap_tools::AutomapProtocol;
 use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
 use crate::shared_schema::ConfiguratorError;
+use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
-use crate::ui_gateway::{MessageBody, MessagePath};
 use itertools::Itertools;
 use serde::__private::fmt::Error;
 use serde::__private::Formatter;
@@ -18,31 +17,51 @@ pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiMessageError {
-    UnexpectedMessage(String, MessagePath),
-    PayloadError(u64, String),
-    DeserializationError(String),
+    UnexpectedMessage(MessageBody),
+    PayloadError(MessageBody),
+    DeserializationError(String, MessageBody),
 }
 
 impl fmt::Display for UiMessageError {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         match self {
-            UnexpectedMessage(opcode, FireAndForget) => {
-                write!(f, "Unexpected one-way message with opcode '{}'", opcode)
+            UnexpectedMessage(message_body) if message_body.path == FireAndForget => {
+                write!(f, "Unexpected one-way message with opcode '{}'\n{:?}", message_body.opcode,
+                    message_body.payload)
             }
-            UnexpectedMessage(opcode, Conversation(context_id)) => write!(
+            UnexpectedMessage(message_body) => {
+                let context_id = if let Conversation(context_id) = message_body.path {
+                    context_id
+                }
+                else {
+                    panic! ("MessageBody::Path suddenly switched from Conversation to FireAndForget")
+                };
+                write!(
+                    f,
+                    "Unexpected two-way message from context {} with opcode '{}'\n{:?}",
+                    context_id, message_body.opcode, message_body.payload
+                )
+            },
+            PayloadError(message_body) => {
+                match &message_body.payload {
+                    Ok (json) => write! (
+                        f,
+                        "Daemon or Node is acting erratically: PayloadError received for '{}' message with path '{:?}', but payload contained no error\n{}",
+                        message_body.opcode,
+                        message_body.path,
+                        json
+                    ),
+                    Err ((code, message)) => write!(
+                        f,
+                        "Daemon or Node complained about your command with opcode '{}'. Error code {}: {}",
+                        message_body.opcode, code, message
+                    ),
+                }
+            },
+            DeserializationError(message, message_body) => write!(
                 f,
-                "Unexpected two-way message from context {} with opcode '{}'",
-                context_id, opcode
-            ),
-            PayloadError(code, message) => write!(
-                f,
-                "Daemon or Node complained about your command. Error code {}: {}",
-                code, message
-            ),
-            DeserializationError(message) => write!(
-                f,
-                "Could not deserialize message from Daemon or Node: {}",
-                message,
+                "Could not deserialize message from Daemon or Node: {}\n{:?}",
+                message, message_body.payload
             ),
         }
     }
@@ -82,17 +101,17 @@ macro_rules! fire_and_forget_message {
         impl FromMessageBody for $message_type {
             fn fmb(body: MessageBody) -> Result<(Self, u64), UiMessageError> {
                 if body.opcode != $opcode {
-                    return Err(UiMessageError::UnexpectedMessage(body.opcode, body.path));
+                    return Err(UiMessageError::UnexpectedMessage(body));
                 };
-                let payload = match body.payload {
-                    Ok(json) => match serde_json::from_str::<Self>(&json) {
+                let payload = match &body.payload {
+                    Ok(json) => match serde_json::from_str::<Self>(json) {
                         Ok(item) => item,
-                        Err(e) => return Err(DeserializationError(format!("{:?}", e))),
+                        Err(e) => return Err(DeserializationError(format!("{:?}", e), body)),
                     },
-                    Err((code, message)) => return Err(PayloadError(code, message)),
+                    Err(_) => return Err(PayloadError(body)),
                 };
-                if let Conversation(_) = body.path {
-                    return Err(UiMessageError::UnexpectedMessage(body.opcode, body.path));
+                if let Conversation(_) = &body.path {
+                    return Err(UiMessageError::UnexpectedMessage(body));
                 }
                 Ok((payload, 0))
             }
@@ -134,22 +153,20 @@ macro_rules! conversation_message {
         impl FromMessageBody for $message_type {
             fn fmb(body: MessageBody) -> Result<(Self, u64), UiMessageError> {
                 if body.opcode != $opcode {
-                    return Err(UiMessageError::UnexpectedMessage(body.opcode, body.path));
+                    return Err(UiMessageError::UnexpectedMessage(body));
                 };
-                let payload = match body.payload {
-                    Ok(json) => match serde_json::from_str::<Self>(&json) {
+                let payload = match &body.payload {
+                    Ok(json) => match serde_json::from_str::<Self>(json) {
                         Ok(item) => item,
-                        Err(e) => return Err(DeserializationError(format!("{:?}", e))),
+                        Err(e) => return Err(DeserializationError(format!("{:?}", e), body)),
                     },
-                    Err((code, message)) => return Err(PayloadError(code, message)),
+                    Err(_) => return Err(PayloadError(body)),
                 };
-                let context_id = match body.path {
+                let context_id = match &body.path {
                     Conversation(context_id) => context_id,
-                    FireAndForget => {
-                        return Err(UiMessageError::UnexpectedMessage(body.opcode, body.path))
-                    }
+                    FireAndForget => return Err(UiMessageError::UnexpectedMessage(body)),
                 };
-                Ok((payload, context_id))
+                Ok((payload, *context_id))
             }
         }
 
@@ -474,7 +491,7 @@ pub struct UiConfigurationResponse {
     #[serde(rename = "neighborhoodMode")]
     pub neighborhood_mode: String,
     #[serde(rename = "portMappingProtocol")]
-    pub port_mapping_protocol_opt: Option<AutomapProtocol>,
+    pub port_mapping_protocol_opt: Option<String>,
     #[serde(rename = "balanceDecreasesForSec")]
     pub balance_decreases_for_sec: u64,
     #[serde(rename = "balanceToDecreaseFromGwei")]
@@ -517,8 +534,8 @@ conversation_message!(UiDescriptorRequest, "descriptor");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiDescriptorResponse {
-    #[serde(rename = "nodeDescriptor")]
-    pub node_descriptor: String,
+    #[serde(rename = "nodeDescriptorOpt")]
+    pub node_descriptor_opt: Option<String>,
 }
 conversation_message!(UiDescriptorResponse, "descriptor");
 
@@ -661,21 +678,46 @@ mod tests {
     #[test]
     fn ui_message_errors_are_displayable() {
         assert_eq!(
-            UnexpectedMessage("opcode".to_string(), FireAndForget).to_string(),
-            "Unexpected one-way message with opcode 'opcode'".to_string()
+            UnexpectedMessage(MessageBody {
+                opcode: "opcode".to_string(),
+                path: FireAndForget,
+                payload: Ok("{\"name\": \"value\"}".to_string()),
+            }).to_string(),
+            "Unexpected one-way message with opcode 'opcode'\nOk(\"{\\\"name\\\": \\\"value\\\"}\")".to_string()
         );
         assert_eq!(
-            UnexpectedMessage("opcode".to_string(), Conversation(1234)).to_string(),
-            "Unexpected two-way message from context 1234 with opcode 'opcode'".to_string()
+            UnexpectedMessage(MessageBody {
+                opcode: "opcode".to_string(),
+                path: Conversation (1234),
+                payload: Ok("{\"name\": \"value\"}".to_string()),
+            }).to_string(),
+            "Unexpected two-way message from context 1234 with opcode 'opcode'\nOk(\"{\\\"name\\\": \\\"value\\\"}\")".to_string()
         );
         assert_eq!(
-            PayloadError(1234, "Booga booga".to_string()).to_string(),
-            "Daemon or Node complained about your command. Error code 1234: Booga booga"
+            PayloadError(MessageBody {
+                opcode: "opcode".to_string(),
+                path: Conversation (1234),
+                payload: Err((1234, "Booga booga".to_string())),
+            }).to_string(),
+            "Daemon or Node complained about your command with opcode 'opcode'. Error code 1234: Booga booga"
                 .to_string()
         );
         assert_eq!(
-            DeserializationError("Booga booga".to_string()).to_string(),
-            "Could not deserialize message from Daemon or Node: Booga booga".to_string()
+            PayloadError(MessageBody {
+                opcode: "opcode".to_string(),
+                path: Conversation (1234),
+                payload: Ok("Shouldn't ever be".to_string()),
+            }).to_string(),
+            "Daemon or Node is acting erratically: PayloadError received for 'opcode' message with path 'Conversation(1234)', but payload contained no error\nShouldn't ever be"
+                .to_string()
+        );
+        assert_eq!(
+            DeserializationError("Booga booga".to_string(), MessageBody {
+                opcode: "opcode".to_string(),
+                path: Conversation (1234),
+                payload: Ok("{\"name\": \"value\"}".to_string()),
+            }).to_string(),
+            "Could not deserialize message from Daemon or Node: Booga booga\nOk(\"{\\\"name\\\": \\\"value\\\"}\")".to_string()
         );
     }
 
@@ -741,12 +783,9 @@ mod tests {
         };
 
         let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body);
+            UiFinancialsResponse::fmb(message_body.clone());
 
-        assert_eq!(
-            result,
-            Err(UnexpectedMessage("booga".to_string(), Conversation(1234)))
-        )
+        assert_eq!(result, Err(UnexpectedMessage(message_body)))
     }
 
     #[test]
@@ -767,12 +806,9 @@ mod tests {
         };
 
         let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body);
+            UiFinancialsResponse::fmb(message_body.clone());
 
-        assert_eq!(
-            result,
-            Err(UnexpectedMessage("financials".to_string(), FireAndForget))
-        )
+        assert_eq!(result, Err(UnexpectedMessage(message_body)))
     }
 
     #[test]
@@ -784,9 +820,9 @@ mod tests {
         };
 
         let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body);
+            UiFinancialsResponse::fmb(message_body.clone());
 
-        assert_eq!(result, Err(PayloadError(100, "error".to_string())))
+        assert_eq!(result, Err(PayloadError(message_body)))
     }
 
     #[test]
@@ -799,12 +835,13 @@ mod tests {
         };
 
         let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body);
+            UiFinancialsResponse::fmb(message_body.clone());
 
         assert_eq!(
             result,
             Err(DeserializationError(
-                "Error(\"expected value\", line: 1, column: 1)".to_string()
+                "Error(\"expected value\", line: 1, column: 1)".to_string(),
+                message_body
             ))
         )
     }
@@ -902,12 +939,9 @@ mod tests {
         };
 
         let result: Result<(UiUnmarshalError, u64), UiMessageError> =
-            UiUnmarshalError::fmb(message_body);
+            UiUnmarshalError::fmb(message_body.clone());
 
-        assert_eq!(
-            result,
-            Err(UnexpectedMessage("booga".to_string(), FireAndForget))
-        )
+        assert_eq!(result, Err(UnexpectedMessage(message_body)))
     }
 
     #[test]
@@ -920,15 +954,9 @@ mod tests {
         };
 
         let result: Result<(UiUnmarshalError, u64), UiMessageError> =
-            UiUnmarshalError::fmb(message_body);
+            UiUnmarshalError::fmb(message_body.clone());
 
-        assert_eq!(
-            result,
-            Err(UnexpectedMessage(
-                "unmarshalError".to_string(),
-                Conversation(0)
-            ))
-        )
+        assert_eq!(result, Err(UnexpectedMessage(message_body)))
     }
 
     #[test]
@@ -940,9 +968,9 @@ mod tests {
         };
 
         let result: Result<(UiUnmarshalError, u64), UiMessageError> =
-            UiUnmarshalError::fmb(message_body);
+            UiUnmarshalError::fmb(message_body.clone());
 
-        assert_eq!(result, Err(PayloadError(100, "error".to_string())))
+        assert_eq!(result, Err(PayloadError(message_body)))
     }
 
     #[test]
@@ -955,12 +983,13 @@ mod tests {
         };
 
         let result: Result<(UiUnmarshalError, u64), UiMessageError> =
-            UiUnmarshalError::fmb(message_body);
+            UiUnmarshalError::fmb(message_body.clone());
 
         assert_eq!(
             result,
             Err(DeserializationError(
-                "Error(\"expected value\", line: 1, column: 1)".to_string()
+                "Error(\"expected value\", line: 1, column: 1)".to_string(),
+                message_body
             ))
         )
     }
