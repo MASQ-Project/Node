@@ -25,7 +25,6 @@ use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
@@ -39,6 +38,7 @@ use actix::Recipient;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::crash_point::CrashPoint;
+use masq_lib::logger::Logger;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
@@ -251,7 +251,7 @@ impl Accountant {
     ) -> Accountant {
         Accountant {
             config: config.accountant_config.clone(),
-            consuming_wallet: config.consuming_wallet.clone(),
+            consuming_wallet: config.consuming_wallet_opt.clone(),
             earning_wallet: config.earning_wallet.clone(),
             payable_dao: payable_dao_factory.make(),
             receivable_dao: receivable_dao_factory.make(),
@@ -358,6 +358,10 @@ impl Accountant {
             });
     }
 
+    // TODO FIXME EMERGENCY: This method must advance the start block to the current end of the
+    // blockchain; otherwise each incoming payment will be credited every time this method is
+    // executed. Extra credit: to protect against mid-scan panics, advance the start block
+    // every time a payment is credited.
     fn scan_for_received_payments(&mut self) {
         debug!(
             self.logger,
@@ -777,8 +781,6 @@ pub mod tests {
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
@@ -788,6 +790,8 @@ pub mod tests {
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
     use std::cell::RefCell;
@@ -2804,7 +2808,7 @@ pub mod tests {
     ) -> BootstrapperConfig {
         let mut bc = BootstrapperConfig::new();
         bc.accountant_config = ac;
-        bc.consuming_wallet = Some(consuming_wallet);
+        bc.consuming_wallet_opt = Some(consuming_wallet);
         bc.earning_wallet = earning_wallet;
         bc
     }

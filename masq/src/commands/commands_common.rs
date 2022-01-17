@@ -104,8 +104,8 @@ mod tests {
     };
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
-    use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
+    use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
     #[test]
     fn two_way_transaction_passes_dropped_connection_error() {
@@ -146,11 +146,12 @@ mod tests {
 
     #[test]
     fn two_way_transaction_handles_deserialization_error() {
-        let mut context = CommandContextMock::new().transact_result(Ok(MessageBody {
+        let message_body = MessageBody {
             opcode: "booga".to_string(),
             path: Conversation(1234),
             payload: Ok("unparseable".to_string()),
-        }));
+        };
+        let mut context = CommandContextMock::new().transact_result(Ok(message_body.clone()));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
 
@@ -160,12 +161,12 @@ mod tests {
         assert_eq!(
             result,
             Err(UnexpectedResponse(UiMessageError::UnexpectedMessage(
-                "booga".to_string(),
-                Conversation(1234)
+                message_body
             )))
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
-        assert_eq! (stderr_arc.lock().unwrap().get_string(), "Node or Daemon is acting erratically: Unexpected two-way message from context 1234 with opcode 'booga'\n".to_string());
+        assert_eq! (stderr_arc.lock().unwrap().get_string(),
+                    "Node or Daemon is acting erratically: Unexpected two-way message from context 1234 with opcode 'booga'\nOk(\"unparseable\")\n".to_string());
     }
 
     #[test]
@@ -207,12 +208,21 @@ mod tests {
             format!("{}", Reception("string".to_string())),
             "Reception problem: string".to_string()
         );
+        let message_body = MessageBody {
+            opcode: "opcode".to_string(),
+            path: MessagePath::FireAndForget,
+            payload: Err((1234, "booga".to_string())),
+        };
         assert_eq!(
             format!(
                 "{}",
-                UnexpectedResponse(UiMessageError::DeserializationError("string".to_string()))
+                UnexpectedResponse(UiMessageError::DeserializationError(
+                    "string".to_string(),
+                    message_body
+                ))
             ),
-            "Could not deserialize message from Daemon or Node: string".to_string()
+            "Could not deserialize message from Daemon or Node: string\nErr((1234, \"booga\"))"
+                .to_string()
         );
         assert_eq!(
             format!("{}", Payload(1234, "string".to_string())),

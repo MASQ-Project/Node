@@ -22,6 +22,8 @@ use std::collections::HashMap;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 pub trait RecipientsFactory {
     fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients;
@@ -110,13 +112,32 @@ impl RerunnerReal {
 
 impl DaemonInitializerReal {
     pub fn new(config: InitializationConfig, mut params: ClusteredParams) -> DaemonInitializerReal {
+        let real_user = RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref());
+        let dirs_home_dir_opt = params.dirs_wrapper.home_dir();
+        let dirs_home_dir = dirs_home_dir_opt
+            .as_ref()
+            .expectv("home directory")
+            .to_str()
+            .expectv("path string");
+        let dirs_data_dir_opt = params.dirs_wrapper.data_dir();
+        let dirs_data_dir = dirs_data_dir_opt
+            .as_ref()
+            .expect("data directory")
+            .to_str()
+            .expectv("path string");
+        let real_home_dir = real_user
+            .home_dir_opt
+            .as_ref()
+            .expectv("home directory")
+            .to_str()
+            .expectv("path string");
+        let relative_data_dir = &dirs_data_dir[(dirs_home_dir.len() + 1)..];
+        let real_data_dir = PathBuf::from_str(real_home_dir)
+            .expectv("path string")
+            .join(relative_data_dir);
         params.logger_initializer_wrapper.init(
-            params
-                .dirs_wrapper
-                .data_dir()
-                .expectv("data directory")
-                .join("MASQ"),
-            &RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref()),
+            real_data_dir.join("MASQ"),
+            &real_user,
             LevelFilter::Trace,
             Some("daemon"),
         );
@@ -187,12 +208,15 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::System;
     use crossbeam_channel::unbounded;
+    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{find_free_port, localhost};
     use std::cell::RefCell;
     use std::iter::FromIterator;
     use std::net::{SocketAddr, TcpListener};
+    use std::path::PathBuf;
+    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
     struct RecipientsFactoryMock {
@@ -245,8 +269,66 @@ mod tests {
     }
 
     #[test]
+    fn new_handles_standard_home_directory() {
+        let _guard = EnvironmentGuard::new();
+        new_handles_home_directory(
+            "/home/username",
+            "standard/data/dir",
+            "/home/username/standard/data/dir/MASQ",
+        )
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn new_handles_linux_root_home_directory() {
+        let _guard = EnvironmentGuard::new();
+        std::env::set_var("SUDO_USER", "username");
+        new_handles_home_directory(
+            "/root",
+            "standard/data/dir",
+            "/home/username/standard/data/dir/MASQ",
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn new_handles_macos_root_home_directory() {
+        let _guard = EnvironmentGuard::new();
+        std::env::set_var("SUDO_USER", "username");
+        new_handles_home_directory(
+            "/var/root",
+            "standard/data/dir",
+            "/Users/username/standard/data/dir/MASQ",
+        );
+    }
+
+    fn new_handles_home_directory(dirs_home_dir: &str, relative_data_dir: &str, expected: &str) {
+        let dirs_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(PathBuf::from_str(dirs_home_dir).unwrap()))
+            .data_dir_result(Some(
+                PathBuf::from_str(dirs_home_dir)
+                    .unwrap()
+                    .join(PathBuf::from_str(relative_data_dir).unwrap()),
+            ));
+        let config = InitializationConfig::default();
+        let mut clustered_params = ClusteredParams::default();
+        let init_params_arc = Arc::new(Mutex::new(vec![]));
+        let logger_initializer_wrapper =
+            LoggerInitializerWrapperMock::new().init_parameters(&init_params_arc);
+        clustered_params.logger_initializer_wrapper = Box::new(logger_initializer_wrapper);
+        clustered_params.dirs_wrapper = Box::new(dirs_wrapper);
+
+        let _ = DaemonInitializerReal::new(config, clustered_params);
+
+        let init_params = init_params_arc.lock().unwrap();
+        let element = &((*init_params)[0]);
+        let log_dir = &element.0;
+        assert_eq!(log_dir, &PathBuf::from_str(expected).unwrap());
+    }
+
+    #[test]
     fn bind_binds_everything_together() {
-        let data_dir = ensure_node_home_directory_exists(
+        let home_dir = ensure_node_home_directory_exists(
             "daemon_initializer",
             "bind_binds_everything_together",
         );
@@ -255,8 +337,8 @@ mod tests {
         let system = System::new("bind_binds_everything_together");
         let recipients = make_recipients(ui_gateway, daemon);
         let dirs_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(data_dir.clone()))
-            .data_dir_result(Some(data_dir));
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(home_dir.join("data")));
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
         let port = find_free_port();
         let config = InitializationConfig { ui_port: port };
@@ -286,15 +368,15 @@ mod tests {
 
     #[test]
     fn split_accepts_parameters_upon_system_shutdown_and_calls_main_with_args() {
-        let data_dir = ensure_node_home_directory_exists(
+        let home_dir = ensure_node_home_directory_exists(
             "daemon_initializer",
             "split_accepts_parameters_upon_system_shutdown_and_calls_main_with_args",
         );
         let system =
             System::new("split_accepts_parameters_upon_system_shutdown_and_calls_main_with_args");
         let dirs_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(data_dir.clone()))
-            .data_dir_result(Some(data_dir));
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(home_dir.join("data")));
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
         let port = find_free_port();
         let config = InitializationConfig { ui_port: port };
@@ -335,13 +417,13 @@ mod tests {
 
     #[test]
     fn go_detects_already_running_daemon() {
-        let data_dir = ensure_node_home_directory_exists(
+        let home_dir = ensure_node_home_directory_exists(
             "daemon_initializer",
             "go_detects_already_running_daemon",
         );
         let dirs_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(data_dir.clone()))
-            .data_dir_result(Some(data_dir));
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(home_dir.join("data")));
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
         let port = find_free_port();
         let _listener = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();

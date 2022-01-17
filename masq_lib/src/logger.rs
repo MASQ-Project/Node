@@ -1,47 +1,54 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use log::logger;
 use log::Level;
-#[cfg(not(test))]
+#[allow(unused_imports)]
 use log::Metadata;
+#[allow(unused_imports)]
 use log::Record;
 
 #[derive(Clone)]
 pub struct Logger {
     name: String,
-    #[cfg(test)]
+    #[cfg(not(feature = "no_test_share"))]
     level_limit: Level,
 }
 
+#[macro_export]
 macro_rules! trace {
     ($logger: expr, $($arg:tt)*) => {
         $logger.trace(|| format!($($arg)*))
     };
 }
 
+#[macro_export]
 macro_rules! debug {
     ($logger: expr, $($arg:tt)*) => {
         $logger.debug(|| format!($($arg)*))
     };
 }
 
+#[macro_export]
 macro_rules! info {
     ($logger: expr, $($arg:tt)*) => {
         $logger.info(|| format!($($arg)*))
     };
 }
 
+#[macro_export]
 macro_rules! warning {
     ($logger: expr, $($arg:tt)*) => {
         $logger.warning(|| format!($($arg)*))
     };
 }
 
+#[macro_export]
 macro_rules! error {
     ($logger: expr, $($arg:tt)*) => {
         $logger.error(|| format!($($arg)*))
     };
 }
 
+#[macro_export]
 macro_rules! fatal {
     ($logger: expr, $($arg:tt)*) => {
         $logger.fatal(|| format!($($arg)*))
@@ -52,7 +59,7 @@ impl Logger {
     pub fn new(name: &str) -> Logger {
         Logger {
             name: String::from(name),
-            #[cfg(test)]
+            #[cfg(not(feature = "no_test_share"))]
             level_limit: Level::Trace,
         }
     }
@@ -121,21 +128,6 @@ impl Logger {
         self.level_enabled(Level::Error)
     }
 
-    #[cfg(not(test))]
-    pub fn level_enabled(&self, level: Level) -> bool {
-        logger().enabled(&Metadata::builder().level(level).target(&self.name).build())
-    }
-
-    #[cfg(test)]
-    pub fn level_enabled(&self, level: Level) -> bool {
-        level <= self.level_limit
-    }
-
-    #[cfg(test)]
-    pub fn set_level_for_a_test(&mut self, level: Level) {
-        self.level_limit = level
-    }
-
     fn generic_log<F>(&self, level: Level, log_function: F)
     where
         F: FnOnce() -> String,
@@ -155,6 +147,24 @@ impl Logger {
                 .level(level)
                 .build(),
         );
+    }
+}
+
+#[cfg(feature = "no_test_share")]
+impl Logger {
+    pub fn level_enabled(&self, level: Level) -> bool {
+        logger().enabled(&Metadata::builder().level(level).target(&self.name).build())
+    }
+}
+
+#[cfg(not(feature = "no_test_share"))]
+impl Logger {
+    pub fn level_enabled(&self, level: Level) -> bool {
+        level <= self.level_limit
+    }
+
+    pub fn set_level_for_a_test(&mut self, level: Level) {
+        self.level_limit = level
     }
 }
 
@@ -200,10 +210,7 @@ mod tests {
 
     #[test]
     fn trace_is_not_computed_when_log_level_is_debug() {
-        let logger = Logger {
-            name: "test".to_string(),
-            level_limit: Level::Debug,
-        };
+        let logger = make_logger_at_level(Level::Debug);
         let signal = Arc::new(Mutex::new(Some(false)));
         let signal_c = signal.clone();
 
@@ -220,10 +227,7 @@ mod tests {
 
     #[test]
     fn debug_is_not_computed_when_log_level_is_info() {
-        let logger = Logger {
-            name: "test".to_string(),
-            level_limit: Level::Info,
-        };
+        let logger = make_logger_at_level(Level::Info);
         let signal = Arc::new(Mutex::new(Some(false)));
         let signal_c = signal.clone();
 
@@ -240,10 +244,7 @@ mod tests {
 
     #[test]
     fn info_is_not_computed_when_log_level_is_warn() {
-        let logger = Logger {
-            name: "test".to_string(),
-            level_limit: Level::Warn,
-        };
+        let logger = make_logger_at_level(Level::Warn);
         let signal = Arc::new(Mutex::new(Some(false)));
         let signal_c = signal.clone();
 
@@ -260,10 +261,7 @@ mod tests {
 
     #[test]
     fn warning_is_not_computed_when_log_level_is_error() {
-        let logger = Logger {
-            name: "test".to_string(),
-            level_limit: Level::Error,
-        };
+        let logger = make_logger_at_level(Level::Error);
         let signal = Arc::new(Mutex::new(Some(false)));
         let signal_c = signal.clone();
 
@@ -280,10 +278,7 @@ mod tests {
 
     #[test]
     fn trace_is_computed_when_log_level_is_trace() {
-        let logger = Logger {
-            name: "test".to_string(),
-            level_limit: Level::Trace,
-        };
+        let logger = make_logger_at_level(Level::Trace);
         let signal = Arc::new(Mutex::new(Some(false)));
         let signal_c = signal.clone();
 
@@ -300,10 +295,7 @@ mod tests {
 
     #[test]
     fn debug_is_computed_when_log_level_is_debug() {
-        let logger = Logger {
-            name: "test".to_string(),
-            level_limit: Level::Debug,
-        };
+        let logger = make_logger_at_level(Level::Debug);
         let signal = Arc::new(Mutex::new(Some(false)));
         let signal_c = signal.clone();
 
@@ -320,10 +312,7 @@ mod tests {
 
     #[test]
     fn info_is_computed_when_log_level_is_info() {
-        let logger = Logger {
-            name: "test".to_string(),
-            level_limit: Level::Info,
-        };
+        let logger = make_logger_at_level(Level::Info);
         let signal = Arc::new(Mutex::new(Some(false)));
         let signal_c = signal.clone();
 
@@ -340,10 +329,7 @@ mod tests {
 
     #[test]
     fn warn_is_computed_when_log_level_is_warn() {
-        let logger = Logger {
-            name: "test".to_string(),
-            level_limit: Level::Warn,
-        };
+        let logger = make_logger_at_level(Level::Warn);
         let signal = Arc::new(Mutex::new(Some(false)));
         let signal_c = signal.clone();
 
@@ -360,10 +346,7 @@ mod tests {
 
     #[test]
     fn error_is_computed_when_log_level_is_error() {
-        let logger = Logger {
-            name: "test".to_string(),
-            level_limit: Level::Error,
-        };
+        let logger = make_logger_at_level(Level::Error);
         let signal = Arc::new(Mutex::new(Some(false)));
         let signal_c = signal.clone();
 
@@ -425,5 +408,13 @@ mod tests {
             before,
             after,
         );
+    }
+
+    fn make_logger_at_level(level: Level) -> Logger {
+        Logger {
+            name: "test".to_string(),
+            #[cfg(not(feature = "no_test_share"))]
+            level_limit: level,
+        }
     }
 }

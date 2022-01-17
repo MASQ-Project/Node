@@ -2,13 +2,13 @@
 
 #[macro_use]
 pub mod channel_wrapper_mocks;
+pub mod automap_mocks;
 pub mod data_hunk;
 pub mod data_hunk_framer;
 #[cfg(test)]
 pub mod database_utils;
 pub mod little_tcp_server;
 pub mod logfile_name_guard;
-pub mod logging;
 pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;
 pub mod recorder;
@@ -514,7 +514,7 @@ pub mod pure_test_utils {
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::ui_gateway::NodeFromUiMessage;
-    use masq_lib::utils::SliceToVec;
+    use masq_lib::utils::array_of_borrows_to_vec;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::num::ParseIntError;
@@ -523,7 +523,7 @@ pub mod pure_test_utils {
     use std::time::Duration;
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
-        let owned_args = args.array_of_borrows_to_vec();
+        let owned_args = array_of_borrows_to_vec(&args);
         let arg_matches = app_node().get_matches_from_safe(owned_args).unwrap();
         MultiConfig::new_test_only(arg_matches)
     }
@@ -536,6 +536,7 @@ pub mod pure_test_utils {
             .mnemonic_seed_exists_result(Ok(false))
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
+            .mapping_protocol_result(Ok(None))
             .blockchain_service_url_result(Ok(None))
     }
 
@@ -650,15 +651,17 @@ pub mod pure_test_utils {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::sub_lib::cryptde::CryptData;
-    use crate::sub_lib::hop::LiveHop;
-    use crate::sub_lib::neighborhood::ExpectedService;
     use std::borrow::BorrowMut;
     use std::iter;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+
+    use crate::sub_lib::cryptde::CryptData;
+    use crate::sub_lib::hop::LiveHop;
+    use crate::sub_lib::neighborhood::ExpectedService;
+
+    use super::*;
 
     #[test]
     fn characterize_zero_hop_route() {

@@ -1,3 +1,5 @@
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use std::path::PathBuf;
 
 use actix::{Actor, Context, Handler, Recipient};
@@ -25,7 +27,6 @@ use crate::db_config::persistent_configuration::{
 };
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::handle_ui_crash_request;
 use crate::sub_lib::wallet::{Wallet, WalletError};
@@ -37,6 +38,7 @@ use masq_lib::constants::{
     ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, KEY_PAIR_CONSTRUCTION_ERROR, MNEMONIC_PHRASE_ERROR,
     NON_PARSABLE_VALUE, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
 };
+use masq_lib::logger::Logger;
 use rustc_hex::ToHex;
 use std::str::FromStr;
 
@@ -500,7 +502,7 @@ impl Configurator {
         context_id: u64,
         persistent_config: &mut Box<dyn PersistentConfiguration>,
     ) -> Result<MessageBody, MessageError> {
-        let good_password = match &msg.db_password_opt {
+        let good_password_opt = match &msg.db_password_opt {
             None => None,
             Some(db_password) => {
                 match persistent_config.check_password(Some(db_password.clone())) {
@@ -532,8 +534,9 @@ impl Configurator {
             Self::value_required(persistent_config.neighborhood_mode(), "neighborhoodMode")?
                 .to_string();
         let port_mapping_protocol_opt =
-            Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?;
-        let (mnemonic_seed_opt, past_neighbors) = match good_password {
+            Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?
+                .map(|p| p.to_string());
+        let (mnemonic_seed_opt, past_neighbors) = match good_password_opt {
             Some(password) => {
                 let mnemonic_seed_opt = Self::value_not_required(
                     persistent_config.mnemonic_seed(password),
@@ -746,9 +749,9 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
     };
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
@@ -762,10 +765,9 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use bip39::{Language, Mnemonic};
-    use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
+    use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
 
     #[test]
     fn constructor_connects_with_database() {
@@ -1992,7 +1994,7 @@ mod tests {
                 neighborhood_mode: String::from("standard"),
                 consuming_wallet_derivation_path_opt: None,
                 earning_wallet_address_opt: None,
-                port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),
+                port_mapping_protocol_opt: Some("IGDP".to_string()),
                 past_neighbors: vec![],
                 start_block: 3456
             }
@@ -2066,7 +2068,7 @@ mod tests {
                 neighborhood_mode: String::from("consume-only"),
                 consuming_wallet_derivation_path_opt: Some(consuming_wallet_derivation_path),
                 earning_wallet_address_opt: Some(earning_wallet_address),
-                port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),
+                port_mapping_protocol_opt: Some(AutomapProtocol::Igdp.to_string()),
                 past_neighbors: vec![node_descriptor.to_string(main_cryptde())],
                 start_block: 3456
             }
