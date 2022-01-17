@@ -467,11 +467,14 @@ Requests the Node descriptor from a Node.
 ##### Layout:
 ```
 "payload": {
-    "nodeDescriptor": <string>
+    "nodeDescriptorOpt": <optional string>
 }
 ```
 ##### Description:
-Contains a Node's Node descriptor.
+If the Node has a Node descriptor, it's returned in this message. If the Node has not yet established its Node
+descriptor (for example, if it's still waiting on the router to get a public IP address) or will never have a
+Node descriptor (for example, if its neighborhood mode is not Standard), the `nodeDescriptorOpt`
+field will be null or absent.
 
 #### `financials`
 ##### Direction: Request
@@ -790,6 +793,7 @@ be cleared.
 * `gas-price` - Transaction fee to offer on the blockchain.
 * `ip` - The public IP address of the Node.
 * `log-level` - The lowest level of logs that should be recorded. `off`, `error`, `warn`, `info`, `debug`, `trace`
+* `mapping-protocol` - The management protocol to try first with the router. `pcp`, `pmp`, `igdp`
 * `neighborhood-mode` - `zero-hop`, `originate-only`, `consume-only`, `standard`
 * `neighbors` - Comma-separated list of Node descriptors for neighbors to contact on startup
 * `real-user` - Non-Windows platforms only, only where required: <uid>:<gid>:<home directory>
@@ -877,7 +881,6 @@ information is presently in its Setup space.
 ```
 "payload": {
     "newProcessId": <integer>,
-    "nodeDescriptor": <string>,
     "redirectUiPort": <integer greater than 1024>,
 }
 ```

@@ -1,5 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::proxy_client::InboundServerData;
 use crate::sub_lib::sequencer::Sequencer;
 use crate::sub_lib::stream_key::StreamKey;
@@ -8,6 +7,7 @@ use crate::sub_lib::utils;
 use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
 use crossbeam_channel::Sender;
+use masq_lib::logger::Logger;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
@@ -117,14 +117,14 @@ impl StreamReader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use actix::System;
     use crossbeam_channel::unbounded;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use std::io::Error;
     use std::io::ErrorKind;
     use std::net::SocketAddr;

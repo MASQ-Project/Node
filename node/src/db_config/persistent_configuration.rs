@@ -11,10 +11,10 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, MnemonicType};
-use masq_lib::automap_tools::AutomapProtocol;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use masq_lib::utils::{NeighborhoodModeLight, WrapResult};
+use masq_lib::utils::AutomapProtocol;
+use masq_lib::utils::NeighborhoodModeLight;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
@@ -90,15 +90,21 @@ pub trait PersistentConfiguration {
     fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError>;
     fn gas_price(&self) -> Result<u64, PersistentConfigError>;
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
+    fn set_mapping_protocol(
+        &mut self,
+        value: Option<AutomapProtocol>,
+    ) -> Result<(), PersistentConfigError>;
     fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError>;
     fn mnemonic_seed_exists(&self) -> Result<bool, PersistentConfigError>;
     // WARNING: Actors should get consuming-wallet information from their startup config, not from here
     fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError>;
+
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError>;
+
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
-
     fn set_wallet_info(
         &mut self,
         mnemonic_seed: &dyn AsRef<[u8]>,
@@ -106,7 +112,6 @@ pub trait PersistentConfiguration {
         earning_wallet_address: &str,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
-
     fn past_neighbors(
         &self,
         db_password: &str,
@@ -118,9 +123,6 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
-    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
-    fn set_mapping_protocol(&mut self, value: AutomapProtocol)
-        -> Result<(), PersistentConfigError>;
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError>;
     fn set_neighborhood_mode(
         &mut self,
@@ -191,7 +193,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn clandestine_port(&self) -> Result<u16, PersistentConfigError> {
         let unchecked_port = match decode_u64(self.dao.get("clandestine_port")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => panic!("ever-supplied clandestine_port value missing; database is corrupt!"),
             Some(port) => port,
         };
         if (unchecked_port < u64::from(LOWEST_USABLE_INSECURE_PORT))
@@ -227,7 +229,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("gas_price")?.value_opt) {
-            Ok(val) => Ok(val.expect("ever-supplied value missing; database is corrupt!")),
+            Ok(val) => {
+                Ok(val.expect("ever-supplied gas_price value missing; database is corrupt!"))
+            }
             Err(e) => Err(PersistentConfigError::from(e)),
         }
     }
@@ -386,7 +390,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn start_block(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("start_block")?.value_opt) {
-            Ok(val) => Ok(val.expect("ever-supplied value missing; database is corrupt!")),
+            Ok(val) => {
+                Ok(val.expect("ever-supplied start_block value missing; database is corrupt!"))
+            }
             Err(e) => Err(PersistentConfigError::from(e)),
         }
     }
@@ -398,19 +404,24 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
-        self.dao
+        let result = self
+            .dao
             .get("mapping_protocol")?
             .value_opt
-            .map(|val| val.into())
-            .wrap_to_ok()
+            .map(|val| AutomapProtocol::from_str(&val));
+        match result {
+            None => Ok(None),
+            Some(Ok(protocol)) => Ok(Some(protocol)),
+            Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)),
+        }
     }
 
     fn set_mapping_protocol(
         &mut self,
-        value: AutomapProtocol,
+        value: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
-        writer.set("mapping_protocol", Some(value.to_string()))?;
+        writer.set("mapping_protocol", value.map(|v| v.to_string()))?;
         Ok(writer.commit()?)
     }
 
@@ -481,6 +492,7 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use bip39::{Language, MnemonicType};
     use masq_lib::utils::{derivation_path, find_free_port};
+    use std::convert::TryFrom;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
 
@@ -657,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied value missing; database is corrupt!")]
+    #[should_panic(expected = "ever-supplied clandestine_port value missing; database is corrupt!")]
     fn clandestine_port_panics_if_none_got_from_database() {
         let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "clandestine_port",
@@ -1560,7 +1572,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied value missing; database is corrupt!")]
+    #[should_panic(expected = "ever-supplied start_block value missing; database is corrupt!")]
     fn start_block_does_not_tolerate_optional_output() {
         let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "start_block",
@@ -1610,7 +1622,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied value missing; database is corrupt!")]
+    #[should_panic(expected = "ever-supplied gas_price value missing; database is corrupt!")]
     fn gas_price_does_not_tolerate_optional_output() {
         let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "gas_price",
@@ -1759,7 +1771,7 @@ mod tests {
     }
 
     #[test]
-    fn set_mapping_protocol_works() {
+    fn set_mapping_protocol_to_some() {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoWriteableMock::new()
             .set_params(&set_params_arc)
@@ -1769,7 +1781,7 @@ mod tests {
             ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
         ));
 
-        let result = subject.set_mapping_protocol(AutomapProtocol::Pmp);
+        let result = subject.set_mapping_protocol(Some(AutomapProtocol::Pmp));
 
         assert!(result.is_ok());
         let set_params = set_params_arc.lock().unwrap();
@@ -1777,6 +1789,24 @@ mod tests {
             *set_params,
             vec![("mapping_protocol".to_string(), Some("PMP".to_string()))]
         );
+    }
+
+    #[test]
+    fn set_mapping_protocol_to_none() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoWriteableMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()))
+            .commit_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(
+            ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
+        ));
+
+        let result = subject.set_mapping_protocol(None);
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(*set_params, vec![("mapping_protocol".to_string(), None)]);
     }
 
     #[test]

@@ -6,7 +6,6 @@ mod websocket_supervisor;
 pub mod websocket_supervisor_mocks;
 
 use crate::daemon::DaemonBindMessage;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
@@ -20,6 +19,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use itertools::Either;
+use masq_lib::logger::Logger;
 use masq_lib::messages::UiCrashRequest;
 use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
@@ -188,7 +188,6 @@ impl Handler<NodeFromUiMessage> for UiGateway {
 mod tests {
     use super::*;
     use crate::dispatcher;
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::{make_recorder, Recording};
     use crate::ui_gateway::websocket_supervisor::WebSocketSupervisorFactory;
@@ -197,6 +196,7 @@ mod tests {
     };
     use actix::System;
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
     use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use masq_lib::utils::find_free_port;
