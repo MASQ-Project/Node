@@ -465,7 +465,7 @@ mod tests {
         }
         .tmb(0);
         let conversation_number_three_response = UiDescriptorResponse {
-            node_descriptor: "ae15fe6".to_string(),
+            node_descriptor_opt: Some("ae15fe6".to_string()),
         }
         .tmb(3);
         let broadcast_number_three = UiNewPasswordBroadcast {}.tmb(0);
@@ -505,7 +505,10 @@ mod tests {
         let received_message_number_five: UiDescriptorResponse = connection
             .transact_with_context_id(conversation_number_three_request.clone(), 3)
             .unwrap();
-        assert_eq!(received_message_number_five.node_descriptor, "ae15fe6");
+        assert_eq!(
+            received_message_number_five.node_descriptor_opt,
+            Some("ae15fe6".to_string())
+        );
 
         let _received_message_number_six: UiNewPasswordBroadcast = connection.receive().unwrap();
 

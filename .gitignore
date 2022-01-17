@@ -67,11 +67,16 @@ Temporary Items
 **/.idea/**/sqlDataSources.xml
 **/.idea/**/dynamic.xml
 **/.idea/**/uiDesigner.xml
+**/.idea/**/runConfigurations.xml
 **/.idea/httpRequests/
 
 # Gradle:
 **/.idea/**/gradle.xml
 **/.idea/**/libraries
+
+# Azure:
+**/.idea/**/azure/
+**/.idea/**/azureSettings.xml
 
 # CMake
 cmake-build-debug/

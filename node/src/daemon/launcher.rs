@@ -6,10 +6,10 @@ use crate::daemon::launch_verifier::LaunchVerification::{
 };
 use crate::daemon::launch_verifier::{LaunchVerifier, LaunchVerifierReal};
 use crate::daemon::{LaunchSuccess, Launcher};
-use crate::sub_lib::logger::Logger;
 use actix::Recipient;
 use crossbeam_channel::Sender;
 use itertools::Itertools;
+use masq_lib::logger::Logger;
 use masq_lib::utils::find_free_port;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -194,12 +194,12 @@ mod tests {
     use super::*;
     use crate::daemon::launch_verifier::LaunchVerification::Launched;
     use crate::daemon::mocks::LaunchVerifierMock;
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::make_recorder;
     use actix::Actor;
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::DEFAULT_UI_PORT;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::cell::RefCell;
     use std::io::ErrorKind;
     use std::iter::FromIterator;

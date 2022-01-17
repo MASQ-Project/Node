@@ -50,14 +50,66 @@ impl Opcode {
     }
 }
 
+#[derive(Clone, PartialEq, Debug)]
+pub enum ResultCode {
+    Success,
+    UnsupportedVersion,
+    NotAuthorized,
+    NetworkFailure,
+    OutOfResources,
+    UnsupportedOpcode,
+    Other(u16),
+}
+
+impl From<u16> for ResultCode {
+    fn from(input: u16) -> Self {
+        match input {
+            0 => ResultCode::Success,
+            1 => ResultCode::UnsupportedVersion,
+            2 => ResultCode::NotAuthorized,
+            3 => ResultCode::NetworkFailure,
+            4 => ResultCode::OutOfResources,
+            5 => ResultCode::UnsupportedOpcode,
+            code => ResultCode::Other(code),
+        }
+    }
+}
+
+impl ResultCode {
+    pub fn code(&self) -> u16 {
+        match self {
+            ResultCode::Success => 0,
+            ResultCode::UnsupportedVersion => 1,
+            ResultCode::NotAuthorized => 2,
+            ResultCode::NetworkFailure => 3,
+            ResultCode::OutOfResources => 4,
+            ResultCode::UnsupportedOpcode => 5,
+            ResultCode::Other(code) => *code,
+        }
+    }
+
+    pub fn is_permanent(&self) -> bool {
+        match self {
+            ResultCode::Success => false,
+            ResultCode::UnsupportedVersion => true,
+            ResultCode::NotAuthorized => true,
+            ResultCode::NetworkFailure => false,
+            ResultCode::OutOfResources => false,
+            ResultCode::UnsupportedOpcode => true,
+            ResultCode::Other(_) => true,
+        }
+    }
+}
+
 pub trait PmpOpcodeData: OpcodeData {}
 
 impl PmpOpcodeData for UnrecognizedData {}
 
+#[derive(Debug)]
 pub struct PmpPacket {
     pub direction: Direction,
     pub opcode: Opcode,
-    pub result_code_opt: Option<u16>,
+    pub result_code_opt: Option<ResultCode>,
     pub opcode_data: Box<dyn PmpOpcodeData>,
 }
 
@@ -99,7 +151,7 @@ impl TryFrom<&[u8]> for PmpPacket {
                 if buffer.len() < 4 {
                     return Err(ParseError::ShortBuffer(4, buffer.len()));
                 }
-                result.result_code_opt = Some(u16_at(buffer, 2));
+                result.result_code_opt = Some(ResultCode::from(u16_at(buffer, 2)));
                 4
             }
         };
@@ -123,8 +175,12 @@ impl Packet for PmpPacket {
         buffer[0] = 0x00; // version
         buffer[1] = self.direction.code() | self.opcode.code();
         let mut position = 2;
+        let result_code = self
+            .result_code_opt
+            .as_ref()
+            .unwrap_or(&ResultCode::Success);
         if self.direction == Direction::Response {
-            u16_into(buffer, 2, self.result_code_opt.unwrap_or(0x0000));
+            u16_into(buffer, 2, result_code.code());
             position = 4;
         }
         self.opcode_data
@@ -254,7 +310,7 @@ mod tests {
 
         assert_eq!(subject.direction, Direction::Response);
         assert_eq!(subject.opcode, Opcode::Other(0x55));
-        assert_eq!(subject.result_code_opt, Some(0xA55A));
+        assert_eq!(subject.result_code_opt, Some(ResultCode::Other(0xA55A)));
         assert_eq!(
             subject
                 .opcode_data
@@ -277,7 +333,7 @@ mod tests {
 
         assert_eq!(subject.direction, Direction::Response);
         assert_eq!(subject.opcode, Opcode::Get);
-        assert_eq!(subject.result_code_opt, Some(0x5678));
+        assert_eq!(subject.result_code_opt, Some(ResultCode::Other(0x5678)));
         let opcode_data = subject
             .opcode_data
             .as_any()
@@ -305,7 +361,7 @@ mod tests {
 
         assert_eq!(subject.direction, Direction::Response);
         assert_eq!(subject.opcode, Opcode::MapUdp);
-        assert_eq!(subject.result_code_opt, Some(0x5678));
+        assert_eq!(subject.result_code_opt, Some(ResultCode::Other(0x5678)));
         let opcode_data = subject
             .opcode_data
             .as_any()
@@ -335,7 +391,7 @@ mod tests {
 
         assert_eq!(subject.direction, Direction::Response);
         assert_eq!(subject.opcode, Opcode::MapTcp);
-        assert_eq!(subject.result_code_opt, Some(0x5678));
+        assert_eq!(subject.result_code_opt, Some(ResultCode::Other(0x5678)));
         let opcode_data = subject
             .opcode_data
             .as_any()
@@ -426,7 +482,7 @@ mod tests {
         let subject = PmpPacket {
             direction: Direction::Response,
             opcode: Opcode::Other(0x55),
-            result_code_opt: Some(0xBBAA),
+            result_code_opt: Some(ResultCode::Other(0xBBAA)),
             opcode_data: Box::new(UnrecognizedData::new()),
         };
 
@@ -445,7 +501,7 @@ mod tests {
         let subject = PmpPacket {
             direction: Direction::Response,
             opcode: Opcode::Get,
-            result_code_opt: Some(0xABBA),
+            result_code_opt: Some(ResultCode::Other(0xABBA)),
             opcode_data: Box::new(GetOpcodeData {
                 epoch_opt: Some(1234),
                 external_ip_address_opt: Some(Ipv4Addr::new(4, 3, 2, 1)),
@@ -478,5 +534,47 @@ mod tests {
         assert_eq!(Opcode::from(0x82), Opcode::MapTcp);
         assert_eq!(Opcode::from(0x83), Opcode::Other(3));
         assert_eq!(Opcode::from(0xFF), Opcode::Other(127));
+    }
+
+    #[test]
+    fn result_code_code_works() {
+        assert_eq!(ResultCode::Success.code(), 0);
+        assert_eq!(ResultCode::UnsupportedVersion.code(), 1);
+        assert_eq!(ResultCode::NotAuthorized.code(), 2);
+        assert_eq!(ResultCode::NetworkFailure.code(), 3);
+        assert_eq!(ResultCode::OutOfResources.code(), 4);
+        assert_eq!(ResultCode::UnsupportedOpcode.code(), 5);
+        for code in 6..=u8::MAX as u16 {
+            assert_eq!(ResultCode::Other(code).code(), code);
+        }
+        assert_eq!(ResultCode::Other(65535).code(), 65535);
+    }
+
+    #[test]
+    fn result_code_from_works() {
+        assert_eq!(ResultCode::from(0), ResultCode::Success);
+        assert_eq!(ResultCode::from(1), ResultCode::UnsupportedVersion);
+        assert_eq!(ResultCode::from(2), ResultCode::NotAuthorized);
+        assert_eq!(ResultCode::from(3), ResultCode::NetworkFailure);
+        assert_eq!(ResultCode::from(4), ResultCode::OutOfResources);
+        assert_eq!(ResultCode::from(5), ResultCode::UnsupportedOpcode);
+        for code in 6..=u8::MAX as u16 {
+            assert_eq!(ResultCode::from(code), ResultCode::Other(code));
+        }
+        assert_eq!(ResultCode::from(65535), ResultCode::Other(65535));
+    }
+
+    #[test]
+    fn result_code_is_permanent_works() {
+        assert_eq!(ResultCode::Success.is_permanent(), false);
+        assert_eq!(ResultCode::UnsupportedVersion.is_permanent(), true);
+        assert_eq!(ResultCode::NotAuthorized.is_permanent(), true);
+        assert_eq!(ResultCode::NetworkFailure.is_permanent(), false);
+        assert_eq!(ResultCode::OutOfResources.is_permanent(), false);
+        assert_eq!(ResultCode::UnsupportedOpcode.is_permanent(), true);
+        for code in 6..=u8::MAX as u16 {
+            assert_eq!(ResultCode::Other(code).is_permanent(), true);
+        }
+        assert_eq!(ResultCode::Other(65535).is_permanent(), true);
     }
 }

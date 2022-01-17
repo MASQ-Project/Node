@@ -18,6 +18,7 @@ format() {
   popd
 }
 
+format "$CI_DIR"/../automap
 format "$CI_DIR"/../masq_lib
 format "$CI_DIR"/../node
 format "$CI_DIR"/../dns_utility

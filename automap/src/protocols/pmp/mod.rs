@@ -3,4 +3,3 @@
 pub mod get_packet;
 pub mod map_packet;
 pub mod pmp_packet;
-pub mod pmp_test;

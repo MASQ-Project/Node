@@ -3,8 +3,9 @@
 use lazy_static::lazy_static;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::io;
 use std::io::ErrorKind;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -16,10 +17,65 @@ mod not_win_cfg {
 
 const FIND_FREE_PORT_LOWEST: u16 = 32768;
 const FIND_FREE_PORT_HIGHEST: u16 = 65535;
-static mut RUNNING_TEST: bool = false;
+
+pub struct RunningTestData {
+    test_is_running: bool,
+    panic_message: Option<String>,
+}
+
+lazy_static! {
+    pub static ref RUNNING_TEST_DATA: Arc<Mutex<RunningTestData>> =
+        Arc::new(Mutex::new(RunningTestData {
+            test_is_running: false,
+            panic_message: None,
+        }));
+}
 
 lazy_static! {
     static ref FIND_FREE_PORT_NEXT: Arc<Mutex<u16>> = Arc::new(Mutex::new(FIND_FREE_PORT_LOWEST));
+}
+
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub enum AutomapProtocol {
+    Pmp,
+    Pcp,
+    Igdp,
+}
+
+impl Display for AutomapProtocol {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            AutomapProtocol::Pmp => write!(f, "PMP"),
+            AutomapProtocol::Pcp => write!(f, "PCP"),
+            AutomapProtocol::Igdp => write!(f, "IGDP"),
+        }
+    }
+}
+
+impl FromStr for AutomapProtocol {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "PCP" => Ok(AutomapProtocol::Pcp),
+            "PMP" => Ok(AutomapProtocol::Pmp),
+            "IGDP" => Ok(AutomapProtocol::Igdp),
+            _ => Err(format!(
+                "Valid protocol names are PCP, PMP, and IGDP; not '{}'",
+                s
+            )),
+        }
+    }
+}
+
+impl AutomapProtocol {
+    pub fn values() -> Vec<AutomapProtocol> {
+        vec![
+            AutomapProtocol::Pcp,
+            AutomapProtocol::Pmp,
+            AutomapProtocol::Igdp,
+        ]
+    }
 }
 
 fn next_port(port: u16) -> u16 {
@@ -30,18 +86,47 @@ fn next_port(port: u16) -> u16 {
 }
 
 pub fn find_free_port() -> u16 {
-    let mut candidate = FIND_FREE_PORT_NEXT.lock().unwrap();
+    find_free_port_for_ip_addr(localhost())
+}
+
+pub fn find_free_port_0000() -> u16 {
+    find_free_port_for_ip_addr(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))
+}
+
+fn find_free_port_for_ip_addr(ip_addr: IpAddr) -> u16 {
+    let mut current_port = FIND_FREE_PORT_NEXT.lock().unwrap();
     loop {
-        match TcpListener::bind(SocketAddr::new(localhost(), *candidate)) {
-            Err(ref e) if e.kind() == ErrorKind::AddrInUse => *candidate = next_port(*candidate),
-            Err(e) => panic!("Couldn't find free port: {:?}", e),
-            Ok(_listener) => {
-                let result = *candidate;
-                *candidate = next_port(*candidate);
-                return result;
-            }
+        let candidate = *current_port;
+        *current_port = next_port(*current_port);
+        if port_is_free_for_ip_addr(ip_addr, candidate) {
+            return candidate;
         }
     }
+}
+
+fn port_is_free_for_ip_addr(ip_addr: IpAddr, port: u16) -> bool {
+    let test_address = SocketAddr::new(ip_addr, port);
+    fn result_checker<T>(result: io::Result<T>) -> bool {
+        match result {
+            Err(ref e)
+                if (e.kind() == ErrorKind::AddrInUse)
+                    || (e.kind() == ErrorKind::AddrNotAvailable) =>
+            {
+                false
+            }
+            Err(e) => panic!("Couldn't find free port: {:?}", e),
+            Ok(_) => true,
+        }
+    }
+    let result = TcpListener::bind(test_address);
+    if !result_checker(result) {
+        return false;
+    }
+    let result = UdpSocket::bind(test_address);
+    if !result_checker(result) {
+        return false;
+    }
+    true
 }
 
 pub fn localhost() -> IpAddr {
@@ -135,14 +220,33 @@ impl FromStr for NeighborhoodModeLight {
     }
 }
 
+pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
+    let mut result = vec![];
+    result.append(&mut source);
+    result.push(item);
+    result
+}
+
 pub fn running_test() {
-    unsafe {
-        RUNNING_TEST = true;
-    }
+    let mut running_test_data = RUNNING_TEST_DATA.lock().unwrap();
+    running_test_data.test_is_running = true;
+}
+
+fn set_test_data_message(message: &str) {
+    let mut running_test_data = RUNNING_TEST_DATA.lock().expect("Thread died unexpectedly");
+    running_test_data.panic_message = Some(message.to_string());
+}
+
+fn test_is_running() -> bool {
+    RUNNING_TEST_DATA
+        .lock()
+        .expect("Thread died unexpectedly")
+        .test_is_running
 }
 
 pub fn exit_process(code: i32, message: &str) -> ! {
-    if unsafe { RUNNING_TEST } {
+    if test_is_running() {
+        set_test_data_message(message);
         panic!("{}: {}", code, message);
     } else {
         eprintln!("{}", message);
@@ -150,9 +254,14 @@ pub fn exit_process(code: i32, message: &str) -> ! {
     }
 }
 
+pub fn get_test_panic_message() -> Option<String> {
+    RUNNING_TEST_DATA.lock().unwrap().panic_message.clone()
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn exit_process_with_sigterm(message: &str) {
-    if unsafe { RUNNING_TEST } {
+    if test_is_running() {
+        set_test_data_message(message);
         panic!("{}", message);
     } else {
         eprintln!("{}", message);
@@ -162,16 +271,11 @@ pub fn exit_process_with_sigterm(message: &str) {
     }
 }
 
-pub trait SliceToVec<T: 'static + Clone> {
-    fn array_of_borrows_to_vec(self) -> Vec<T>;
-}
-
-impl<const N: usize> SliceToVec<String> for [&str; N] {
-    fn array_of_borrows_to_vec(self) -> Vec<String> {
-        self.iter()
-            .map(|item| item.to_string())
-            .collect::<Vec<String>>()
-    }
+pub fn array_of_borrows_to_vec(slice: &[&str]) -> Vec<String> {
+    slice
+        .iter()
+        .map(|item| item.to_string())
+        .collect::<Vec<String>>()
 }
 
 pub trait ExpectValue<T> {
@@ -278,6 +382,64 @@ mod tests {
     use std::fmt::Write;
     use std::fs::{create_dir_all, File, OpenOptions};
     use std::io::Write as FmtWrite;
+
+    #[test]
+    fn automap_protocol_display_works() {
+        let result = format!(
+            "PCP: {}; PMP: {}; IGDP: {}",
+            AutomapProtocol::Pcp,
+            AutomapProtocol::Pmp,
+            AutomapProtocol::Igdp
+        );
+
+        assert_eq!(&result, "PCP: PCP; PMP: PMP; IGDP: IGDP");
+    }
+
+    #[test]
+    fn automap_protocol_values_works() {
+        let result = AutomapProtocol::values();
+
+        assert_eq!(
+            result,
+            vec![
+                AutomapProtocol::Pcp,
+                AutomapProtocol::Pmp,
+                AutomapProtocol::Igdp
+            ]
+        )
+    }
+
+    #[test]
+    fn automap_protocol_from_str_works() {
+        let input = vec!["pcp", "PCP", "pmp", "PMP", "igdp", "IGDP"];
+
+        let result: Vec<AutomapProtocol> = input
+            .into_iter()
+            .map(|s| AutomapProtocol::from_str(s).unwrap())
+            .collect();
+
+        assert_eq!(
+            result,
+            vec![
+                AutomapProtocol::Pcp,
+                AutomapProtocol::Pcp,
+                AutomapProtocol::Pmp,
+                AutomapProtocol::Pmp,
+                AutomapProtocol::Igdp,
+                AutomapProtocol::Igdp,
+            ]
+        );
+    }
+
+    #[test]
+    fn automap_protocol_from_str_rejects_bad_name() {
+        let result = AutomapProtocol::from_str("booga");
+
+        assert_eq!(
+            result,
+            Err("Valid protocol names are PCP, PMP, and IGDP; not 'booga'".to_string())
+        );
+    }
 
     #[test]
     fn index_of_fails_to_find_nonexistent_needle_in_haystack() {
@@ -465,6 +627,56 @@ mod tests {
         let result = subject.expectv("safety feature");
 
         assert_eq!(result, "all right".to_string())
+    }
+
+    fn find_test_port_from(port: u16) -> u16 {
+        if super::port_is_free_for_ip_addr(localhost(), port) {
+            port
+        } else {
+            find_test_port_from(port - 1)
+        }
+    }
+
+    #[test]
+    fn port_is_free_for_ip_addr() {
+        let test_port = find_test_port_from(FIND_FREE_PORT_LOWEST - 1);
+        // port_is_free_for_ip_addr claims this port is free for both; let's check
+        {
+            let result = UdpSocket::bind(SocketAddr::new(localhost(), test_port));
+            match result {
+                Ok(_) => (),
+                x => panic!("{:?}", x),
+            }
+        }
+        {
+            let result = TcpListener::bind(SocketAddr::new(localhost(), test_port));
+            match result {
+                Ok(_) => (),
+                x => panic!("{:?}", x),
+            }
+        }
+
+        // Claim it for UDP and see if port_is_free_for_ip_addr can tell
+        {
+            let _socket = UdpSocket::bind(SocketAddr::new(localhost(), test_port)).unwrap();
+            let result = super::port_is_free_for_ip_addr(localhost(), test_port);
+            assert_eq!(result, false);
+        }
+
+        // Claim it for TCP and see if port_is_free_for_ip_addr can tell
+        {
+            let _listener = TcpListener::bind(SocketAddr::new(localhost(), test_port)).unwrap();
+            let result = super::port_is_free_for_ip_addr(localhost(), test_port);
+            assert_eq!(result, false);
+        }
+
+        // Claim it for both and see if port_is_free_for_ip_addr can tell
+        {
+            let _socket = UdpSocket::bind(SocketAddr::new(localhost(), test_port)).unwrap();
+            let _listener = TcpListener::bind(SocketAddr::new(localhost(), test_port)).unwrap();
+            let result = super::port_is_free_for_ip_addr(localhost(), test_port);
+            assert_eq!(result, false);
+        }
     }
 
     #[test]
