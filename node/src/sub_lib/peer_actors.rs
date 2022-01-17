@@ -38,7 +38,7 @@ pub struct BindMessage {
     pub peer_actors: PeerActors,
 }
 
-#[derive(Message, Clone)]
+#[derive(Debug, Message, Clone)]
 pub struct StartMessage {}
 
 #[derive(Message, Clone, PartialEq, Debug)]

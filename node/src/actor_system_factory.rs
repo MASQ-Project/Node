@@ -889,7 +889,7 @@ mod tests {
                     .recipient::<ReportExitServiceConsumedMessage>(),
                 report_new_payments: recipient!(addr, ReceivedPayments),
                 report_sent_payments: recipient!(addr, SentPayments),
-                ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+                ui_message_sub: recipient!(addr, NodeFromUiMessage),
             }
         }
 
@@ -1074,8 +1074,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1148,8 +1148,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1331,8 +1331,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1485,6 +1485,61 @@ mod tests {
         let system = System::new("test");
         System::current().stop();
         system.run();
+    }
+
+    #[test]
+    fn prepare_initial_messages_generates_no_consuming_wallet_balance_if_no_consuming_wallet_is_specified(
+    ) {
+        let actor_factory = ActorFactoryMock::new();
+        let parameters = actor_factory.make_parameters();
+        let config = BootstrapperConfig {
+            log_level: LevelFilter::Off,
+            crash_point: CrashPoint::None,
+            dns_servers: vec![],
+            accountant_config: AccountantConfig {
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
+            },
+            clandestine_discriminator_factories: Vec::new(),
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
+            blockchain_bridge_config: BlockchainBridgeConfig {
+                blockchain_service_url_opt: None,
+                chain: TEST_DEFAULT_CHAIN,
+                gas_price: 1,
+            },
+            port_configurations: HashMap::new(),
+            db_password_opt: None,
+            clandestine_port_opt: None,
+            consuming_wallet_opt: None,
+            earning_wallet: make_wallet("earning"),
+            data_directory: PathBuf::new(),
+            main_cryptde_null_opt: None,
+            alias_cryptde_null_opt: None,
+            mapping_protocol_opt: None,
+            real_user: RealUser::null(),
+            neighborhood_config: NeighborhoodConfig {
+                mode: NeighborhoodMode::Standard(
+                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &[]),
+                    vec![],
+                    rate_pack(100),
+                ),
+            },
+            node_descriptor: Default::default(),
+        };
+        let subject = ActorSystemFactoryToolsReal::new();
+        let system = System::new("MASQNode");
+
+        let _ = subject.prepare_initial_messages(
+            main_cryptde(),
+            alias_cryptde(),
+            config.clone(),
+            Box::new(actor_factory),
+        );
+
+        System::current().stop();
+        system.run();
+        let (_, _, bootstrapper_config) = Parameters::get(parameters.proxy_server_params);
+        assert_eq!(bootstrapper_config.consuming_wallet_opt, None);
     }
 
     #[test]

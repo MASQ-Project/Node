@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL};
+use crate::accountant::{DEFAULT_PAYABLES_SCAN_INTERVAL, DEFAULT_RECEIVABLES_SCAN_INTERVAL};
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
@@ -337,10 +337,8 @@ impl BootstrapperConfig {
             log_level: LevelFilter::Off,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(DEFAULT_PAYABLE_SCAN_INTERVAL),
-                payment_received_scan_interval: Duration::from_secs(
-                    DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
-                ),
+                payables_scan_interval: Duration::from_secs(DEFAULT_PAYABLES_SCAN_INTERVAL),
+                receivables_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLES_SCAN_INTERVAL),
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],

@@ -201,7 +201,7 @@ mod tests {
             is_decentralized: false,
             crashable: false,
         });
-        let subject_addr: Addr<Hopper> = subject.start();
+        let subject_addr = subject.start();
 
         subject_addr.try_send(inbound_client_data).unwrap();
 
@@ -242,7 +242,7 @@ mod tests {
             is_decentralized: false,
             crashable: false,
         });
-        let subject_addr: Addr<Hopper> = subject.start();
+        let subject_addr = subject.start();
 
         subject_addr.try_send(incipient_package).unwrap();
 
