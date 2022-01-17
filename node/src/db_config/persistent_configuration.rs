@@ -184,12 +184,29 @@ pub struct PersistentConfigurationReal {
 
 impl PersistentConfiguration for PersistentConfigurationReal {
     fn balance_decreases_for_sec(&self) -> Result<u64, PersistentConfigError> {
-        todo!()
+        match decode_u64(self.dao.get("balance_decreases_for_sec")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
     }
 
     fn set_balance_decreases_for_sec(
         &mut self,
         decrease: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("balance_to_decrease_from_gwei")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn set_balance_to_decrease_from_gwei(
+        &mut self,
+        level: u64,
     ) -> Result<(), PersistentConfigError> {
         todo!()
     }
@@ -285,31 +302,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(writer.commit()?)
     }
 
-    fn gas_price(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("gas_price")?.value_opt) {
-            Ok(val) => Ok(val.expect("ever-supplied value missing; database is corrupt!")),
-            Err(e) => Err(PersistentConfigError::from(e)),
-        }
-    }
-
-    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("gas_price", encode_u64(Some(gas_price))?)?;
-        Ok(writer.commit()?)
-    }
-
-    fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError> {
-        Ok(decode_bytes(self.scl.decrypt(
-            self.dao.get("seed")?,
-            Some(db_password.to_string()),
-            &self.dao,
-        )?)?)
-    }
-
-    fn mnemonic_seed_exists(&self) -> Result<bool, PersistentConfigError> {
-        Ok(self.dao.get("seed")?.value_opt.is_some())
-    }
-
     fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError> {
         let path_rec = self.dao.get("consuming_wallet_derivation_path")?;
         Ok(path_rec.value_opt)
@@ -330,6 +322,262 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError> {
         Ok(self.dao.get("earning_wallet_address")?.value_opt)
+    }
+
+    fn exit_byte_rate(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("exit_byte_rate")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn set_exit_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn exit_service_rate(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("exit_service_rate")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn set_exit_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn gas_price(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("gas_price")?.value_opt) {
+            Ok(val) => Ok(val.expect("ever-supplied value missing; database is corrupt!")),
+            Err(e) => Err(PersistentConfigError::from(e)),
+        }
+    }
+
+    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        writer.set("gas_price", encode_u64(Some(gas_price))?)?;
+        Ok(writer.commit()?)
+    }
+
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
+        self.dao
+            .get("mapping_protocol")?
+            .value_opt
+            .map(|val| val.into())
+            .wrap_to_ok()
+    }
+
+    fn set_mapping_protocol(
+        &mut self,
+        value: AutomapProtocol,
+    ) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        writer.set("mapping_protocol", Some(value.to_string()))?;
+        Ok(writer.commit()?)
+    }
+
+    fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError> {
+        Ok(decode_bytes(self.scl.decrypt(
+            self.dao.get("seed")?,
+            Some(db_password.to_string()),
+            &self.dao,
+        )?)?)
+    }
+
+    fn mnemonic_seed_exists(&self) -> Result<bool, PersistentConfigError> {
+        Ok(self.dao.get("seed")?.value_opt.is_some())
+    }
+
+    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
+        Ok(NeighborhoodModeLight::from_str(
+            self.dao
+                .get("neighborhood_mode")?
+                .value_opt
+                .expect("ever-supplied value neighborhood_mode is missing; database is corrupt!")
+                .as_str(),
+        )
+        .expect("value that cannot be interpreted - database corrupt!"))
+    }
+
+    fn set_neighborhood_mode(
+        &mut self,
+        value: NeighborhoodModeLight,
+    ) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        writer.set("neighborhood_mode", Some(value.to_string()))?;
+        Ok(writer.commit()?)
+    }
+
+    fn past_neighbors(
+        &self,
+        db_password: &str,
+    ) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError> {
+        let bytes_opt = decode_bytes(self.scl.decrypt(
+            self.dao.get("past_neighbors")?,
+            Some(db_password.to_string()),
+            &self.dao,
+        )?)?;
+        match bytes_opt {
+            None => Ok (None),
+            Some (bytes) => Ok(Some(serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(bytes.as_slice())
+                .expect ("Can't continue; past neighbors configuration is corrupt and cannot be deserialized."))),
+        }
+    }
+
+    fn set_past_neighbors(
+        &mut self,
+        node_descriptors_opt: Option<Vec<NodeDescriptor>>,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        let plain_data_opt = node_descriptors_opt.map(|node_descriptors| {
+            PlainData::new(
+                &serde_cbor::ser::to_vec(&node_descriptors).expect("Serialization failed"),
+            )
+        });
+        let mut writer = self.dao.start_transaction()?;
+        writer.set(
+            "past_neighbors",
+            self.scl.encrypt(
+                "past_neighbors",
+                encode_bytes(plain_data_opt)?,
+                Some(db_password.to_string()),
+                &writer,
+            )?,
+        )?;
+        Ok(writer.commit()?)
+    }
+
+    fn payable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("payable_scan_interval")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn set_payable_scan_interval(
+        &mut self,
+        interval_sec: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn payment_grace_before_ban_sec(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("payment_grace_before_ban_sec")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn set_payment_grace_before_ban_sec(
+        &mut self,
+        period_sec: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn payment_suggested_after_sec(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("payment_suggested_after_sec")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn set_payment_suggested_after_sec(
+        &mut self,
+        period: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("pending_payment_scan_interval")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn set_pending_payment_scan_interval(
+        &mut self,
+        interval_sec: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn permanent_debt_allowed_gwei(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("permanent_debt_allowed_gwei")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn set_permanent_debt_allowed_gwei(
+        &mut self,
+        debt_amount: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn receivable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("receivable_scan_interval")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn set_receivable_scan_interval(
+        &mut self,
+        interval_sec: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("routing_byte_rate")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<u64, PersistentConfigError> {
+        todo!()
+    }
+
+    fn routing_service_rate(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("routing_service_rate")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn set_routing_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
+        todo!()
+    }
+
+    fn start_block(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("start_block")?.value_opt) {
+            Ok(val) => Ok(val.expect("ever-supplied value missing; database is corrupt!")),
+            Err(e) => Err(PersistentConfigError::from(e)),
+        }
+    }
+
+    fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        writer.set("start_block", encode_u64(Some(value))?)?;
+        Ok(writer.commit()?)
+    }
+
+    fn unban_when_balance_below_gwei(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("unban_when_balance_below_gwei")?.value_opt)? {
+            None => panic!("ever-supplied value missing; database is corrupt!"),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn set_unban_when_balance_below_gwei(
+        &mut self,
+        level: u64,
+    ) -> Result<(), PersistentConfigError> {
+        todo!()
     }
 
     fn set_wallet_info(
@@ -403,251 +651,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             Some(earning_wallet_address.to_string()),
         )?;
         Ok(writer.commit()?)
-    }
-
-    fn past_neighbors(
-        &self,
-        db_password: &str,
-    ) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError> {
-        let bytes_opt = decode_bytes(self.scl.decrypt(
-            self.dao.get("past_neighbors")?,
-            Some(db_password.to_string()),
-            &self.dao,
-        )?)?;
-        match bytes_opt {
-            None => Ok (None),
-            Some (bytes) => Ok(Some(serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(bytes.as_slice())
-                .expect ("Can't continue; past neighbors configuration is corrupt and cannot be deserialized."))),
-        }
-    }
-
-    fn set_past_neighbors(
-        &mut self,
-        node_descriptors_opt: Option<Vec<NodeDescriptor>>,
-        db_password: &str,
-    ) -> Result<(), PersistentConfigError> {
-        let plain_data_opt = node_descriptors_opt.map(|node_descriptors| {
-            PlainData::new(
-                &serde_cbor::ser::to_vec(&node_descriptors).expect("Serialization failed"),
-            )
-        });
-        let mut writer = self.dao.start_transaction()?;
-        writer.set(
-            "past_neighbors",
-            self.scl.encrypt(
-                "past_neighbors",
-                encode_bytes(plain_data_opt)?,
-                Some(db_password.to_string()),
-                &writer,
-            )?,
-        )?;
-        Ok(writer.commit()?)
-    }
-
-    fn start_block(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("start_block")?.value_opt) {
-            Ok(val) => Ok(val.expect("ever-supplied value missing; database is corrupt!")),
-            Err(e) => Err(PersistentConfigError::from(e)),
-        }
-    }
-
-    fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("start_block", encode_u64(Some(value))?)?;
-        Ok(writer.commit()?)
-    }
-
-    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
-        self.dao
-            .get("mapping_protocol")?
-            .value_opt
-            .map(|val| val.into())
-            .wrap_to_ok()
-    }
-
-    fn set_mapping_protocol(
-        &mut self,
-        value: AutomapProtocol,
-    ) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("mapping_protocol", Some(value.to_string()))?;
-        Ok(writer.commit()?)
-    }
-
-    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
-        Ok(NeighborhoodModeLight::from_str(
-            self.dao
-                .get("neighborhood_mode")?
-                .value_opt
-                .expect("ever-supplied value neighborhood_mode is missing; database is corrupt!")
-                .as_str(),
-        )
-        .expect("value that cannot be interpreted - database corrupt!"))
-    }
-
-    fn set_neighborhood_mode(
-        &mut self,
-        value: NeighborhoodModeLight,
-    ) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("neighborhood_mode", Some(value.to_string()))?;
-        Ok(writer.commit()?)
-    }
-
-    fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("balance_to_decrease_from_gwei")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
-            Some(rate) => Ok(rate),
-        }
-    }
-
-    fn set_balance_to_decrease_from_gwei(
-        &mut self,
-        level: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn exit_byte_rate(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("exit_byte_rate")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
-            Some(rate) => Ok(rate),
-        }
-    }
-
-    fn set_exit_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn exit_service_rate(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("exit_service_rate")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
-            Some(rate) => Ok(rate),
-        }
-    }
-
-    fn set_exit_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn payable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("payable_scan_interval")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
-            Some(rate) => Ok(rate),
-        }
-    }
-
-    fn set_payable_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn payment_grace_before_ban_sec(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("payment_grace_before_ban_sec")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
-            Some(rate) => Ok(rate),
-        }
-    }
-
-    fn set_payment_grace_before_ban_sec(
-        &mut self,
-        period_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("pending_payment_scan_interval")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
-            Some(rate) => Ok(rate),
-        }
-    }
-
-    fn set_pending_payment_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn permanent_debt_allowed_gwei(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("permanent_debt_allowed_gwei")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
-            Some(rate) => Ok(rate),
-        }
-    }
-
-    fn set_permanent_debt_allowed_gwei(
-        &mut self,
-        debt_amount: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn receivable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("receivable_scan_interval")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
-            Some(rate) => Ok(rate),
-        }
-    }
-
-    fn set_receivable_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("routing_byte_rate")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
-            Some(rate) => Ok(rate),
-        }
-    }
-
-    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<u64, PersistentConfigError> {
-        todo!()
-    }
-
-    fn routing_service_rate(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("routing_service_rate")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
-            Some(rate) => Ok(rate),
-        }
-    }
-
-    fn set_routing_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn unban_when_balance_below_gwei(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("unban_when_balance_below_gwei")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
-            Some(rate) => Ok(rate),
-        }
-    }
-
-    fn set_unban_when_balance_below_gwei(
-        &mut self,
-        level: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
-    }
-
-    fn payment_suggested_after_sec(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("payment_suggested_after_sec")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
-            Some(rate) => Ok(rate),
-        }
-    }
-
-    fn set_payment_suggested_after_sec(
-        &mut self,
-        period: u64,
-    ) -> Result<(), PersistentConfigError> {
-        todo!()
     }
 }
 
@@ -2064,6 +2067,11 @@ mod tests {
     #[test]
     fn exit_service_rate_works() {
         persistent_config_assertion_for_simple_get_method!("exit_service_rate", 9);
+    }
+
+    #[test]
+    fn balance_decrease_for_sec_works() {
+        persistent_config_assertion_for_simple_get_method!("balance_decreases_for_sec", 1234);
     }
 
     #[test]

@@ -104,6 +104,7 @@ pub fn quad_tests_computed_default_body(args: Vec<&str>) -> TokenStream {
             .{nm}_result(Ok(({dfl} + 555) as u64));
         let mut bootstrapper_config = BootstrapperConfig::new();
         let mut fundamental_default = {fd}.clone();
+        //this line supplies a bootstrapper value diff from the persistent one
         {cs}
         bootstrapper_config.{bcd} = Some({conv});
 

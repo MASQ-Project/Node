@@ -44,6 +44,7 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+//TODO get this back out
 lazy_static! {
     //should stay private
     static ref SETUP_REPORTER_LOGGER: Logger = Logger::new("SetupReporter");
@@ -300,7 +301,7 @@ impl SetupReporterReal {
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
-        eprintln!("{:?}", bootstrapper_config.rate_pack_opt);
+eprintln!("{:?}", bootstrapper_config.rate_pack_opt);
         let mut setup = value_retrievers(dirs_wrapper)
             .into_iter()
             .map(|r| {
@@ -317,6 +318,7 @@ impl SetupReporterReal {
                 (r.value_name().to_string(), value)
             })
             .collect::<SetupCluster>();
+eprintln!("{:?}",bootstrapper_config);
         match setup.get_mut("config-file") {
             // special case because of early processing
             Some(uisrv) if &uisrv.value == "config.toml" => uisrv.status = Default,
@@ -805,6 +807,15 @@ impl ValueRetriever for Neighbors {
     }
 }
 
+struct BalanceDecreasesForSec {}
+impl ValueRetriever for BalanceDecreasesForSec{
+    fn value_name(&self) -> &'static str {
+        "balance_decreases_for_sec"
+    }
+
+    payment_curve_params_computed_default_and_is_required!("balance_decreases_for_sec");
+}
+
 struct BalanceToDecreaseFromGwei {}
 impl ValueRetriever for BalanceToDecreaseFromGwei {
     fn value_name(&self) -> &'static str {
@@ -975,6 +986,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(LogLevel {}),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
+        Box::new(BalanceDecreasesForSec {}),
         Box::new(BalanceToDecreaseFromGwei {}),
         Box::new(ExitByteRate {}),
         Box::new(ExitServiceRate {}),
@@ -992,7 +1004,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
     ]
 }
 
-fn computed_default_payment_curves_rate_pack_scan_intervals<T>(
+fn computed_default_payment_curves_and_scan_intervals<T>(
     bootstrapper_config_value_opt: &Option<T>,
     persistent_config_value_opt: &Option<T>,
     default: T,
@@ -1005,9 +1017,31 @@ where
         (None, Some(val)) if val == &default => Some((val.to_string(), Default)),
         (None, Some(val)) => Some((val.to_string(), Configured)),
         (Some(bc_val), Some(pc_val)) if bc_val == pc_val => {
-            unimplemented!("this should say 'Configured'")
-        } //TODO add this in and change the quad tests if necessary, but maybe this function should be different for rate pack and the other parameters
-        _ => None,
+            unimplemented!("not rate pack 'Configured'")
+        } //TODO the next probably can never happen
+        _ => unimplemented!(), //None
+    }
+}
+
+//rewrite the ending part
+//(Some(), Some()) =>
+
+// x => closure(x)
+
+fn computed_default_rate_pack(
+    bootstrapper_config_value_opt: &Option<u64>,
+    persistent_config_value_opt: &Option<u64>,
+    default: u64,
+) -> Option<(String, UiSetupResponseValueStatus)>{
+    match (bootstrapper_config_value_opt, persistent_config_value_opt) {
+        (None, None) => Some((default.to_string(), Default)),
+        (None, Some(val)) if val == &default => Some((val.to_string(), Default)), //Wrong
+        (None, Some(val)) => Some((val.to_string(), Configured)), //Wrong
+        (Some(bc_val), Some(pc_val)) if bc_val == pc_val && bc_val == &default => {
+            Some((bc_val.to_string(),Default))//unimplemented!("this should say 'Configured'")
+        },
+        (Some(bc_val), Some(pc_val)) if bc_val == pc_val => unimplemented!("1111111111"),
+        _ => None
     }
 }
 
@@ -1031,7 +1065,7 @@ macro_rules! payment_curve_params_computed_default_and_is_required {
                         .[<$field_name>]()
                         .expectv($field_name) as i64
                 });
-                computed_default_payment_curves_rate_pack_scan_intervals(
+                computed_default_payment_curves_and_scan_intervals(
                     &bootstrapper_value_opt,
                     &pc_value_opt,
                     DEFAULT_PAYMENT_CURVES.[<$field_name>],
@@ -1062,7 +1096,7 @@ macro_rules! scan_interval_params_computed_default_and_is_required {
                         .[<$field_name>]()
                         .expectv($field_name)
                 });
-                computed_default_payment_curves_rate_pack_scan_intervals(
+                computed_default_payment_curves_and_scan_intervals(
                     &bootstrapper_value_opt,
                     &pc_value_opt,
                     $default,
@@ -1092,7 +1126,7 @@ macro_rules! rate_pack_params_computed_default_and_is_required {
                         .[<$field_name>]()
                         .expectv($field_name)
                 });
-                computed_default_payment_curves_rate_pack_scan_intervals(
+                computed_default_rate_pack(
                     &bootstrapper_value_opt,
                     &pc_value_opt,
                     DEFAULT_RATE_PACK.[<$field_name>],
@@ -3078,6 +3112,14 @@ mod tests {
         accountant_config.receivable_scan_interval_opt,
         u64,
         Duration
+    );
+
+    proc_macros::quad_tests_computed_default!(
+        balance_decreases_for_sec,
+        DEFAULT_PAYMENT_CURVES.,
+        accountant_config.payment_curves_opt,
+        u64,
+        u64
     );
 
     proc_macros::quad_tests_computed_default!(

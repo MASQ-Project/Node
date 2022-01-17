@@ -226,7 +226,7 @@ pub fn ui_port_arg(help: &str) -> Arg {
         .help(help)
 }
 
-fn ordinary_parameter_with_u64_values(name: &str) -> Arg {
+fn common_parameter_with_u64_values(name: &str) -> Arg {
     Arg::with_name(name)
         .long(name)
         .value_name(Box::leak(name.to_uppercase().into_boxed_str()))
@@ -342,28 +342,29 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(NEIGHBORS_HELP),
     )
     .arg(real_user_arg())
-    .arg(ordinary_parameter_with_u64_values(
+    .arg(common_parameter_with_u64_values("balance-decreases-for"))
+    .arg(common_parameter_with_u64_values(
         "balance-to-decrease-from",
     ))
-    .arg(ordinary_parameter_with_u64_values("exit-byte-rate"))
-    .arg(ordinary_parameter_with_u64_values("exit-service-rate"))
-    .arg(ordinary_parameter_with_u64_values("payable-scan-interval"))
-    .arg(ordinary_parameter_with_u64_values(
+    .arg(common_parameter_with_u64_values("exit-byte-rate"))
+    .arg(common_parameter_with_u64_values("exit-service-rate"))
+    .arg(common_parameter_with_u64_values("payable-scan-interval"))
+    .arg(common_parameter_with_u64_values(
         "payment-suggested-after",
     ))
-    .arg(ordinary_parameter_with_u64_values(
+    .arg(common_parameter_with_u64_values(
         "payment-grace-before-ban",
     ))
-    .arg(ordinary_parameter_with_u64_values(
+    .arg(common_parameter_with_u64_values(
         "pending-payment-scan-interval",
     ))
-    .arg(ordinary_parameter_with_u64_values("permanent-debt-allowed"))
-    .arg(ordinary_parameter_with_u64_values(
+    .arg(common_parameter_with_u64_values("permanent-debt-allowed"))
+    .arg(common_parameter_with_u64_values(
         "receivable-scan-interval",
     ))
-    .arg(ordinary_parameter_with_u64_values("routing-byte-rate"))
-    .arg(ordinary_parameter_with_u64_values("routing-service-rate"))
-    .arg(ordinary_parameter_with_u64_values(
+    .arg(common_parameter_with_u64_values("routing-byte-rate"))
+    .arg(common_parameter_with_u64_values("routing-service-rate"))
+    .arg(common_parameter_with_u64_values(
         "unban-when-balance-below",
     ))
 }

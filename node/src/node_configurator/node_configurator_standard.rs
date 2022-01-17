@@ -259,6 +259,7 @@ pub fn unprivileged_parse_args(
                 None => 1,
             }
         };
+    configure_accountant_config(multi_config,unprivileged_config,persistent_config_opt.as_ref().map(|config|&**config))?;
     configure_rate_pack(
         multi_config,
         unprivileged_config,
@@ -278,33 +279,45 @@ fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
     multi_config.deref().occurrences_of(parameter) > 0
 }
 
+fn configure_accountant_config(
+    multi_config: &MultiConfig,
+    config: &mut BootstrapperConfig,
+    persistent_conf_opt: Option<&dyn PersistentConfiguration>
+)->Result<(), ConfiguratorError>{
+    unimplemented!()
+}
+
+fn configure_scan_interval(){
+    unimplemented!()
+}
+
 fn configure_rate_pack(
     multi_config: &MultiConfig,
     config: &mut BootstrapperConfig,
-    persist_conf_opt: Option<&dyn PersistentConfiguration>,
+    pc_opt: Option<&dyn PersistentConfiguration>,
 ) -> Result<(), ConfiguratorError> {
     let routing_byte_rate = configure_single_rate(
         multi_config,
         "routing-byte-rate",
-        persist_conf_opt.map(|persist_conf| Box::new(|| persist_conf.routing_byte_rate())),
+        pc_opt.map(|persist_conf| Box::new(|| persist_conf.routing_byte_rate())),
         DEFAULT_RATE_PACK.routing_byte_rate,
     )?;
     let routing_service_rate = configure_single_rate(
         multi_config,
         "routing-service-rate",
-        persist_conf_opt.map(|persist_conf| Box::new(|| persist_conf.routing_service_rate())),
+        pc_opt.map(|persist_conf| Box::new(|| persist_conf.routing_service_rate())),
         DEFAULT_RATE_PACK.routing_service_rate,
     )?;
     let exit_byte_rate = configure_single_rate(
         multi_config,
         "exit-byte-rate",
-        persist_conf_opt.map(|persist_conf| Box::new(|| persist_conf.exit_byte_rate())),
+        pc_opt.map(|persist_conf| Box::new(|| persist_conf.exit_byte_rate())),
         DEFAULT_RATE_PACK.exit_byte_rate,
     )?;
     let exit_service_rate = configure_single_rate(
         multi_config,
         "exit-service-rate",
-        persist_conf_opt.map(|persist_conf| Box::new(|| persist_conf.exit_service_rate())),
+        pc_opt.map(|persist_conf| Box::new(|| persist_conf.exit_service_rate())),
         DEFAULT_RATE_PACK.exit_service_rate,
     )?;
     let configured = RatePack {
@@ -366,10 +379,9 @@ pub fn configure_database(
     }
     if let Some(url) = config
         .blockchain_bridge_config
-        .blockchain_service_url_opt
-        .clone()
+        .blockchain_service_url_opt.as_ref()
     {
-        if let Err(pce) = persistent_config.set_blockchain_service_url(url.as_str()) {
+        if let Err(pce) = persistent_config.set_blockchain_service_url(url) {
             return Err(pce.into_configurator_error("blockchain-service-url"));
         }
     }
@@ -812,6 +824,9 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use masq_lib::payment_curves_and_rate_pack::PaymentCurves;
+    use crate::sub_lib::accountant::AccountantConfig;
 
     #[test]
     fn get_wallets_handles_consuming_private_key_and_earning_wallet_address_when_database_contains_mnemonic_seed(
@@ -2386,11 +2401,71 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_configures_rate_pack_database_ignored() {
+    fn unprivileged_parse_args_configures_accountant_config_database_ignored() {
         running_test();
         let home_directory = ensure_node_home_directory_exists(
             "node_configurator",
-            "unprivileged_parse_args_configures_rate_pack_database_ignored",
+            "unprivileged_parse_args_configures_accountant_config_database_ignored",
+        );
+        let args = [
+            "MASQNode",
+            "--ip",
+            "1.2.3.4",
+            "--data-directory",
+            home_directory.to_str().unwrap(),
+            "--pending-payment-scan-interval",
+            "180",
+            "--payable-scan-interval",
+            "150",
+            "--receivable-scan-interval",
+            "130",
+            "--payment-grace-before-ban",
+            "1000",
+            "--payment-suggested-after",
+            "1000",
+            "--permanent-debt-allowed",
+            "20000",
+            "--balance-to-decrease-from",
+            "100000",
+            "--unban-when-balance-below",
+            "20000",
+            "--balance-decreases-for",
+            "1000"
+        ];
+        let mut config = BootstrapperConfig::new();
+        let multi_config = make_simplified_multi_config(args);
+        let mut persistent_configuration = make_default_persistent_configuration();
+
+        unprivileged_parse_args(
+            &multi_config,
+            &mut config,
+            Some(&mut persistent_configuration),
+        )
+            .unwrap();
+
+        let actual_rate_pack = config.accountant_config;
+        let expected_rate_pack = AccountantConfig {
+            pending_payment_scan_interval_opt: Some(Duration::from_secs(180)),
+            payable_scan_interval_opt: Some(Duration::from_secs(150)),
+            receivable_scan_interval_opt: Some(Duration::from_secs(130)),
+            payment_curves_opt: Some(PaymentCurves{
+                payment_suggested_after_sec: 1000,
+                payment_grace_before_ban_sec: 1000,
+                permanent_debt_allowed_gwei: 20000,
+                balance_to_decrease_from_gwei: 100000,
+                balance_decreases_for_sec: 1000,
+                unban_when_balance_below_gwei: 20000
+            })
+        };
+        assert_eq!(actual_rate_pack, expected_rate_pack)
+    }
+
+    #[test]
+    fn unprivileged_parse_args_configures_rate_pack_database_values_ignored() {
+        running_test();
+        let home_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "unprivileged_parse_args_configures_rate_pack_database_values_ignored",
         );
         let args = [
             "MASQNode",
