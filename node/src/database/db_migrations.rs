@@ -240,10 +240,7 @@ impl DatabaseMigration for Migrate_2_to_3 {
             "INSERT INTO config (name, value, encrypted) VALUES ('blockchain_service_url', null, 0)";
         let statement_2 = format!(
             "INSERT INTO config (name, value, encrypted) VALUES ('neighborhood_mode', '{}', 0)",
-            declaration_utils
-                .external_parameters()
-                .neighborhood_mode
-                .to_string()
+            declaration_utils.external_parameters().neighborhood_mode
         );
         declaration_utils.execute_upon_transaction(&[statement_1, statement_2.as_str()])
     }
