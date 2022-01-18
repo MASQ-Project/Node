@@ -1,12 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::server_initializer::real_format_function;
-use crate::test_utils::to_millis;
+use crate::test_utils::fake_stream_holder::ByteArrayWriter;
+use crate::test_utils::utils::{real_format_function, to_millis};
 use chrono::DateTime;
+use lazy_static::lazy_static;
 use log::set_logger;
 use log::Log;
 use log::Metadata;
 use log::Record;
-use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
 use regex::Regex;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -14,7 +14,11 @@ use std::thread;
 use std::time::Instant;
 use std::time::{Duration, SystemTime};
 
-static mut TEST_LOGS_ARC: Option<Arc<Mutex<Vec<String>>>> = None;
+lazy_static! {
+    static ref TEST_LOGS_ARC: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
+}
+
+// static mut TEST_LOGS_ARC: Option<Arc<Mutex<Vec<String>>>> = None;
 static TEST_LOGGER: TestLogger = TestLogger {};
 
 #[derive(Default)]
@@ -48,14 +52,10 @@ impl TestLogHandler {
     }
 
     pub fn add_log(&self, log: String) {
-        unsafe {
-            TEST_LOGS_ARC
-                .as_ref()
-                .unwrap()
-                .lock()
-                .expect("TestLogHandler is poisoned in add_log")
-                .push(log)
-        }
+        TEST_LOGS_ARC
+            .lock()
+            .expect("TestLogHandler is poisoned in add_log")
+            .push(log)
     }
 
     pub fn exists_log_matching(&self, pattern: &str) -> usize {
@@ -160,22 +160,10 @@ impl TestLogHandler {
         self.get_logs()[index].clone()
     }
 
-    pub fn logs_initialized(&self) -> bool {
-        unsafe { TEST_LOGS_ARC.is_some() }
-    }
-
-    pub fn initialize_logs(&self) {
-        unsafe { TEST_LOGS_ARC = Some(Arc::new(Mutex::new(vec![]))) }
-    }
-
     fn get_logs(&self) -> MutexGuard<'_, Vec<String>> {
-        unsafe {
-            TEST_LOGS_ARC
-                .as_ref()
-                .expect("Test Logging in not initialized; please call `init_test_logging`")
-                .lock()
-                .expect("TestLogHandler is poisoned in get_logs")
-        }
+        TEST_LOGS_ARC
+            .lock()
+            .expect("TestLogHandler is poisoned in get_logs")
     }
 
     fn list_logs(&self) -> String {
@@ -245,20 +233,7 @@ impl TestLogHandler {
 }
 
 pub fn init_test_logging() -> bool {
-    let tlh = TestLogHandler::new();
-
-    if tlh.logs_initialized() {
-        true
-    } else {
-        tlh.initialize_logs();
-        match set_logger(&TEST_LOGGER) {
-            Ok(_) => true,
-            Err(e) => {
-                eprintln!("Couldn't set logger: {:?}", e);
-                false
-            }
-        }
-    }
+    set_logger(&TEST_LOGGER).is_ok()
 }
 
 #[derive(Clone, Default)]

@@ -7,7 +7,6 @@ use crate::sub_lib::cryptde::{decodex, encodex, CodexError, CryptDE, CryptData, 
 use crate::sub_lib::dispatcher::{Component, Endpoint, InboundClientData};
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperSubs, MessageType};
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::{GossipFailure_0v1, NeighborhoodSubs};
 use crate::sub_lib::proxy_client::{
     ClientResponsePayload_0v1, DnsResolveFailure_0v1, ProxyClientSubs,
@@ -15,6 +14,7 @@ use crate::sub_lib::proxy_client::{
 use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyServerSubs};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
+use masq_lib::logger::Logger;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
@@ -524,7 +524,6 @@ mod tests {
     use crate::sub_lib::route::{Route, RouteSegment};
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::{
         alias_cryptde, main_cryptde, make_meaningless_message_type, make_meaningless_stream_key,
@@ -534,6 +533,7 @@ mod tests {
     };
     use actix::System;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::SocketAddr;
     use std::str::FromStr;

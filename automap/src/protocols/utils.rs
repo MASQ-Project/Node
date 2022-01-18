@@ -1,12 +1,13 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::any::Any;
+use std::fmt::Debug;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Direction {
-    Request,
-    Response,
+    Request,  // 0
+    Response, // 1
 }
 
 impl From<u8> for Direction {
@@ -28,13 +29,13 @@ impl Direction {
     }
 }
 
-pub trait OpcodeData {
+pub trait OpcodeData: Debug {
     fn marshal(&self, direction: Direction, buf: &mut [u8]) -> Result<(), MarshalError>;
     fn len(&self, direction: Direction) -> usize;
     fn as_any(&self) -> &dyn Any;
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Default, PartialEq, Debug)]
 pub struct UnrecognizedData {}
 
 impl OpcodeData for UnrecognizedData {
@@ -51,10 +52,9 @@ impl OpcodeData for UnrecognizedData {
     }
 }
 
-#[allow(clippy::new_without_default)]
 impl UnrecognizedData {
-    pub fn new() -> UnrecognizedData {
-        UnrecognizedData {}
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -66,6 +66,7 @@ pub trait Packet {
 pub enum ParseError {
     WrongVersion(u8),
     ShortBuffer(usize, usize),
+    UnexpectedOpcode(String),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -135,13 +136,6 @@ pub fn ipv4_addr_into(buf: &mut [u8], offset: usize, value: &Ipv4Addr) {
     let octets = value.octets();
     buf[offset..(4 + offset)].clone_from_slice(&octets[..4]);
 }
-pub const MAIN_HEADER: &str = "\
-+---------------------------------------------------------------------------------+
-|                 3 protocol tests are finishing in a few seconds                 |
-+---------------------------------------------------------------------------------+";
-pub const PMP_HEADER: &str = "Summary of testing PMP protocol on your device:";
-pub const PCP_HEADER: &str = "Summary of testing PCP protocol on your device:";
-pub const IGDP_HEADER: &str = "Summary of testing IGDP/UPnP on your device:";
 
 #[cfg(test)]
 mod tests {

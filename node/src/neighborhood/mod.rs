@@ -22,7 +22,7 @@ use itertools::Itertools;
 use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::UiShutdownRequest;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::exit_process;
+use masq_lib::utils::{exit_process, ExpectValue};
 
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -40,7 +40,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
@@ -53,7 +52,7 @@ use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
+use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
@@ -68,7 +67,7 @@ use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
-use masq_lib::utils::ExpectValue;
+use masq_lib::logger::Logger;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
@@ -78,7 +77,7 @@ pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
     hopper: Option<Recipient<IncipientCoresPackage>>,
     hopper_no_lookup: Option<Recipient<NoLookupIncipientCoresPackage>>,
-    is_connected: bool,
+    is_connected_to_min_hop_count_radius: bool,
     connected_signal: Option<Recipient<StartMessage>>,
     _to_ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     gossip_acceptor: Box<dyn GossipAcceptor>,
@@ -115,6 +114,14 @@ impl Handler<StartMessage> for Neighborhood {
 
     fn handle(&mut self, _msg: StartMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.handle_start_message();
+    }
+}
+
+impl Handler<NewPublicIp> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_new_public_ip(msg);
     }
 }
 
@@ -363,11 +370,11 @@ impl Neighborhood {
             hopper_no_lookup: None,
             connected_signal: None,
             _to_ui_message_sub: None,
-            is_connected: false,
+            is_connected_to_min_hop_count_radius: false,
             gossip_acceptor,
             gossip_producer,
             neighborhood_database,
-            consuming_wallet_opt: config.consuming_wallet.clone(),
+            consuming_wallet_opt: config.consuming_wallet_opt.clone(),
             next_return_route_id: 0,
             initial_neighbors,
             chain: config.blockchain_bridge_config.chain,
@@ -383,6 +390,7 @@ impl Neighborhood {
         NeighborhoodSubs {
             bind: addr.clone().recipient::<BindMessage>(),
             start: addr.clone().recipient::<StartMessage>(),
+            new_public_ip: addr.clone().recipient::<NewPublicIp>(),
             node_query: addr.clone().recipient::<NodeQueryMessage>(),
             route_query: addr.clone().recipient::<RouteQueryMessage>(),
             update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
@@ -402,6 +410,21 @@ impl Neighborhood {
     fn handle_start_message(&mut self) {
         self.connect_database();
         self.send_debut_gossip();
+    }
+
+    fn handle_new_public_ip(&mut self, msg: NewPublicIp) {
+        let new_public_ip = msg.new_ip;
+        let old_public_ip = self
+            .neighborhood_database
+            .root()
+            .node_addr_opt()
+            .expectv("Root node")
+            .ip_addr();
+        self.neighborhood_database.new_public_ip(new_public_ip);
+        info!(
+            self.logger,
+            "Changed public IP from {} to {}", old_public_ip, new_public_ip
+        );
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
@@ -673,7 +696,7 @@ impl Neighborhood {
     }
 
     fn check_connectedness(&mut self) {
-        if self.is_connected {
+        if self.is_connected_to_min_hop_count_radius {
             return;
         }
         let msg = RouteQueryMessage {
@@ -683,7 +706,7 @@ impl Neighborhood {
             return_component_opt: Some(Component::ProxyServer),
         };
         if self.handle_route_query_message(msg).is_some() {
-            self.is_connected = true;
+            self.is_connected_to_min_hop_count_radius = true;
             self.connected_signal
                 .as_ref()
                 .expect("Accountant was not bound")
@@ -1263,8 +1286,6 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::test_utils::assert_contains;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{
@@ -1282,6 +1303,7 @@ mod tests {
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     #[test]
     #[should_panic(
@@ -2806,7 +2828,7 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        assert_eq!(subject.is_connected, false);
+        assert_eq!(subject.is_connected_to_min_hop_count_radius, false);
     }
 
     #[test]
@@ -2818,7 +2840,7 @@ mod tests {
         subject.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {
             replacement_database,
         });
-        subject.is_connected = true;
+        subject.is_connected_to_min_hop_count_radius = true;
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -2830,7 +2852,7 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        assert_eq!(subject.is_connected, true);
+        assert_eq!(subject.is_connected_to_min_hop_count_radius, true);
     }
 
     #[test]
@@ -2854,7 +2876,7 @@ mod tests {
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
         ));
-        subject.is_connected = false;
+        subject.is_connected_to_min_hop_count_radius = false;
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -2866,7 +2888,7 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
-        assert_eq!(subject.is_connected, true);
+        assert_eq!(subject.is_connected_to_min_hop_count_radius, true);
     }
 
     struct NeighborReplacementGossipAcceptor {
@@ -3054,6 +3076,31 @@ mod tests {
         subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
         TestLogHandler::new().exists_log_containing("ERROR: Neighborhood: Could not persist immediate-neighbor changes: DatabaseError(\"Booga\")");
+    }
+
+    #[test]
+    fn handle_new_public_ip_changes_public_ip_and_nothing_else() {
+        init_test_logging();
+        let subject_node = make_global_cryptde_node_record(1234, true);
+        let neighbor = make_node_record(1050, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
+        let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
+
+        subject.handle_new_public_ip(NewPublicIp {
+            new_ip: new_public_ip,
+        });
+
+        assert_eq!(
+            subject
+                .neighborhood_database
+                .root()
+                .node_addr_opt()
+                .unwrap()
+                .ip_addr(),
+            new_public_ip
+        );
+        TestLogHandler::new()
+            .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
     }
 
     #[test]
@@ -4401,7 +4448,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = nc;
         config.earning_wallet = earning_wallet;
-        config.consuming_wallet = consuming_wallet_opt;
+        config.consuming_wallet_opt = consuming_wallet_opt;
         config.data_directory = home_dir;
         config
     }

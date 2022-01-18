@@ -1,11 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::stream_connector::ConnectionInfo;
 use crate::sub_lib::stream_connector::ConnectionInfoFuture;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
 use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
 use futures::future::result;
+use masq_lib::logger::Logger;
 use std::cell::RefCell;
 use std::io;
 use std::net::IpAddr;

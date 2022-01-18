@@ -339,7 +339,7 @@ pub fn bc_from_ac_plus_wallets(
 ) -> BootstrapperConfig {
     let mut bc = BootstrapperConfig::new();
     bc.accountant_config = ac;
-    bc.consuming_wallet = Some(consuming_wallet);
+    bc.consuming_wallet_opt = Some(consuming_wallet);
     bc.earning_wallet = earning_wallet;
     bc
 }

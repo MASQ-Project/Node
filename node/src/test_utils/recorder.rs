@@ -32,7 +32,7 @@ use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::peer_actors::PeerActors;
-use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
+use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, InboundServerData};
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ProxyServerSubs;
@@ -109,6 +109,7 @@ recorder_message_handler!(InboundServerData);
 recorder_message_handler!(IncipientCoresPackage);
 recorder_message_handler!(NeighborhoodDotGraphRequest);
 recorder_message_handler!(NewPasswordMessage);
+recorder_message_handler!(NewPublicIp);
 recorder_message_handler!(NodeFromUiMessage);
 recorder_message_handler!(NodeToUiMessage);
 recorder_message_handler!(NodeRecordMetadataMessage);
@@ -325,6 +326,7 @@ pub fn make_dispatcher_subs_from(addr: &Addr<Recorder>) -> DispatcherSubs {
         from_dispatcher_client: recipient!(addr, TransmitDataMsg),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         ui_sub: recipient!(addr, NodeFromUiMessage),
+        new_ip_sub: recipient!(addr, NewPublicIp),
     }
 }
 
@@ -352,6 +354,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
     NeighborhoodSubs {
         bind: recipient!(addr, BindMessage),
         start: recipient!(addr, StartMessage),
+        new_public_ip: recipient!(addr, NewPublicIp),
         node_query: recipient!(addr, NodeQueryMessage),
         route_query: recipient!(addr, RouteQueryMessage),
         update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),

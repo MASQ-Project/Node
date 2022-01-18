@@ -4,7 +4,7 @@
 
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_migrations::DbMigrator;
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use rusqlite::Connection;
 use std::cell::RefCell;
 use std::env::current_dir;

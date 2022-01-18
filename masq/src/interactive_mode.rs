@@ -409,8 +409,8 @@ mod tests {
         let time_period_when_locked = now.elapsed();
         handle.join().unwrap();
         assert!(
-            time_period_when_locked > 3 * time_period_when_loosen,
-            "{:?} is not longer than 3* {:?}",
+            time_period_when_locked > 2 * time_period_when_loosen,
+            "{:?} is not longer than 2 * {:?}",
             time_period_when_locked,
             time_period_when_loosen
         );
