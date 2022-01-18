@@ -266,7 +266,7 @@ pub fn unprivileged_parse_args(
         compute_mapping_protocol_opt(multi_config, persistent_config, logger);
     let mnc_result = {
         get_wallets(multi_config, persistent_config, unprivileged_config)?;
-        make_neighborhood_config(multi_config, Some(persistent_config), unprivileged_config)
+        make_neighborhood_config(multi_config, persistent_config, unprivileged_config)
     };
 
     mnc_result.map(|config| unprivileged_config.neighborhood_config = config)
@@ -278,7 +278,7 @@ fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
 
 pub fn configure_database(
     config: &BootstrapperConfig,
-    persistent_config: &mut (dyn PersistentConfiguration),
+    persistent_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
     if let Some(port) = config.clandestine_port_opt {
         if let Err(pce) = persistent_config.set_clandestine_port(port) {
@@ -300,6 +300,27 @@ pub fn configure_database(
     }
     if let Err(pce) = persistent_config.set_gas_price(config.blockchain_bridge_config.gas_price) {
         return Err(pce.into_configurator_error("gas-price"));
+    }
+    Ok(())
+}
+
+fn zero_hop_neighbors_configuration(
+    password_opt: Option<String>,
+    descriptors: Vec<NodeDescriptor>,
+    persistent_config: &mut dyn PersistentConfiguration,
+) -> Result<(), ConfiguratorError> {
+    match password_opt {
+        Some(password) => {
+            if let Err(e) = persistent_config.set_past_neighbors(Some(descriptors), &password) {
+                return Err(e.into_configurator_error("neighbors"));
+            }
+        }
+        None => {
+            return Err(ConfiguratorError::required(
+                "neighbors",
+                "Cannot proceed without a password",
+            ));
+        }
     }
     Ok(())
 }
@@ -341,22 +362,16 @@ pub fn get_wallets(
 
 pub fn make_neighborhood_config(
     multi_config: &MultiConfig,
-
-    persistent_config_opt: Option<&mut dyn PersistentConfiguration>,
+    persistent_config: &mut dyn PersistentConfiguration,
     unprivileged_config: &mut BootstrapperConfig,
 ) -> Result<NeighborhoodConfig, ConfiguratorError> {
     let neighbor_configs: Vec<NodeDescriptor> = {
         match convert_ci_configs(multi_config)? {
             Some(configs) => configs,
-            None => match persistent_config_opt {
-                Some(persistent_config) => {
-                    get_past_neighbors(multi_config, persistent_config, unprivileged_config)?
-                }
-                None => vec![],
-            },
+            None => get_past_neighbors(multi_config, persistent_config, unprivileged_config)?,
         }
     };
-    match make_neighborhood_mode(multi_config, neighbor_configs) {
+    match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
         Ok(mode) => Ok(NeighborhoodConfig { mode }),
         Err(e) => Err(e),
     }
@@ -415,29 +430,36 @@ fn validate_descriptors_from_user(
     dummy_cryptde: Box<dyn CryptDE>,
     desired_chain: Chain,
 ) -> Vec<Result<NodeDescriptor, ParamError>> {
-    descriptors.into_iter().map(|node_desc_from_ci| {
-        let node_desc_trimmed = node_desc_from_ci.trim();
-        match NodeDescriptor::try_from((dummy_cryptde.as_ref(), node_desc_trimmed)) {
-            Ok(descriptor) => {
-                let competence_from_descriptor = descriptor.blockchain;
-                if desired_chain == competence_from_descriptor {
-                    validate_mandatory_node_addr(node_desc_trimmed, descriptor)
-                } else {
-                    let name_of_desired_chain = desired_chain.rec().literal_identifier;
-                    Err(ParamError::new(
-                        "neighbors", &format!(
-                            "Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
-                            name_of_desired_chain, MASQ_URL_PREFIX,
-                            name_of_desired_chain,
-                            competence_from_descriptor.rec().literal_identifier
-                        )
-                    ))
-                }
-            }
-            Err(e) => ParamError::new("neighbors", &e).wrap_to_err()
+    fn validate(
+        descriptor: NodeDescriptor,
+        desired_chain: Chain,
+        str_descriptor_from_usr: &str,
+    ) -> Result<NodeDescriptor, ParamError> {
+        let nd_chain = descriptor.blockchain;
+        if desired_chain == nd_chain {
+            validate_mandatory_node_addr(str_descriptor_from_usr, descriptor)
+        } else {
+            let name_of_desired_chain = desired_chain.rec().literal_identifier;
+            Err(ParamError::new(
+                "neighbors",
+                &format!("Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
+                         name_of_desired_chain,
+                         MASQ_URL_PREFIX,
+                         name_of_desired_chain,
+                         nd_chain.rec().literal_identifier)
+            ))
         }
-    })
-    .collect_vec()
+    }
+    descriptors
+        .into_iter()
+        .map(|node_desc_from_ci| {
+            let node_desc_trimmed = node_desc_from_ci.trim();
+            match NodeDescriptor::try_from((dummy_cryptde.as_ref(), node_desc_trimmed)) {
+                Ok(descriptor) => validate(descriptor, desired_chain, node_desc_trimmed),
+                Err(e) => Err(ParamError::new("neighbors", &e)),
+            }
+        })
+        .collect()
 }
 
 fn validate_mandatory_node_addr(
@@ -557,6 +579,7 @@ fn compute_mapping_protocol_opt(
 fn make_neighborhood_mode(
     multi_config: &MultiConfig,
     neighbor_configs: Vec<NodeDescriptor>,
+    persistent_config: &mut dyn PersistentConfiguration,
 ) -> Result<NeighborhoodMode, ConfiguratorError> {
     let neighborhood_mode_opt = value_m!(multi_config, "neighborhood-mode", String);
     match neighborhood_mode_opt {
@@ -588,17 +611,20 @@ fn make_neighborhood_mode(
             }
         }
         Some(ref s) if s == "zero-hop" => {
-            if !neighbor_configs.is_empty() {
-                Err(ConfiguratorError::required(
-                    "neighborhood-mode",
-                    "Node cannot run as --neighborhood-mode zero-hop if --neighbors is specified",
-                ))
-            } else if value_m!(multi_config, "ip", IpAddr).is_some() {
+            if value_m!(multi_config, "ip", IpAddr).is_some() {
                 Err(ConfiguratorError::required(
                     "neighborhood-mode",
                     "Node cannot run as --neighborhood-mode zero-hop if --ip is specified",
                 ))
             } else {
+                if !neighbor_configs.is_empty() {
+                    let password_opt = value_m!(multi_config, "db-password", String);
+                    zero_hop_neighbors_configuration(
+                        password_opt,
+                        neighbor_configs,
+                        persistent_config,
+                    )?
+                }
                 Ok(NeighborhoodMode::ZeroHop)
             }
         }
@@ -787,6 +813,7 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+    use std::vec;
 
     #[test]
     fn get_wallets_handles_consuming_private_key_and_earning_wallet_address_when_database_contains_mnemonic_seed(
@@ -885,7 +912,7 @@ mod tests {
     fn configure_database_handles_error_during_setting_blockchain_service_url() {
         let mut config = BootstrapperConfig::new();
         config.blockchain_bridge_config.blockchain_service_url_opt =
-            Some("https://infura.io/ID".to_string()); //exact value not relevant
+            Some("https://infura.io/ID".to_string());
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_neighborhood_mode_result(Ok(()))
             .set_blockchain_service_url_result(Err(PersistentConfigError::TransactionError));
@@ -1100,7 +1127,7 @@ mod tests {
         )
         .unwrap();
         let logger = Logger::new("test");
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = PersistentConfigurationMock::new()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
@@ -1142,7 +1169,7 @@ mod tests {
         let multi_config = make_simplified_multi_config(["MASQNode", "--mapping-protocol"]);
         let logger = Logger::new("test");
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = PersistentConfigurationMock::new()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
@@ -1158,7 +1185,7 @@ mod tests {
     fn compute_mapping_protocol_does_not_resave_entry_if_no_change() {
         let multi_config = make_simplified_multi_config(["MASQNode", "--mapping-protocol", "igdp"]);
         let logger = Logger::new("test");
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = PersistentConfigurationMock::new()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
@@ -1172,7 +1199,7 @@ mod tests {
         init_test_logging();
         let multi_config = make_simplified_multi_config(["MASQNode"]);
         let logger = Logger::new("BAD_MP_READ");
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = PersistentConfigurationMock::new()
             .mapping_protocol_result(Err(PersistentConfigError::NotPresent));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
@@ -1189,7 +1216,7 @@ mod tests {
         init_test_logging();
         let multi_config = make_simplified_multi_config(["MASQNode", "--mapping-protocol", "IGDP"]);
         let logger = Logger::new("BAD_MP_WRITE");
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = PersistentConfigurationMock::new()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
             .set_mapping_protocol_result(Err(PersistentConfigError::NotPresent));
 
@@ -1224,7 +1251,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            &mut make_default_persistent_configuration(),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1272,7 +1299,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            &mut make_default_persistent_configuration(),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1305,7 +1332,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            &mut make_default_persistent_configuration(),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1346,7 +1373,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+            &mut make_default_persistent_configuration().check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1373,7 +1400,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            &mut make_default_persistent_configuration(),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1413,7 +1440,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            &mut make_default_persistent_configuration(),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1445,7 +1472,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+            &mut make_default_persistent_configuration().check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1473,7 +1500,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+            &mut make_default_persistent_configuration().check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1487,17 +1514,15 @@ mod tests {
     }
 
     #[test]
-    fn make_neighborhood_config_zero_hop_cant_tolerate_neighbors() {
+    fn making_sure_that_neighbors_are_validated_despite_zero_hop_mode() {
+        //we need this to be able to pre-configure the database
         running_test();
         let multi_config = make_new_test_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
                     .param("--neighborhood-mode", "zero-hop")
-                    .param(
-                        "--neighbors",
-                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://eth-mainnet:VGVk@2.3.4.5:3456/4567",
-                    )
+                    .param("--neighbors", "masq://eth-spacenet:QmlsbA@1.2.3.4:1234")
                     .param("--fake-public-key", "booga")
                     .into(),
             ))],
@@ -1506,16 +1531,21 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            &mut make_default_persistent_configuration(),
             &mut BootstrapperConfig::new(),
         );
 
         assert_eq!(
             result,
-            Err(ConfiguratorError::required(
-                "neighborhood-mode",
-                "Node cannot run as --neighborhood-mode zero-hop if --neighbors is specified"
-            ))
+            Err(ConfiguratorError {
+                param_errors: vec![ParamError {
+                    parameter: "neighbors".to_string(),
+                    reason: "Chain identifier 'eth-spacenet' is not valid; possible values are \
+                     'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while \
+                     formatted as 'masq://<chain identifier>:<public key>@<node address>'"
+                        .to_string()
+                }]
+            })
         )
     }
 
@@ -1603,7 +1633,7 @@ mod tests {
     }
 
     #[test]
-    fn convert_ci_configs_handles_leftover_whitespaces_between_descriptors_and_commas() {
+    fn convert_ci_configs_handles_whitespaces_between_descriptors_and_commas() {
         let multi_config = make_simplified_multi_config([
             "program",
             "--chain",
@@ -2827,13 +2857,142 @@ mod tests {
     }
 
     #[test]
+    fn configure_zero_hop_with_neighbors_supplied() {
+        running_test();
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut config = BootstrapperConfig::new();
+        let mut persistent_config = make_default_persistent_configuration()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc)
+            .set_past_neighbors_result(Ok(()));
+        let multi_config = make_simplified_multi_config([
+            "MASQNode",
+            "--chain",
+            "eth-ropsten",
+            "--neighbors",
+            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+            "--db-password",
+            "password",
+            "--neighborhood-mode",
+            "zero-hop",
+            "--fake-public-key",
+            "booga",
+        ]);
+
+        let _ = unprivileged_parse_args(
+            &multi_config,
+            &mut config,
+            &mut persistent_config,
+            &Logger::new("test"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.neighborhood_config,
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::ZeroHop
+            }
+        );
+        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_past_neighbors_params,
+            vec![(
+                Some(vec![NodeDescriptor::try_from((
+                    main_cryptde(),
+                    "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345"
+                ))
+                .unwrap()]),
+                "password".to_string()
+            )]
+        )
+    }
+
+    #[test]
+    fn setting_zero_hop_neighbors_is_ignored_if_no_neighbors_supplied() {
+        running_test();
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut config = BootstrapperConfig::new();
+        let mut persistent_config = make_default_persistent_configuration()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc);
+        let multi_config = make_simplified_multi_config([
+            "MASQNode",
+            "--chain",
+            "eth-ropsten",
+            "--neighborhood-mode",
+            "zero-hop",
+        ]);
+
+        let _ = unprivileged_parse_args(
+            &multi_config,
+            &mut config,
+            &mut persistent_config,
+            &Logger::new("test"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.neighborhood_config,
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::ZeroHop
+            }
+        );
+        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        assert!(set_past_neighbors_params.is_empty())
+    }
+
+    #[test]
+    fn configure_zero_hop_with_neighbors_but_no_password() {
+        running_test();
+        let mut persistent_config = PersistentConfigurationMock::new();
+        //no results prepared for set_past_neighbors() and no panic so it was not called
+        let descriptor_list = vec![NodeDescriptor::try_from((
+            main_cryptde(),
+            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+        ))
+        .unwrap()];
+
+        let result =
+            zero_hop_neighbors_configuration(None, descriptor_list, &mut persistent_config);
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required(
+                "neighbors",
+                "Cannot proceed without a password"
+            ))
+        );
+    }
+
+    #[test]
+    fn configure_zero_hop_with_neighbors_but_setting_values_failed() {
+        running_test();
+        let mut persistent_config = PersistentConfigurationMock::new().set_past_neighbors_result(
+            Err(PersistentConfigError::DatabaseError("Oh yeah".to_string())),
+        );
+        let descriptor_list = vec![NodeDescriptor::try_from((
+            main_cryptde(),
+            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+        ))
+        .unwrap()];
+
+        let result = zero_hop_neighbors_configuration(
+            Some("password".to_string()),
+            descriptor_list,
+            &mut persistent_config,
+        );
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required(
+                "neighbors",
+                "DatabaseError(\"Oh yeah\")"
+            ))
+        );
+    }
+
+    #[test]
     fn configure_database_with_no_data_specified() {
         running_test();
-        let mut config = BootstrapperConfig::new();
-        config.clandestine_port_opt = None;
-        config.consuming_wallet_opt = None;
-        config.earning_wallet = DEFAULT_EARNING_WALLET.clone();
-        config.blockchain_bridge_config.blockchain_service_url_opt = None;
+        let config = BootstrapperConfig::new();
         let set_blockchain_service_params_arc = Arc::new(Mutex::new(vec![]));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_neighborhood_mode_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2849,7 +3008,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         let set_blockchain_service_url = set_blockchain_service_params_arc.lock().unwrap();
         let no_url: Vec<String> = vec![];
-        assert_eq!(*set_blockchain_service_url, no_url); //if no value available we skip the setting
+        assert_eq!(*set_blockchain_service_url, no_url);
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         let no_ports: Vec<u16> = vec![];
         assert_eq!(*set_clandestine_port_params, no_ports);

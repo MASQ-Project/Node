@@ -36,7 +36,6 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
@@ -204,17 +203,6 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
             .flatten()
             .collect::<Vec<u8>>(),
     )
-}
-
-pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
-    PersistentConfigurationMock::new()
-        .earning_wallet_from_address_result(Ok(None))
-        .consuming_wallet_derivation_path_result(Ok(None))
-        .mnemonic_seed_result(Ok(None))
-        .mnemonic_seed_exists_result(Ok(false))
-        .past_neighbors_result(Ok(None))
-        .gas_price_result(Ok(1))
-        .mapping_protocol_result(Ok(None))
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
@@ -548,6 +536,7 @@ pub mod pure_test_utils {
             .mnemonic_seed_exists_result(Ok(false))
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
+            .mapping_protocol_result(Ok(None))
             .blockchain_service_url_result(Ok(None))
     }
 
