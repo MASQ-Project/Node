@@ -270,14 +270,14 @@ impl Configurator {
             &msg.db_password,
         )?;
         let seed_spec = msg.seed_spec_opt.clone().unwrap_or(UiGenerateSeedSpec {
-            mnemonic_phrase_size: 24,
-            mnemonic_phrase_language: "English".to_string(),
+            mnemonic_phrase_size_opt: Some (24),
+            mnemonic_phrase_language_opt: Some ("English".to_string()),
             mnemonic_passphrase_opt: None,
         });
         let (seed, mnemonic_phrase) = Self::generate_seed_and_mnemonic_phrase(
             &seed_spec.mnemonic_passphrase_opt,
-            &seed_spec.mnemonic_phrase_language,
-            seed_spec.mnemonic_phrase_size,
+            &seed_spec.mnemonic_phrase_language_opt.unwrap_or_else (|| panic! ("TODO: Test-drive me!")),
+            seed_spec.mnemonic_phrase_size_opt.unwrap_or_else (|| panic! ("TODO: Test-drive me!")),
         )?;
         let consuming_derivation_path = match &msg.consuming_derivation_path_opt {
             Some(cdp) => {
@@ -289,7 +289,7 @@ impl Configurator {
             None => derivation_path(0, 0),
         };
         let consuming_wallet = Self::generate_wallet(&seed, &consuming_derivation_path)?;
-        let consuming_private_key = Self::generate_private_key(&seed, &consuming_derivation_path);
+        let consuming_private_key = Self::generate_private_key(seed.as_bytes(), &consuming_derivation_path)?;
         let earning_derivation_path = match &msg.earning_derivation_path_opt {
             Some(edp) => {
                 if msg.seed_spec_opt.is_none() {
@@ -300,7 +300,7 @@ impl Configurator {
             None => derivation_path(0, 1),
         };
         let earning_wallet = Self::generate_wallet(&seed, &earning_derivation_path)?;
-        let earning_private_key = Self::generate_private_key(&seed, &earning_derivation_path);
+        let earning_private_key = Self::generate_private_key(seed.as_bytes(), &earning_derivation_path)?;
         Self::set_wallet_info(
             persistent_config,
             consuming_private_key.as_str(),
@@ -335,13 +335,13 @@ impl Configurator {
             Some (seed_spec) => {
                 let seed = Self::make_seed(
                     &seed_spec.mnemonic_passphrase_opt,
-                    &seed_spec.mnemonic_phrase_language,
+                    &seed_spec.mnemonic_phrase_language_opt.unwrap_or_else (|| panic! ("TODO: Test-drive me!")),
                     &seed_spec.mnemonic_phrase,
                 )?;
                 let consuming_private_key = match (msg.consuming_private_key_opt, msg.consuming_derivation_path_opt) {
                     (Some (consuming_private_key), _) => consuming_private_key,
                     (None, Some (consuming_derivation_path)) => {
-                        Self::generate_private_key(&seed, consuming_derivation_path.as_str())
+                        Self::generate_private_key(seed.as_bytes(), consuming_derivation_path.as_str())?
                     },
                     _ => return Err((MISSING_DATA, "If you supply seed information, you must supply either the consuming wallet derivation path or the consuming wallet private key".to_string())),
                 };
@@ -480,12 +480,18 @@ impl Configurator {
         }
     }
 
-    fn generate_private_key(seed: &Seed, derivation_path: &str) -> String {
-        let binary = match ExtendedPrivKey::derive(seed.as_bytes(), derivation_path) {
+    fn generate_private_key(seed: &[u8], derivation_path: &str) -> Result<String, MessageError> {
+        let binary = match ExtendedPrivKey::derive(seed, derivation_path) {
             Ok(epk) => epk.secret(),
-            Err(e) => todo!("{:?}", e),
+            Err(e) => {
+                let err_string = format! ("{:?}", e);
+                return match err_string.as_str() {
+                    "InvalidDerivationPath" => Err ((DERIVATION_PATH_ERROR, derivation_path.to_string())),
+                    e => Err (())
+                }
+            }
         };
-        (&binary).to_hex::<String>().to_uppercase()
+        Ok ((&binary).to_hex::<String>().to_uppercase())
     }
 
     fn handle_configuration(
@@ -786,7 +792,7 @@ mod tests {
     };
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::constants::MISSING_DATA;
+    use masq_lib::constants::{BAD_SEED_ERROR, MISSING_DATA};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;
@@ -1175,6 +1181,16 @@ mod tests {
     }
 
     #[test]
+    fn generate_private_key_handles_bad_derivation_path() {
+        let seed = PlainData::new(b"0123456789ABCDEF0123456789ABCDEF");
+        let derivation_path = "booga";
+
+        let result = Configurator::generate_private_key(seed.as_ref(), derivation_path);
+
+        assert_eq!(result, Err((DERIVATION_PATH_ERROR, "booga".to_string())));
+    }
+
+    #[test]
     fn handle_generate_wallets_works() {
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1223,9 +1239,9 @@ mod tests {
         assert_eq!(
             generated_wallets.consuming_wallet_private_key,
             Configurator::generate_private_key(
-                &Bip39::seed(&mnemonic, "booga"),
+                &Bip39::seed(&mnemonic, "booga").as_bytes(),
                 derivation_path(0, 4).as_str()
-            )
+            ).unwrap()
         );
         let earning_wallet = Wallet::from(
             Bip32ECKeyProvider::try_from((seed.as_slice(), derivation_path(0, 5).as_str()))
@@ -1238,9 +1254,9 @@ mod tests {
         assert_eq!(
             generated_wallets.earning_wallet_private_key,
             Configurator::generate_private_key(
-                &Bip39::seed(&mnemonic, "booga"),
+                &Bip39::seed(&mnemonic, "booga").as_bytes(),
                 derivation_path(0, 5).as_str()
-            )
+            ).unwrap()
         );
         let check_password_params = check_password_params_arc.lock().unwrap();
         assert_eq!(*check_password_params, vec![Some("password".to_string())]);
@@ -1304,8 +1320,8 @@ mod tests {
         let msg = UiGenerateWalletsRequest {
             db_password: "blabla".to_string(),
             seed_spec_opt: Some(UiGenerateSeedSpec {
-                mnemonic_phrase_size: 24,
-                mnemonic_phrase_language: "SuperSpecial".to_string(),
+                mnemonic_phrase_size_opt: Some (24),
+                mnemonic_phrase_language_opt: Some ("SuperSpecial".to_string()),
                 mnemonic_passphrase_opt: None,
             }),
             consuming_derivation_path_opt: Some(derivation_path(0, 4)),
@@ -1691,7 +1707,7 @@ mod tests {
             db_password: db_password.clone(),
             seed_spec_opt: Some(UiRecoverSeedSpec {
                 mnemonic_phrase: make_meaningless_phrase_words(),
-                mnemonic_phrase_language: "English".to_string(),
+                mnemonic_phrase_language_opt: Some ("English".to_string()),
                 mnemonic_passphrase_opt: None,
             }),
             consuming_derivation_path_opt: None,
@@ -1744,7 +1760,7 @@ mod tests {
             db_password,
             seed_spec_opt: Some(UiRecoverSeedSpec {
                 mnemonic_phrase: make_meaningless_phrase_words(),
-                mnemonic_phrase_language: "English".to_string(),
+                mnemonic_phrase_language_opt: Some ("English".to_string()),
                 mnemonic_passphrase_opt: None,
             }),
             consuming_derivation_path_opt: None,
@@ -1770,7 +1786,7 @@ mod tests {
             db_password,
             seed_spec_opt: Some(UiRecoverSeedSpec {
                 mnemonic_phrase: make_meaningless_phrase_words(),
-                mnemonic_phrase_language: "English".to_string(),
+                mnemonic_phrase_language_opt: Some ("English".to_string()),
                 mnemonic_passphrase_opt: None,
             }),
             consuming_derivation_path_opt: None,
@@ -2309,8 +2325,8 @@ mod tests {
         UiGenerateWalletsRequest {
             db_password: "password".to_string(),
             seed_spec_opt: Some(UiGenerateSeedSpec {
-                mnemonic_phrase_size: 24,
-                mnemonic_phrase_language: "English".to_string(),
+                mnemonic_phrase_size_opt: Some (24),
+                mnemonic_phrase_language_opt: Some ("English".to_string()),
                 mnemonic_passphrase_opt: Some("booga".to_string()),
             }),
             consuming_derivation_path_opt: Some(derivation_path(0, 4)),
@@ -2324,7 +2340,7 @@ mod tests {
             seed_spec_opt: Some(UiRecoverSeedSpec {
                 mnemonic_phrase: make_meaningless_phrase_words(),
                 mnemonic_passphrase_opt: Some("ebullient".to_string()),
-                mnemonic_phrase_language: "English".to_string(),
+                mnemonic_phrase_language_opt: Some ("English".to_string()),
             }),
             consuming_derivation_path_opt: Some(derivation_path(0, 4)),
             consuming_private_key_opt: None,

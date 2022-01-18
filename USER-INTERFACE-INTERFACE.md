@@ -352,21 +352,22 @@ database password. If you want to know whether the password you have is the corr
 `checkPassword` message.
 
 * `blockchainServiceUrl`: The url which will be used for obtaining a communication to chosen services to interact with the blockchain.
-This parameter is read, if present, only if the same parameter wasn't specified at another place (UI, configuration file, environment variables).
+  This parameter is read, if present, only if the same parameter wasn't specified at another place (UI, configuration file, environment variables).
 
 * `chainName`: This value reveals the chain which the open database has been created for. It is always present and once initiated,
-during creation of the database, it never changes. It's basically a read-only value.  
+  during creation of the database, it never changes. It's basically a read-only value.  
 
 * `clandestinePort`: The port on which the Node is currently listening for connections from other Nodes.
 
 * `consumingWalletPrivateKey`: This is the private key of the consuming wallet, as a 64-digit hexadecimal number.
+  It's a secret, so if you don't supply the `dbPasswordOpt` in the request you won't see it.
 
 * `consumingWalletAddress`: This is the address of the consuming wallet, as a 40-digit hexadecimal number prefixed by "0x".
 
 * `currentSchemaVersion`: This will be a version number for the database schema represented as an ordinal numeral. This will always
-be the same for a given version of Node. If you upgrade your Node, and the new Node wants to see a later
-schema version in the database, it will migrate your existing data to the new schema and update its schema
-version. If this attempt fails for some reason, this value can be used to diagnose the issue.
+  be the same for a given version of Node. If you upgrade your Node, and the new Node wants to see a later
+  schema version in the database, it will migrate your existing data to the new schema and update its schema
+  version. If this attempt fails for some reason, this value can be used to diagnose the issue.
 
 * `earningWalletAddressOpt`: The wallet address for the earning wallet. This is not secret, so
   if you don't get this field, it's because it hasn't been set yet.
@@ -374,19 +375,16 @@ version. If this attempt fails for some reason, this value can be used to diagno
 * `gasPrice`: The Node will not pay more than this number of wei for gas to complete a transaction.
 
 * `neighborhoodMode`: The neighborhood mode being currently used, this parameter has nothing to do with descriptors which 
-may have been used in order to set the Node's nearest neighborhood. It is only informative, to know what mode is running at the moment. 
-This value is ever present since the creation of the database.    
+  may have been used in order to set the Node's nearest neighborhood. It is only informative, to know what mode is running at the moment. 
+  This value is ever present since the creation of the database.    
 
 * `startBlock`: When the Node scans for incoming payments, it can't scan the whole blockchain: that would take
   much too long. So instead, it scans starting from wherever it left off last time. This block number is where
   it left off last time.
 
-* `mnemonicSeedOpt`: This is a secret string of hexadecimal digits that corresponds exactly with the mnemonic
-  phrase, plus any "25th word" mnemonic passphrase. You won't see this if the password isn't correct. You also
-  won't see it if the password is correct but the seed hasn't been set yet.
-
 * `pastNeighbors`: This is an array containing the Node descriptors of the neighbors the Node is planning to
-  try to connect to when it starts up next time.
+  try to connect to when it starts up next time.  It's a secret, so if you don't supply the `dbPasswordOpt` in the
+  request you won't see it.
 
 #### `configurationChanged`
 ##### Direction: Broadcast
@@ -565,8 +563,8 @@ of payments that have not yet been confirmed. Only cumulative account balances a
 "payload": {
     "dbPassword": <string>,
     "seedSpecOpt": {
-        "mnemonicPhraseSize": <number>,
-        "mnemonicPhraseLanguage": <string>,
+        "mnemonicPhraseSizeOpt": <optional number>,
+        "mnemonicPhraseLanguageOpt": <optional string>,
         "mnemonicPassphraseOpt": <optional string>
     },
     "consumingDerivationPathOpt": <optional string>,
@@ -593,12 +591,12 @@ Wallets can be generated in several ways:
 `seedSpecOpt` gives the parameters for generating the seed. This only makes sense if one or more of the 
 derivation paths is supplied. If no derivation paths are supplied, this parameter is ignored.
 
-`mnemonicPhraseSize` is the number of words that should be generated in the mnemonic phrase. The acceptable values
-are 12, 15, 18, 21, and 24. It's recommended that UIs default to 24-word phrases and require the user to specifically
-demand a lower value, if desired.
+`mnemonicPhraseSizeOpt` is the number of words that should be generated in the mnemonic phrase. The acceptable values
+are 12, 15, 18, 21, and 24. Default is 24.
 
-`mnemonicPhraseLanguage` is the language in which the mnemonic phrase should be generated. Acceptable values are
-"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish".
+`mnemonicPhraseLanguageOpt` is the language in which the mnemonic phrase should be generated. Acceptable values are
+"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish". Default
+is "English."
 
 `mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
 (it can be any word; it's not constrained to the official mnemonic-phrase list) that will be used along with the
@@ -682,7 +680,7 @@ If the UI is remembering the database password, it should forget it when this me
             <string>,
             [...]
         ],
-        "mnemonicPhraseLanguage": <string>,
+        "mnemonicPhraseLanguageOpt": <optional string>,
         "mnemonicPassphraseOpt": <optional string>
     },
     "consumingDerivationPathOpt": <optional string>,
@@ -719,8 +717,9 @@ derivation paths is supplied. If no derivation paths are supplied, this paramete
 
 `mnemonicPhrase` is the mnemonic phrase that represents the seed. It must have 12, 15, 18, 21, or 24 words.
 
-`mnemonicPhraseLanguage` is the language in which the mnemonic phrase is supplied. Acceptable values are
-"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish".
+`mnemonicPhraseLanguageOpt` is the language in which the mnemonic phrase is supplied. Acceptable values are
+"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish". Defaultl
+is "English."
 
 `mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
 (it can be any word; it's not constrained to the official mnemonic-phrase list) that was used along with the

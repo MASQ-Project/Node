@@ -557,10 +557,10 @@ conversation_message!(UiFinancialsResponse, "financials");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiGenerateSeedSpec {
-    #[serde(rename = "mnemonicPhraseSize")]
-    pub mnemonic_phrase_size: usize,
-    #[serde(rename = "mnemonicPhraseLanguage")]
-    pub mnemonic_phrase_language: String,
+    #[serde(rename = "mnemonicPhraseSizeOpt")]
+    pub mnemonic_phrase_size_opt: Option<usize>,
+    #[serde(rename = "mnemonicPhraseLanguageOpt")]
+    pub mnemonic_phrase_language_opt: Option<String>,
     #[serde(rename = "mnemonicPassphraseOpt")]
     pub mnemonic_passphrase_opt: Option<String>,
 }
@@ -601,8 +601,8 @@ fire_and_forget_message!(UiNewPasswordBroadcast, "newPassword");
 pub struct UiRecoverSeedSpec {
     #[serde(rename = "mnemonicPhrase")]
     pub mnemonic_phrase: Vec<String>,
-    #[serde(rename = "mnemonicPhraseLanguage")]
-    pub mnemonic_phrase_language: String,
+    #[serde(rename = "mnemonicPhraseLanguageOpt")]
+    pub mnemonic_phrase_language_opt: Option<String>,
     #[serde(rename = "mnemonicPassphraseOpt")]
     pub mnemonic_passphrase_opt: Option<String>,
 }
