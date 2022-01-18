@@ -9,6 +9,8 @@ use crate::ui_traffic_converter::UnmarshalError::{Critical, NonCritical};
 use serde_json::Value;
 use std::fmt::Display;
 
+// TODO: Each of these error values would be much more forensically valuable if they contained
+// the text of the JSON that caused the problem.
 #[derive(Debug, PartialEq, Clone)]
 pub enum TrafficConversionError {
     JsonSyntaxError(String),                // couldn't parse as JSON
@@ -54,6 +56,7 @@ impl Display for UnmarshalError {
         }
     }
 }
+
 #[derive(Default)]
 pub struct UiTrafficConverter {}
 

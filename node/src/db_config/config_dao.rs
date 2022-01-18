@@ -19,10 +19,18 @@ pub struct ConfigDaoRecord {
 }
 
 impl ConfigDaoRecord {
-    pub(crate) fn new(name: &str, value: Option<&str>, encrypted: bool) -> Self {
+    pub fn new(name: &str, value: Option<&str>, encrypted: bool) -> Self {
         Self {
             name: name.to_string(),
             value_opt: value.map(|x| x.to_string()),
+            encrypted,
+        }
+    }
+
+    pub fn new_owned(name: String, value_opt: Option<String>, encrypted: bool) -> Self {
+        Self {
+            name,
+            value_opt,
             encrypted,
         }
     }

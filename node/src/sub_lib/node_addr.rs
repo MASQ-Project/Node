@@ -1,13 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::sub_lib::utils::plus;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
+use masq_lib::utils::plus;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::net::IpAddr;
 use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
 #[derive(PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -36,6 +36,12 @@ impl NodeAddr {
 
     pub fn ports(&self) -> Vec<u16> {
         self.ports.clone()
+    }
+}
+
+impl Default for NodeAddr {
+    fn default() -> Self {
+        NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[])
     }
 }
 

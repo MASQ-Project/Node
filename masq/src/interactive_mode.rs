@@ -416,8 +416,8 @@ mod tests {
         handle.join().unwrap();
         // It should have taken significantly longer when waiting for the 40x block to end
         assert!(
-            time_period_when_blocked > 3 * time_period_when_unblocked,
-            "{:?} is not longer than 3 * {:?}",
+            time_period_when_blocked > 2 * time_period_when_unblocked,
+            "{:?} is not longer than 2 * {:?}",
             time_period_when_blocked,
             time_period_when_unblocked
         );

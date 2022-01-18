@@ -15,10 +15,9 @@ use crate::server_initializer::{
 use masq_lib::command::StdStreams;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectValue;
-use std::cell::RefCell;
-
 #[cfg(test)]
 use std::any::Any;
+use std::cell::RefCell;
 
 pub type RunModeResult = Result<(), ConfiguratorError>;
 
@@ -145,7 +144,7 @@ mod tests {
         make_pre_populated_mocked_directory_wrapper, ChannelFactoryMock,
     };
     use masq_lib::shared_schema::ConfiguratorError;
-    use masq_lib::utils::SliceToVec;
+    use masq_lib::utils::array_of_borrows_to_vec;
     use std::sync::{Arc, Mutex};
 
     fn test_clustered_params() -> ClusteredParams {
@@ -192,13 +191,12 @@ mod tests {
             Box::new(NodeConfiguratorInitializationReal),
             daemon_clustered_params,
         );
-        let args = &[
+        let args = &array_of_borrows_to_vec(&[
             "program",
             "--initialization",
             "--ui-port",
             1234.to_string().as_str(),
-        ]
-        .array_of_borrows_to_vec();
+        ]);
 
         let result = subject.make(&args).unwrap();
 
@@ -239,7 +237,7 @@ mod tests {
             Box::new(NodeConfiguratorInitializationReal),
             daemon_clustered_params,
         );
-        let args = &["program", "--wooooooo", "--fooooooo"].array_of_borrows_to_vec();
+        let args = &array_of_borrows_to_vec(&["program", "--wooooooo", "--fooooooo"]);
 
         let result = subject.make(&args);
 
@@ -269,7 +267,7 @@ mod tests {
             ),
             daemon_clustered_params,
         );
-        let args = &["program", "--initialization"].array_of_borrows_to_vec();
+        let args = &array_of_borrows_to_vec(&["program", "--initialization"]);
 
         let result = subject.make(&args);
 

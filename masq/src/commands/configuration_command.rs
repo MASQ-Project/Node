@@ -91,9 +91,7 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(
             stream,
             "Consuming wallet private key:",
-            &configuration
-                .consuming_wallet_private_key_opt
-                .unwrap_or_else(|| "[?]".to_string()),
+            &Self::interpret_option(&configuration.consuming_wallet_private_key_opt),
         );
         Self::dump_configuration_line(
             stream,
@@ -103,9 +101,7 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(
             stream,
             "Earning wallet address:",
-            &configuration
-                .earning_wallet_address_opt
-                .unwrap_or_else(|| "[?]".to_string()),
+            &Self::interpret_option(&configuration.earning_wallet_address_opt),
         );
         Self::dump_configuration_line(stream, "Gas price:", &configuration.gas_price.to_string());
         Self::dump_configuration_line(
@@ -116,10 +112,7 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(
             stream,
             "Port mapping protocol:",
-            &configuration
-                .port_mapping_protocol_opt
-                .map(|protocol| protocol.to_string())
-                .unwrap_or_else(|| "[?]".to_string()),
+            &Self::interpret_option(&configuration.port_mapping_protocol_opt),
         );
         Self::dump_configuration_line(
             stream,
@@ -148,6 +141,13 @@ impl ConfigurationCommand {
     fn dump_configuration_line(stream: &mut dyn Write, name: &str, value: &str) {
         short_writeln!(stream, "{:33} {}", name, value);
     }
+
+    fn interpret_option(value_opt: &Option<String>) -> String {
+        match value_opt {
+            None => "[?]".to_string(),
+            Some(s) => s.clone(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -158,9 +158,9 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
+    use masq_lib::utils::AutomapProtocol;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -238,7 +238,7 @@ mod tests {
             consuming_wallet_private_key_opt: Some("consuming wallet private key".to_string()),
             consuming_wallet_address_opt: Some("consuming wallet address".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
-            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
+            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
             past_neighbors: vec!["neighbor 1".to_string(), "neighbor 2".to_string()],
             start_block: 3456,
         };
@@ -301,7 +301,7 @@ mod tests {
             consuming_wallet_address_opt: None,
             consuming_wallet_private_key_opt: None,
             earning_wallet_address_opt: Some("earning wallet".to_string()),
-            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
+            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
             past_neighbors: vec![],
             start_block: 3456,
         };
