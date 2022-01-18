@@ -281,40 +281,39 @@ fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
 fn configure_accountant_config(
     multi_config: &MultiConfig,
     config: &mut BootstrapperConfig,
-    persistent_conf_opt: &dyn PersistentConfiguration,
+    persist_config: &dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
+    let pending_payment_interval = configure_single_parameter(multi_config,"pending_payment_scan_interval", Box::new(||persist_config.pending_payment_scan_interval()))?;
     unimplemented!()
 }
 
-fn configure_scan_interval() {
-    unimplemented!()
-}
 
 fn configure_rate_pack(
     multi_config: &MultiConfig,
     config: &mut BootstrapperConfig,
     persist_config: &dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
-    let routing_byte_rate = configure_single_rate(
+    let routing_byte_rate = configure_single_parameter(
         multi_config,
         "routing-byte-rate",
         Box::new(|| persist_config.routing_byte_rate()),
     )?;
-    let routing_service_rate = configure_single_rate(
+    let routing_service_rate = configure_single_parameter(
         multi_config,
         "routing-service-rate",
         Box::new(|| persist_config.routing_service_rate()),
     )?;
-    let exit_byte_rate = configure_single_rate(
+    let exit_byte_rate = configure_single_parameter(
         multi_config,
         "exit-byte-rate",
         Box::new(|| persist_config.exit_byte_rate()),
     )?;
-    let exit_service_rate = configure_single_rate(
+    let exit_service_rate = configure_single_parameter(
         multi_config,
         "exit-service-rate",
         Box::new(|| persist_config.exit_service_rate()),
     )?;
+
     let configured = RatePack {
         routing_byte_rate,
         routing_service_rate,
@@ -325,20 +324,22 @@ fn configure_rate_pack(
     Ok(())
 }
 
-fn configure_single_rate<T: ?Sized>(
+fn configure_single_parameter<C,T>(
     multi_config: &MultiConfig,
     parameter_name: &str,
-    persistent_config_method: Box<T>,
-) -> Result<u64, ConfiguratorError>
+    persistent_config_method: Box<C>,
+) -> Result<T, ConfiguratorError>
 where
-    T: FnOnce() -> Result<u64, PersistentConfigError>,
+    C: FnOnce() -> Result<T, PersistentConfigError> + ?Sized,
+    T: std::str::FromStr,
+    <T as std::str::FromStr>::Err: std::fmt::Display
 {
     Ok(
         match (
             value_m!(multi_config, parameter_name, String),
             persistent_config_method,
         ) {
-            (Some(rate), _) => match rate.parse::<u64>() {
+            (Some(rate), _) => match rate.parse::<T>() {
                 Ok(rate) => rate,
                 //cannot be tested
                 Err(e) => panic!(
@@ -347,14 +348,17 @@ where
                 ),
             },
             (None, pc_method) => pc_method().map_err(|e| {
-                let standard_name = parameter_name
-                    .chars()
-                    .map(|char| if char == '-' { ' ' } else { char })
-                    .collect::<String>();
+                let standard_name = err_parameter_name(parameter_name);
                 e.into_configurator_error(standard_name.as_str())
             })?,
         },
     )
+}
+
+fn err_parameter_name(cli_parameter_name: &str)->String{
+    cli_parameter_name.chars()
+        .map(|char| if char == '-' { ' ' } else { char })
+        .collect()
 }
 
 pub fn configure_database(
@@ -862,7 +866,6 @@ mod tests {
     use masq_lib::multi_config::{NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::payment_curves_and_rate_pack::PaymentCurves;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::{array_of_borrows_to_vec, running_test};
