@@ -740,7 +740,7 @@ wallet. By convention, it is "m/44'/60'/0'/0/1", but you can supply whatever pat
 you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
 wallet. If you don't supply `earningDerivationPathOpt`, you must supply `earningAddressOpt`.
 
-`earningAddressOpt`, if specified, is the address of the consuming wallet, represented as "0x" followed by a string
+`earningAddressOpt`, if specified, is the address of the earning wallet, represented as "0x" followed by a string
 of 40 hexadecimal digits. This value supersedes `earningDerivationPathOpt` if both are supplied; but if you don't 
 supply that value, you must supply this one.
 
