@@ -115,6 +115,18 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_gas_price_results.borrow_mut().remove(0)
     }
 
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
+        self.mapping_protocol_results.borrow_mut().remove(0)
+    }
+
+    fn set_mapping_protocol(
+        &mut self,
+        value: Option<AutomapProtocol>,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_mapping_protocol_params.lock().unwrap().push(value);
+        self.set_mapping_protocol_results.borrow_mut().remove(0)
+    }
+
     fn consuming_wallet(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError> {
         self.consuming_wallet_params
             .lock()
@@ -189,18 +201,6 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         self.set_start_block_params.lock().unwrap().push(value);
         Self::result_from(&self.set_start_block_results)
-    }
-
-    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
-        self.mapping_protocol_results.borrow_mut().remove(0)
-    }
-
-    fn set_mapping_protocol(
-        &mut self,
-        value: Option<AutomapProtocol>,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_mapping_protocol_params.lock().unwrap().push(value);
-        self.set_mapping_protocol_results.borrow_mut().remove(0)
     }
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {

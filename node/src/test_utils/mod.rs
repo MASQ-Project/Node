@@ -547,6 +547,7 @@ pub mod pure_test_utils {
             .consuming_wallet_private_key_result(Ok(None))
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
+            .mapping_protocol_result(Ok(None))
             .blockchain_service_url_result(Ok(None))
     }
 
