@@ -122,8 +122,8 @@ impl Command for GenerateWalletsCommand {
         let input = UiGenerateWalletsRequest {
             db_password: self.db_password.clone(),
             seed_spec_opt: self.seed_spec_opt.as_ref().map(|ss| UiGenerateSeedSpec {
-                mnemonic_phrase_size: ss.word_count,
-                mnemonic_phrase_language: ss.language.clone(),
+                mnemonic_phrase_size_opt: Some(ss.word_count),
+                mnemonic_phrase_language_opt: Some(ss.language.clone()),
                 mnemonic_passphrase_opt: ss.passphrase_opt.clone(),
             }),
             consuming_derivation_path_opt: self.consuming_path_opt.as_ref().cloned(),
@@ -486,8 +486,8 @@ mod tests {
                 UiGenerateWalletsRequest {
                     db_password: "password".to_string(),
                     seed_spec_opt: Some(UiGenerateSeedSpec {
-                        mnemonic_phrase_size: 21,
-                        mnemonic_phrase_language: "Korean".to_string(),
+                        mnemonic_phrase_size_opt: Some(21),
+                        mnemonic_phrase_language_opt: Some("Korean".to_string()),
                         mnemonic_passphrase_opt: Some("booga".to_string()),
                     }),
                     consuming_derivation_path_opt: Some("m/44'/60'/0'/100/0/200".to_string()),
@@ -634,8 +634,8 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
                 UiGenerateWalletsRequest {
                     db_password: "password".to_string(),
                     seed_spec_opt: Some(UiGenerateSeedSpec {
-                        mnemonic_phrase_size: 21,
-                        mnemonic_phrase_language: "Korean".to_string(),
+                        mnemonic_phrase_size_opt: Some(21),
+                        mnemonic_phrase_language_opt: Some("Korean".to_string()),
                         mnemonic_passphrase_opt: Some("booga".to_string()),
                     }),
                     consuming_derivation_path_opt: Some("m/44'/60'/0'/100/0/200".to_string()),

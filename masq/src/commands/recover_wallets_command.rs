@@ -95,7 +95,7 @@ impl Command for RecoverWalletsCommand {
                 .as_ref()
                 .map(|seed_spec| UiRecoverSeedSpec {
                     mnemonic_phrase: seed_spec.mnemonic_phrase.clone(),
-                    mnemonic_phrase_language: seed_spec.language.clone(),
+                    mnemonic_phrase_language_opt: Some(seed_spec.language.clone()),
                     mnemonic_passphrase_opt: seed_spec.passphrase_opt.clone(),
                 }),
             consuming_derivation_path_opt: match &self.consuming {
@@ -426,7 +426,7 @@ mod tests {
                     seed_spec_opt: Some(UiRecoverSeedSpec {
                         mnemonic_phrase: vec!["word".to_string()],
                         mnemonic_passphrase_opt: Some("booga".to_string()),
-                        mnemonic_phrase_language: "English".to_string(),
+                        mnemonic_phrase_language_opt: Some("English".to_string()),
                     }),
                     consuming_derivation_path_opt: Some("consuming path".to_string()),
                     consuming_private_key_opt: None,
