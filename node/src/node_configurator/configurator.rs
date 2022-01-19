@@ -822,7 +822,7 @@ mod tests {
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
+    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;

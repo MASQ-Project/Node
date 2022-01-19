@@ -396,13 +396,6 @@ impl WinDnsModifier {
     }
 }
 
-pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
-    let mut result = vec![];
-    result.append(&mut source);
-    result.push(item);
-    result
-}
-
 pub trait RegKeyTrait: Debug {
     fn path(&self) -> &str;
     fn enum_keys(&self) -> Vec<io::Result<String>>;

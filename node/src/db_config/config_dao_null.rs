@@ -82,11 +82,11 @@ impl Default for ConfigDaoNull {
             ETH_MAINNET_CONTRACT_CREATION_BLOCK.to_string(),
         );
         data.insert(
-            "balance_decreases_for".to_string(),
+            "balance_decreases_for_sec".to_string(),
             DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec.to_string(),
         );
         data.insert(
-            "balance_to_decrease_from".to_string(),
+            "balance_to_decrease_from_gwei".to_string(),
             DEFAULT_PAYMENT_CURVES
                 .balance_to_decrease_from_gwei
                 .to_string(),
@@ -104,13 +104,13 @@ impl Default for ConfigDaoNull {
             DEFAULT_PAYABLE_SCAN_INTERVAL.to_string(),
         );
         data.insert(
-            "payment_grace_before_ban".to_string(),
+            "payment_grace_before_ban_sec".to_string(),
             DEFAULT_PAYMENT_CURVES
                 .payment_grace_before_ban_sec
                 .to_string(),
         );
         data.insert(
-            "payment_suggested_after".to_string(),
+            "payment_suggested_after_sec".to_string(),
             DEFAULT_PAYMENT_CURVES
                 .payment_suggested_after_sec
                 .to_string(),
@@ -120,7 +120,7 @@ impl Default for ConfigDaoNull {
             DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL.to_string(),
         );
         data.insert(
-            "permanent_debt_allowed".to_string(),
+            "permanent_debt_allowed_gwei".to_string(),
             DEFAULT_PAYMENT_CURVES
                 .permanent_debt_allowed_gwei
                 .to_string(),
@@ -138,7 +138,7 @@ impl Default for ConfigDaoNull {
             DEFAULT_RATE_PACK.routing_service_rate.to_string(),
         );
         data.insert(
-            "unban_when_balance_below".to_string(),
+            "unban_when_balance_below_gwei".to_string(),
             DEFAULT_PAYMENT_CURVES
                 .unban_when_balance_below_gwei
                 .to_string(),
@@ -228,17 +228,17 @@ mod tests {
             ConfigDaoRecord::new("seed", None, true)
         );
         assert_eq!(
-            subject.get("balance_decreases_for").unwrap(),
+            subject.get("balance_decreases_for_sec").unwrap(),
             ConfigDaoRecord::new(
-                "balance_decreases_for",
+                "balance_decreases_for_sec",
                 Some(&DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec.to_string()),
                 false
             )
         );
         assert_eq!(
-            subject.get("balance_to_decrease_from").unwrap(),
+            subject.get("balance_to_decrease_from_gwei").unwrap(),
             ConfigDaoRecord::new(
-                "balance_to_decrease_from",
+                "balance_to_decrease_from_gwei",
                 Some(
                     &DEFAULT_PAYMENT_CURVES
                         .balance_to_decrease_from_gwei
@@ -272,9 +272,9 @@ mod tests {
             )
         );
         assert_eq!(
-            subject.get("payment_grace_before_ban").unwrap(),
+            subject.get("payment_grace_before_ban_sec").unwrap(),
             ConfigDaoRecord::new(
-                "payment_grace_before_ban",
+                "payment_grace_before_ban_sec",
                 Some(
                     &DEFAULT_PAYMENT_CURVES
                         .payment_grace_before_ban_sec
@@ -284,9 +284,9 @@ mod tests {
             )
         );
         assert_eq!(
-            subject.get("payment_suggested_after").unwrap(),
+            subject.get("payment_suggested_after_sec").unwrap(),
             ConfigDaoRecord::new(
-                "payment_suggested_after",
+                "payment_suggested_after_sec",
                 Some(
                     &DEFAULT_PAYMENT_CURVES
                         .payment_suggested_after_sec
@@ -304,9 +304,9 @@ mod tests {
             )
         );
         assert_eq!(
-            subject.get("permanent_debt_allowed").unwrap(),
+            subject.get("permanent_debt_allowed_gwei").unwrap(),
             ConfigDaoRecord::new(
-                "permanent_debt_allowed",
+                "permanent_debt_allowed_gwei",
                 Some(
                     &DEFAULT_PAYMENT_CURVES
                         .permanent_debt_allowed_gwei
@@ -340,9 +340,9 @@ mod tests {
             )
         );
         assert_eq!(
-            subject.get("unban_when_balance_below").unwrap(),
+            subject.get("unban_when_balance_below_gwei").unwrap(),
             ConfigDaoRecord::new(
-                "unban_when_balance_below",
+                "unban_when_balance_below_gwei",
                 Some(
                     &DEFAULT_PAYMENT_CURVES
                         .unban_when_balance_below_gwei

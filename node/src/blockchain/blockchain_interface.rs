@@ -409,7 +409,7 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::test_utils::TestTransport;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::pure_test_utils::decode_hex;
+    use crate::test_utils::unshared_test_utils::decode_hex;
     use crate::test_utils::{await_value, make_paying_wallet};
     use crate::test_utils::{make_wallet, TestRawTransaction};
     use crossbeam_channel::{unbounded, Receiver};

@@ -187,7 +187,7 @@ pub struct PersistentConfigurationReal {
 impl PersistentConfiguration for PersistentConfigurationReal {
     fn balance_decreases_for_sec(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("balance_decreases_for_sec")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("balance_decreases_for_sec"),
             Some(rate) => Ok(rate),
         }
     }
@@ -201,7 +201,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("balance_to_decrease_from_gwei")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("balance_to_decrease_from_gwei"),
             Some(rate) => Ok(rate),
         }
     }
@@ -270,7 +270,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn clandestine_port(&self) -> Result<u16, PersistentConfigError> {
         let unchecked_port = match decode_u64(self.dao.get("clandestine_port")?.value_opt)? {
-            None => panic!("ever-supplied clandestine_port value missing; database is corrupt!"),
+            None => value_missing_panic("clandestine_port"),
             Some(port) => port,
         };
         if (unchecked_port < u64::from(LOWEST_USABLE_INSECURE_PORT))
@@ -328,7 +328,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn exit_byte_rate(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("exit_byte_rate")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("exit_byte_rate"),
             Some(rate) => Ok(rate),
         }
     }
@@ -339,7 +339,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn exit_service_rate(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("exit_service_rate")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("exit_service_rate"),
             Some(rate) => Ok(rate),
         }
     }
@@ -458,7 +458,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn payable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("payable_scan_interval")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("payable_scan_interval"),
             Some(rate) => Ok(rate),
         }
     }
@@ -472,7 +472,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn payment_grace_before_ban_sec(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("payment_grace_before_ban_sec")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("payment_grace_before_ban_sec"),
             Some(rate) => Ok(rate),
         }
     }
@@ -486,7 +486,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn payment_suggested_after_sec(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("payment_suggested_after_sec")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("payment_suggested_after_sec"),
             Some(rate) => Ok(rate),
         }
     }
@@ -500,7 +500,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("pending_payment_scan_interval")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("pending_payment_scan_interval"),
             Some(rate) => Ok(rate),
         }
     }
@@ -514,7 +514,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn permanent_debt_allowed_gwei(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("permanent_debt_allowed_gwei")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("permanent_debt_allowed_gwei"),
             Some(rate) => Ok(rate),
         }
     }
@@ -528,7 +528,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn receivable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("receivable_scan_interval")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("receivable_scan_interval"),
             Some(rate) => Ok(rate),
         }
     }
@@ -542,7 +542,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("routing_byte_rate")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("routing_byte_rate"),
             Some(rate) => Ok(rate),
         }
     }
@@ -553,7 +553,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn routing_service_rate(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("routing_service_rate")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("routing_service_rate"),
             Some(rate) => Ok(rate),
         }
     }
@@ -564,7 +564,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn start_block(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("start_block")?.value_opt) {
-            Ok(val) => Ok(val.expect("ever-supplied value missing; database is corrupt!")),
+            Ok(val) => match val {
+                Some(val) => Ok(val),
+                None => value_missing_panic("start_block"),
+            },
             Err(e) => Err(PersistentConfigError::from(e)),
         }
     }
@@ -577,7 +580,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn unban_when_balance_below_gwei(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("unban_when_balance_below_gwei")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => value_missing_panic("unban_when_balance_below_gwei"),
             Some(rate) => Ok(rate),
         }
     }
@@ -697,6 +700,13 @@ impl PersistentConfigurationReal {
     fn validate_wallet_address(address: &str) -> bool {
         Wallet::from_str(address).is_ok()
     }
+}
+
+fn value_missing_panic(parameter_name: &str) -> ! {
+    panic!(
+        "ever-supplied value missing: {}; database is corrupt!",
+        parameter_name
+    )
 }
 
 #[cfg(test)]
@@ -894,7 +904,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied clandestine_port value missing; database is corrupt!")]
+    #[should_panic(expected = "ever-supplied value missing: clandestine_port; database is corrupt!")]
     fn clandestine_port_panics_if_none_got_from_database() {
         let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "clandestine_port",
@@ -1797,7 +1807,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied start_block value missing; database is corrupt!")]
+    #[should_panic(expected = "ever-supplied value missing: start_block; database is corrupt!")]
     fn start_block_does_not_tolerate_optional_output() {
         let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "start_block",

@@ -392,7 +392,7 @@ pub mod tests {
     use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
-    use crate::test_utils::pure_test_utils::make_pre_populated_mocked_directory_wrapper;
+    use crate::test_utils::unshared_test_utils::make_pre_populated_mocked_directory_wrapper;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};

@@ -26,7 +26,7 @@ use crate::node_configurator::{
     real_user_data_directory_opt_and_chain, real_user_from_multi_config_or_populate,
 };
 use crate::server_initializer::GatheredParams;
-use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
+use crate::sub_lib::accountant::{AccountantConfig, DEFAULT_EARNING_WALLET};
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -41,14 +41,17 @@ use masq_lib::constants::{
     DEFAULT_CHAIN, DEFAULT_RATE_PACK, DEFAULT_UI_PORT, HTTP_PORT, MASQ_URL_PREFIX, TLS_PORT,
 };
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
-use masq_lib::payment_curves_and_rate_pack::RatePack;
+use masq_lib::payment_curves_and_rate_pack::{PaymentCurves, RatePack};
 use masq_lib::shared_schema::ParamError;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::WrapResult;
 use rustc_hex::FromHex;
 use std::convert::TryFrom;
+use std::fmt::Display;
 use std::ops::Deref;
 use std::str::FromStr;
+use std::time::Duration;
+
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
 }
@@ -283,10 +286,68 @@ fn configure_accountant_config(
     config: &mut BootstrapperConfig,
     persist_config: &dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
-    let pending_payment_interval = configure_single_parameter(multi_config,"pending_payment_scan_interval", Box::new(||persist_config.pending_payment_scan_interval()))?;
-    unimplemented!()
+    let payment_suggested_after_sec = configure_single_parameter_with_overflow_check(
+        multi_config,
+        "payment-suggested-after",
+        Box::new(|| persist_config.payment_suggested_after_sec()),
+    )?;
+    let payment_grace_before_ban_sec = configure_single_parameter_with_overflow_check(
+        multi_config,
+        "payment-grace-before-ban",
+        Box::new(|| persist_config.payment_grace_before_ban_sec()),
+    )?;
+    let permanent_debt_allowed_gwei = configure_single_parameter_with_overflow_check(
+        multi_config,
+        "permanent-debt-allowed",
+        Box::new(|| persist_config.permanent_debt_allowed_gwei()),
+    )?;
+    let balance_to_decrease_from_gwei = configure_single_parameter_with_overflow_check(
+        multi_config,
+        "balance-to-decrease-from",
+        Box::new(|| persist_config.balance_to_decrease_from_gwei()),
+    )?;
+    let balance_decreases_for_sec = configure_single_parameter_with_overflow_check(
+        multi_config,
+        "balance-decreases-for",
+        Box::new(|| persist_config.balance_decreases_for_sec()),
+    )?;
+    let unban_when_balance_below_gwei = configure_single_parameter_with_overflow_check(
+        multi_config,
+        "unban-when-balance-below",
+        Box::new(|| persist_config.unban_when_balance_below_gwei()),
+    )?;
+    let payment_curves = PaymentCurves {
+        payment_suggested_after_sec,
+        payment_grace_before_ban_sec,
+        permanent_debt_allowed_gwei,
+        balance_to_decrease_from_gwei,
+        balance_decreases_for_sec,
+        unban_when_balance_below_gwei,
+    };
+    let pending_payment_interval = Duration::from_secs(configure_single_parameter(
+        multi_config,
+        "pending-payment-scan-interval",
+        Box::new(|| persist_config.pending_payment_scan_interval()),
+    )?);
+    let payable_interval = Duration::from_secs(configure_single_parameter(
+        multi_config,
+        "payable-scan-interval",
+        Box::new(|| persist_config.payable_scan_interval()),
+    )?);
+    let receivable_interval = Duration::from_secs(configure_single_parameter(
+        multi_config,
+        "receivable-scan-interval",
+        Box::new(|| persist_config.receivable_scan_interval()),
+    )?);
+    let accountant_config = AccountantConfig {
+        pending_payment_scan_interval_opt: Some(pending_payment_interval),
+        payable_scan_interval_opt: Some(payable_interval),
+        receivable_scan_interval_opt: Some(receivable_interval),
+        payment_curves_opt: Some(payment_curves),
+    };
+    config.accountant_config = accountant_config;
+    Ok(())
 }
-
 
 fn configure_rate_pack(
     multi_config: &MultiConfig,
@@ -324,7 +385,7 @@ fn configure_rate_pack(
     Ok(())
 }
 
-fn configure_single_parameter<C,T>(
+fn configure_single_parameter<C, T>(
     multi_config: &MultiConfig,
     parameter_name: &str,
     persistent_config_method: Box<C>,
@@ -332,7 +393,7 @@ fn configure_single_parameter<C,T>(
 where
     C: FnOnce() -> Result<T, PersistentConfigError> + ?Sized,
     T: std::str::FromStr,
-    <T as std::str::FromStr>::Err: std::fmt::Display
+    <T as std::str::FromStr>::Err: std::fmt::Display,
 {
     Ok(
         match (
@@ -347,18 +408,33 @@ where
                     rate, parameter_name, e
                 ),
             },
-            (None, pc_method) => pc_method().map_err(|e| {
-                let standard_name = err_parameter_name(parameter_name);
-                e.into_configurator_error(standard_name.as_str())
-            })?,
+            (None, pc_method) => {
+                pc_method().map_err(|e| e.into_configurator_error(parameter_name))?
+            }
         },
     )
 }
 
-fn err_parameter_name(cli_parameter_name: &str)->String{
-    cli_parameter_name.chars()
-        .map(|char| if char == '-' { ' ' } else { char })
-        .collect()
+fn configure_single_parameter_with_overflow_check<S, T, C>(
+    multi_config: &MultiConfig,
+    parameter_name: &str,
+    persistent_config_method: Box<C>,
+) -> Result<S, ConfiguratorError>
+where
+    T: std::str::FromStr + Display + Copy,
+    <T as std::str::FromStr>::Err: std::fmt::Display,
+    S: std::convert::TryFrom<T>,
+    <S as std::convert::TryFrom<T>>::Error: std::fmt::Display,
+    C: FnOnce() -> Result<T, PersistentConfigError> + ?Sized,
+{
+    let fetched_value =
+        configure_single_parameter::<C, T>(multi_config, parameter_name, persistent_config_method)?;
+    S::try_from(fetched_value).map_err(|e| {
+        ConfiguratorError::required(
+            parameter_name,
+            format!("{}; value: {}", e, fetched_value).as_str(),
+        )
+    })
 }
 
 pub fn configure_database(
@@ -856,11 +932,8 @@ mod tests {
     use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_utils;
-    use crate::test_utils::pure_test_utils::{
-        make_default_persistent_configuration, make_pre_populated_mocked_directory_wrapper,
-        make_simplified_multi_config,
-    };
+    use crate::test_utils::unshared_test_utils;
+    use crate::test_utils::unshared_test_utils::{configure_default_persistent_config, default_persistent_config_just_accountant_config, make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config};
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
     use masq_lib::constants::DEFAULT_GAS_PRICE;
     use masq_lib::multi_config::{NameValueVclArg, VclArg, VirtualCommandLine};
@@ -1049,7 +1122,6 @@ mod tests {
     #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {
         let multi_config = make_simplified_multi_config([
-            "MASQNode",
             "--neighbors",
             "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678",
             "--chain",
@@ -1113,7 +1185,7 @@ mod tests {
     #[test]
     fn set_db_password_at_first_mention_handles_existing_password() {
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
             .check_password_params(&check_password_params_arc)
             .check_password_result(Ok(false));
 
@@ -1127,7 +1199,7 @@ mod tests {
     #[test]
     fn set_db_password_at_first_mention_sets_password_correctly() {
         let change_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
             .check_password_result(Ok(true))
             .change_password_params(&change_password_params_arc)
             .change_password_result(Ok(()));
@@ -1145,7 +1217,7 @@ mod tests {
     #[test]
     fn set_db_password_at_first_mention_handles_password_check_error() {
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
             .check_password_params(&check_password_params_arc)
             .check_password_result(Err(PersistentConfigError::NotPresent));
 
@@ -1162,7 +1234,7 @@ mod tests {
     #[test]
     fn set_db_password_at_first_mention_handles_password_set_error() {
         let change_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
             .check_password_result(Ok(true))
             .change_password_params(&change_password_params_arc)
             .change_password_result(Err(PersistentConfigError::NotPresent));
@@ -1188,7 +1260,7 @@ mod tests {
         )
         .unwrap();
         let logger = Logger::new("test");
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
@@ -1210,7 +1282,7 @@ mod tests {
         .unwrap();
         let logger = Logger::new("test");
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
@@ -1227,10 +1299,10 @@ mod tests {
 
     #[test]
     fn compute_mapping_protocol_blanks_database_if_command_line_with_missing_value() {
-        let multi_config = make_simplified_multi_config(["MASQNode", "--mapping-protocol"]);
+        let multi_config = make_simplified_multi_config(["--mapping-protocol"]);
         let logger = Logger::new("test");
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
@@ -1244,9 +1316,9 @@ mod tests {
 
     #[test]
     fn compute_mapping_protocol_does_not_resave_entry_if_no_change() {
-        let multi_config = make_simplified_multi_config(["MASQNode", "--mapping-protocol", "igdp"]);
+        let multi_config = make_simplified_multi_config(["--mapping-protocol", "igdp"]);
         let logger = Logger::new("test");
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
@@ -1258,9 +1330,9 @@ mod tests {
     #[test]
     fn compute_mapping_protocol_logs_and_uses_none_if_saved_mapping_protocol_cannot_be_read() {
         init_test_logging();
-        let multi_config = make_simplified_multi_config(["MASQNode"]);
+        let multi_config = make_simplified_multi_config([]);
         let logger = Logger::new("BAD_MP_READ");
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
             .mapping_protocol_result(Err(PersistentConfigError::NotPresent));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
@@ -1275,9 +1347,9 @@ mod tests {
     #[test]
     fn compute_mapping_protocol_logs_and_moves_on_if_mapping_protocol_cannot_be_saved() {
         init_test_logging();
-        let multi_config = make_simplified_multi_config(["MASQNode", "--mapping-protocol", "IGDP"]);
+        let multi_config = make_simplified_multi_config(["--mapping-protocol", "IGDP"]);
         let logger = Logger::new("BAD_MP_WRITE");
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
             .set_mapping_protocol_result(Err(PersistentConfigError::NotPresent));
 
@@ -1312,7 +1384,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            Some(&mut configure_default_persistent_config(0b0000_0001)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1360,7 +1432,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            Some(&mut configure_default_persistent_config(0b0000_0001)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1393,7 +1465,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            Some(&mut configure_default_persistent_config(0b0000_0001)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1434,7 +1506,10 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+            Some(
+                &mut configure_default_persistent_config(0b0000_0001)
+                    .check_password_result(Ok(false)),
+            ),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1461,7 +1536,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            Some(&mut configure_default_persistent_config(0b0000_0001)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1501,7 +1576,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            Some(&mut configure_default_persistent_config(0b0000_0001)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1533,7 +1608,10 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+            Some(
+                &mut configure_default_persistent_config(0b0000_0001)
+                    .check_password_result(Ok(false)),
+            ),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1561,7 +1639,10 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+            Some(
+                &mut configure_default_persistent_config(0b0000_0001)
+                    .check_password_result(Ok(false)),
+            ),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1594,7 +1675,7 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            Some(&mut configure_default_persistent_config(0b0000_0001)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1631,7 +1712,7 @@ mod tests {
     fn get_past_neighbors_handles_good_password_but_no_past_neighbors() {
         running_test();
         let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
-        let mut persistent_config = make_default_persistent_configuration();
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001);
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
 
@@ -1650,7 +1731,7 @@ mod tests {
         running_test();
         let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
         let mut persistent_config =
-            make_default_persistent_configuration().check_password_result(Ok(true));
+            configure_default_persistent_config(0b0000_0001).check_password_result(Ok(true));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
 
@@ -1692,7 +1773,6 @@ mod tests {
     #[test]
     fn convert_ci_configs_handles_leftover_whitespaces_between_descriptors_and_commas() {
         let multi_config = make_simplified_multi_config([
-            "program",
             "--chain",
             "eth-ropsten",
             "--fake-public-key",
@@ -1718,7 +1798,7 @@ mod tests {
     #[test]
     fn convert_ci_configs_does_not_like_neighbors_with_bad_syntax() {
         running_test();
-        let multi_config = make_simplified_multi_config(["program", "--neighbors", "ooga,booga"]);
+        let multi_config = make_simplified_multi_config(["--neighbors", "ooga,booga"]);
 
         let result = convert_ci_configs(&multi_config).err();
 
@@ -1743,7 +1823,7 @@ mod tests {
             "masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
             DEFAULT_CHAIN.rec().literal_identifier
         );
-        let multi_config = make_simplified_multi_config(["program", "--neighbors", &descriptor]);
+        let multi_config = make_simplified_multi_config(["--neighbors", &descriptor]);
 
         let result = convert_ci_configs(&multi_config);
 
@@ -1754,7 +1834,6 @@ mod tests {
     fn convert_ci_configs_complains_about_descriptor_without_node_address_when_test_chain_required()
     {
         let multi_config = make_simplified_multi_config([
-            "program",
             "--chain",
             "eth-ropsten",
             "--neighbors",
@@ -2099,8 +2178,7 @@ mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let mut persistent_config = make_default_persistent_configuration()
-            .mapping_protocol_result(Ok(None))
+        let mut persistent_config = configure_default_persistent_config(0b0000_1111)
             .check_password_result(Ok(false));
 
         unprivileged_parse_args(
@@ -2111,10 +2189,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            Some(PathBuf::from("config.toml")),
-            value_m!(multi_config, "config-file", PathBuf)
-        );
         assert_eq!(None, config.clandestine_port_opt);
         assert!(config
             .neighborhood_config
@@ -2150,21 +2224,24 @@ mod tests {
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_configuration = make_persistent_config(
-            None,
-            Some("password"),
-            None,
-            None,
-            None,
-            Some("masq://eth-ropsten:AQIDBA@1.2.3.4:1234,masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"),
-            None,
-            None,
-            None,
-            None,
-        )
-        .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
-        .past_neighbors_params(&past_neighbors_params_arc)
-        .blockchain_service_url_result(Ok(None));
+        let mut persistent_configuration = {
+            let config = make_persistent_config(
+                None,
+                Some("password"),
+                None,
+                None,
+                None,
+                Some("masq://eth-ropsten:AQIDBA@1.2.3.4:1234,masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"),
+                None,
+                None,
+                None,
+                None,
+            )
+                .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+                .past_neighbors_params(&past_neighbors_params_arc)
+                .blockchain_service_url_result(Ok(None));
+            default_persistent_config_just_accountant_config(config)
+        };
 
         unprivileged_parse_args(
             &multi_config,
@@ -2204,9 +2281,11 @@ mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let mut persistent_configuration =
-            make_persistent_config(None, None, None, None, None, None, None, None, None, None)
+        let mut persistent_configuration = {
+            let config = make_persistent_config(None, None, None, None, None, None, None, None, None, None)
                 .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
+            default_persistent_config_just_accountant_config(config)
+        };
 
         unprivileged_parse_args(
             &multi_config,
@@ -2259,7 +2338,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_default_persistent_config(0b0000_1101)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
@@ -2351,8 +2430,7 @@ mod tests {
     fn get_wallets_with_brand_new_database_establishes_default_earning_wallet_without_requiring_password(
     ) {
         running_test();
-        let args = ["program"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
+        let multi_config = unshared_test_utils::make_simplified_multi_config([]);
         let mut persistent_config =
             make_persistent_config(None, None, None, None, None, None, None, None, None, None);
         let mut config = BootstrapperConfig::new();
@@ -2365,8 +2443,7 @@ mod tests {
 
     #[test]
     fn get_wallets_handles_failure_of_mnemonic_seed_exists() {
-        let args = ["program"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
+        let multi_config = unshared_test_utils::make_simplified_multi_config([]);
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Err(PersistentConfigError::NotPresent));
@@ -2385,8 +2462,7 @@ mod tests {
 
     #[test]
     fn get_wallets_handles_failure_of_consuming_wallet_derivation_path() {
-        let args = ["program"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
+        let multi_config = unshared_test_utils::make_simplified_multi_config([]);
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Ok(true))
@@ -2406,11 +2482,10 @@ mod tests {
     fn earning_wallet_address_different_from_database() {
         running_test();
         let args = [
-            "program",
             "--earning-wallet",
             "0x0123456789012345678901234567890123456789",
         ];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
+        let multi_config = unshared_test_utils::make_simplified_multi_config(args);
         let mut persistent_config = make_persistent_config(
             None,
             None,
@@ -2436,11 +2511,10 @@ mod tests {
     fn earning_wallet_address_matches_database() {
         running_test();
         let args = [
-            "program",
             "--earning-wallet",
             "0xb00fa567890123456789012345678901234B00FA",
         ];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
+        let multi_config = unshared_test_utils::make_simplified_multi_config(args);
         let mut persistent_config = make_persistent_config(
             None,
             None,
@@ -2469,13 +2543,12 @@ mod tests {
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
         let args = [
-            "program",
             "--db-password",
             "password",
             "--consuming-private-key",
             consuming_private_key_hex,
         ];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
+        let multi_config = unshared_test_utils::make_simplified_multi_config(args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2502,13 +2575,12 @@ mod tests {
     fn earning_wallet_address_plus_mnemonic_seed() {
         running_test();
         let args = [
-            "program",
             "--db-password",
             "password",
             "--earning-wallet",
             "0xcafedeadbeefbabefacecafedeadbeefbabeface",
         ];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
+        let multi_config = unshared_test_utils::make_simplified_multi_config(args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2534,8 +2606,8 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_earning_wallet_address_plus_mnemonic_seed() {
         running_test();
-        let args = ["program", "--db-password", "password"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
+        let args = ["--db-password", "password"];
+        let multi_config = unshared_test_utils::make_simplified_multi_config(args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2568,8 +2640,7 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_parameter() {
         running_test();
-        let args = ["program"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
+        let multi_config = unshared_test_utils::make_simplified_multi_config([]);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2651,8 +2722,7 @@ mod tests {
         unprivileged_parse_args(
             &multi_config,
             &mut config,
-            &mut make_default_persistent_configuration()
-                .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp))),
+            &mut configure_default_persistent_config(0b0000_1111),
             &Logger::new("test logger"),
         )
         .unwrap();
@@ -2672,7 +2742,6 @@ mod tests {
             "unprivileged_parse_args_configures_accountant_config_database_ignored",
         );
         let args = [
-            "MASQNode",
             "--ip",
             "1.2.3.4",
             "--data-directory",
@@ -2698,8 +2767,8 @@ mod tests {
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
-        let mut persistent_configuration =
-            make_default_persistent_configuration().mapping_protocol_result(Ok(None));
+        let mut persistent_configuration = configure_default_persistent_config(0b0000_1001)
+            .mapping_protocol_result(Ok(None));
 
         unprivileged_parse_args(
             &multi_config,
@@ -2727,6 +2796,27 @@ mod tests {
     }
 
     #[test]
+    fn configure_single_parameter_with_overflow_check_handles_overflow() {
+        let multi_config = make_simplified_multi_config([]);
+        let persistent_config =
+            PersistentConfigurationMock::default().exit_byte_rate_result(Ok(u64::MAX));
+
+        let result: Result<i64, ConfiguratorError> = configure_single_parameter_with_overflow_check(
+            &multi_config,
+            "exit-byte-rate",
+            Box::new(|| persistent_config.exit_byte_rate()),
+        );
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required(
+                "exit-byte-rate",
+                "out of range integral type conversion attempted; value: 18446744073709551615"
+            ))
+        );
+    }
+
+    #[test]
     fn unprivileged_parse_args_configures_rate_pack_database_values_ignored() {
         running_test();
         let home_directory = ensure_node_home_directory_exists(
@@ -2734,7 +2824,6 @@ mod tests {
             "unprivileged_parse_args_configures_rate_pack_database_values_ignored",
         );
         let args = [
-            "MASQNode",
             "--ip",
             "1.2.3.4",
             "--blockchain-service-url",
@@ -2754,11 +2843,7 @@ mod tests {
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
-        let mut persistent_configuration = PersistentConfigurationMock::new()
-            .earning_wallet_from_address_result(Ok(None))
-            .consuming_wallet_derivation_path_result(Ok(None))
-            .mnemonic_seed_result(Ok(None))
-            .mnemonic_seed_exists_result(Ok(false));
+        let mut persistent_configuration = configure_default_persistent_config(0b0000_0111);
         //no prepared results for the tested parameters, that is they're uncalled
 
         unprivileged_parse_args(
@@ -2780,14 +2865,13 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_configures_rate_pack_from_database() {
+    fn configure_rate_pack_from_database() {
         running_test();
         let home_directory = ensure_node_home_directory_exists(
             "node_configurator",
-            "unprivileged_parse_args_configures_rate_pack_from_database",
+            "configure_rate_pack_from_database",
         );
         let args = [
-            "MASQNode",
             "--ip",
             "1.2.3.4",
             "--blockchain-service-url",
@@ -2810,13 +2894,7 @@ mod tests {
             .exit_byte_rate_result(Ok(10))
             .exit_service_rate_result(Ok(11));
 
-        unprivileged_parse_args(
-            &multi_config,
-            &mut config,
-            &mut persistent_configuration,
-            &Logger::new("test"),
-        )
-        .unwrap();
+        configure_rate_pack(&multi_config, &mut config, &mut persistent_configuration).unwrap();
 
         let actual_rate_pack = config.rate_pack_opt.take().unwrap();
         let expected_rate_pack = RatePack {
@@ -2829,15 +2907,13 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_configures_rate_pack_command_line_absent_and_null_config_dao_so_all_defaults(
-    ) {
+    fn configure_rate_pack_command_line_absent_null_config_dao_so_all_defaults() {
         running_test();
         let home_directory = ensure_node_home_directory_exists(
             "node_configurator",
-            "unprivileged_parse_args_configures_rate_pack_command_line_absent_and_null_config_dao_so_all_defaults",
+            "configure_rate_pack_command_line_absent_null_config_dao_so_all_defaults",
         );
         let args = [
-            "MASQNode",
             "--ip",
             "1.2.3.4",
             "--blockchain-service-url",
@@ -2852,13 +2928,7 @@ mod tests {
         let mut persistent_config =
             PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
 
-        unprivileged_parse_args(
-            &multi_config,
-            &mut config,
-            &mut persistent_config,
-            &Logger::new("test"),
-        )
-        .unwrap();
+        configure_rate_pack(&multi_config, &mut config, &mut persistent_config).unwrap();
 
         let actual_rate_pack = config.rate_pack_opt.take().unwrap();
         let expected_rate_pack = RatePack {
@@ -2873,11 +2943,10 @@ mod tests {
     #[test]
     fn get_db_password_shortcuts_if_its_already_gotten() {
         running_test();
-        let args = ["program"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
+        let multi_config = unshared_test_utils::make_simplified_multi_config([]);
         let mut config = BootstrapperConfig::new();
-        let mut persistent_config =
-            make_default_persistent_configuration().check_password_result(Ok(false));
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
+            .check_password_result(Ok(false));
         config.db_password_opt = Some("password".to_string());
 
         let result = get_db_password(&multi_config, &mut config, &mut persistent_config);
@@ -2891,7 +2960,7 @@ mod tests {
         let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
         let mut config = BootstrapperConfig::new();
         let mut persistent_config =
-            make_default_persistent_configuration().check_password_result(Ok(true));
+            configure_default_persistent_config(0b0000_0001).check_password_result(Ok(true));
 
         let result = get_db_password(&multi_config, &mut config, &mut persistent_config);
 
@@ -2901,10 +2970,10 @@ mod tests {
     #[test]
     fn get_db_password_handles_database_write_error() {
         running_test();
-        let args = ["command", "--db-password", "password"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
+        let args = ["--db-password", "password"];
+        let multi_config = unshared_test_utils::make_simplified_multi_config(args);
         let mut config = BootstrapperConfig::new();
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
             .check_password_result(Ok(true))
             .check_password_result(Ok(true))
             .check_password_result(Ok(true))
@@ -2976,7 +3045,7 @@ mod tests {
         running_test();
         let _clap_guard = ClapGuard::new();
         let subject = NodeConfiguratorStandardPrivileged::new();
-        let args = ["program", "--ip", "1.2.3.4", "--chain", "dev"];
+        let args = ["--ip", "1.2.3.4", "--chain", "dev"];
 
         let config = subject
             .configure(&make_simplified_multi_config(args))
@@ -2990,7 +3059,6 @@ mod tests {
         running_test();
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = [
-            "program",
             "--ip",
             "1.2.3.4",
             "--chain",
@@ -3009,7 +3077,7 @@ mod tests {
         running_test();
         let _clap_guard = ClapGuard::new();
         let subject = NodeConfiguratorStandardPrivileged::new();
-        let args = ["program", "--ip", "1.2.3.4"];
+        let args = ["--ip", "1.2.3.4"];
 
         let config = subject
             .configure(&make_simplified_multi_config(args))
@@ -3030,7 +3098,6 @@ mod tests {
         running_test();
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = [
-            "program",
             "--ip",
             "1.2.3.4",
             "--chain",
@@ -3057,7 +3124,7 @@ mod tests {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
         subject.privileged_config.data_directory = data_dir;
-        let args = ["program", "--ip", "1.2.3.4", "--gas-price", "57"];
+        let args = ["--ip", "1.2.3.4", "--gas-price", "57"];
 
         let config = subject
             .configure(&make_simplified_multi_config(args))
@@ -3077,7 +3144,7 @@ mod tests {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
         subject.privileged_config.data_directory = data_dir;
-        let args = ["program", "--ip", "1.2.3.4"];
+        let args = ["--ip", "1.2.3.4"];
 
         let config = subject
             .configure(&make_simplified_multi_config(args))
@@ -3194,8 +3261,7 @@ mod tests {
     fn wrap_up_db_externals_is_properly_set() {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config.blockchain_bridge_config.chain = DEFAULT_CHAIN;
-        let multi_config =
-            make_simplified_multi_config(["MASQNode", "--neighborhood-mode", "zero-hop"]);
+        let multi_config = make_simplified_multi_config(["--neighborhood-mode", "zero-hop"]);
 
         let result = subject.wrap_up_db_externals(&multi_config);
 

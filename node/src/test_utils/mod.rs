@@ -35,7 +35,6 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
@@ -204,17 +203,6 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
             .flatten()
             .collect::<Vec<u8>>(),
     )
-}
-
-pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
-    PersistentConfigurationMock::new()
-        .earning_wallet_from_address_result(Ok(None))
-        .consuming_wallet_derivation_path_result(Ok(None))
-        .mnemonic_seed_result(Ok(None))
-        .mnemonic_seed_exists_result(Ok(false))
-        .past_neighbors_result(Ok(None))
-        .gas_price_result(Ok(1))
-        .mapping_protocol_result(Ok(None))
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
@@ -515,7 +503,7 @@ pub struct TestRawTransaction {
 }
 
 #[cfg(test)]
-pub mod pure_test_utils {
+pub mod unshared_test_utils {
     use crate::apps::app_node;
     use crate::daemon::ChannelFactory;
     use crate::node_test_utils::DirsWrapperMock;
@@ -523,7 +511,10 @@ pub mod pure_test_utils {
     use actix::Message;
     use actix::{Actor, Addr, Context, Handler, System};
     use crossbeam_channel::{Receiver, Sender};
-    use masq_lib::constants::DEFAULT_RATE_PACK;
+    use masq_lib::constants::{
+        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
+        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+    };
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -536,13 +527,48 @@ pub mod pure_test_utils {
     use std::time::Duration;
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
-        let owned_args = array_of_borrows_to_vec(&args);
-        let arg_matches = app_node().get_matches_from_safe(owned_args).unwrap();
+        let mut app_args = vec!["MASQNode".to_string()];
+        app_args.append(&mut array_of_borrows_to_vec(&args));
+        let arg_matches = app_node().get_matches_from_safe(app_args).unwrap();
         MultiConfig::new_test_only(arg_matches)
     }
 
-    pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
-        PersistentConfigurationMock::new()
+    const BASE: u32 = 0b0000_0001;
+    const MAPPING_PROTOCOL: u32 = 0b0000_0010;
+    const ACCOUNTANT_CONFIG_PARAMS: u32 = 0b0000_0100;
+    const RATE_PACK: u32 = 0b0000_1000;
+
+    pub fn configure_default_persistent_config(
+        bit_flag: u32
+    ) -> PersistentConfigurationMock {
+        let config = PersistentConfigurationMock::new();
+        let config = if (bit_flag & BASE) == BASE {
+            default_persistent_config_just_base(config)
+        } else {
+            config
+        };
+        let config = if (bit_flag & MAPPING_PROTOCOL) == MAPPING_PROTOCOL {
+            config.mapping_protocol_result(Ok(None))
+        } else {
+            config
+        };
+        let config = if(bit_flag & ACCOUNTANT_CONFIG_PARAMS) == ACCOUNTANT_CONFIG_PARAMS {
+            default_persistent_config_just_accountant_config(config)
+        } else {
+            config
+        };
+        let config = if (bit_flag & RATE_PACK) == RATE_PACK {
+            default_persistent_config_just_rate_pack(config)
+        } else {
+            config
+        };
+        config
+    }
+
+    pub fn default_persistent_config_just_base(
+        persistent_config_mock: PersistentConfigurationMock,
+    ) -> PersistentConfigurationMock {
+        persistent_config_mock
             .earning_wallet_from_address_result(Ok(None))
             .consuming_wallet_derivation_path_result(Ok(None))
             .mnemonic_seed_result(Ok(None))
@@ -550,6 +576,45 @@ pub mod pure_test_utils {
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
             .blockchain_service_url_result(Ok(None))
+    }
+
+    pub fn default_persistent_config_just_accountant_config(
+        persistent_config_mock: PersistentConfigurationMock,
+    ) -> PersistentConfigurationMock {
+        persistent_config_mock
+            .payment_suggested_after_sec_result(Ok(u64::try_from(
+                DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec,
+            )
+            .unwrap()))
+            .payment_grace_before_ban_sec_result(Ok(u64::try_from(
+                DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec,
+            )
+            .unwrap()))
+            .permanent_debt_allowed_gwei_result(Ok(u64::try_from(
+                DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei,
+            )
+            .unwrap()))
+            .balance_to_decrease_from_gwei_result(Ok(u64::try_from(
+                DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei,
+            )
+            .unwrap()))
+            .balance_decreases_for_sec_result(Ok(u64::try_from(
+                DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec,
+            )
+            .unwrap()))
+            .unban_when_balance_below_gwei_result(Ok(u64::try_from(
+                DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei,
+            )
+            .unwrap()))
+            .pending_payment_scan_interval_result(Ok(DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL))
+            .payable_scan_interval_result(Ok(DEFAULT_PAYABLE_SCAN_INTERVAL))
+            .receivable_scan_interval_result(Ok(DEFAULT_RECEIVABLE_SCAN_INTERVAL))
+    }
+
+    pub fn default_persistent_config_just_rate_pack(
+        persistent_config_mock: PersistentConfigurationMock,
+    ) -> PersistentConfigurationMock {
+        persistent_config_mock
             .routing_byte_rate_result(Ok(DEFAULT_RATE_PACK.routing_byte_rate))
             .routing_service_rate_result(Ok(DEFAULT_RATE_PACK.routing_service_rate))
             .exit_byte_rate_result(Ok(DEFAULT_RATE_PACK.exit_byte_rate))

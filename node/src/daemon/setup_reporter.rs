@@ -42,7 +42,7 @@ use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::utils::ExpectValue;
 use paste::paste;
 use std::collections::HashMap;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -304,7 +304,7 @@ impl SetupReporterReal {
             Ok(mc) => mc,
             Err(ce) => return (HashMap::new(), Some(ce)),
         };
-        let ((bootstrapper_config, persistent_config_opt), error_opt) =
+        let ((bootstrapper_config, persistent_config), error_opt) =
             self.run_configuration(&multi_config, data_directory);
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -314,7 +314,7 @@ impl SetupReporterReal {
             .map(|r| {
                 let computed_default = r.computed_default_value(
                     &bootstrapper_config,
-                    &persistent_config_opt,
+                    persistent_config.as_ref(),
                     &db_password_opt,
                 );
                 let configured = match value_m!(multi_config, r.value_name(), String) {
@@ -412,7 +412,7 @@ impl SetupReporterReal {
         multi_config: &MultiConfig,
         data_directory: &Path,
     ) -> (
-        (BootstrapperConfig, Option<Box<dyn PersistentConfiguration>>),
+        (BootstrapperConfig, Box<dyn PersistentConfiguration>),
         Option<ConfiguratorError>,
     ) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
@@ -443,13 +443,13 @@ impl SetupReporterReal {
                     &self.logger,
                 ) {
                     Ok(_) => (
-                        (bootstrapper_config, Some(Box::new(persistent_config))),
+                        (bootstrapper_config, Box::new(persistent_config)),
                         None,
                     ),
                     Err(ce) => {
                         error_so_far.extend(ce);
                         (
-                            (bootstrapper_config, Some(Box::new(persistent_config))),
+                            (bootstrapper_config, Box::new(persistent_config)),
                             Some(error_so_far),
                         )
                     }
@@ -468,10 +468,10 @@ impl SetupReporterReal {
                     &mut persistent_config,
                     &self.logger,
                 ) {
-                    Ok(_) => ((bootstrapper_config, None), None),
+                    Ok(_) => ((bootstrapper_config, Box::new(persistent_config)), None),
                     Err(ce) => {
                         error_so_far.extend(ce);
-                        ((bootstrapper_config, None), Some(error_so_far))
+                        ((bootstrapper_config, Box::new(persistent_config)), Some(error_so_far))
                     }
                 }
             }
@@ -486,7 +486,7 @@ trait ValueRetriever {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config_opt: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         None
@@ -495,10 +495,10 @@ trait ValueRetriever {
     fn computed_default_value(
         &self,
         bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        persistent_config: &dyn PersistentConfiguration,
         db_password_opt: &Option<String>,
     ) -> UiSetupResponseValue {
-        match self.computed_default(bootstrapper_config, persistent_config_opt, db_password_opt) {
+        match self.computed_default(bootstrapper_config, persistent_config, db_password_opt) {
             Some((value, status)) => UiSetupResponseValue::new(self.value_name(), &value, status),
             None => UiSetupResponseValue::new(self.value_name(), "", Blank),
         }
@@ -537,7 +537,7 @@ impl ValueRetriever for Chain {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         Some((DEFAULT_CHAIN.rec().literal_identifier.to_string(), Default))
@@ -557,17 +557,13 @@ impl ValueRetriever for ClandestinePort {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        if let Some(persistent_config) = persistent_config_opt {
             match persistent_config.clandestine_port() {
                 Ok(clandestine_port) => Some((clandestine_port.to_string(), Default)),
                 Err(_) => None,
             }
-        } else {
-            None
-        }
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -607,7 +603,7 @@ impl ValueRetriever for DataDirectory {
     fn computed_default(
         &self,
         bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let real_user = &bootstrapper_config.real_user;
@@ -672,7 +668,7 @@ impl ValueRetriever for DnsServers {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let inspector = self.factory.make()?;
@@ -722,7 +718,7 @@ impl ValueRetriever for GasPrice {
     fn computed_default(
         &self,
         bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         Some((
@@ -748,7 +744,7 @@ impl ValueRetriever for Ip {
     fn computed_default(
         &self,
         bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let neighborhood_mode = &bootstrapper_config.neighborhood_config.mode;
@@ -780,7 +776,7 @@ impl ValueRetriever for LogLevel {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         Some(("warn".to_string(), Default))
@@ -800,18 +796,15 @@ impl ValueRetriever for MappingProtocol {
     fn computed_default(
         &self,
         bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        let persistent_mapping_protocol_opt = match persistent_config_opt {
-            Some(pc) => match pc.mapping_protocol() {
-                Ok(protocol_opt) => protocol_opt,
-                Err(_) => None,
-            },
-            None => None,
+        let persistent_mapping_protocol = match persistent_config.mapping_protocol() {
+            Ok(protocol_opt) => protocol_opt,
+            Err(_) => None,
         };
         let from_bootstrapper_opt = bootstrapper_config.mapping_protocol_opt;
-        match (persistent_mapping_protocol_opt, from_bootstrapper_opt) {
+        match (persistent_mapping_protocol, from_bootstrapper_opt) {
             (Some(persistent), None) => Some((persistent.to_string().to_lowercase(), Configured)),
             (None, Some(from_bootstrapper)) => {
                 Some((from_bootstrapper.to_string().to_lowercase(), Configured))
@@ -836,7 +829,7 @@ impl ValueRetriever for NeighborhoodMode {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         Some(("standard".to_string(), Default))
@@ -864,15 +857,15 @@ impl ValueRetriever for Neighbors {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        persistent_config: &dyn PersistentConfiguration,
         db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        match (persistent_config_opt, db_password_opt) {
-            (Some(pc), Some(pw)) => match pc.past_neighbors(pw) {
+        match db_password_opt {
+            Some(pw) => match persistent_config.past_neighbors(pw) {
                 Ok(Some(pns)) => Some((node_descriptors_to_neighbors(pns), Configured)),
                 _ => None,
-            },
-            _ => None,
+            }
+            None => None
         }
     }
 
@@ -1016,7 +1009,7 @@ impl ValueRetriever for RealUser {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         #[cfg(target_os = "windows")]
@@ -1085,20 +1078,23 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
 
 fn computed_default_payment_curves_and_scan_intervals<T>(
     bootstrapper_config_value_opt: &Option<T>,
-    persistent_config_value_opt: &Option<T>,
+    persistent_config_value: T,
     default: T,
 ) -> Option<(String, UiSetupResponseValueStatus)>
 where
-    T: PartialEq + Display,
+    T: PartialEq + Display + Debug,
 {
-    match (bootstrapper_config_value_opt, persistent_config_value_opt) {
-        (None, None) => Some((default.to_string(), Default)),
-        (None, Some(val)) if val == &default => Some((val.to_string(), Default)),
-        (None, Some(val)) => Some((val.to_string(), Configured)),
-        (Some(bc_val), Some(pc_val)) if bc_val == pc_val => {
-            unimplemented!("not rate pack 'Configured'")
-        } //TODO the next probably can never happen
-        _ => unimplemented!(), //None
+    match bootstrapper_config_value_opt {
+        None if persistent_config_value == default => unimplemented!(),
+        None => unimplemented!(),
+        Some(val) => unimplemented!()
+        // None => Some((default.to_string(), Default)),
+        // None, Some(val)) if val == &default => Some((val.to_string(), Default)),
+        // (None, Some(val)) => Some((val.to_string(), Configured)),
+        // (Some(bc_val), Some(pc_val)) if bc_val == pc_val => {
+        //     unimplemented!("not rate pack 'Configured'")
+        // } //TODO the next probably can never happen
+        // x => unimplemented!("{:?}",x), //None
     }
 }
 
@@ -1109,18 +1105,21 @@ where
 
 fn computed_default_rate_pack(
     bootstrapper_config_value_opt: &Option<u64>,
-    persistent_config_value_opt: &Option<u64>,
+    persistent_config_value: u64,
     default: u64,
 ) -> Option<(String, UiSetupResponseValueStatus)> {
-    match (bootstrapper_config_value_opt, persistent_config_value_opt) {
-        (None, None) => Some((default.to_string(), Default)),
-        (None, Some(val)) if val == &default => Some((val.to_string(), Default)), //Wrong
-        (None, Some(val)) => Some((val.to_string(), Configured)),                 //Wrong
-        (Some(bc_val), Some(pc_val)) if bc_val == pc_val && bc_val == &default => {
-            Some((bc_val.to_string(), Default)) //unimplemented!("this should say 'Configured'")
-        }
-        (Some(bc_val), Some(pc_val)) if bc_val == pc_val => unimplemented!("1111111111"),
-        _ => None,
+    match bootstrapper_config_value_opt {
+        None if persistent_config_value == default => unimplemented!(),
+        None => unimplemented!(),
+        Some(val) => unimplemented!()
+        // (None, None) => Some((default.to_string(), Default)),
+        // (None, Some(val)) if val == &default => Some((val.to_string(), Default)), //Wrong
+        // (None, Some(val)) => Some((val.to_string(), Configured)),                 //Wrong
+        // (Some(bc_val), Some(pc_val)) if bc_val == pc_val && bc_val == &default => {
+        //     Some((bc_val.to_string(), Default)) //unimplemented!("this should say 'Configured'")
+        // }
+        // (Some(bc_val), Some(pc_val)) if bc_val == pc_val => unimplemented!("1111111111"),
+        // _ => None,
     }
 }
 
@@ -1131,7 +1130,7 @@ macro_rules! payment_curve_params_computed_default_and_is_required {
                 fn computed_default(
                 &self,
                 bootstrapper_config: &BootstrapperConfig,
-                pc_opt: &Option<Box<dyn PersistentConfiguration>>,
+                pc: &dyn PersistentConfiguration,
                 _db_password_opt: &Option<String>,
             ) -> Option<(String, UiSetupResponseValueStatus)> {
                 let bootstrapper_value_opt = bootstrapper_config
@@ -1139,14 +1138,12 @@ macro_rules! payment_curve_params_computed_default_and_is_required {
                     .payment_curves_opt
                     .as_ref()
                     .map(|curves| curves.[<$field_name>]);
-                let pc_value_opt = pc_opt.as_ref().map(|config| {
-                    config
+                let pc_value = pc
                         .[<$field_name>]()
-                        .expectv($field_name) as i64
-                });
+                        .expectv($field_name) as i64;
                 computed_default_payment_curves_and_scan_intervals(
                     &bootstrapper_value_opt,
-                    &pc_value_opt,
+                    pc_value,
                     DEFAULT_PAYMENT_CURVES.[<$field_name>],
                 )
             }
@@ -1163,21 +1160,19 @@ macro_rules! scan_interval_params_computed_default_and_is_required {
                 fn computed_default(
                 &self,
                 bootstrapper_config: &BootstrapperConfig,
-                pc_opt: &Option<Box<dyn PersistentConfiguration>>,
+                pc: &dyn PersistentConfiguration,
                 _db_password_opt: &Option<String>,
             ) -> Option<(String, UiSetupResponseValueStatus)> {
                 let bootstrapper_value_opt = bootstrapper_config
                     .accountant_config
                     .[<$field_name _opt>]
                     .map(|duration|duration.as_secs());
-                let pc_value_opt = pc_opt.as_ref().map(|config| {
-                    config
+                let pc_value = pc
                         .[<$field_name>]()
-                        .expectv($field_name)
-                });
+                        .expectv($field_name);
                 computed_default_payment_curves_and_scan_intervals(
                     &bootstrapper_value_opt,
-                    &pc_value_opt,
+                    pc_value,
                     $default,
                 )
             }
@@ -1194,20 +1189,18 @@ macro_rules! rate_pack_params_computed_default_and_is_required {
                 fn computed_default(
                 &self,
                 bootstrapper_config: &BootstrapperConfig,
-                pc_opt: &Option<Box<dyn PersistentConfiguration>>,
+                pc: &dyn PersistentConfiguration,
                 _db_password_opt: &Option<String>,
             ) -> Option<(String, UiSetupResponseValueStatus)> {
                 let bootstrapper_value_opt = bootstrapper_config
                     .rate_pack_opt.as_ref()
                     .map(|rate_pack|rate_pack.[<$field_name>]);
-                let pc_value_opt = pc_opt.as_ref().map(|config| {
-                    config
+                let pc_value = pc
                         .[<$field_name>]()
-                        .expectv($field_name)
-                });
+                        .expectv($field_name);
                 computed_default_rate_pack(
                     &bootstrapper_value_opt,
-                    &pc_value_opt,
+                    pc_value,
                     DEFAULT_RATE_PACK.[<$field_name>],
                 )
             }
@@ -1237,7 +1230,7 @@ mod tests {
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_utils::{
+    use crate::test_utils::unshared_test_utils::{
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use core::time::Duration;
@@ -1392,7 +1385,7 @@ mod tests {
             .unwrap();
 
         let (dns_servers_str, dns_servers_status) =
-            match DnsServers::new().computed_default(&BootstrapperConfig::new(), &None, &None) {
+            match DnsServers::new().computed_default(&BootstrapperConfig::new(), &PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default())), &None) {
                 Some((dss, _)) => (dss, Default),
                 None => ("".to_string(), Required),
             };
@@ -2429,11 +2422,8 @@ mod tests {
         assert_eq!(updated_gas_price, "55");
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, "0");
-        let multi_config = make_simplified_multi_config([
-            "MASQNode",
-            "--data-directory",
-            data_dir.to_str().unwrap(),
-        ]);
+        let multi_config =
+            make_simplified_multi_config(["--data-directory", data_dir.to_str().unwrap()]);
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let subject = SetupReporterReal::new(Box::new(dirs_wrapper));
 
@@ -2441,8 +2431,8 @@ mod tests {
             subject.run_configuration(&multi_config, &data_dir);
 
         assert_ne!(bootstrapper_config.blockchain_bridge_config.gas_price, 55); //asserting negation
-        assert!(persistent_config.is_none());
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
+        persistent_config.as_ref()
         assert_eq!(schema_version_before, schema_version_after)
     }
 
@@ -2782,9 +2772,7 @@ mod tests {
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_has_absolute_path_to_file_that_exists",
-        )
-        .canonicalize()
-        .unwrap();
+        );
         let config_file_dir = data_dir.join("data_dir").join("my_config_file");
         std::fs::create_dir_all(&config_file_dir).unwrap();
         let config_file_path = config_file_dir.join("special.toml");

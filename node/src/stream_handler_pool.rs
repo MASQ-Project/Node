@@ -575,7 +575,7 @@ mod tests {
     use crate::test_utils::await_messages;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
     use crate::test_utils::main_cryptde;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
+    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;

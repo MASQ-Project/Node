@@ -594,7 +594,7 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_utils::{CleanUpMessage, DummyActor};
+    use crate::test_utils::unshared_test_utils::{CleanUpMessage, DummyActor};
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;

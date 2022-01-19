@@ -724,7 +724,7 @@ mod tests {
     use crate::sub_lib::stream_connector::ConnectionInfo;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_utils::make_simplified_multi_config;
+    use crate::test_utils::unshared_test_utils::make_simplified_multi_config;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
     use crate::test_utils::recorder::Recording;
@@ -1044,7 +1044,6 @@ mod tests {
 
         subject
             .initialize_as_privileged(&make_simplified_multi_config([
-                "MASQNode",
                 "--neighborhood-mode",
                 "zero-hop",
             ]))
@@ -1080,7 +1079,6 @@ mod tests {
 
         subject
             .initialize_as_privileged(&make_simplified_multi_config([
-                "MASQNode",
                 "--data-directory",
                 data_dir.to_str().unwrap(),
                 "--ip",
@@ -1123,7 +1121,6 @@ mod tests {
         subject
             .initialize_as_unprivileged(
                 &make_simplified_multi_config([
-                    "MASQNode",
                     "--ip",
                     "1.2.3.4",
                     "--clandestine-port",
@@ -1169,7 +1166,6 @@ mod tests {
         subject
             .initialize_as_unprivileged(
                 &make_simplified_multi_config([
-                    "MASQNode",
                     "--ip",
                     "1.2.3.4",
                     "--blockchain-service-url",
@@ -1209,13 +1205,7 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &make_simplified_multi_config([
-                    "MASQNode",
-                    "--ip",
-                    "1.2.3.4",
-                    "--clandestine-port",
-                    "5123",
-                ]),
+                &make_simplified_multi_config(["--ip", "1.2.3.4", "--clandestine-port", "5123"]),
                 &mut FakeStreamHolder::new().streams(),
             )
             .unwrap();
@@ -1255,7 +1245,6 @@ mod tests {
         subject
             .initialize_as_unprivileged(
                 &make_simplified_multi_config([
-                    "MASQNode",
                     "--data-directory",
                     data_dir.to_str().unwrap(),
                     "--clandestine-port",
@@ -1294,7 +1283,7 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &make_simplified_multi_config(["MASQNode", "--ip", "1.2.3.4", "--gas-price", "11"]),
+                &make_simplified_multi_config(["--ip", "1.2.3.4", "--gas-price", "11"]),
                 &mut FakeStreamHolder::new().streams(),
             )
             .unwrap();
@@ -1320,7 +1309,6 @@ mod tests {
             .add_listener_handler(third_handler)
             .build();
         let args = [
-            "MASQNode",
             "--neighborhood-mode",
             "zero-hop",
             "--clandestine-port",
@@ -1329,12 +1317,11 @@ mod tests {
             data_dir.to_str().unwrap(),
         ];
         let mut holder = FakeStreamHolder::new();
+        let multi_config = make_simplified_multi_config(args);
 
+        subject.initialize_as_privileged(&multi_config).unwrap();
         subject
-            .initialize_as_privileged(&make_simplified_multi_config(args))
-            .unwrap();
-        subject
-            .initialize_as_unprivileged(&make_simplified_multi_config(args), &mut holder.streams())
+            .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .unwrap();
 
         let config = subject.config;
@@ -1352,7 +1339,6 @@ mod tests {
             "init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged",
         );
         let args = [
-            "MASQNode",
             "--dns-servers",
             "1.2.3.4,2.3.4.5",
             "--ip",
@@ -1377,12 +1363,11 @@ mod tests {
                 ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
             ))
             .build();
+        let multi_config = make_simplified_multi_config(args);
 
+        subject.initialize_as_privileged(&multi_config).unwrap();
         subject
-            .initialize_as_privileged(&make_simplified_multi_config(args))
-            .unwrap();
-        subject
-            .initialize_as_unprivileged(&make_simplified_multi_config(args), &mut holder.streams())
+            .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .unwrap();
 
         let dns_servers_guard = dns_servers_arc.lock().unwrap();
@@ -1410,11 +1395,7 @@ mod tests {
             .build();
 
         subject
-            .initialize_as_privileged(&make_simplified_multi_config([
-                "MASQNode",
-                "--ip",
-                "111.111.111.111",
-            ]))
+            .initialize_as_privileged(&make_simplified_multi_config(["--ip", "111.111.111.111"]))
             .unwrap();
     }
 
@@ -1556,7 +1537,6 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         subject
             .initialize_as_privileged(&make_simplified_multi_config([
-                "MASQNode",
                 "--data-directory",
                 data_dir.to_str().unwrap(),
             ]))
@@ -1565,7 +1545,6 @@ mod tests {
         subject
             .initialize_as_unprivileged(
                 &make_simplified_multi_config([
-                    "MASQNode",
                     "--clandestine-port",
                     "1234",
                     "--ip",
@@ -1593,7 +1572,6 @@ mod tests {
         let data_dir = ensure_node_home_directory_exists("bootstrapper", "initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool");
         init_test_logging();
         let args = [
-            "MASQNode",
             "--ip",
             "111.111.111.111",
             "--data-directory",
@@ -1614,12 +1592,11 @@ mod tests {
             .add_listener_handler(Box::new(yet_another_listener_handler))
             .config(config)
             .build();
-        subject
-            .initialize_as_privileged(&make_simplified_multi_config(args))
-            .unwrap();
+        let multi_config = &make_simplified_multi_config(args);
+        subject.initialize_as_privileged(&multi_config).unwrap();
 
         subject
-            .initialize_as_unprivileged(&make_simplified_multi_config(args), &mut holder.streams())
+            .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .unwrap();
 
         // Checking log message cause I don't know how to get at add_stream_sub
@@ -1692,18 +1669,16 @@ mod tests {
             .add_listener_handler(Box::new(another_listener_handler))
             .build();
         let args = [
-            "MASQNode",
             "--neighborhood-mode",
             "zero-hop",
             "--data-directory",
             data_dir.to_str().unwrap(),
         ];
+        let multi_config = make_simplified_multi_config(args);
 
+        subject.initialize_as_privileged(&multi_config).unwrap();
         subject
-            .initialize_as_privileged(&make_simplified_multi_config(args))
-            .unwrap();
-        subject
-            .initialize_as_unprivileged(&make_simplified_multi_config(args), &mut holder.streams())
+            .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .unwrap();
 
         thread::spawn(|| {

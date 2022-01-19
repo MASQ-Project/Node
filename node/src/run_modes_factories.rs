@@ -140,7 +140,7 @@ mod tests {
     };
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::server_initializer::ServerInitializerReal;
-    use crate::test_utils::pure_test_utils::{
+    use crate::test_utils::unshared_test_utils::{
         make_pre_populated_mocked_directory_wrapper, ChannelFactoryMock,
     };
     use masq_lib::shared_schema::ConfiguratorError;
