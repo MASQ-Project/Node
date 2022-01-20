@@ -13,6 +13,37 @@ use masq_lib::constants::{
 use rusqlite::Transaction;
 use std::collections::HashMap;
 
+/*
+
+This class exists because the Daemon uses the same configuration code that the Node uses, and
+that configuration code requires access to the database...except that the Daemon isn't allowed
+access to the database, so it's given this configuration DAO instead. This DAO provides plain-vanilla
+default values when read, and claims to have successfully written values (which are actually
+thrown away) when updated.
+
+Theoretically, the Daemon could be given access to the real database, but there are a few problems
+that would need to be overcome first.
+
+1. The database must be created by a normal user, not by root--or at least once it's finished it
+must _look_ as though it were created by a normal user. The Daemon must always run as root, and
+may not give up its privilege. This is not an insurmountable problem, but it is a problem.
+
+2. The database can't be located until the chain is known, because the chain is part of the
+directory to the database. Every setup command has the potential to need access to the database,
+but there's no easy way to ensure that the first setup command establishes the chain.
+
+3. If the database needs to be migrated from its schema version to the Daemon's schema version,
+and the migration involves secret fields, then the migration will need the database password.
+Again, the password will be needed the moment the database is first connected, which will probably
+be when the first setup command is given, and there's no easy way to ensure that the first setup
+command establishes the password.
+
+4. If two different processes have simultaneous write access to the same database, one process may
+make changes that the other process doesn't know about.  This is another problem that is not
+insurmountable, but it would need to be considered and coded around.
+
+ */
+
 pub struct ConfigDaoNull {
     data: HashMap<String, String>,
 }
