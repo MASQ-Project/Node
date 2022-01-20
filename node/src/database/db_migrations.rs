@@ -331,7 +331,7 @@ impl DatabaseMigration for Migrate_5_to_6 {
             ),
             (
                 "pending_payment_scan_interval",
-                (DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000) as i64,
+                (DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL) as i64,
             ),
             (
                 "payable_scan_interval",
@@ -1489,7 +1489,7 @@ mod tests {
         verify_configuration_value(
             connection.as_ref(),
             "pending_payment_scan_interval",
-            Some(format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000)),
+            Some(format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL)),
             false,
         );
         verify_configuration_value(

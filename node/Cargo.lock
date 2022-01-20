@@ -2580,6 +2580,7 @@ name = "proc_macros"
 version = "0.1.0"
 dependencies = [
  "heck",
+ "paste",
  "quote 1.0.14",
  "syn 1.0.85",
 ]

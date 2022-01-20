@@ -442,10 +442,7 @@ impl SetupReporterReal {
                     &mut persistent_config,
                     &self.logger,
                 ) {
-                    Ok(_) => (
-                        (bootstrapper_config, Box::new(persistent_config)),
-                        None,
-                    ),
+                    Ok(_) => ((bootstrapper_config, Box::new(persistent_config)), None),
                     Err(ce) => {
                         error_so_far.extend(ce);
                         (
@@ -456,7 +453,7 @@ impl SetupReporterReal {
                 }
             }
             Err(
-                InitializationError::Nonexistent | InitializationError::SuppressedMigrationError,
+                InitializationError::Nonexistent | InitializationError::SuppressedMigration,
             ) => {
                 // When the Daemon runs for the first time, the database will not yet have been
                 // created. If the database is old, it should not be used by the Daemon.
@@ -471,7 +468,11 @@ impl SetupReporterReal {
                     Ok(_) => ((bootstrapper_config, Box::new(persistent_config)), None),
                     Err(ce) => {
                         error_so_far.extend(ce);
-                        ((bootstrapper_config, Box::new(persistent_config)), Some(error_so_far))
+
+                        (
+                            (bootstrapper_config, Box::new(persistent_config)),
+                            Some(error_so_far),
+                        )
                     }
                 }
             }
@@ -560,10 +561,10 @@ impl ValueRetriever for ClandestinePort {
         persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-            match persistent_config.clandestine_port() {
-                Ok(clandestine_port) => Some((clandestine_port.to_string(), Default)),
-                Err(_) => None,
-            }
+        match persistent_config.clandestine_port() {
+            Ok(clandestine_port) => Some((clandestine_port.to_string(), Configured)),
+            Err(_) => None,
+        }
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -862,10 +863,10 @@ impl ValueRetriever for Neighbors {
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         match db_password_opt {
             Some(pw) => match persistent_config.past_neighbors(pw) {
-                Ok(Some(pns)) => Some((node_descriptors_to_neighbors(pns), Configured)),
-                _ => None,
-            }
-            None => None
+            Ok(Some(pns)) => Some((node_descriptors_to_neighbors(pns), Configured)),
+            _ => None,
+            },
+            None => None,
         }
     }
 
@@ -878,13 +879,14 @@ impl ValueRetriever for Neighbors {
     }
 }
 
+//TODO write macro that would supply all methods together
 struct BalanceDecreasesForSec {}
 impl ValueRetriever for BalanceDecreasesForSec {
     fn value_name(&self) -> &'static str {
-        "balance_decreases_for_sec"
+        "balance-decreases-for"
     }
 
-    payment_curve_params_computed_default_and_is_required!("balance_decreases_for_sec");
+    payment_curve_params_computed_default_and_is_required!("balance-decreases-for-sec");
 }
 
 struct BalanceToDecreaseFromGwei {}
@@ -1076,50 +1078,22 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
     ]
 }
 
-fn computed_default_payment_curves_and_scan_intervals<T>(
+fn computed_default_payment_curves_rate_pack_scan_intervals<T>(
     bootstrapper_config_value_opt: &Option<T>,
     persistent_config_value: T,
     default: T,
 ) -> Option<(String, UiSetupResponseValueStatus)>
 where
-    T: PartialEq + Display + Debug,
+    T: PartialEq + Display + Copy,
 {
-    match bootstrapper_config_value_opt {
-        None if persistent_config_value == default => unimplemented!(),
-        None => unimplemented!(),
-        Some(val) => unimplemented!()
-        // None => Some((default.to_string(), Default)),
-        // None, Some(val)) if val == &default => Some((val.to_string(), Default)),
-        // (None, Some(val)) => Some((val.to_string(), Configured)),
-        // (Some(bc_val), Some(pc_val)) if bc_val == pc_val => {
-        //     unimplemented!("not rate pack 'Configured'")
-        // } //TODO the next probably can never happen
-        // x => unimplemented!("{:?}",x), //None
-    }
-}
-
-//rewrite the ending part
-//(Some(), Some()) =>
-
-// x => closure(x)
-
-fn computed_default_rate_pack(
-    bootstrapper_config_value_opt: &Option<u64>,
-    persistent_config_value: u64,
-    default: u64,
-) -> Option<(String, UiSetupResponseValueStatus)> {
-    match bootstrapper_config_value_opt {
-        None if persistent_config_value == default => unimplemented!(),
-        None => unimplemented!(),
-        Some(val) => unimplemented!()
-        // (None, None) => Some((default.to_string(), Default)),
-        // (None, Some(val)) if val == &default => Some((val.to_string(), Default)), //Wrong
-        // (None, Some(val)) => Some((val.to_string(), Configured)),                 //Wrong
-        // (Some(bc_val), Some(pc_val)) if bc_val == pc_val && bc_val == &default => {
-        //     Some((bc_val.to_string(), Default)) //unimplemented!("this should say 'Configured'")
-        // }
-        // (Some(bc_val), Some(pc_val)) if bc_val == pc_val => unimplemented!("1111111111"),
-        // _ => None,
+    let value =
+        bootstrapper_config_value_opt.expect("bootstrapper config should've been populated now");
+    if value == default {
+        Some((default.to_string(), Default))
+    } else if value == persistent_config_value {
+        Some((persistent_config_value.to_string(), Configured))
+    } else {
+        None
     }
 }
 
@@ -1141,14 +1115,14 @@ macro_rules! payment_curve_params_computed_default_and_is_required {
                 let pc_value = pc
                         .[<$field_name>]()
                         .expectv($field_name) as i64;
-                computed_default_payment_curves_and_scan_intervals(
+                computed_default_payment_curves_rate_pack_scan_intervals(
                     &bootstrapper_value_opt,
                     pc_value,
                     DEFAULT_PAYMENT_CURVES.[<$field_name>],
                 )
             }
 
-                fn is_required(&self, _params: &SetupCluster) -> bool {true}
+               fn is_required(&self, _params: &SetupCluster) -> bool {true}
         }
     };
 }
@@ -1170,7 +1144,7 @@ macro_rules! scan_interval_params_computed_default_and_is_required {
                 let pc_value = pc
                         .[<$field_name>]()
                         .expectv($field_name);
-                computed_default_payment_curves_and_scan_intervals(
+                computed_default_payment_curves_rate_pack_scan_intervals(
                     &bootstrapper_value_opt,
                     pc_value,
                     $default,
@@ -1198,7 +1172,7 @@ macro_rules! rate_pack_params_computed_default_and_is_required {
                 let pc_value = pc
                         .[<$field_name>]()
                         .expectv($field_name);
-                computed_default_rate_pack(
+                computed_default_payment_curves_rate_pack_scan_intervals(
                     &bootstrapper_value_opt,
                     pc_value,
                     DEFAULT_RATE_PACK.[<$field_name>],
@@ -1231,6 +1205,7 @@ mod tests {
     use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
+        make_persistent_config_real_with_config_dao_null,
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use core::time::Duration;
@@ -1384,16 +1359,20 @@ mod tests {
             .get_modified_setup(HashMap::new(), incoming_setup)
             .unwrap();
 
-        let (dns_servers_str, dns_servers_status) =
-            match DnsServers::new().computed_default(&BootstrapperConfig::new(), &PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default())), &None) {
-                Some((dss, _)) => (dss, Default),
-                None => ("".to_string(), Required),
-            };
+        let (dns_servers_str, dns_servers_status) = match DnsServers::new().computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        ) {
+            Some((dss, _)) => (dss, Default),
+            None => ("".to_string(), Required),
+        };
         let expected_result = vec![
+            ("balance-decreases-for", "2592000", Default),
             ("balance-to-decrease-from", "1000000000", Default),
             ("blockchain-service-url", "", Required),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
-            ("clandestine-port", "1234", Default),
+            ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),
             ("crash-point", "", Blank),
@@ -1401,6 +1380,16 @@ mod tests {
             ("db-password", "password", Set),
             ("dns-servers", &dns_servers_str, dns_servers_status),
             ("earning-wallet", "", Blank),
+            (
+                "exit-byte-rate",
+                DEFAULT_RATE_PACK.exit_byte_rate.to_string().as_str(),
+                Default,
+            ),
+            (
+                "exit-service-rate",
+                DEFAULT_RATE_PACK.exit_service_rate.to_string().as_str(),
+                Default,
+            ),
             ("gas-price", "1234567890", Default),
             ("ip", "4.3.2.1", Set),
             ("log-level", "warn", Default),
@@ -1411,11 +1400,64 @@ mod tests {
                 "masq://eth-mainnet:QUJDRA@1.2.3.4:1234,masq://eth-mainnet:RUZHSA@5.6.7.8:5678",
                 Configured,
             ),
+            (
+                "payable-scan-interval",
+                &DEFAULT_PAYABLE_SCAN_INTERVAL.to_string(),
+                Default,
+            ),
+            (
+                "payment-grace-before-ban",
+                &DEFAULT_PAYMENT_CURVES
+                    .payment_grace_before_ban_sec
+                    .to_string(),
+                Default,
+            ),
+            (
+                "payment-suggested-after",
+                &DEFAULT_PAYMENT_CURVES
+                    .payment_suggested_after_sec
+                    .to_string(),
+                Default,
+            ),
+            (
+                "pending-payment-scan-interval",
+                &DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL.to_string(),
+                Default,
+            ),
+            (
+                "permanent-debt-allowed",
+                &DEFAULT_PAYMENT_CURVES
+                    .permanent_debt_allowed_gwei
+                    .to_string(),
+                Default,
+            ),
             #[cfg(not(target_os = "windows"))]
             (
                 "real-user",
                 &RealUser::new(None, None, None)
                     .populate(&DirsWrapperReal {})
+                    .to_string(),
+                Default,
+            ),
+            (
+                "receivable-scan-interval",
+                &DEFAULT_RECEIVABLE_SCAN_INTERVAL.to_string(),
+                Default,
+            ),
+            (
+                "routing-byte-rate",
+                &DEFAULT_RATE_PACK.routing_byte_rate.to_string(),
+                Default,
+            ),
+            (
+                "routing-service-rate",
+                &DEFAULT_RATE_PACK.routing_service_rate.to_string(),
+                Default,
+            ),
+            (
+                "unban-when-balance-below",
+                &DEFAULT_PAYMENT_CURVES
+                    .unban_when_balance_below_gwei
                     .to_string(),
                 Default,
             ),
@@ -1443,6 +1485,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_everything_preexistent",
         );
         let existing_setup = setup_cluster_from(vec![
+            ("balance-decreases-for","1234",Set),
             ("balance-to-decrease-from", "50000",Set),
             ("blockchain-service-url", "https://example.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
@@ -1479,6 +1522,7 @@ mod tests {
         let result = subject.get_modified_setup(existing_setup, vec![]).unwrap();
 
         let expected_result = vec![
+            ("balance-decreases-for","1234",Set),
             ("balance-to-decrease-from", "50000",Set),
             ("blockchain-service-url", "https://example.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
@@ -1527,6 +1571,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_everything_set",
         );
         let incoming_setup = vec![
+            ("balance-decreases-for","1234"),
             ("balance-to-decrease-from", "50000"),
             ("blockchain-service-url", "https://example.com"),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
@@ -1567,6 +1612,7 @@ mod tests {
             .unwrap();
 
         let expected_result = vec![
+            ("balance-decreases-for","1234",Set),
             ("balance-to-decrease-from", "50000",Set),
             ("blockchain-service-url", "https://example.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
@@ -1616,6 +1662,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_nothing_set_everything_in_environment",
         );
         vec![
+            ("MASQ_BALANCE_DECREASES_FOR","1234"),
             ("MASQ_BALANCE_TO_DECREASE_FROM","50000"),
             ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
@@ -1654,7 +1701,7 @@ mod tests {
         let result = subject.get_modified_setup(HashMap::new(), params).unwrap();
 
         let expected_result = vec![
-            ("balance-decreases-for","1000",Configured),
+            ("balance-decreases-for","1234",Configured),
             ("balance-to-decrease-from", "50000",Configured),
             ("blockchain-service-url", "https://example.com", Configured),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
@@ -1840,7 +1887,7 @@ mod tests {
                     .balance_decreases_for_sec
                     .to_string()
                     .as_str(),
-                Configured,
+                Default,
             ),
             (
                 "balance-to-decrease-from",
@@ -1869,7 +1916,7 @@ mod tests {
                 &ropsten_dir.to_string_lossy().to_string(),
                 Default,
             ),
-            ("db-password", "", Blank),
+            ("db-password", "ropstenPassword", Configured),
             ("dns-servers", "8.7.6.5", Configured),
             (
                 "earning-wallet",
@@ -1978,6 +2025,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_all_but_requireds_cleared",
         );
         vec![
+            ("MASQ_BALANCE_DECREASES_FOR","1234"),
             ("MASQ_BALANCE_TO_DECREASE_FROM","50000"),
             ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
@@ -2045,7 +2093,7 @@ mod tests {
         .map(|name| UiSetupRequestValue::clear(name))
         .collect_vec();
         let existing_setup = setup_cluster_from(vec![
-            ("balance-decreases-for", "1234", Set),
+            ("balance-decreases-for", "4321", Set),
             ("balance-to-decrease-from", "66666", Set),
             ("blockchain-service-url", "https://booga.com", Set),
             ("clandestine-port", "4321", Set),
@@ -2407,11 +2455,11 @@ mod tests {
     }
 
     #[test]
-    fn run_configuration_suppresses_db_migration_which_is_why_it_refuses_to_initiate_persistent_config(
-    ) {
+    fn run_configuration_suppresses_db_migration_that_is_why_it_offers_just_config_dao_null_to_use()
+    {
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
-            "run_configuration_suppresses_db_migration_which_is_why_it_refuses_to_initiate_persistent_config",
+            "run_configuration_suppresses_db_migration_that_is_why_it_offers_just_config_dao_null_to_use",
         );
         let conn =
             bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
@@ -2432,8 +2480,8 @@ mod tests {
 
         assert_ne!(bootstrapper_config.blockchain_bridge_config.gas_price, 55); //asserting negation
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
-        persistent_config.as_ref()
-        assert_eq!(schema_version_before, schema_version_after)
+        assert_eq!(schema_version_before, schema_version_after);
+        assert!(persistent_config.is_dao_null())
     }
 
     #[test]
@@ -2665,7 +2713,11 @@ mod tests {
         assert_eq!(
             result.get("gas-price").unwrap().value,
             GasPrice {}
-                .computed_default(&BootstrapperConfig::new(), &None, &None)
+                .computed_default(
+                    &BootstrapperConfig::new(),
+                    &make_persistent_config_real_with_config_dao_null(),
+                    &None
+                )
                 .unwrap()
                 .0
         );
@@ -2772,7 +2824,9 @@ mod tests {
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_has_absolute_path_to_file_that_exists",
-        );
+        )
+        .canonicalize()
+        .unwrap();
         let config_file_dir = data_dir.join("data_dir").join("my_config_file");
         std::fs::create_dir_all(&config_file_dir).unwrap();
         let config_file_path = config_file_dir.join("special.toml");
@@ -2796,6 +2850,7 @@ mod tests {
 
         let result = subject.calculate_configured_setup(&setup, &data_dir).0;
 
+        eprintln!("{:?}",result);
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
 
@@ -2840,7 +2895,11 @@ mod tests {
     fn chain_computed_default() {
         let subject = Chain {};
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(
             result,
@@ -2854,22 +2913,10 @@ mod tests {
             PersistentConfigurationMock::new().clandestine_port_result(Ok(1234));
         let subject = ClandestinePort {};
 
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
+        let result =
+            subject.computed_default(&BootstrapperConfig::new(), &persistent_config, &None);
 
-        assert_eq!(result, Some(("1234".to_string(), Default)))
-    }
-
-    #[test]
-    fn clandestine_port_computed_default_absent() {
-        let subject = ClandestinePort {};
-
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
-
-        assert_eq!(result, None)
+        assert_eq!(result, Some(("1234".to_string(), Configured)))
     }
 
     #[test]
@@ -2878,11 +2925,8 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .clandestine_port_result(Err(PersistentConfigError::NotPresent));
 
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
+        let result =
+            subject.computed_default(&BootstrapperConfig::new(), &persistent_config, &None);
 
         assert_eq!(result, None)
     }
@@ -2904,7 +2948,11 @@ mod tests {
 
         let subject = DataDirectory::default();
 
-        let result = subject.computed_default(&config, &None, &None);
+        let result = subject.computed_default(
+            &config,
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some((expected, Default)))
     }
@@ -2915,7 +2963,11 @@ mod tests {
         let mut subject = DnsServers::new();
         subject.factory = Box::new(factory);
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None)
     }
@@ -2928,7 +2980,11 @@ mod tests {
         let mut subject = DnsServers::new();
         subject.factory = Box::new(factory);
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None)
     }
@@ -2942,7 +2998,11 @@ mod tests {
         let mut subject = DnsServers::new();
         subject.factory = Box::new(factory);
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing("WARN: SetupReporter: Error inspecting DNS settings: This system does not appear to be connected to a network");
@@ -2955,7 +3015,11 @@ mod tests {
         let mut subject = DnsServers::new();
         subject.factory = Box::new(factory);
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None)
     }
@@ -2970,7 +3034,11 @@ mod tests {
         let mut subject = DnsServers::new();
         subject.factory = Box::new(factory);
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("192.168.0.1,8.8.8.8".to_string(), Default)))
     }
@@ -2979,13 +3047,11 @@ mod tests {
     fn earning_wallet_computed_default_with_everything_configured_is_still_none() {
         let mut config = BootstrapperConfig::new();
         config.earning_wallet = Wallet::new("command-line address");
-        let persistent_config_opt: Option<Box<dyn PersistentConfiguration>> = Some(Box::new(
-            PersistentConfigurationMock::new()
-                .earning_wallet_address_result(Ok(Some("persistent address".to_string()))),
-        ));
+        let persistent_config = PersistentConfigurationMock::new()
+            .earning_wallet_address_result(Ok(Some("persistent address".to_string())));
         let subject = EarningWallet {};
 
-        let result = subject.computed_default(&config, &persistent_config_opt, &None);
+        let result = subject.computed_default(&config, &persistent_config, &None);
 
         assert_eq!(result, None)
     }
@@ -2995,7 +3061,11 @@ mod tests {
         let config = BootstrapperConfig::new();
         let subject = EarningWallet {};
 
-        let result = subject.computed_default(&config, &None, &None);
+        let result = subject.computed_default(
+            &config,
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None)
     }
@@ -3006,7 +3076,11 @@ mod tests {
         bootstrapper_config.blockchain_bridge_config.gas_price = 57;
         let subject = GasPrice {};
 
-        let result = subject.computed_default(&bootstrapper_config, &None, &None);
+        let result = subject.computed_default(
+            &bootstrapper_config,
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("57".to_string(), Default)))
     }
@@ -3015,7 +3089,11 @@ mod tests {
     fn gas_price_computed_default_absent() {
         let subject = GasPrice {};
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("1".to_string(), Default)))
     }
@@ -3026,7 +3104,11 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config.mode = crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
 
-        let result = subject.computed_default(&config, &None, &None);
+        let result = subject.computed_default(
+            &config,
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("".to_string(), Blank)));
     }
@@ -3041,7 +3123,11 @@ mod tests {
             DEFAULT_RATE_PACK,
         );
 
-        let result = subject.computed_default(&config, &None, &None);
+        let result = subject.computed_default(
+            &config,
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("5.6.7.8".to_string(), Set)));
     }
@@ -3052,7 +3138,11 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config.mode = crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
 
-        let result = subject.computed_default(&config, &None, &None);
+        let result = subject.computed_default(
+            &config,
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("".to_string(), Blank)));
     }
@@ -3061,7 +3151,11 @@ mod tests {
     fn log_level_computed_default() {
         let subject = LogLevel {};
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("warn".to_string(), Default)))
     }
@@ -3072,11 +3166,8 @@ mod tests {
         let persistent_config =
             PersistentConfigurationMock::default().mapping_protocol_result(Ok(None));
 
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
+        let result =
+            subject.computed_default(&BootstrapperConfig::new(), &persistent_config, &None);
 
         assert_eq!(result, None)
     }
@@ -3088,11 +3179,7 @@ mod tests {
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
         let bootstrapper_config = BootstrapperConfig::new();
 
-        let result = subject.computed_default(
-            &bootstrapper_config,
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
 
         assert_eq!(result, Some(("pmp".to_string(), Configured)))
     }
@@ -3105,11 +3192,7 @@ mod tests {
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.mapping_protocol_opt = Some(AutomapProtocol::Pcp);
 
-        let result = subject.computed_default(
-            &bootstrapper_config,
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
 
         assert_eq!(result, Some(("pcp".to_string(), Configured)))
     }
@@ -3118,7 +3201,11 @@ mod tests {
     fn neighborhood_mode_computed_default() {
         let subject = NeighborhoodMode {};
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("standard".to_string(), Default)))
     }
@@ -3144,7 +3231,7 @@ mod tests {
 
         let result = subject.computed_default(
             &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
+            &persistent_config,
             &Some("password".to_string()),
         );
 
@@ -3163,7 +3250,7 @@ mod tests {
 
         let result = subject.computed_default(
             &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
+            &persistent_config,
             &Some("password".to_string()),
         );
 
@@ -3182,7 +3269,7 @@ mod tests {
 
         let result = subject.computed_default(
             &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
+            &persistent_config,
             &Some("password".to_string()),
         );
 
@@ -3197,11 +3284,8 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new();
         let subject = Neighbors {};
 
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
+        let result =
+            subject.computed_default(&BootstrapperConfig::new(), &persistent_config, &None);
 
         assert_eq!(result, None);
     }
@@ -3210,7 +3294,11 @@ mod tests {
     fn neighbors_computed_default_absent() {
         let subject = Neighbors {};
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None);
     }
@@ -3220,7 +3308,11 @@ mod tests {
     fn real_user_computed_default() {
         let subject = crate::daemon::setup_reporter::RealUser::default();
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(
             result,
@@ -3238,14 +3330,18 @@ mod tests {
     fn real_user_computed_default() {
         let subject = crate::daemon::setup_reporter::RealUser::default();
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None);
     }
 
     //absence/presence of the dot after the default value has a significant impact
 
-    proc_macros::quad_tests_computed_default!(
+    proc_macros::triple_test_computed_default!(
         routing_byte_rate,
         DEFAULT_RATE_PACK.,
         rate_pack_opt,
@@ -3253,7 +3349,7 @@ mod tests {
         u64
     );
 
-    proc_macros::quad_tests_computed_default!(
+    proc_macros::triple_test_computed_default!(
         routing_service_rate,
         DEFAULT_RATE_PACK.,
         rate_pack_opt,
@@ -3261,7 +3357,7 @@ mod tests {
         u64
     );
 
-    proc_macros::quad_tests_computed_default!(
+    proc_macros::triple_test_computed_default!(
         exit_service_rate,
         DEFAULT_RATE_PACK.,
         rate_pack_opt,
@@ -3269,7 +3365,7 @@ mod tests {
         u64
     );
 
-    proc_macros::quad_tests_computed_default!(
+    proc_macros::triple_test_computed_default!(
         exit_byte_rate,
         DEFAULT_RATE_PACK.,
         rate_pack_opt,
@@ -3277,7 +3373,7 @@ mod tests {
         u64
     );
 
-    proc_macros::quad_tests_computed_default!(
+    proc_macros::triple_test_computed_default!(
         pending_payment_scan_interval,
         DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
         accountant_config.pending_payment_scan_interval_opt,
@@ -3285,7 +3381,7 @@ mod tests {
         Duration
     );
 
-    proc_macros::quad_tests_computed_default!(
+    proc_macros::triple_test_computed_default!(
         payable_scan_interval,
         DEFAULT_PAYABLE_SCAN_INTERVAL,
         accountant_config.payable_scan_interval_opt,
@@ -3293,7 +3389,7 @@ mod tests {
         Duration
     );
 
-    proc_macros::quad_tests_computed_default!(
+    proc_macros::triple_test_computed_default!(
         receivable_scan_interval,
         DEFAULT_RECEIVABLE_SCAN_INTERVAL,
         accountant_config.receivable_scan_interval_opt,
@@ -3301,7 +3397,7 @@ mod tests {
         Duration
     );
 
-    proc_macros::quad_tests_computed_default!(
+    proc_macros::triple_test_computed_default!(
         balance_decreases_for_sec,
         DEFAULT_PAYMENT_CURVES.,
         accountant_config.payment_curves_opt,
@@ -3309,7 +3405,7 @@ mod tests {
         u64
     );
 
-    proc_macros::quad_tests_computed_default!(
+    proc_macros::triple_test_computed_default!(
         balance_to_decrease_from_gwei,
         DEFAULT_PAYMENT_CURVES.,
         accountant_config.payment_curves_opt,
@@ -3317,7 +3413,7 @@ mod tests {
         u64
     );
 
-    proc_macros::quad_tests_computed_default!(
+    proc_macros::triple_test_computed_default!(
         payment_suggested_after_sec,
         DEFAULT_PAYMENT_CURVES.,
         accountant_config.payment_curves_opt,
@@ -3325,7 +3421,7 @@ mod tests {
         u64
     );
 
-    proc_macros::quad_tests_computed_default!(
+    proc_macros::triple_test_computed_default!(
         payment_grace_before_ban_sec,
         DEFAULT_PAYMENT_CURVES.,
         accountant_config.payment_curves_opt,
@@ -3333,15 +3429,15 @@ mod tests {
         u64
     );
 
-    proc_macros::quad_tests_computed_default!(
-        permanent_debt_allowed_gwei,
-        DEFAULT_PAYMENT_CURVES.,
-        accountant_config.payment_curves_opt,
-        u64,
-        u64
+    proc_macros::triple_test_computed_default!(
+    permanent_debt_allowed_gwei,
+    DEFAULT_PAYMENT_CURVES.,
+    accountant_config.payment_curves_opt,
+    u64,
+    u64
     );
 
-    proc_macros::quad_tests_computed_default!(
+    proc_macros::triple_test_computed_default!(
         unban_when_balance_below_gwei,
         DEFAULT_PAYMENT_CURVES.,
         accountant_config.payment_curves_opt,

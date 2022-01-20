@@ -20,6 +20,7 @@ use paste::paste;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
+use crate::db_config::config_dao_null::ConfigDaoNull;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -177,6 +178,7 @@ pub trait PersistentConfiguration {
         earning_wallet_address: &str,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
+    fn is_dao_null(&self) -> bool;
 }
 
 pub struct PersistentConfigurationReal {
@@ -386,6 +388,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError> {
+        if self.is_dao_null() {unimplemented!()}
         Ok(decode_bytes(self.scl.decrypt(
             self.dao.get("seed")?,
             Some(db_password.to_string()),
@@ -421,6 +424,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &self,
         db_password: &str,
     ) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError> {
+        if self.is_dao_null() {unimplemented!()}
         let bytes_opt = decode_bytes(self.scl.decrypt(
             self.dao.get("past_neighbors")?,
             Some(db_password.to_string()),
@@ -664,6 +668,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         )?;
         Ok(writer.commit()?)
     }
+
+    fn is_dao_null(&self) -> bool {
+        self.dao.as_any().downcast_ref::<ConfigDaoNull>().is_some()
+    }
 }
 
 impl From<Box<dyn ConnectionWrapper>> for PersistentConfigurationReal {
@@ -726,6 +734,8 @@ mod tests {
     use std::convert::TryFrom;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
+    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
 
     lazy_static! {
         static ref CONFIG_TABLE_PARAMETERS: Vec<String> = list_of_config_parameters();
@@ -904,7 +914,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied value missing: clandestine_port; database is corrupt!")]
+    #[should_panic(
+        expected = "ever-supplied value missing: clandestine_port; database is corrupt!"
+    )]
     fn clandestine_port_panics_if_none_got_from_database() {
         let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "clandestine_port",
@@ -2150,6 +2162,37 @@ mod tests {
     #[test]
     fn payment_suggested_after_sec_works() {
         persistent_config_assertion_for_simple_get_method!("payment_suggested_after_sec", 7200);
+    }
+
+    #[test]
+    fn is_dao_null_works_for_fully_fledged_dao(){
+        let connection_wrapper = ConnectionWrapperMock::default();
+        let dao = ConfigDaoReal::new(Box::new(connection_wrapper));
+        let subject = PersistentConfigurationReal::new(Box::new(dao));
+
+        let result = subject.is_dao_null();
+
+        assert_eq!(result,false)
+    }
+
+    #[test]
+    fn is_dao_null_works_for_mock_dao(){
+        let dao = ConfigDaoMock::new();
+        let subject = PersistentConfigurationReal::new(Box::new(dao));
+
+        let result = subject.is_dao_null();
+
+        assert_eq!(result,false)
+    }
+
+    #[test]
+    fn is_dao_null_works_for_dao_null(){
+        let dao = ConfigDaoNull::default();
+        let subject = PersistentConfigurationReal::new(Box::new(dao));
+
+        let result = subject.is_dao_null();
+
+        assert_eq!(result,true)
     }
 
     #[macro_export]

@@ -4,8 +4,9 @@ extern crate proc_macro;
 
 use heck::CamelCase;
 use proc_macro::TokenStream;
+use std::fmt::Display;
 
-pub fn quad_tests_computed_default_body(args: Vec<&str>) -> TokenStream {
+pub fn triple_test_computed_default_body(args: Vec<&str>) -> TokenStream {
     let name = args[0];
     let full_default = args[1];
     let bootstrapper_config_destination = args[2];
@@ -25,41 +26,23 @@ pub fn quad_tests_computed_default_body(args: Vec<&str>) -> TokenStream {
     } else {
         fundamental_default.clone()
     };
-    let conflict_section = configure_conflict_section(name, length_differ);
-    let non_primitive_conversion =
-        configure_prospective_non_primitive_conversion(alternative_data_type);
+    let test_value_1 = configure_test_specific_section(name, length_differ, 0);
+    let test_value_2 = configure_test_specific_section(name, length_differ, 555);
+    let test_value_3 = configure_test_specific_section(name, length_differ, 1000);
+    let non_primitive_conv = configure_prospective_non_primitive_conversion(alternative_data_type);
     format!(
         "
     #[test]
-    fn {nm}_computed_default_all_absent(){{
+    fn {nm}_computed_default_all_defaulted(){{
         let subject = {nmcc}{{}};
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        let mut fundamental_default = {fd}.clone();
+        {cs1}
+        bootstrapper_config.{bcd} = Some({conv});
 
         let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &None,
-            &None,
-        );
-
-        assert_eq!(
-            result,
-            Some((
-                {dfl}.to_string(),
-                Default
-            ))
-        )
-    }}
-
-    #[test]
-    fn {nm}_computed_default_bootstrapper_config_absent_persistent_value_equal_to_default() {{
-        let subject = {nmcc}{{}};
-        let persistent_config = PersistentConfigurationMock::default()
-            .{nm}_result(Ok(
-                {dfl} as {ct}
-                ));
-
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
+            &bootstrapper_config,
+            &make_persistent_config_real_with_config_dao_null(),
             &None,
         );
 
@@ -78,75 +61,79 @@ pub fn quad_tests_computed_default_body(args: Vec<&str>) -> TokenStream {
         let persistent_config = PersistentConfigurationMock::default()
             .{nm}_result(
                 Ok(
-                   ({dfl} + 555) as u64
-                )
+                   ({dfl} + 555) as {nct})
             );
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        let mut fundamental_default = {fd}.clone();
+        {cs2}
+        bootstrapper_config.{bcd} = Some({conv});
 
         let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
+            &bootstrapper_config,
+            &persistent_config,
             &None,
         );
 
         assert_eq!(
             result,
             Some((
-                (({dfl} + 555) as u64).to_string(),
+                ({dfl} + 555).to_string(),
                 Configured
             ))
         )
     }}
 
     #[test]
-    fn {nm}_computed_default_bootstrapper_config_present_persistent_config_present() {{
+    fn {nm}_computed_default_bootstrapper_config_different_from_persistent_config_value() {{
         let subject = {nmcc}{{}};
         let persistent_config = PersistentConfigurationMock::default()
-            .{nm}_result(Ok(({dfl} + 555) as u64));
+            .{nm}_result(Ok(({dfl} + 555) as {nct}));
         let mut bootstrapper_config = BootstrapperConfig::new();
         let mut fundamental_default = {fd}.clone();
-        //this line supplies a bootstrapper value diff from the persistent one
-        {cs}
+        {cs3}
         bootstrapper_config.{bcd} = Some({conv});
-
         let result = subject.computed_default(
             &bootstrapper_config,
-            &Some(Box::new(persistent_config)),
+            &persistent_config,
             &None,
         );
-
         assert_eq!(
             result,
             None
         )
-
     }}
     ",
         nm = name,
         nmcc = name_camel_case,
         dfl = default_location,
-        ct = num_cast_type,
         fd = fundamental_default,
-        cs = conflict_section,
         bcd = bootstrapper_config_destination,
-        conv = non_primitive_conversion
+        conv = non_primitive_conv,
+        nct = num_cast_type,
+        cs1 = test_value_1,
+        cs2 = test_value_2,
+        cs3 = test_value_3,
     )
     .parse()
     .unwrap()
 }
 
-fn configure_conflict_section(name: &str, len_diff: bool) -> String {
+fn configure_test_specific_section<T: Display>(name: &str, len_diff: bool, num_diff: T) -> String {
     if len_diff {
         format!(
             "
-        fundamental_default.{nm} = fundamental_default.{nm} + 12345;
+        fundamental_default.{nm} = fundamental_default.{nm} + {nd};
         ",
             nm = name,
+            nd = num_diff
         )
     } else {
-        "
-        fundamental_default = fundamental_default + 12345;
-        "
-        .to_string()
+        format!(
+            "
+        fundamental_default = fundamental_default + {};
+        ",
+            num_diff
+        )
     }
 }
 

@@ -403,7 +403,7 @@ mod tests {
         );
         assert_value(
             "pendingPaymentScanInterval",
-            &format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000),
+            &format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL),
             map,
         );
         assert_value(

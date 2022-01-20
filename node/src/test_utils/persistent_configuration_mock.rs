@@ -407,6 +407,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         ));
         self.set_wallet_info_results.borrow_mut().remove(0)
     }
+
+    fn is_dao_null(&self) -> bool {
+        todo!()
+    }
 }
 
 impl PersistentConfigurationMock {

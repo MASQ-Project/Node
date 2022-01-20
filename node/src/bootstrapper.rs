@@ -724,12 +724,12 @@ mod tests {
     use crate::sub_lib::stream_connector::ConnectionInfo;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::unshared_test_utils::make_simplified_multi_config;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
+    use crate::test_utils::unshared_test_utils::make_simplified_multi_config;
     use crate::test_utils::{assert_contains, rate_pack};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_GAS_PRICE;

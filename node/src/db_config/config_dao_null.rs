@@ -11,6 +11,7 @@ use masq_lib::constants::{
     DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL, ETH_MAINNET_CONTRACT_CREATION_BLOCK,
 };
 use rusqlite::Transaction;
+use std::any::Any;
 use std::collections::HashMap;
 
 pub struct ConfigDaoNull {
@@ -22,6 +23,10 @@ impl ConfigDao for ConfigDaoNull {
         &'c mut self,
     ) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError> {
         Ok(Box::new(ConfigDaoNull::default()))
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

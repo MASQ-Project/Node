@@ -375,6 +375,13 @@ macro_rules! as_any_impl {
     };
 }
 
+#[macro_export]
+macro_rules! call_const_from_str {
+    ($const_val: expr) => {
+        $const_val
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

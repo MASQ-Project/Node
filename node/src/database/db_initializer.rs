@@ -31,7 +31,7 @@ pub enum InitializationError {
     UndetectableVersion(String),
     SqliteError(rusqlite::Error),
     MigrationError(String),
-    SuppressedMigrationError,
+    SuppressedMigration,
 }
 
 pub trait DbInitializer {
@@ -106,7 +106,7 @@ impl DbInitializer for DbInitializerReal {
                     }
                     (Some(_), &Suppression::Yes) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
                     (Some(_), &Suppression::WithErr) => {
-                        Err(InitializationError::SuppressedMigrationError)
+                        Err(InitializationError::SuppressedMigration)
                     }
                 }
             }
@@ -348,7 +348,7 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "pending_payment_scan_interval",
-            Some(&format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000)),
+            Some(&format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL)),
             false,
             "the next scan for pending payments will run after this interval",
         );
@@ -972,7 +972,7 @@ mod tests {
         verify(
             &mut config_vec,
             "pending_payment_scan_interval",
-            Some(&format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL / 1000)),
+            Some(&format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL)),
         );
         verify(
             &mut config_vec,
@@ -1264,7 +1264,7 @@ mod tests {
             Ok(_) => panic!("expected an Err, got Ok"),
             Err(e) => e,
         };
-        assert_eq!(err, InitializationError::SuppressedMigrationError);
+        assert_eq!(err, InitializationError::SuppressedMigration);
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_after, schema_version_before)
     }

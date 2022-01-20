@@ -204,8 +204,8 @@ mod tests {
     use crate::node_configurator::node_configurator_initialization::InitializationConfig;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
-    use crate::test_utils::unshared_test_utils::ChannelFactoryMock;
     use crate::test_utils::recorder::{make_recorder, Recorder};
+    use crate::test_utils::unshared_test_utils::ChannelFactoryMock;
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;

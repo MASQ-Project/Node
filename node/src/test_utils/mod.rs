@@ -506,6 +506,8 @@ pub struct TestRawTransaction {
 pub mod unshared_test_utils {
     use crate::apps::app_node;
     use crate::daemon::ChannelFactory;
+    use crate::db_config::config_dao_null::ConfigDaoNull;
+    use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use actix::Message;
@@ -538,9 +540,7 @@ pub mod unshared_test_utils {
     const ACCOUNTANT_CONFIG_PARAMS: u32 = 0b0000_0100;
     const RATE_PACK: u32 = 0b0000_1000;
 
-    pub fn configure_default_persistent_config(
-        bit_flag: u32
-    ) -> PersistentConfigurationMock {
+    pub fn configure_default_persistent_config(bit_flag: u32) -> PersistentConfigurationMock {
         let config = PersistentConfigurationMock::new();
         let config = if (bit_flag & BASE) == BASE {
             default_persistent_config_just_base(config)
@@ -552,7 +552,7 @@ pub mod unshared_test_utils {
         } else {
             config
         };
-        let config = if(bit_flag & ACCOUNTANT_CONFIG_PARAMS) == ACCOUNTANT_CONFIG_PARAMS {
+        let config = if (bit_flag & ACCOUNTANT_CONFIG_PARAMS) == ACCOUNTANT_CONFIG_PARAMS {
             default_persistent_config_just_accountant_config(config)
         } else {
             config
@@ -619,6 +619,10 @@ pub mod unshared_test_utils {
             .routing_service_rate_result(Ok(DEFAULT_RATE_PACK.routing_service_rate))
             .exit_byte_rate_result(Ok(DEFAULT_RATE_PACK.exit_byte_rate))
             .exit_service_rate_result(Ok(DEFAULT_RATE_PACK.exit_service_rate))
+    }
+
+    pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {
+        PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()))
     }
 
     pub struct ChannelFactoryMock {
