@@ -28,7 +28,6 @@ use crate::node_configurator::{
     real_user_data_directory_opt_and_chain, real_user_from_multi_config_or_populate,
 };
 use crate::server_initializer::GatheredParams;
-use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
@@ -41,7 +40,6 @@ use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use masq_lib::utils::WrapResult;
 use rustc_hex::FromHex;
-use std::ops::Deref;
 use std::str::FromStr;
 
 pub struct NodeConfiguratorStandardPrivileged {
@@ -237,7 +235,7 @@ pub fn privileged_parse_args(
 
 fn configure_database(
     config: &BootstrapperConfig,
-    persistent_config: &mut (dyn PersistentConfiguration),
+    persistent_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
     if let Some(port) = config.clandestine_port_opt {
         if let Err(pce) = persistent_config.set_clandestine_port(port) {
@@ -268,7 +266,7 @@ mod tests {
     use super::*;
     use crate::bootstrapper::{BootstrapperConfig, RealUser};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
+    use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
@@ -288,6 +286,7 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+    use std::vec;
 
     #[test]
     fn configure_database_handles_error_during_setting_clandestine_port() {
@@ -324,7 +323,7 @@ mod tests {
     fn configure_database_handles_error_during_setting_blockchain_service_url() {
         let mut config = BootstrapperConfig::new();
         config.blockchain_bridge_config.blockchain_service_url_opt =
-            Some("https://infura.io/ID".to_string()); //exact value not relevant
+            Some("https://infura.io/ID".to_string());
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_neighborhood_mode_result(Ok(()))
             .set_blockchain_service_url_result(Err(PersistentConfigError::TransactionError));
@@ -849,11 +848,7 @@ mod tests {
     #[test]
     fn configure_database_with_no_data_specified() {
         running_test();
-        let mut config = BootstrapperConfig::new();
-        config.clandestine_port_opt = None;
-        config.consuming_wallet_opt = None;
-        config.earning_wallet = DEFAULT_EARNING_WALLET.clone();
-        config.blockchain_bridge_config.blockchain_service_url_opt = None;
+        let config = BootstrapperConfig::new();
         let set_blockchain_service_params_arc = Arc::new(Mutex::new(vec![]));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_neighborhood_mode_params_arc = Arc::new(Mutex::new(vec![]));
@@ -869,7 +864,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         let set_blockchain_service_url = set_blockchain_service_params_arc.lock().unwrap();
         let no_url: Vec<String> = vec![];
-        assert_eq!(*set_blockchain_service_url, no_url); //if no value available we skip the setting
+        assert_eq!(*set_blockchain_service_url, no_url);
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         let no_ports: Vec<u16> = vec![];
         assert_eq!(*set_clandestine_port_params, no_ports);

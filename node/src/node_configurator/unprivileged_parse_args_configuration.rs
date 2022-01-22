@@ -64,12 +64,7 @@ pub trait ParseArgsConfiguration {
             compute_mapping_protocol_opt(multi_config, persistent_config, logger);
         let mnc_result = {
             get_wallets(multi_config, persistent_config, unprivileged_config)?;
-            make_neighborhood_config(
-                self,
-                multi_config,
-                Some(persistent_config),
-                unprivileged_config,
-            )
+            make_neighborhood_config(self, multi_config, persistent_config, unprivileged_config)
         };
 
         mnc_result.map(|config| unprivileged_config.neighborhood_config = config)
@@ -278,23 +273,20 @@ fn get_consuming_wallet_opt_from_derivation_path(
 pub fn make_neighborhood_config<T: ParseArgsConfiguration + ?Sized>(
     pars_args_configurator: &T,
     multi_config: &MultiConfig,
-    persistent_config_opt: Option<&mut dyn PersistentConfiguration>,
+    persistent_config: &mut dyn PersistentConfiguration,
     unprivileged_config: &mut BootstrapperConfig,
 ) -> Result<NeighborhoodConfig, ConfiguratorError> {
     let neighbor_configs: Vec<NodeDescriptor> = {
         match convert_ci_configs(multi_config)? {
             Some(configs) => configs,
-            None => match persistent_config_opt {
-                Some(persistent_config) => pars_args_configurator.get_past_neighbors(
-                    multi_config,
-                    persistent_config,
-                    unprivileged_config,
-                )?,
-                None => vec![],
-            },
+            None => pars_args_configurator.get_past_neighbors(
+                multi_config,
+                persistent_config,
+                unprivileged_config,
+            )?,
         }
     };
-    match make_neighborhood_mode(multi_config, neighbor_configs) {
+    match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
         Ok(mode) => Ok(NeighborhoodConfig { mode }),
         Err(e) => Err(e),
     }
@@ -303,6 +295,7 @@ pub fn make_neighborhood_config<T: ParseArgsConfiguration + ?Sized>(
 fn make_neighborhood_mode(
     multi_config: &MultiConfig,
     neighbor_configs: Vec<NodeDescriptor>,
+    persistent_config: &mut dyn PersistentConfiguration,
 ) -> Result<NeighborhoodMode, ConfiguratorError> {
     let neighborhood_mode_opt = value_m!(multi_config, "neighborhood-mode", String);
     match neighborhood_mode_opt {
@@ -334,17 +327,20 @@ fn make_neighborhood_mode(
             }
         }
         Some(ref s) if s == "zero-hop" => {
-            if !neighbor_configs.is_empty() {
-                Err(ConfiguratorError::required(
-                    "neighborhood-mode",
-                    "Node cannot run as --neighborhood-mode zero-hop if --neighbors is specified",
-                ))
-            } else if value_m!(multi_config, "ip", IpAddr).is_some() {
+            if value_m!(multi_config, "ip", IpAddr).is_some() {
                 Err(ConfiguratorError::required(
                     "neighborhood-mode",
                     "Node cannot run as --neighborhood-mode zero-hop if --ip is specified",
                 ))
             } else {
+                if !neighbor_configs.is_empty() {
+                    let password_opt = value_m!(multi_config, "db-password", String);
+                    zero_hop_neighbors_configuration(
+                        password_opt,
+                        neighbor_configs,
+                        persistent_config,
+                    )?
+                }
                 Ok(NeighborhoodMode::ZeroHop)
             }
         }
@@ -355,6 +351,27 @@ fn make_neighborhood_mode(
         ),
         None => neighborhood_mode_standard(multi_config, neighbor_configs),
     }
+}
+
+fn zero_hop_neighbors_configuration(
+    password_opt: Option<String>,
+    descriptors: Vec<NodeDescriptor>,
+    persistent_config: &mut dyn PersistentConfiguration,
+) -> Result<(), ConfiguratorError> {
+    match password_opt {
+        Some(password) => {
+            if let Err(e) = persistent_config.set_past_neighbors(Some(descriptors), &password) {
+                return Err(e.into_configurator_error("neighbors"));
+            }
+        }
+        None => {
+            return Err(ConfiguratorError::required(
+                "neighbors",
+                "Cannot proceed without a password",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn neighborhood_mode_standard(
@@ -842,7 +859,7 @@ mod tests {
         let result = make_neighborhood_config(
             &ParseArgsConfigurationDaoNull {},
             &multi_config,
-            Some(&mut configure_default_persistent_config(0b0000_0001)),
+            &mut configure_default_persistent_config(0b0000_0001),
             &mut BootstrapperConfig::new(),
         );
 
@@ -891,7 +908,7 @@ mod tests {
         let result = make_neighborhood_config(
             &ParseArgsConfigurationDaoNull {},
             &multi_config,
-            Some(&mut configure_default_persistent_config(0b0000_0001)),
+            &mut configure_default_persistent_config(0b0000_0001),
             &mut BootstrapperConfig::new(),
         );
 
@@ -925,7 +942,7 @@ mod tests {
         let result = make_neighborhood_config(
             &ParseArgsConfigurationDaoNull {},
             &multi_config,
-            Some(&mut configure_default_persistent_config(0b0000_0001)),
+            &mut configure_default_persistent_config(0b0000_0001),
             &mut BootstrapperConfig::new(),
         );
 
@@ -967,10 +984,7 @@ mod tests {
         let result = make_neighborhood_config(
             &ParseArgsConfigurationDaoNull {},
             &multi_config,
-            Some(
-                &mut configure_default_persistent_config(0b0000_0001)
-                    .check_password_result(Ok(false)),
-            ),
+            &mut configure_default_persistent_config(0b0000_0001).check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -998,7 +1012,7 @@ mod tests {
         let result = make_neighborhood_config(
             &ParseArgsConfigurationDaoNull {},
             &multi_config,
-            Some(&mut configure_default_persistent_config(0b0000_0001)),
+            &mut configure_default_persistent_config(0b0000_0001),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1039,7 +1053,7 @@ mod tests {
         let result = make_neighborhood_config(
             &ParseArgsConfigurationDaoNull {},
             &multi_config,
-            Some(&mut configure_default_persistent_config(0b0000_0001)),
+            &mut configure_default_persistent_config(0b0000_0001),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1072,10 +1086,7 @@ mod tests {
         let result = make_neighborhood_config(
             &ParseArgsConfigurationDaoNull {},
             &multi_config,
-            Some(
-                &mut configure_default_persistent_config(0b0000_0001)
-                    .check_password_result(Ok(false)),
-            ),
+            &mut configure_default_persistent_config(0b0000_0001).check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1104,10 +1115,7 @@ mod tests {
         let result = make_neighborhood_config(
             &ParseArgsConfigurationDaoNull {},
             &multi_config,
-            Some(
-                &mut configure_default_persistent_config(0b0000_0001)
-                    .check_password_result(Ok(false)),
-            ),
+            &mut configure_default_persistent_config(0b0000_0001).check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1116,40 +1124,6 @@ mod tests {
             Err(ConfiguratorError::required(
                 "neighborhood-mode",
                 "Node cannot run as --neighborhood-mode zero-hop if --ip is specified"
-            ))
-        )
-    }
-
-    #[test]
-    fn make_neighborhood_config_zero_hop_cant_tolerate_neighbors() {
-        running_test();
-        let multi_config = make_new_test_multi_config(
-            &app_node(),
-            vec![Box::new(CommandLineVcl::new(
-                ArgsBuilder::new()
-                    .param("--neighborhood-mode", "zero-hop")
-                    .param(
-                        "--neighbors",
-                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://eth-mainnet:VGVk@2.3.4.5:3456/4567",
-                    )
-                    .param("--fake-public-key", "booga")
-                    .into(),
-            ))],
-        )
-            .unwrap();
-
-        let result = make_neighborhood_config(
-            &ParseArgsConfigurationDaoNull {},
-            &multi_config,
-            Some(&mut configure_default_persistent_config(0b0000_0001)),
-            &mut BootstrapperConfig::new(),
-        );
-
-        assert_eq!(
-            result,
-            Err(ConfiguratorError::required(
-                "neighborhood-mode",
-                "Node cannot run as --neighborhood-mode zero-hop if --neighbors is specified"
             ))
         )
     }
@@ -1433,6 +1407,141 @@ mod tests {
         let result = convert_ci_configs(&multi_config);
 
         assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports are not valid: 'masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>")])))
+    }
+
+    #[test]
+    fn configure_zero_hop_with_neighbors_supplied() {
+        running_test();
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut config = BootstrapperConfig::new();
+        let mut persistent_config = configure_default_persistent_config(0b0000_1111)
+            .set_past_neighbors_params(&set_past_neighbors_params_arc)
+            .set_past_neighbors_result(Ok(()));
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-ropsten",
+            "--neighbors",
+            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+            "--db-password",
+            "password",
+            "--neighborhood-mode",
+            "zero-hop",
+            "--fake-public-key",
+            "booga",
+        ]);
+        let subject = ParseArgsConfigurationDaoReal {};
+
+        let _ = subject
+            .unprivileged_parse_args(
+                &multi_config,
+                &mut config,
+                &mut persistent_config,
+                &Logger::new("test"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            config.neighborhood_config,
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::ZeroHop
+            }
+        );
+        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_past_neighbors_params,
+            vec![(
+                Some(vec![NodeDescriptor::try_from((
+                    main_cryptde(),
+                    "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345"
+                ))
+                .unwrap()]),
+                "password".to_string()
+            )]
+        )
+    }
+
+    #[test]
+    fn setting_zero_hop_neighbors_is_ignored_if_no_neighbors_supplied() {
+        running_test();
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut config = BootstrapperConfig::new();
+        let mut persistent_config = configure_default_persistent_config(0b0000_1111)
+            .set_past_neighbors_params(&set_past_neighbors_params_arc);
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-ropsten",
+            "--neighborhood-mode",
+            "zero-hop",
+        ]);
+        let subject = ParseArgsConfigurationDaoReal {};
+
+        let _ = subject
+            .unprivileged_parse_args(
+                &multi_config,
+                &mut config,
+                &mut persistent_config,
+                &Logger::new("test"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            config.neighborhood_config,
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::ZeroHop
+            }
+        );
+        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        assert!(set_past_neighbors_params.is_empty())
+    }
+
+    #[test]
+    fn configure_zero_hop_with_neighbors_but_no_password() {
+        running_test();
+        let mut persistent_config = PersistentConfigurationMock::new();
+        //no results prepared for set_past_neighbors() and no panic so it was not called
+        let descriptor_list = vec![NodeDescriptor::try_from((
+            main_cryptde(),
+            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+        ))
+        .unwrap()];
+
+        let result =
+            zero_hop_neighbors_configuration(None, descriptor_list, &mut persistent_config);
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required(
+                "neighbors",
+                "Cannot proceed without a password"
+            ))
+        );
+    }
+
+    #[test]
+    fn configure_zero_hop_with_neighbors_but_setting_values_failed() {
+        running_test();
+        let mut persistent_config = PersistentConfigurationMock::new().set_past_neighbors_result(
+            Err(PersistentConfigError::DatabaseError("Oh yeah".to_string())),
+        );
+        let descriptor_list = vec![NodeDescriptor::try_from((
+            main_cryptde(),
+            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+        ))
+        .unwrap()];
+
+        let result = zero_hop_neighbors_configuration(
+            Some("password".to_string()),
+            descriptor_list,
+            &mut persistent_config,
+        );
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required(
+                "neighbors",
+                "DatabaseError(\"Oh yeah\")"
+            ))
+        );
     }
 
     #[test]

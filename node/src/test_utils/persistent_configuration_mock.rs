@@ -220,10 +220,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         value: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError> {
         self.set_mapping_protocol_params.lock().unwrap().push(value);
-        self.set_mapping_protocol_results
-            .borrow_mut()
-            .pop()
-            .unwrap()
+        self.set_mapping_protocol_results.borrow_mut().remove(0)
     }
 
     fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError> {
