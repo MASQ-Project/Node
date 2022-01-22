@@ -11,8 +11,9 @@ use crate::db_config::config_dao_null::ConfigDaoNull;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::node_configurator::node_configurator_standard::{
-    privileged_parse_args, unprivileged_parse_args,
+use crate::node_configurator::node_configurator_standard::privileged_parse_args;
+use crate::node_configurator::unprivileged_parse_args_configuration::{
+    ParseArgsConfiguration, ParseArgsConfigurationDaoNull, ParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
@@ -35,6 +36,7 @@ use masq_lib::constants::{
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
 use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupResponseValueStatus};
+use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
@@ -42,7 +44,7 @@ use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::utils::ExpectValue;
 use paste::paste;
 use std::collections::HashMap;
-use std::fmt::{Debug, Display};
+use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -215,10 +217,7 @@ impl SetupReporterReal {
                 let name = opt.b.name;
                 match opt.v.default_val {
                     Some(os_str) => {
-                        let value = match os_str.to_str() {
-                            Some(v) => v,
-                            None => unimplemented!(),
-                        };
+                        let value = os_str.to_str().expect("expected valid UTF-8");
                         Some((
                             name.to_string(),
                             UiSetupResponseValue::new(name, value, Default),
@@ -435,8 +434,9 @@ impl SetupReporterReal {
             MigratorConfig::migration_suppressed_with_error(),
         ) {
             Ok(conn) => {
+                let pars_args_configuration = ParseArgsConfigurationDaoReal {};
                 let mut persistent_config = PersistentConfigurationReal::from(conn);
-                match unprivileged_parse_args(
+                match pars_args_configuration.unprivileged_parse_args(
                     multi_config,
                     &mut bootstrapper_config,
                     &mut persistent_config,
@@ -452,14 +452,13 @@ impl SetupReporterReal {
                     }
                 }
             }
-            Err(
-                InitializationError::Nonexistent | InitializationError::SuppressedMigration,
-            ) => {
+            Err(InitializationError::Nonexistent | InitializationError::SuppressedMigration) => {
                 // When the Daemon runs for the first time, the database will not yet have been
                 // created. If the database is old, it should not be used by the Daemon.
+                let pars_args_configuration = ParseArgsConfigurationDaoNull {};
                 let mut persistent_config =
                     PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
-                match unprivileged_parse_args(
+                match pars_args_configuration.unprivileged_parse_args(
                     multi_config,
                     &mut bootstrapper_config,
                     &mut persistent_config,
@@ -863,8 +862,8 @@ impl ValueRetriever for Neighbors {
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         match db_password_opt {
             Some(pw) => match persistent_config.past_neighbors(pw) {
-            Ok(Some(pns)) => Some((node_descriptors_to_neighbors(pns), Configured)),
-            _ => None,
+                Ok(Some(pns)) => Some((node_descriptors_to_neighbors(pns), Configured)),
+                _ => None,
             },
             None => None,
         }
@@ -2455,6 +2454,38 @@ mod tests {
     }
 
     #[test]
+    fn run_configuration_without_existing_database_with_config_dao_null_to_use() {
+        let data_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "run_configuration_without_existing_database_with_config_dao_null_to_use",
+        );
+        let conn =
+            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        conn.execute("update config set value = 55 where name = 'gas_price'", [])
+            .unwrap();
+        let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
+        let updated_gas_price = dao.get("gas_price").unwrap().value_opt.unwrap();
+        assert_eq!(updated_gas_price, "55");
+        let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, "0");
+        let multi_config =
+            make_simplified_multi_config(["--data-directory", data_dir.to_str().unwrap()]);
+        let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
+        let subject = SetupReporterReal::new(Box::new(dirs_wrapper));
+
+        let ((bootstrapper_config, mut persistent_config), _) =
+            subject.run_configuration(&multi_config, &data_dir);
+
+        assert_ne!(bootstrapper_config.blockchain_bridge_config.gas_price, 55); //asserting negation
+        let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, schema_version_after);
+        persistent_config.set_gas_price(66).unwrap();
+        //if this had contained ConfigDaoReal the setting would've worked
+        let gas_price = persistent_config.gas_price().unwrap();
+        assert_ne!(gas_price, 66);
+    }
+
+    #[test]
     fn run_configuration_suppresses_db_migration_that_is_why_it_offers_just_config_dao_null_to_use()
     {
         let data_dir = ensure_node_home_directory_exists(
@@ -2475,13 +2506,16 @@ mod tests {
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let subject = SetupReporterReal::new(Box::new(dirs_wrapper));
 
-        let ((bootstrapper_config, persistent_config), _) =
+        let ((bootstrapper_config, mut persistent_config), _) =
             subject.run_configuration(&multi_config, &data_dir);
 
         assert_ne!(bootstrapper_config.blockchain_bridge_config.gas_price, 55); //asserting negation
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, schema_version_after);
-        assert!(persistent_config.is_dao_null())
+        persistent_config.set_gas_price(66).unwrap();
+        //if this had contained ConfigDaoReal the setting would've worked
+        let gas_price = persistent_config.gas_price().unwrap();
+        assert_ne!(gas_price, 66);
     }
 
     #[test]
@@ -2850,7 +2884,7 @@ mod tests {
 
         let result = subject.calculate_configured_setup(&setup, &data_dir).0;
 
-        eprintln!("{:?}",result);
+        eprintln!("{:?}", result);
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
 

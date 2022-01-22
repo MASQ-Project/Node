@@ -39,6 +39,7 @@ mod initialization {
     use super::*;
     use clap::value_t;
     use masq_lib::constants::DEFAULT_UI_PORT;
+    use masq_lib::multi_config::make_arg_matches_accesible;
     use masq_lib::multi_config::MultiConfig;
 
     pub fn parse_args(multi_config: &MultiConfig, config: &mut InitializationConfig) {

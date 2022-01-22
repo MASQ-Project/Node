@@ -1786,7 +1786,6 @@ mod tests {
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         let (_, context_id) = UiSetConfigurationResponse::fmb(response.body.clone()).unwrap();
         assert_eq!(context_id, 4444);
-
         let check_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*check_start_block_params, vec![166666]);
     }
@@ -2020,7 +2019,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())))
             .chain_name_result("ropsten".to_string())
-            .current_schema_version_result("1.2.3")
+            .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
             .mnemonic_seed_params(&mnemonic_seed_params_arc)
@@ -2058,7 +2057,7 @@ mod tests {
             configuration,
             UiConfigurationResponse {
                 blockchain_service_url_opt: Some("https://infura.io/ID".to_string()),
-                current_schema_version: "1.2.3".to_string(),
+                current_schema_version: "3".to_string(),
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
@@ -2116,7 +2115,7 @@ mod tests {
             .blockchain_service_url_result(Ok(None))
             .check_password_result(Ok(true))
             .chain_name_result("ropsten".to_string())
-            .current_schema_version_result("1.2.3")
+            .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
             .mnemonic_seed_params(&mnemonic_seed_params_arc)
@@ -2134,6 +2133,7 @@ mod tests {
             .balance_to_decrease_from_gwei_result(Ok(5_000_000))
             .exit_byte_rate_result(Ok(10))
             .exit_service_rate_result(Ok(13))
+            .exit_service_rate_result(Err(PersistentConfigError::NotPresent))
             .payable_scan_interval_result(Ok(120))
             .payment_suggested_after_sec_result(Ok(1200))
             .payment_grace_before_ban_sec_result(Ok(1000))
@@ -2159,7 +2159,7 @@ mod tests {
             configuration,
             UiConfigurationResponse {
                 blockchain_service_url_opt: None,
-                current_schema_version: "1.2.3".to_string(),
+                current_schema_version: "3".to_string(),
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
