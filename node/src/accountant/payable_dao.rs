@@ -2,7 +2,7 @@
 use crate::accountant::{
     jackass_unsigned_to_signed, DebtRecordingError, PaymentError, PaymentErrorKind, TransactionId,
 };
-use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
+use crate::blockchain::blockchain_bridge::PaymentFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::DaoFactoryReal;
@@ -51,7 +51,7 @@ pub trait PayableDao: Debug + Send {
         transaction_id: TransactionId,
     ) -> Result<(), PaymentError>;
 
-    fn transaction_confirmed(&self, payment: &PaymentBackupRecord) -> Result<(), PaymentError>;
+    fn transaction_confirmed(&self, payment: &PaymentFingerprint) -> Result<(), PaymentError>;
 
     //TODO this method doesn't have a use now; what is its future?
     fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PaymentError>;
@@ -117,7 +117,7 @@ impl PayableDao for PayableDaoReal {
         }
     }
 
-    fn transaction_confirmed(&self, payment: &PaymentBackupRecord) -> Result<(), PaymentError> {
+    fn transaction_confirmed(&self, payment: &PaymentFingerprint) -> Result<(), PaymentError> {
         let signed_amount = jackass_unsigned_to_signed(payment.amount).map_err(|err_num| {
             PaymentError(PaymentErrorKind::SignConversion(err_num), payment.into())
         })?;
@@ -231,12 +231,12 @@ impl PayableDao for PayableDaoReal {
             let balance_result = row.get(0);
             let last_paid_timestamp_result = row.get(1);
             let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
-            let pending_payments_rowid_result_opt: Result<Option<i64>, Error> = row.get(3);
+            let pending_payable_rowid_result_opt: Result<Option<i64>, Error> = row.get(3);
             match (
                 wallet_result,
                 balance_result,
                 last_paid_timestamp_result,
-                pending_payments_rowid_result_opt,
+                pending_payable_rowid_result_opt,
             ) {
                 (
                     Ok(wallet),
@@ -341,7 +341,7 @@ impl PayableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::test_utils::make_payment_backup;
+    use crate::accountant::test_utils::make_payment_fingerprint;
     use crate::accountant::TransactionId;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::{from_time_t, to_time_t};
@@ -474,7 +474,7 @@ mod tests {
             "mark_pending_payment_marks_a_pending_transaction_for_a_new_address",
         );
         let wallet = make_wallet("booga");
-        let pending_payments_rowid = 656;
+        let pending_payable_rowid = 656;
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
@@ -498,14 +498,14 @@ mod tests {
                 &wallet,
                 TransactionId {
                     hash: Default::default(),
-                    rowid: pending_payments_rowid,
+                    rowid: pending_payable_rowid,
                 },
             )
             .unwrap();
 
         let after_account_status = subject.account_status(&wallet).unwrap();
         let mut after_expected_status = before_expected_status;
-        after_expected_status.pending_payment_rowid_opt = Some(pending_payments_rowid);
+        after_expected_status.pending_payment_rowid_opt = Some(pending_payable_rowid);
         assert_eq!(after_account_status, after_expected_status)
     }
 
@@ -707,7 +707,7 @@ mod tests {
                 pending_payment_rowid_opt: Some(rowid)
             })
         );
-        let payment_backup = PaymentBackupRecord {
+        let payment_fingerprint = PaymentFingerprint {
             rowid,
             timestamp: payment_timestamp,
             hash,
@@ -716,7 +716,7 @@ mod tests {
             process_error: None,
         };
 
-        let result = subject.transaction_confirmed(&payment_backup);
+        let result = subject.transaction_confirmed(&payment_fingerprint);
 
         assert_eq!(result, Ok(()));
         let status_after = subject.account_status(&wallet);
@@ -739,14 +739,14 @@ mod tests {
         );
         let conn = how_to_trick_rusqlite_for_an_error(&home_dir);
         let conn_wrapped = ConnectionWrapperReal::new(conn);
-        let mut payment_backup = make_payment_backup();
+        let mut payment_fingerprint = make_payment_fingerprint();
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
-        payment_backup.hash = hash;
-        payment_backup.rowid = rowid;
+        payment_fingerprint.hash = hash;
+        payment_fingerprint.rowid = rowid;
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
-        let result = subject.transaction_confirmed(&payment_backup);
+        let result = subject.transaction_confirmed(&payment_fingerprint);
 
         assert_eq!(
             result,
@@ -768,14 +768,14 @@ mod tests {
                 .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
-        let mut payment_backup = make_payment_backup();
+        let mut payment_fingerprint = make_payment_fingerprint();
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
-        payment_backup.hash = hash;
-        payment_backup.rowid = rowid;
-        payment_backup.amount = u64::MAX;
+        payment_fingerprint.hash = hash;
+        payment_fingerprint.rowid = rowid;
+        payment_fingerprint.amount = u64::MAX;
 
-        let result = subject.transaction_confirmed(&payment_backup);
+        let result = subject.transaction_confirmed(&payment_fingerprint);
 
         assert_eq!(
             result,
@@ -922,7 +922,7 @@ mod tests {
         );
         let hash = H256::from_uint(&U256::from(123));
         let rowid = 3;
-        let payment_backup = PaymentBackupRecord {
+        let payment_fingerprint = PaymentFingerprint {
             rowid,
             timestamp: SystemTime::now(),
             hash,
@@ -936,7 +936,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.transaction_confirmed(&payment_backup);
+        let result = subject.transaction_confirmed(&payment_fingerprint);
 
         assert_eq!(
             result,

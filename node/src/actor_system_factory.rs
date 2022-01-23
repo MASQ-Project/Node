@@ -985,7 +985,7 @@ mod tests {
             accountant_config: AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
-                pending_payments_scan_interval: Duration::from_secs(100),
+                pending_payable_scan_interval: Duration::from_secs(100),
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             clandestine_discriminator_factories: Vec::new(),
@@ -1061,7 +1061,7 @@ mod tests {
             accountant_config: AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
-                pending_payments_scan_interval: Duration::from_secs(100),
+                pending_payable_scan_interval: Duration::from_secs(100),
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             clandestine_discriminator_factories: Vec::new(),
@@ -1246,7 +1246,7 @@ mod tests {
             accountant_config: AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
-                pending_payments_scan_interval: Duration::from_secs(100),
+                pending_payable_scan_interval: Duration::from_secs(100),
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             clandestine_discriminator_factories: Vec::new(),
@@ -1414,7 +1414,7 @@ mod tests {
             accountant_config: AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
-                pending_payments_scan_interval: Duration::from_secs(100),
+                pending_payable_scan_interval: Duration::from_secs(100),
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             clandestine_discriminator_factories: Vec::new(),

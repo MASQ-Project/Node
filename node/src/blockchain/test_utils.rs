@@ -253,8 +253,8 @@ pub struct SendTransactionToolWrapperMock {
     sign_transaction_params:
         Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
     sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
-    request_new_payment_backup_params: Arc<Mutex<Vec<(H256, u64)>>>,
-    request_new_payment_backup_results: RefCell<Vec<SystemTime>>,
+    request_new_payment_fingerprint_params: Arc<Mutex<Vec<(H256, u64)>>>,
+    request_new_payment_fingerprint_results: RefCell<Vec<SystemTime>>,
     send_raw_transaction_params: Arc<Mutex<Vec<Bytes>>>,
     send_raw_transaction_results: RefCell<Vec<Result<H256, Web3Error>>>,
 }
@@ -272,12 +272,12 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperMock {
         self.sign_transaction_results.borrow_mut().remove(0)
     }
 
-    fn request_new_payment_backup(&self, transaction_hash: H256, amount: u64) -> SystemTime {
-        self.request_new_payment_backup_params
+    fn request_new_payment_fingerprint(&self, transaction_hash: H256, amount: u64) -> SystemTime {
+        self.request_new_payment_fingerprint_params
             .lock()
             .unwrap()
             .push((transaction_hash, amount));
-        self.request_new_payment_backup_results
+        self.request_new_payment_fingerprint_results
             .borrow_mut()
             .remove(0)
     }
@@ -301,16 +301,16 @@ impl SendTransactionToolWrapperMock {
         self
     }
 
-    pub fn request_new_payment_backup_params(
+    pub fn request_new_payment_fingerprint_params(
         mut self,
         params: &Arc<Mutex<Vec<(H256, u64)>>>,
     ) -> Self {
-        self.request_new_payment_backup_params = params.clone();
+        self.request_new_payment_fingerprint_params = params.clone();
         self
     }
 
-    pub fn request_new_payment_backup_result(self, result: SystemTime) -> Self {
-        self.request_new_payment_backup_results
+    pub fn request_new_payment_fingerprint_result(self, result: SystemTime) -> Self {
+        self.request_new_payment_fingerprint_results
             .borrow_mut()
             .push(result);
         self

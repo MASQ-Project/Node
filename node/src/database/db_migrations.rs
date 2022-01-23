@@ -309,7 +309,7 @@ impl DatabaseMigration for Migrate_4_to_5 {
         )";
         let statement_3 = "ALTER TABLE payable ADD pending_payment_rowid integer null";
         let statement_4 = "INSERT INTO payable (wallet_address, balance, last_paid_timestamp) SELECT wallet_address, balance, last_paid_timestamp FROM _payable_old";
-        let statement_5 = "CREATE TABLE pending_payments (\
+        let statement_5 = "CREATE TABLE pending_payable (\
                 rowid integer primary key, \
                 transaction_hash text not null, \
                 amount integer not null, \
@@ -318,7 +318,7 @@ impl DatabaseMigration for Migrate_4_to_5 {
                 process_error text null\
             )";
         let statement_6 =
-            "CREATE UNIQUE INDEX pending_payments_hash_idx ON pending_payments (transaction_hash)";
+            "CREATE UNIQUE INDEX pending_payable_hash_idx ON pending_payable (transaction_hash)";
         let statement_7 = "DROP TABLE _payable_old";
         let statement_8 = "DROP INDEX idx_receivable_wallet_address";
         let statement_9 = "DROP INDEX idx_banned_wallet_address";
@@ -1558,7 +1558,7 @@ mod tests {
         assert!(
             tables_schema5.contains(
                 &"\
-        CREATE TABLE pending_payments (\
+        CREATE TABLE pending_payable (\
             rowid integer primary key, \
             transaction_hash text not null, \
             amount integer not null, \
@@ -1596,7 +1596,7 @@ mod tests {
             &"CREATE UNIQUE INDEX idx_banned_wallet_address on banned (wallet_address)".to_string()
         ));
         assert!(indexes_schema5.contains(
-            &"CREATE UNIQUE INDEX pending_payments_hash_idx ON pending_payments (transaction_hash)"
+            &"CREATE UNIQUE INDEX pending_payable_hash_idx ON pending_payable (transaction_hash)"
                 .to_string()
         ));
     }

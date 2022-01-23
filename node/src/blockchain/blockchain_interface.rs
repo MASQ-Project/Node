@@ -279,7 +279,7 @@ where
         let signed_transaction =
             self.prepare_signed_transaction(&inputs, send_transaction_tools)?;
         let payment_timestamp = send_transaction_tools
-            .request_new_payment_backup(signed_transaction.transaction_hash, inputs.amount);
+            .request_new_payment_fingerprint(signed_transaction.transaction_hash, inputs.amount);
         self.logger
             .info(|| self.log_sending(inputs.recipient, inputs.amount));
         match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
@@ -535,7 +535,7 @@ mod tests {
         make_payable_account, make_payable_account_with_recipient_and_balance_and_timestamp_opt,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
+    use crate::blockchain::blockchain_bridge::PaymentFingerprint;
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle,
         SendTransactionToolWrapperMock, TestTransport,
@@ -995,9 +995,9 @@ mod tests {
         ));
         let (recorder, _, recording_arc) = make_recorder();
         let actor_addr = recorder.start();
-        let recipient_of_payment_backup = recipient!(actor_addr, PaymentBackupRecord);
-        let payment_backup_recipient_wrapper =
-            PaymentBackupRecipientWrapperReal::new(&recipient_of_payment_backup);
+        let recipient_of_payment_fingerprint = recipient!(actor_addr, PaymentFingerprint);
+        let payment_fingerprint_recipient_wrapper =
+            PaymentBackupRecipientWrapperReal::new(&recipient_of_payment_fingerprint);
         let subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),
@@ -1019,7 +1019,7 @@ mod tests {
             .send_transaction(
                 inputs,
                 subject
-                    .send_transaction_tools(&payment_backup_recipient_wrapper)
+                    .send_transaction_tools(&payment_fingerprint_recipient_wrapper)
                     .as_ref(),
             )
             .unwrap();
@@ -1045,8 +1045,8 @@ mod tests {
             comparable_now
         );
         let recording = recording_arc.lock().unwrap();
-        let sent_backup = recording.get_record::<PaymentBackupRecord>(0);
-        let expected_payment_backup = PaymentBackupRecord {
+        let sent_backup = recording.get_record::<PaymentFingerprint>(0);
+        let expected_payment_fingerprint = PaymentFingerprint {
             rowid: 0,
             timestamp,
             hash,
@@ -1054,7 +1054,7 @@ mod tests {
             amount: amount as u64,
             process_error: None,
         };
-        assert_eq!(sent_backup, &expected_payment_backup);
+        assert_eq!(sent_backup, &expected_payment_fingerprint);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
         log_handler.exists_log_containing(
@@ -1074,7 +1074,7 @@ mod tests {
             Chain::EthMainnet,
         );
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
-        let request_new_payment_backup_params_arc = Arc::new(Mutex::new(vec![]));
+        let request_new_payment_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let send_raw_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let payment_timestamp = SystemTime::now();
         let transaction_parameters_expected = TransactionParameters {
@@ -1105,8 +1105,8 @@ mod tests {
         let send_transaction_tools = &SendTransactionToolWrapperMock::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             .sign_transaction_result(Ok(signed_transaction.clone()))
-            .request_new_payment_backup_params(&request_new_payment_backup_params_arc)
-            .request_new_payment_backup_result(payment_timestamp)
+            .request_new_payment_fingerprint_params(&request_new_payment_fingerprint_params_arc)
+            .request_new_payment_fingerprint_result(payment_timestamp)
             .send_raw_transaction_params(&send_raw_transaction_params_arc)
             .send_raw_transaction_result(Ok(hash));
         let amount = 50_000;
@@ -1131,10 +1131,10 @@ mod tests {
                 .unwrap())
                 .into()
         );
-        let request_new_payment_backup_params =
-            request_new_payment_backup_params_arc.lock().unwrap();
+        let request_new_payment_fingerprint_params =
+            request_new_payment_fingerprint_params_arc.lock().unwrap();
         assert_eq!(
-            *request_new_payment_backup_params,
+            *request_new_payment_fingerprint_params,
             vec![(hash, amount as u64)]
         );
         let send_raw_transaction = send_raw_transaction_params_arc.lock().unwrap();
@@ -1306,7 +1306,7 @@ mod tests {
         let signed_transaction = make_default_signed_transaction();
         let send_transaction_tools = &SendTransactionToolWrapperMock::default()
             .sign_transaction_result(Ok(signed_transaction))
-            .request_new_payment_backup_result(SystemTime::now())
+            .request_new_payment_fingerprint_result(SystemTime::now())
             .send_raw_transaction_result(Err(Web3Error::Transport(
                 "Transaction crashed".to_string(),
             )));

@@ -158,7 +158,7 @@ impl DbInitializerReal {
         self.create_config_table(conn);
         self.initialize_config(conn, external_params);
         self.create_payable_table(conn);
-        self.create_pending_payments_table(conn);
+        self.create_pending_payable_table(conn);
         self.create_receivable_table(conn);
         self.create_banned_table(conn);
     }
@@ -292,11 +292,11 @@ impl DbInitializerReal {
         .expect("Can't create payable wallet_address index");
     }
 
-    fn create_pending_payments_table(&self, conn: &Connection) {
+    fn create_pending_payable_table(&self, conn: &Connection) {
         conn.execute(
             indoc!(
                 "
-            create table if not exists pending_payments (
+            create table if not exists pending_payable (
                 rowid integer primary key,
                 transaction_hash text not null,
                 amount integer not null,
@@ -307,9 +307,9 @@ impl DbInitializerReal {
             ),
             [],
         )
-        .expect("Can't create pending_payments table");
+        .expect("Can't create pending_payable table");
         conn.execute(
-            "CREATE UNIQUE INDEX pending_payments_hash_idx ON pending_payments (transaction_hash)",
+            "CREATE UNIQUE INDEX pending_payable_hash_idx ON pending_payable (transaction_hash)",
             [],
         )
         .expect("Can't create transaction hash index in pending payments");
@@ -671,10 +671,10 @@ mod tests {
     }
 
     #[test]
-    fn db_initialize_creates_pending_payments_table() {
+    fn db_initialize_creates_pending_payable_table() {
         let home_dir = ensure_node_home_directory_does_not_exist(
             "db_initializer",
-            "db_initialize_creates_pending_payments_table",
+            "db_initialize_creates_pending_payable_table",
         );
         let subject = DbInitializerReal::default();
 
@@ -682,13 +682,13 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
-        let mut stmt = conn.prepare("select rowid, transaction_hash, amount, payment_timestamp, attempt, process_error from pending_payments").unwrap ();
+        let mut stmt = conn.prepare("select rowid, transaction_hash, amount, payment_timestamp, attempt, process_error from pending_payable").unwrap ();
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
         //caution: the words 'if not exists' are left out in the schema's data
         let expected_sql_used_to_create_this_table = indoc!(
             "
-            create table pending_payments (
+            create table pending_payable (
                 rowid integer primary key,
                 transaction_hash text not null,
                 amount integer not null,

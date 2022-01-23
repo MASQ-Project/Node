@@ -51,7 +51,7 @@ pub struct BlockchainBridge {
 }
 
 struct TransactionConfirmationTools {
-    transaction_backup_subs_opt: Option<Recipient<PaymentBackupRecord>>,
+    transaction_backup_subs_opt: Option<Recipient<PaymentFingerprint>>,
     report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
 }
 
@@ -69,7 +69,7 @@ impl Handler<BindMessage> for BlockchainBridge {
         //     msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         // ]);
         self.payment_confirmation.transaction_backup_subs_opt =
-            Some(msg.peer_actors.accountant.payment_backup);
+            Some(msg.peer_actors.accountant.payment_fingerprint);
         self.payment_confirmation
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
@@ -114,7 +114,7 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
 }
 
 #[derive(Debug, PartialEq, Message, Clone)]
-pub struct PaymentBackupRecord {
+pub struct PaymentFingerprint {
     pub rowid: u64,
     pub timestamp: SystemTime,
     pub hash: H256,
@@ -267,7 +267,7 @@ impl BlockchainBridge {
 
     fn handle_request_transaction_receipts(&self, msg: RequestTransactionReceipts) {
         let short_circuit_result: Result<Vec<Option<TransactionReceipt>>, BlockchainError> = msg
-            .pending_payments
+            .pending_payable
             .iter()
             .map(|backup| {
                 self.blockchain_interface
@@ -276,14 +276,14 @@ impl BlockchainBridge {
             .collect();
         match short_circuit_result{
             Ok(vector_of_receipts) => {
-                let pairs = vector_of_receipts.into_iter().zip(msg.pending_payments.into_iter())
+                let pairs = vector_of_receipts.into_iter().zip(msg.pending_payable.into_iter())
                     .collect_vec();
                 self.payment_confirmation
                     .report_transaction_receipts_sub_opt
                     .as_ref()
                     .expect("Accountant is unbound")
                     .try_send(ReportTransactionReceipts {
-                        payment_backups_with_receipts: pairs,
+                        payment_fingerprints_with_receipts: pairs,
                     })
                     .expect("Accountant is dead")
             },
@@ -348,7 +348,7 @@ struct PendingTxInfo {
 mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
-    use crate::accountant::test_utils::make_payment_backup;
+    use crate::accountant::test_utils::make_payment_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::Payment;
     use crate::blockchain::blockchain_interface::{
@@ -655,10 +655,10 @@ mod tests {
     fn blockchain_bridge_processes_requests_for_transaction_receipts_when_all_were_ok() {
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let payment_backup_1 = make_payment_backup();
-        let hash_1 = payment_backup_1.hash;
+        let payment_fingerprint_1 = make_payment_fingerprint();
+        let hash_1 = payment_fingerprint_1.hash;
         let hash_2 = H256::from_uint(&U256::from(78989));
-        let payment_backup_2 = PaymentBackupRecord {
+        let payment_fingerprint_2 = PaymentFingerprint {
             rowid: 456,
             timestamp: SystemTime::now(),
             hash: hash_2,
@@ -681,7 +681,7 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
         let msg = RequestTransactionReceipts {
-            pending_payments: vec![payment_backup_1.clone(), payment_backup_2.clone()],
+            pending_payable: vec![payment_fingerprint_1.clone(), payment_fingerprint_2.clone()],
         };
 
         let _ = addr.try_send(msg).unwrap();
@@ -695,9 +695,9 @@ mod tests {
         assert_eq!(
             received_message,
             &ReportTransactionReceipts {
-                payment_backups_with_receipts: vec![
-                    (Some(TransactionReceipt::default()), payment_backup_1),
-                    (None, payment_backup_2),
+                payment_fingerprints_with_receipts: vec![
+                    (Some(TransactionReceipt::default()), payment_fingerprint_1),
+                    (None, payment_fingerprint_2),
                 ]
             }
         );
@@ -742,9 +742,9 @@ mod tests {
         let hash_1 = H256::from_uint(&U256::from(111334));
         let hash_2 = H256::from_uint(&U256::from(78989));
         let hash_3 = H256::from_uint(&U256::from(11111));
-        let mut payment_backup_1 = make_payment_backup();
-        payment_backup_1.hash = hash_1;
-        let payment_backup_2 = PaymentBackupRecord {
+        let mut payment_fingerprint_1 = make_payment_fingerprint();
+        payment_fingerprint_1.hash = hash_1;
+        let payment_fingerprint_2 = PaymentFingerprint {
             rowid: 456,
             timestamp: SystemTime::now(),
             hash: hash_2,
@@ -752,7 +752,7 @@ mod tests {
             amount: 4565,
             process_error: None,
         };
-        let payment_backup_3 = PaymentBackupRecord {
+        let payment_fingerprint_3 = PaymentFingerprint {
             rowid: 450,
             timestamp: from_time_t(230_000_000),
             hash: hash_3,
@@ -777,10 +777,10 @@ mod tests {
             .payment_confirmation
             .report_transaction_receipts_sub_opt = Some(accountant_recipient);
         let msg = RequestTransactionReceipts {
-            pending_payments: vec![
-                payment_backup_1.clone(),
-                payment_backup_2.clone(),
-                payment_backup_3.clone(),
+            pending_payable: vec![
+                payment_fingerprint_1.clone(),
+                payment_fingerprint_2.clone(),
+                payment_fingerprint_3.clone(),
             ],
         };
 

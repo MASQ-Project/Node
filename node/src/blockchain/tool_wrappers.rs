@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
+use crate::blockchain::blockchain_bridge::PaymentFingerprint;
 use actix::prelude::SendError;
 use actix::Recipient;
 use ethereum_types::H256;
@@ -17,23 +17,23 @@ pub trait SendTransactionToolWrapper {
         transaction_params: TransactionParameters,
         key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
-    fn request_new_payment_backup(&self, transaction_hash: H256, amount: u64) -> SystemTime;
+    fn request_new_payment_fingerprint(&self, transaction_hash: H256, amount: u64) -> SystemTime;
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error>;
 }
 
 pub struct SendTransactionToolWrapperReal<'a, T: Transport + Debug> {
     web3: &'a Web3<T>,
-    payment_backup_sub: &'a dyn PaymentBackupRecipientWrapper,
+    payment_fingerprint_sub: &'a dyn PaymentBackupRecipientWrapper,
 }
 
 impl<'a, T: Transport + Debug> SendTransactionToolWrapperReal<'a, T> {
     pub fn new(
         web3: &'a Web3<T>,
-        payment_backup_sub: &'a dyn PaymentBackupRecipientWrapper,
+        payment_fingerprint_sub: &'a dyn PaymentBackupRecipientWrapper,
     ) -> Self {
         Self {
             web3,
-            payment_backup_sub,
+            payment_fingerprint_sub,
         }
     }
 }
@@ -52,10 +52,10 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
             .wait()
     }
 
-    fn request_new_payment_backup(&self, hash: H256, amount: u64) -> SystemTime {
+    fn request_new_payment_fingerprint(&self, hash: H256, amount: u64) -> SystemTime {
         let now = SystemTime::now();
-        self.payment_backup_sub
-            .try_send(PaymentBackupRecord {
+        self.payment_fingerprint_sub
+            .try_send(PaymentFingerprint {
                 amount,
                 rowid: 0, //disregarded in this context
                 timestamp: now,
@@ -83,8 +83,8 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperNull {
         panic!("sing_transaction() should never be called on the null object")
     }
 
-    fn request_new_payment_backup(&self, _transaction_hash: H256, _amount: u64) -> SystemTime {
-        panic!("request_new_payment_backup() should never be called on the null object")
+    fn request_new_payment_fingerprint(&self, _transaction_hash: H256, _amount: u64) -> SystemTime {
+        panic!("request_new_payment_fingerprint() should never be called on the null object")
     }
 
     fn send_raw_transaction(&self, _rlp: Bytes) -> Result<H256, Web3Error> {
@@ -93,21 +93,21 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperNull {
 }
 
 pub trait PaymentBackupRecipientWrapper {
-    fn try_send(&self, msg: PaymentBackupRecord) -> Result<(), SendError<PaymentBackupRecord>>;
+    fn try_send(&self, msg: PaymentFingerprint) -> Result<(), SendError<PaymentFingerprint>>;
 }
 
 pub struct PaymentBackupRecipientWrapperReal<'a> {
-    recipient: &'a Recipient<PaymentBackupRecord>,
+    recipient: &'a Recipient<PaymentFingerprint>,
 }
 
 impl<'a> PaymentBackupRecipientWrapperReal<'a> {
-    pub fn new(recipient: &'a Recipient<PaymentBackupRecord>) -> Self {
+    pub fn new(recipient: &'a Recipient<PaymentFingerprint>) -> Self {
         Self { recipient }
     }
 }
 
 impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperReal<'_> {
-    fn try_send(&self, msg: PaymentBackupRecord) -> Result<(), SendError<PaymentBackupRecord>> {
+    fn try_send(&self, msg: PaymentFingerprint) -> Result<(), SendError<PaymentFingerprint>> {
         self.recipient.try_send(msg)
     }
 }
@@ -115,14 +115,14 @@ impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperReal<'_> {
 pub struct PaymentBackupRecipientWrapperNull;
 
 impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperNull {
-    fn try_send(&self, _msg: PaymentBackupRecord) -> Result<(), SendError<PaymentBackupRecord>> {
+    fn try_send(&self, _msg: PaymentFingerprint) -> Result<(), SendError<PaymentFingerprint>> {
         panic!("try_send() for PaymentBackupRecipientWrapper should never be called on the null object")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_bridge::PaymentBackupRecord;
+    use crate::blockchain::blockchain_bridge::PaymentFingerprint;
     use crate::blockchain::tool_wrappers::{
         PaymentBackupRecipientWrapper, PaymentBackupRecipientWrapperNull,
         SendTransactionToolWrapper, SendTransactionToolWrapperNull,
@@ -160,10 +160,10 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "request_new_payment_backup() should never be called on the null object"
+        expected = "request_new_payment_fingerprint() should never be called on the null object"
     )]
-    fn null_request_new_payment_backup_stops_the_run() {
-        let _ = SendTransactionToolWrapperNull.request_new_payment_backup(Default::default(), 5);
+    fn null_request_new_payment_fingerprint_stops_the_run() {
+        let _ = SendTransactionToolWrapperNull.request_new_payment_fingerprint(Default::default(), 5);
     }
 
     #[test]
@@ -171,7 +171,7 @@ mod tests {
         expected = "try_send() for PaymentBackupRecipientWrapper should never be called on the null object"
     )]
     fn null_try_send_stops_the_run() {
-        let msg = PaymentBackupRecord {
+        let msg = PaymentFingerprint {
             rowid: 1,
             timestamp: SystemTime::now(),
             hash: Default::default(),

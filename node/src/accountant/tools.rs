@@ -11,7 +11,7 @@ pub(in crate::accountant) mod accountant_tools {
     use std::any::Any;
 
     pub struct Scanners {
-        pub pending_payments: Box<dyn Scanner>,
+        pub pending_payable: Box<dyn Scanner>,
         pub payables: Box<dyn Scanner>,
         pub receivables: Box<dyn Scanner>,
     }
@@ -19,7 +19,7 @@ pub(in crate::accountant) mod accountant_tools {
     impl Default for Scanners {
         fn default() -> Self {
             Scanners {
-                pending_payments: Box::new(PendingPaymentsScanner),
+                pending_payable: Box::new(PendingPaymentsScanner),
                 payables: Box::new(PayablesScanner),
                 receivables: Box::new(ReceivablesScanner),
             }
@@ -36,7 +36,7 @@ pub(in crate::accountant) mod accountant_tools {
 
     impl Scanner for PendingPaymentsScanner {
         fn scan(&self, accountant: &Accountant) {
-            accountant.scan_for_pending_payments()
+            accountant.scan_for_pending_payable()
         }
         as_any_impl!();
     }
@@ -73,7 +73,7 @@ pub(in crate::accountant) mod accountant_tools {
 
     #[derive(Default)]
     pub struct TransactionConfirmationTools {
-        pub notify_later_handle_scan_for_pending_payments:
+        pub notify_later_handle_scan_for_pending_payable:
             Box<dyn NotifyLaterHandle<ScanForPendingPayments>>,
         pub request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
         pub notify_handle_confirm_transaction: Box<dyn NotifyHandle<ConfirmPendingTransaction>>,
@@ -93,7 +93,7 @@ mod tests {
         let subject = Scanners::default();
 
         assert_eq!(
-            subject.pending_payments.as_any().downcast_ref(),
+            subject.pending_payable.as_any().downcast_ref(),
             Some(&PendingPaymentsScanner)
         );
         assert_eq!(

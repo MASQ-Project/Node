@@ -342,7 +342,7 @@ impl BootstrapperConfig {
             accountant_config: AccountantConfig {
                 payables_scan_interval: Duration::from_secs(DEFAULT_PAYABLES_SCAN_INTERVAL),
                 receivables_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLES_SCAN_INTERVAL),
-                pending_payments_scan_interval: Duration::from_secs(
+                pending_payable_scan_interval: Duration::from_secs(
                     DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL,
                 ),
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
@@ -2062,7 +2062,7 @@ mod tests {
         let result = BootstrapperConfig::new();
 
         assert_eq!(
-            result.accountant_config.pending_payments_scan_interval,
+            result.accountant_config.pending_payable_scan_interval,
             Duration::from_secs(DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL)
         );
         assert_eq!(
