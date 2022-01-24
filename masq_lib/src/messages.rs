@@ -518,8 +518,8 @@ pub struct UiPayableAccount {
     pub wallet: String,
     pub age: u64,
     pub amount: u64,
-    #[serde(rename = "pendingTransactionRowid")]
-    pub pending_transaction_rowid: Option<u64>,
+    #[serde(rename = "pendingTransactionHash")]
+    pub pending_transaction_hash: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -715,7 +715,7 @@ mod tests {
                 wallet: "wallet".to_string(),
                 age: 3456,
                 amount: 4567,
-                pending_transaction_rowid: Some(5678),
+                pending_transaction_hash: Some(5678),
             }],
             total_payable: 1234,
             receivables: vec![UiReceivableAccount {
@@ -857,7 +857,7 @@ mod tests {
                         wallet: "wallet".to_string(),
                         age: 3456,
                         amount: 4567,
-                        pending_transaction_rowid: Some(444)
+                        pending_transaction_hash: Some(444)
                     }],
                     total_payable: 1234,
                     receivables: vec![UiReceivableAccount {
