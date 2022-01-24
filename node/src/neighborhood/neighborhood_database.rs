@@ -6,12 +6,13 @@ use crate::neighborhood::dot_graph::{
 use crate::neighborhood::node_record::{NodeRecord, NodeRecordError};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodMode;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
+use masq_lib::logger::Logger;
+use masq_lib::utils::ExpectValue;
 use std::collections::HashSet;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::Debug;
@@ -251,6 +252,17 @@ impl NeighborhoodDatabase {
         keys
     }
 
+    pub fn new_public_ip(&mut self, public_ip: IpAddr) {
+        let record = self.root_mut();
+        let public_key = record.public_key().clone();
+        let node_addr_opt = record.metadata.node_addr_opt.clone();
+        let old_node_addr = node_addr_opt.expectv("Root node");
+        let new_node_addr = NodeAddr::new(&public_ip, &old_node_addr.ports());
+        record.metadata.node_addr_opt = Some(new_node_addr);
+        self.by_ip_addr.remove(&old_node_addr.ip_addr());
+        self.by_ip_addr.insert(public_ip, public_key);
+    }
+
     fn to_dot_renderables(&self) -> Vec<Box<dyn DotRenderable>> {
         let mut mentioned: HashSet<PublicKey> = HashSet::new();
         let mut present: HashSet<PublicKey> = HashSet::new();
@@ -351,6 +363,7 @@ mod tests {
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
     use std::str::FromStr;
@@ -752,6 +765,31 @@ mod tests {
         assert_string_contains(&result, "\"BAUGBw\" -> \"AwQFBg\";");
         assert_string_contains(&result, "\"AwQFBg\" -> \"BAUGBw\";");
         assert_string_contains(&result, "\"BAUGBw\" -> \"AQIDBA\";");
+    }
+
+    #[test]
+    fn new_public_ip_replaces_ip_address_and_nothing_else() {
+        let this_node = make_node_record(1234, true);
+        let old_node = this_node.clone();
+        let mut subject = NeighborhoodDatabase::new(
+            this_node.public_key(),
+            (&this_node).into(),
+            this_node.earning_wallet(),
+            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN),
+        );
+        let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
+
+        subject.new_public_ip(new_public_ip);
+
+        let mut new_node = subject.root().clone();
+        assert_eq!(subject.node_by_ip(&new_public_ip), Some(&new_node));
+        assert_eq!(
+            subject.node_by_ip(&old_node.metadata.node_addr_opt.clone().unwrap().ip_addr()),
+            None
+        );
+        assert_eq!(new_node.node_addr_opt().unwrap().ip_addr(), new_public_ip);
+        new_node.metadata.node_addr_opt = old_node.metadata.node_addr_opt.clone(); // undo the only change
+        assert_eq!(new_node, old_node); // now they should be identical
     }
 
     #[test]

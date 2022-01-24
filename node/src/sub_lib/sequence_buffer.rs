@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use masq_lib::logger::Logger;
 use masq_lib::utils::index_of;
 use serde::de::Visitor;
 use serde::Deserialize;
@@ -242,8 +242,8 @@ mod tests {
     use super::*;
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use std::net::SocketAddr;
     use std::str::FromStr;
 

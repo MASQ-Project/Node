@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL};
+use crate::accountant::{DEFAULT_PAYABLES_SCAN_INTERVAL, DEFAULT_RECEIVABLES_SCAN_INTERVAL};
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
@@ -27,7 +27,6 @@ use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
 use crate::sub_lib::node_addr::NodeAddr;
@@ -39,18 +38,18 @@ use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::{
-    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, DEFAULT_UI_PORT, MASQ_URL_PREFIX,
-};
+use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::crash_point::CrashPoint;
+use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use masq_lib::utils::AutomapProtocol;
 use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -215,21 +214,32 @@ impl RealUser {
         let gid = Self::first_present(vec![self.gid_opt, self.id_from_env("SUDO_GID")]);
         let home_dir = Self::first_present(vec![
             self.home_dir_opt.clone(),
-            self.sudo_home_from_sudo_user_and_home(dirs_wrapper),
+            self.sudo_home_from_sudo_user_and_home(),
             dirs_wrapper.home_dir(),
         ]);
         RealUser::new(Some(uid), Some(gid), Some(home_dir))
     }
 
-    fn sudo_home_from_sudo_user_and_home(&self, dirs_wrapper: &dyn DirsWrapper) -> Option<PathBuf> {
-        match (self.environment_wrapper.var ("SUDO_USER"), dirs_wrapper.home_dir()) {
-            (Some (sudo_user), Some (home_dir)) =>
-                match home_dir.parent().map(|px| px.join(PathBuf::from(sudo_user))) {
-                    Some (hd) => Some (hd),
-                    None => panic!("Cannot determine non-privileged home directory. Make sure you're specifying --real-user."),
-                },
-            _ => None
-        }
+    #[cfg(not(target_os = "windows"))]
+    fn sudo_home_from_sudo_user_and_home(&self) -> Option<PathBuf> {
+        self.environment_wrapper
+            .var("SUDO_USER")
+            .map(Self::home_dir_from_sudo_user)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn sudo_home_from_sudo_user_and_home(&self) -> Option<PathBuf> {
+        None
+    }
+
+    #[cfg(target_os = "linux")]
+    fn home_dir_from_sudo_user(sudo_user: String) -> PathBuf {
+        format!("/home/{}", sudo_user).into()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn home_dir_from_sudo_user(sudo_user: String) -> PathBuf {
+        format!("/Users/{}", sudo_user).into()
     }
 
     fn id_from_env(&self, name: &str) -> Option<i32> {
@@ -300,15 +310,16 @@ pub struct BootstrapperConfig {
     pub blockchain_bridge_config: BlockchainBridgeConfig,
     pub port_configurations: HashMap<u16, PortConfiguration>,
     pub data_directory: PathBuf,
-    pub node_descriptor_opt: Option<String>,
+    pub node_descriptor: NodeDescriptor,
     pub main_cryptde_null_opt: Option<CryptDENull>,
     pub alias_cryptde_null_opt: Option<CryptDENull>,
+    pub mapping_protocol_opt: Option<AutomapProtocol>,
     pub real_user: RealUser,
 
     // These fields must be set without privilege: otherwise the database will be created as root
     pub db_password_opt: Option<String>,
     pub clandestine_port_opt: Option<u16>,
-    pub consuming_wallet: Option<Wallet>,
+    pub consuming_wallet_opt: Option<Wallet>,
     pub earning_wallet: Wallet,
     pub neighborhood_config: NeighborhoodConfig,
 }
@@ -326,10 +337,8 @@ impl BootstrapperConfig {
             log_level: LevelFilter::Off,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(DEFAULT_PAYABLE_SCAN_INTERVAL),
-                payment_received_scan_interval: Duration::from_secs(
-                    DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL,
-                ),
+                payables_scan_interval: Duration::from_secs(DEFAULT_PAYABLES_SCAN_INTERVAL),
+                receivables_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLES_SCAN_INTERVAL),
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
@@ -343,16 +352,17 @@ impl BootstrapperConfig {
             },
             port_configurations: HashMap::new(),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: None,
+            node_descriptor: NodeDescriptor::default(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
+            mapping_protocol_opt: None,
             real_user: RealUser::new(None, None, None),
 
             // These fields must be set without privilege: otherwise the database will be created as root
             db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
-            consuming_wallet: None,
+            consuming_wallet_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
             },
@@ -367,7 +377,7 @@ impl BootstrapperConfig {
         self.clandestine_port_opt = unprivileged.clandestine_port_opt;
         self.neighborhood_config = unprivileged.neighborhood_config;
         self.earning_wallet = unprivileged.earning_wallet;
-        self.consuming_wallet = unprivileged.consuming_wallet;
+        self.consuming_wallet_opt = unprivileged.consuming_wallet_opt;
         self.db_password_opt = unprivileged.db_password_opt;
     }
 
@@ -443,26 +453,34 @@ impl ConfiguredByPrivilege for Bootstrapper {
     fn initialize_as_unprivileged(
         &mut self,
         multi_config: &MultiConfig,
-        streams: &mut StdStreams,
+        _: &mut StdStreams,
     ) -> Result<(), ConfiguratorError> {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
         let unprivileged_config =
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         self.config.merge_unprivileged(unprivileged_config);
-        self.set_up_clandestine_port();
+        let _ = self.set_up_clandestine_port();
         let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
         let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
             &main_cryptde_null_opt,
             &alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
-        self.config.node_descriptor_opt = Some(Bootstrapper::report_local_descriptor(
+        let node_descriptor = Bootstrapper::make_local_descriptor(
             cryptde_ref,
             self.config.neighborhood_config.mode.node_addr_opt(),
-            streams,
             self.config.blockchain_bridge_config.chain,
-        ));
+        );
+        self.config.node_descriptor = node_descriptor;
+        // Before you remove local-descriptor reporting for non-Standard neighborhood modes, make
+        // sure you modify the multinode tests so that they can tell A) when a Node has started up,
+        // and B) what its public key is.
+        match &self.config.neighborhood_config.mode {
+            NeighborhoodMode::Standard(node_addr, _, _)
+                if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) => {} // node_addr still coming
+            _ => Bootstrapper::report_local_descriptor(cryptde_ref, &self.config.node_descriptor), // here or not coming
+        }
         let stream_handler_pool_subs = self.actor_system_factory.make_and_start_actors(
             self.config.clone(),
             Box::new(ActorFactoryReal {}),
@@ -472,7 +490,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
                 MigratorConfig::panic_on_migration(),
             )
             .as_ref(),
-            &ActorSystemFactoryToolsReal,
+            &ActorSystemFactoryToolsReal::new(),
         );
 
         self.listener_handlers
@@ -488,7 +506,7 @@ impl Bootstrapper {
             listener_handler_factory: Box::new(ListenerHandlerFactoryReal::new()),
             listener_handlers:
                 FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new(),
-            actor_system_factory: Box::new(ActorSystemFactoryReal {}),
+            actor_system_factory: Box::new(ActorSystemFactoryReal::new()),
             logger_initializer,
             config: BootstrapperConfig::new(),
         }
@@ -526,69 +544,79 @@ impl Bootstrapper {
         (main_cryptde_ref(), alias_cryptde_ref())
     }
 
-    fn report_local_descriptor(
+    fn make_local_descriptor(
         cryptde: &dyn CryptDE,
         node_addr_opt: Option<NodeAddr>,
-        streams: &mut StdStreams<'_>,
         chain: Chain,
-    ) -> String {
-        let descriptor = match node_addr_opt {
+    ) -> NodeDescriptor {
+        match node_addr_opt {
             Some(node_addr) => {
-                let node_descriptor =
-                    NodeDescriptor::from((cryptde.public_key(), &node_addr, chain, cryptde));
-                node_descriptor.to_string(cryptde)
+                NodeDescriptor::from((cryptde.public_key(), &node_addr, chain, cryptde))
             }
-            None => format!(
-                "{}{}{}{}{}:",
-                MASQ_URL_PREFIX,
-                chain.rec().literal_identifier,
-                CHAIN_IDENTIFIER_DELIMITER,
-                cryptde.public_key_to_descriptor_fragment(cryptde.public_key()),
-                CENTRAL_DELIMITER
-            ),
-        };
-        let descriptor_msg = format!("MASQ Node local descriptor: {}", descriptor);
-        short_writeln!(streams.stdout, "{}", descriptor_msg);
-        info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
-        descriptor
+            None => {
+                let mut result = NodeDescriptor::from((
+                    cryptde.public_key(),
+                    &NodeAddr::default(),
+                    chain,
+                    cryptde,
+                ));
+                result.node_addr_opt = None;
+                result
+            }
+        }
     }
 
-    fn set_up_clandestine_port(&mut self) {
-        if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
-            &self.config.neighborhood_config.mode
-        {
-            let conn = DbInitializerReal::default()
-                .initialize(
-                    &self.config.data_directory,
-                    false,
-                    MigratorConfig::panic_on_migration(),
-                )
-                .expect("Cannot initialize database");
-            let config_dao = ConfigDaoReal::new(conn);
-            let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-            let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
-            let mut listener_handler = self.listener_handler_factory.make();
-            listener_handler
-                .bind_port_and_configuration(
-                    clandestine_port,
-                    PortConfiguration {
-                        discriminator_factories: vec![Box::new(JsonDiscriminatorFactory::new())],
-                        is_clandestine: true,
-                    },
-                )
-                .expect("Failed to bind ListenerHandler to clandestine port");
-            self.listener_handlers.push(listener_handler);
-            self.config.neighborhood_config = NeighborhoodConfig {
-                mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&node_addr.ip_addr(), &[clandestine_port]),
-                    neighbor_configs.clone(),
-                    rate_pack.clone(),
-                ),
+    pub fn report_local_descriptor(cryptde: &dyn CryptDE, descriptor: &NodeDescriptor) {
+        let descriptor_msg = format!(
+            "MASQ Node local descriptor: {}",
+            descriptor.to_string(cryptde)
+        );
+        info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
+    }
+
+    fn set_up_clandestine_port(&mut self) -> Option<u16> {
+        let clandestine_port_opt =
+            if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
+                &self.config.neighborhood_config.mode
+            {
+                let conn = DbInitializerReal::default()
+                    .initialize(
+                        &self.config.data_directory,
+                        false,
+                        MigratorConfig::panic_on_migration(),
+                    )
+                    .expect("Cannot initialize database");
+                let config_dao = ConfigDaoReal::new(conn);
+                let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
+                let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
+                let mut listener_handler = self.listener_handler_factory.make();
+                listener_handler
+                    .bind_port_and_configuration(
+                        clandestine_port,
+                        PortConfiguration {
+                            discriminator_factories: vec![
+                                Box::new(JsonDiscriminatorFactory::new()),
+                            ],
+                            is_clandestine: true,
+                        },
+                    )
+                    .expect("Failed to bind ListenerHandler to clandestine port");
+                self.listener_handlers.push(listener_handler);
+                self.config.neighborhood_config = NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        NodeAddr::new(&node_addr.ip_addr(), &[clandestine_port]),
+                        neighbor_configs.clone(),
+                        rate_pack.clone(),
+                    ),
+                };
+                Some(clandestine_port)
+            } else {
+                None
             };
-        }
         self.config
             .clandestine_discriminator_factories
             .push(Box::new(JsonDiscriminatorFactory::new()));
+        clandestine_port_opt
     }
 
     fn establish_clandestine_port(
@@ -634,7 +662,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::marker::Sync;
     use std::net::{IpAddr, SocketAddr};
-    use std::ops::{DerefMut, Not};
+    use std::ops::DerefMut;
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -646,7 +674,6 @@ mod tests {
     use futures::Future;
     use lazy_static::lazy_static;
     use log::LevelFilter;
-    use regex::Regex;
     use tokio;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
@@ -680,14 +707,10 @@ mod tests {
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::logger::Logger;
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLog;
-    use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::make_simplified_multi_config;
@@ -699,10 +722,12 @@ mod tests {
     use crate::test_utils::{assert_contains, rate_pack};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_GAS_PRICE;
+    use masq_lib::logger::Logger;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
     use masq_lib::utils::find_free_port;
 
     lazy_static! {
-        static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
+        pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
     }
 
     struct ListenerHandlerFactoryMock {
@@ -1067,8 +1092,55 @@ mod tests {
     }
 
     #[test]
+    fn initialize_as_unprivileged_with_ip_passes_node_descriptor_to_ui_config_and_reports_it() {
+        let _lock = INITIALIZATION.lock();
+        init_test_logging();
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "initialize_as_unprivileged_with_ip_passes_node_descriptor_to_ui_config_and_reports_it",
+        );
+        let mut config = BootstrapperConfig::new();
+        config.clandestine_port_opt = Some(1234);
+        config.data_directory = data_dir.clone();
+        let mut subject = BootstrapperBuilder::new()
+            .add_listener_handler(Box::new(
+                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
+            ))
+            .config(config)
+            .build();
+
+        subject
+            .initialize_as_unprivileged(
+                &make_simplified_multi_config([
+                    "MASQNode",
+                    "--ip",
+                    "1.2.3.4",
+                    "--clandestine-port",
+                    "5123",
+                    "--data-directory",
+                    data_dir.to_str().unwrap(),
+                ]),
+                &mut FakeStreamHolder::new().streams(),
+            )
+            .unwrap();
+
+        let config = subject.config;
+        assert_eq!(
+            config.node_descriptor,
+            NodeDescriptor::from((
+                main_cryptde_ref().public_key(),
+                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
+                Chain::EthRopsten,
+                main_cryptde_ref()
+            ))
+        );
+        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
+    }
+
+    #[test]
     fn blockchain_service_url_from_the_unprivileged_config_is_merged_into_the_final_config() {
         let _lock = INITIALIZATION.lock();
+        init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "blockchain_service_url_from_the_unprivileged_config_is_merged_into_the_final_config",
@@ -1126,13 +1198,71 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &make_simplified_multi_config(["MASQNode", "--ip", "1.2.3.4"]),
+                &make_simplified_multi_config([
+                    "MASQNode",
+                    "--ip",
+                    "1.2.3.4",
+                    "--clandestine-port",
+                    "5123",
+                ]),
                 &mut FakeStreamHolder::new().streams(),
             )
             .unwrap();
 
         let config = subject.config;
-        assert!(config.node_descriptor_opt.unwrap().is_empty().not());
+        assert_eq!(
+            config.node_descriptor,
+            NodeDescriptor::from((
+                main_cryptde_ref().public_key(),
+                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
+                Chain::EthRopsten,
+                main_cryptde_ref()
+            ))
+        );
+        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
+    }
+
+    #[test]
+    fn initialize_as_unprivileged_does_not_report_descriptor_when_ip_is_not_supplied_in_standard_mode(
+    ) {
+        init_test_logging();
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "initialize_as_unprivileged_does_not_report_descriptor_when_ip_is_not_supplied_in_standard_mode",
+        );
+        let mut holder = FakeStreamHolder::new();
+        let mut config = BootstrapperConfig::new();
+        config.clandestine_port_opt = Some(1234);
+        config.data_directory = data_dir.clone();
+        let mut subject = BootstrapperBuilder::new()
+            .add_listener_handler(Box::new(
+                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
+            ))
+            .config(config)
+            .build();
+
+        subject
+            .initialize_as_unprivileged(
+                &make_simplified_multi_config([
+                    "MASQNode",
+                    "--data-directory",
+                    data_dir.to_str().unwrap(),
+                    "--clandestine-port",
+                    "5124",
+                ]),
+                &mut holder.streams(),
+            )
+            .unwrap();
+
+        let config = subject.config;
+        assert_eq!(
+            config.node_descriptor.node_addr_opt,
+            Some(NodeAddr::new(
+                &IpAddr::from_str("0.0.0.0").unwrap(),
+                &vec![5124]
+            ))
+        );
+        TestLogHandler::new().exists_no_log_containing("@0.0.0.0:5124");
     }
 
     #[test]
@@ -1309,35 +1439,22 @@ mod tests {
             &IpAddr::from_str("2.3.4.5").expect("Couldn't create IP address"),
             &[3456u16, 4567u16],
         );
-        let mut holder = FakeStreamHolder::new();
         let cryptde_ref = {
-            let mut streams = holder.streams();
-
             let (cryptde_ref, _) =
                 Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
-            Bootstrapper::report_local_descriptor(
+            let descriptor = Bootstrapper::make_local_descriptor(
                 cryptde_ref,
                 Some(node_addr),
-                &mut streams,
                 TEST_DEFAULT_CHAIN,
             );
+            Bootstrapper::report_local_descriptor(cryptde_ref, &descriptor);
 
             cryptde_ref
         };
-        let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
             "masq://eth-ropsten:{}@2.3.4.5:3456/4567",
             cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
         );
-        let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")
-            .expect("Couldn't compile regular expression");
-        let captured_descriptor = regex
-            .captures(stdout_dump.as_str())
-            .expect("Couldn't find local descriptor in stdout")
-            .get(1)
-            .expect("Local descriptor line has no descriptor")
-            .as_str();
-        assert_eq!(captured_descriptor, expected_descriptor);
         TestLogHandler::new().exists_log_containing(
             format!(
                 "INFO: Bootstrapper: MASQ Node local descriptor: {}",
@@ -1366,35 +1483,19 @@ mod tests {
     fn initialize_cryptdes_and_report_local_descriptor_without_ip_address() {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
-        let mut holder = FakeStreamHolder::new();
         let (main_cryptde_ref, alias_cryptde_ref) = {
-            let mut streams = holder.streams();
-
             let (main_cryptde_ref, alias_cryptde_ref) =
                 Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
-            Bootstrapper::report_local_descriptor(
-                main_cryptde_ref,
-                None,
-                &mut streams,
-                TEST_DEFAULT_CHAIN,
-            );
+            let descriptor =
+                Bootstrapper::make_local_descriptor(main_cryptde_ref, None, TEST_DEFAULT_CHAIN);
+            Bootstrapper::report_local_descriptor(main_cryptde_ref, &descriptor);
 
             (main_cryptde_ref, alias_cryptde_ref)
         };
-        let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
             "masq://eth-ropsten:{}@:",
             main_cryptde_ref.public_key_to_descriptor_fragment(main_cryptde_ref.public_key())
         );
-        let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")
-            .expect("Couldn't compile regular expression");
-        let captured_descriptor = regex
-            .captures(stdout_dump.as_str())
-            .expect("Couldn't find local descriptor in stdout")
-            .get(1)
-            .expect("Local descriptor line has no descriptor")
-            .as_str();
-        assert_eq!(captured_descriptor, expected_descriptor);
         TestLogHandler::new().exists_log_containing(
             format!(
                 "INFO: Bootstrapper: MASQ Node local descriptor: {}",
@@ -1649,8 +1750,9 @@ mod tests {
             .config(config)
             .build();
 
-        subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port();
 
+        assert_eq!(result, Some(port));
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
         assert_eq!(persistent_config.clandestine_port().unwrap(), port);
@@ -1717,11 +1819,12 @@ mod tests {
             .config(config)
             .build();
 
-        subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port();
 
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
         let clandestine_port = persistent_config.clandestine_port().unwrap();
+        assert_eq!(result, Some(clandestine_port));
         assert_eq!(
             subject
                 .config
@@ -1762,8 +1865,9 @@ mod tests {
             .config(config)
             .build();
 
-        subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port();
 
+        assert_eq!(result, None);
         assert!(subject
             .config
             .neighborhood_config
@@ -1797,8 +1901,9 @@ mod tests {
             .config(config)
             .build();
 
-        subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port();
 
+        assert_eq!(result, None);
         assert!(subject
             .config
             .neighborhood_config
@@ -1825,8 +1930,9 @@ mod tests {
             .config(config)
             .build();
 
-        subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port();
 
+        assert_eq!(result, None);
         assert!(subject
             .config
             .neighborhood_config
@@ -1880,41 +1986,42 @@ mod tests {
         assert_eq!(result, from_configurator);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn environment_beats_id_wrapper() {
         let id_wrapper = IdWrapperMock::new().getuid_result(111).getgid_result(222);
         let environment_wrapper =
-            EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
+            EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("username"));
         let mut from_configurator = RealUser::null();
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
         from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
 
         let result = from_configurator
-            .populate(&DirsWrapperMock::new().home_dir_result(Some("/wibble/whop/ooga".into())));
+            .populate(&DirsWrapperMock::new().home_dir_result(Some("/root".into())));
 
         assert_eq!(
             result,
-            RealUser::new(
-                Some(123),
-                Some(456),
-                Some(PathBuf::from("/wibble/whop/booga"))
-            )
+            RealUser::new(Some(123), Some(456), Some(PathBuf::from("/home/username")))
         );
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
-    #[should_panic(
-        expected = "Cannot determine non-privileged home directory. Make sure you're specifying --real-user."
-    )]
-    fn zero_element_home_directory_panics() {
+    fn environment_beats_id_wrapper() {
         let id_wrapper = IdWrapperMock::new().getuid_result(111).getgid_result(222);
         let environment_wrapper =
-            EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
+            EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("username"));
         let mut from_configurator = RealUser::null();
-        from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
+        from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
 
-        from_configurator.populate(&DirsWrapperMock::new().home_dir_result(Some("/".into())));
+        let result = from_configurator
+            .populate(&DirsWrapperMock::new().home_dir_result(Some("/var/root".into())));
+
+        assert_eq!(
+            result,
+            RealUser::new(Some(123), Some(456), Some(PathBuf::from("/Users/username")))
+        );
     }
 
     #[test]

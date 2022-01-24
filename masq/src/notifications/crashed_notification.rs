@@ -53,7 +53,7 @@ impl CrashNotifier {
             CrashReason::NoInformation => ".".to_string(),
             reason => format!(
                 ":\n------\n{}\n------",
-                Self::interpret_reason(reason).trim_end().to_string()
+                Self::interpret_reason(reason).trim_end()
             ),
         }
     }

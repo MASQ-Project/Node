@@ -14,7 +14,6 @@ use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use crate::daemon::setup_reporter::{SetupCluster, SetupReporter, SetupReporterReal};
 use crate::node_configurator::DirsWrapperReal;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use actix::Recipient;
 use actix::{Actor, Context, Handler, Message};
@@ -22,6 +21,7 @@ use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::constants::{NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR};
+use masq_lib::logger::Logger;
 use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Set};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
@@ -128,10 +128,7 @@ impl Handler<NodeFromUiMessage> for Daemon {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        debug!(
-            &self.logger,
-            "Handing NodeFromUiMessage from client {}: {}", msg.client_id, msg.body.opcode
-        );
+        debug!(&self.logger, "Handing NodeFromUiMessage:\n  {:?}", msg);
         let client_id = msg.client_id;
         if let Ok((setup_request, context_id)) = UiSetupRequest::fmb(msg.body.clone()) {
             self.handle_setup(client_id, context_id, setup_request);
@@ -164,7 +161,7 @@ impl Daemon {
             node_process_id: None,
             node_ui_port: None,
             verifier_tools: Box::new(VerifierToolsReal::new()),
-            setup_reporter: Box::new(SetupReporterReal::new(Box::new(DirsWrapperReal))),
+            setup_reporter: Box::new(SetupReporterReal::new(Box::new(DirsWrapperReal {}))),
             logger: Logger::new("Daemon"),
         }
     }
@@ -750,6 +747,7 @@ mod tests {
                 client_id: 1234,
                 body: UiSetupRequest {
                     values: vec![
+                        UiSetupRequestValue::new("ip", "1.2.3.4"),
                         UiSetupRequestValue::new(
                             "data-directory",
                             format!("{:?}", home_dir).as_str(),
@@ -1169,6 +1167,10 @@ mod tests {
             .process_is_running_result(false);
         let system = System::new("test");
         let mut subject = Daemon::new(Box::new(launcher));
+        subject.params.insert(
+            "ip".to_string(),
+            UiSetupResponseValue::new("ip", "1.2.3.4", Set),
+        );
         subject.params.insert(
             "db-password".to_string(),
             UiSetupResponseValue::new("db-password", "goober", Set),

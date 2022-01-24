@@ -2,8 +2,8 @@
 
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
-use crate::sub_lib::logger::Logger;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::logger::Logger;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
@@ -240,10 +240,7 @@ impl DatabaseMigration for Migrate_2_to_3 {
             "INSERT INTO config (name, value, encrypted) VALUES ('blockchain_service_url', null, 0)";
         let statement_2 = format!(
             "INSERT INTO config (name, value, encrypted) VALUES ('neighborhood_mode', '{}', 0)",
-            declaration_utils
-                .external_parameters()
-                .neighborhood_mode
-                .to_string()
+            declaration_utils.external_parameters().neighborhood_mode
         );
         declaration_utils.execute_upon_transaction(&[statement_1, statement_2.as_str()])
     }
@@ -460,8 +457,8 @@ mod tests {
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
     };
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::{Connection, Error, OptionalExtension};
@@ -1055,10 +1052,11 @@ mod tests {
         assert!(result.is_ok());
         let execute_upon_transaction_params = execute_upon_transaction_params_arc.lock().unwrap();
         assert_eq!(
-            *execute_upon_transaction_params[0],
+            *execute_upon_transaction_params.get(0).unwrap(),
             vec![
                 "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)"
-            ]
+                    .to_string()
+            ],
         );
         let update_schema_version_params = update_schema_version_params_arc.lock().unwrap();
         assert_eq!(update_schema_version_params[0], 1);

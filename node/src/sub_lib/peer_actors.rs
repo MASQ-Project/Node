@@ -12,6 +12,7 @@ use actix::Message;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::net::IpAddr;
 
 #[derive(Clone)]
 pub struct PeerActors {
@@ -37,8 +38,13 @@ pub struct BindMessage {
     pub peer_actors: PeerActors,
 }
 
-#[derive(Message, Clone)]
+#[derive(Debug, Message, Clone)]
 pub struct StartMessage {}
+
+#[derive(Message, Clone, PartialEq, Debug)]
+pub struct NewPublicIp {
+    pub new_ip: IpAddr,
+}
 
 #[cfg(test)]
 mod tests {

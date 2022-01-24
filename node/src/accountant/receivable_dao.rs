@@ -6,9 +6,9 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
 use crate::db_config::config_dao::{ConfigDaoWrite, ConfigDaoWriteableReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
+use masq_lib::logger::Logger;
 use rusqlite::named_params;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row};
@@ -390,9 +390,8 @@ mod tests {
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };
     use crate::test_utils::assert_contains;
-    use crate::test_utils::logging;
-    use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_wallet;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, Error, OpenFlags};
 
@@ -682,7 +681,7 @@ mod tests {
 
     #[test]
     fn more_money_received_logs_when_transaction_fails() {
-        logging::init_test_logging();
+        init_test_logging();
 
         let conn_mock =
             ConnectionWrapperMock::default().transaction_result(Err(Error::InvalidQuery));
@@ -719,7 +718,7 @@ mod tests {
 
     #[test]
     fn more_money_received_logs_when_no_payment_are_given() {
-        logging::init_test_logging();
+        init_test_logging();
 
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",

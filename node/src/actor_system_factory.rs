@@ -24,20 +24,24 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::hopper::HopperConfig;
 use crate::sub_lib::hopper::HopperSubs;
-use crate::sub_lib::neighborhood::NeighborhoodSubs;
-use crate::sub_lib::peer_actors::PeerActors;
+use crate::sub_lib::neighborhood::{NeighborhoodMode, NeighborhoodSubs};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
+use crate::sub_lib::peer_actors::{NewPublicIp, PeerActors};
 use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use actix::Addr;
-use actix::Arbiter;
 use actix::Recipient;
+use actix::{Addr, Arbiter};
+use automap_lib::comm_layer::AutomapError;
+use automap_lib::control_layer::automap_control::{
+    AutomapChange, AutomapControl, AutomapControlReal, ChangeHandler,
+};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::ExpectValue;
+use masq_lib::utils::{exit_process, AutomapProtocol};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 
 pub trait ActorSystemFactory: Send {
@@ -48,6 +52,30 @@ pub trait ActorSystemFactory: Send {
         persist_config: &dyn PersistentConfiguration,
         actor_system_factory_tools: &dyn ActorSystemFactoryTools,
     ) -> StreamHandlerPoolSubs;
+}
+
+pub struct ActorSystemFactoryReal;
+
+impl ActorSystemFactory for ActorSystemFactoryReal {
+    fn make_and_start_actors(
+        &self,
+        config: BootstrapperConfig,
+        actor_factory: Box<dyn ActorFactory>,
+        persist_config: &dyn PersistentConfiguration,
+        tools: &dyn ActorSystemFactoryTools,
+    ) -> StreamHandlerPoolSubs {
+        let main_cryptde = tools.main_cryptde_ref();
+        let alias_cryptde = tools.alias_cryptde_ref();
+        tools.database_chain_assertion(config.blockchain_bridge_config.chain, persist_config);
+
+        tools.prepare_initial_messages(main_cryptde, alias_cryptde, config, actor_factory)
+    }
+}
+
+impl ActorSystemFactoryReal {
+    pub fn new() -> Self {
+        Self {}
+    }
 }
 
 pub trait ActorSystemFactoryTools {
@@ -67,25 +95,9 @@ pub trait ActorSystemFactoryTools {
     );
 }
 
-pub struct ActorSystemFactoryReal {}
-
-impl ActorSystemFactory for ActorSystemFactoryReal {
-    fn make_and_start_actors(
-        &self,
-        config: BootstrapperConfig,
-        actor_factory: Box<dyn ActorFactory>,
-        persist_config: &dyn PersistentConfiguration,
-        tools: &dyn ActorSystemFactoryTools,
-    ) -> StreamHandlerPoolSubs {
-        let main_cryptde = tools.main_cryptde_ref();
-        let alias_cryptde = tools.alias_cryptde_ref();
-        tools.database_chain_assertion(config.blockchain_bridge_config.chain, persist_config);
-
-        tools.prepare_initial_messages(main_cryptde, alias_cryptde, config, actor_factory)
-    }
+pub struct ActorSystemFactoryToolsReal {
+    automap_control_factory: Box<dyn AutomapControlFactory>,
 }
-
-pub struct ActorSystemFactoryToolsReal;
 
 impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
     fn prepare_initial_messages(
@@ -105,9 +117,14 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
                 actor_factory.make_and_start_proxy_client(ProxyClientConfig {
                     cryptde: main_cryptde,
                     dns_servers: config.dns_servers.clone(),
-                    exit_service_rate: config.exit_service_rate(),
-                    exit_byte_rate: config.exit_byte_rate(),
-                    crashable: ActorFactoryReal::is_crashable(&config),
+                    exit_service_rate: config
+                        .neighborhood_config
+                        .mode
+                        .rate_pack()
+                        .clone()
+                        .exit_service_rate,
+                    exit_byte_rate: config.neighborhood_config.mode.rate_pack().exit_byte_rate,
+                    crashable: is_crashable(&config),
                 }),
             )
         } else {
@@ -116,10 +133,20 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         let hopper_subs = actor_factory.make_and_start_hopper(HopperConfig {
             main_cryptde,
             alias_cryptde,
-            per_routing_service: config.routing_service_rate(),
-            per_routing_byte: config.routing_byte_rate(),
+            per_routing_service: config
+                .neighborhood_config
+                .mode
+                .rate_pack()
+                .clone()
+                .routing_service_rate,
+            per_routing_byte: config
+                .neighborhood_config
+                .mode
+                .rate_pack()
+                .clone()
+                .routing_byte_rate,
             is_decentralized: config.neighborhood_config.mode.is_decentralized(),
-            crashable: ActorFactoryReal::is_crashable(&config),
+            crashable: is_crashable(&config),
         });
         let blockchain_bridge_subs = actor_factory.make_and_start_blockchain_bridge(&config);
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(main_cryptde, &config);
@@ -174,10 +201,17 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
             })
             .expect("Dispatcher is dead");
 
+        self.start_automap(
+            &config,
+            vec![
+                peer_actors.neighborhood.new_public_ip.clone(),
+                peer_actors.dispatcher.new_ip_sub.clone(),
+            ],
+        );
+
         //after we've bound all the actors, send start messages to any actors that need it
         send_start_message!(peer_actors.neighborhood);
 
-        //send out the stream handler pool subs (to be bound to listeners)
         stream_handler_pool_subs
     }
 
@@ -201,6 +235,75 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
                 "Database with the wrong chain name detected; expected: {}, was: {}",
                 requested_chain, chain_in_db
             )
+        }
+    }
+}
+
+impl ActorSystemFactoryToolsReal {
+    pub fn new() -> Self {
+        Self {
+            automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
+        }
+    }
+
+    fn notify_of_public_ip_change(
+        new_ip_recipients: &[Recipient<NewPublicIp>],
+        new_public_ip: IpAddr,
+    ) {
+        new_ip_recipients.iter().for_each(|r| {
+            r.try_send(NewPublicIp {
+                new_ip: new_public_ip,
+            })
+            .expect("NewPublicIp recipient is dead")
+        });
+    }
+
+    fn handle_housekeeping_thread_error(error: AutomapError) {
+        Self::handle_automap_error("", error);
+    }
+
+    fn handle_automap_error(prefix: &str, error: AutomapError) {
+        exit_process(1, &format!("Automap failure: {}{:?}", prefix, error));
+    }
+
+    fn start_automap(
+        &self,
+        config: &BootstrapperConfig,
+        new_ip_recipients: Vec<Recipient<NewPublicIp>>,
+    ) {
+        if let NeighborhoodMode::Standard(node_addr, _, _) = &config.neighborhood_config.mode {
+            // If we already know the IP address, no need for Automap
+            if node_addr.ip_addr() != IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
+                return;
+            }
+            let change_handler = move |change: AutomapChange| match change {
+                AutomapChange::NewIp(new_public_ip) => {
+                    exit_process(
+                        1,
+                        format! ("IP change to {} reported from ISP. We can't handle that until GH-499. Going down...", new_public_ip).as_str()
+                    );
+                }
+                AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(e),
+            };
+            let mut automap_control = self
+                .automap_control_factory
+                .make(config.mapping_protocol_opt, Box::new(change_handler));
+            let public_ip = match automap_control.get_public_ip() {
+                Ok(ip) => ip,
+                Err(e) => {
+                    Self::handle_automap_error("Can't get public IP - ", e);
+                    return; // never happens; handle_automap_error doesn't return.
+                }
+            };
+            Self::notify_of_public_ip_change(new_ip_recipients.as_slice(), public_ip);
+            node_addr.ports().iter().for_each(|port| {
+                if let Err(e) = automap_control.add_mapping(*port) {
+                    Self::handle_automap_error(
+                        &format!("Can't map port {} through the router - ", port),
+                        e,
+                    );
+                }
+            });
         }
     }
 }
@@ -247,11 +350,11 @@ impl ActorFactory for ActorFactoryReal {
         &self,
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
-        let descriptor = config.node_descriptor_opt.clone();
-        let crashable = Self::is_crashable(config);
+        let node_descriptor = config.node_descriptor.clone();
+        let crashable = is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<Dispatcher> = arbiter
-            .start(move |_| Dispatcher::new(descriptor.expectv("node descriptor"), crashable));
+        let addr: Addr<Dispatcher> =
+            arbiter.start(move |_| Dispatcher::new(node_descriptor, crashable));
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -265,12 +368,12 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> ProxyServerSubs {
         let is_decentralized = config.neighborhood_config.mode.is_decentralized();
-        let consuming_wallet_balance = if config.consuming_wallet.is_some() {
+        let consuming_wallet_balance = if config.consuming_wallet_opt.is_some() {
             Some(0)
         } else {
             None
         };
-        let crashable = Self::is_crashable(config);
+        let crashable = is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<ProxyServer> = arbiter.start(move |_| {
             ProxyServer::new(
@@ -334,7 +437,7 @@ impl ActorFactory for ActorFactoryReal {
     }
 
     fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs {
-        let crashable = Self::is_crashable(config);
+        let crashable = is_crashable(config);
         let ui_gateway = UiGateway::new(&config.ui_gateway_config, crashable);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<UiGateway> = arbiter.start(move |_| ui_gateway);
@@ -347,7 +450,7 @@ impl ActorFactory for ActorFactoryReal {
     ) -> StreamHandlerPoolSubs {
         let clandestine_discriminator_factories =
             config.clandestine_discriminator_factories.clone();
-        let crashable = Self::is_crashable(config);
+        let crashable = is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<StreamHandlerPool> = arbiter
             .start(move |_| StreamHandlerPool::new(clandestine_discriminator_factories, crashable));
@@ -368,8 +471,8 @@ impl ActorFactory for ActorFactoryReal {
             .blockchain_bridge_config
             .blockchain_service_url_opt
             .clone();
-        let crashable = Self::is_crashable(config);
-        let wallet_opt = config.consuming_wallet.clone();
+        let crashable = is_crashable(config);
+        let wallet_opt = config.consuming_wallet_opt.clone();
         let data_directory = config.data_directory.clone();
         let chain_id = config.blockchain_bridge_config.chain;
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
@@ -392,7 +495,7 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
         let data_directory = config.data_directory.clone();
-        let crashable = Self::is_crashable(config);
+        let crashable = is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Configurator> =
             arbiter.start(move |_| Configurator::new(data_directory, crashable));
@@ -403,9 +506,45 @@ impl ActorFactory for ActorFactoryReal {
     }
 }
 
-impl ActorFactoryReal {
-    fn is_crashable(config: &BootstrapperConfig) -> bool {
-        config.crash_point == CrashPoint::Message
+fn is_crashable(config: &BootstrapperConfig) -> bool {
+    config.crash_point == CrashPoint::Message
+}
+
+pub trait AutomapControlFactory: Send {
+    fn make(
+        &self,
+        usual_protocol_opt: Option<AutomapProtocol>,
+        change_handler: ChangeHandler,
+    ) -> Box<dyn AutomapControl>;
+}
+
+pub struct AutomapControlFactoryReal {}
+
+impl AutomapControlFactory for AutomapControlFactoryReal {
+    fn make(
+        &self,
+        usual_protocol_opt: Option<AutomapProtocol>,
+        change_handler: ChangeHandler,
+    ) -> Box<dyn AutomapControl> {
+        Box::new(AutomapControlReal::new(usual_protocol_opt, change_handler))
+    }
+}
+
+impl AutomapControlFactoryReal {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+pub struct AutomapControlFactoryNull {}
+
+impl AutomapControlFactory for AutomapControlFactoryNull {
+    fn make(
+        &self,
+        _usual_protocol_opt: Option<AutomapProtocol>,
+        _change_handler: ChangeHandler,
+    ) -> Box<dyn AutomapControl> {
+        panic!("Should never call make() on an AutomapControlFactoryNull.");
     }
 }
 
@@ -434,12 +573,12 @@ mod tests {
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
-    use crate::sub_lib::neighborhood::RouteQueryMessage;
     use crate::sub_lib::neighborhood::{
-        DispatcherNodeQueryMessage, GossipFailure_0v1, NodeRecordMetadataMessage,
+        DispatcherNodeQueryMessage, GossipFailure_0v1, NodeDescriptor, NodeRecordMetadataMessage,
     };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeQueryMessage};
     use crate::sub_lib::neighborhood::{NeighborhoodMode, RemoveNeighborMessage};
+    use crate::sub_lib::neighborhood::{RouteQueryMessage, DEFAULT_RATE_PACK};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
     use crate::sub_lib::proxy_client::{
@@ -451,15 +590,18 @@ mod tests {
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
+    use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::{CleanUpMessage, DummyActor};
+    use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
-    use actix::System;
+    use actix::{Actor, Arbiter, System};
+    use automap_lib::control_layer::automap_control::AutomapChange;
     use crossbeam_channel::bounded;
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
@@ -468,8 +610,10 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_gateway::NodeToUiMessage;
+    use masq_lib::utils::running_test;
     use std::cell::RefCell;
     use std::collections::HashMap;
+    use std::convert::TryFrom;
     use std::net::Ipv4Addr;
     use std::net::{IpAddr, SocketAddr, SocketAddrV4};
     use std::path::PathBuf;
@@ -632,6 +776,7 @@ mod tests {
                 from_dispatcher_client: recipient!(addr, TransmitDataMsg),
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
                 ui_sub: recipient!(addr, NodeFromUiMessage),
+                new_ip_sub: recipient!(addr, NewPublicIp),
             };
             (dispatcher_subs, addr.recipient::<PoolBindMessage>())
         }
@@ -647,7 +792,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .get_or_insert((main_cryptde, alias_cryptde, config.clone()));
-            let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.proxy_server);
+            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
             ProxyServerSubs {
                 bind: recipient!(addr, BindMessage),
                 from_dispatcher: recipient!(addr, InboundClientData),
@@ -697,6 +842,7 @@ mod tests {
             NeighborhoodSubs {
                 bind: recipient!(addr, BindMessage),
                 start: recipient!(addr, StartMessage),
+                new_public_ip: recipient!(addr, NewPublicIp),
                 node_query: recipient!(addr, NodeQueryMessage),
                 route_query: recipient!(addr, RouteQueryMessage),
                 update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
@@ -743,7 +889,7 @@ mod tests {
                     .recipient::<ReportExitServiceConsumedMessage>(),
                 report_new_payments: recipient!(addr, ReceivedPayments),
                 report_sent_payments: recipient!(addr, SentPayments),
-                ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+                ui_message_sub: recipient!(addr, NodeFromUiMessage),
             }
         }
 
@@ -913,6 +1059,10 @@ mod tests {
         pub fn make_parameters(&self) -> Parameters<'a> {
             self.parameters.clone()
         }
+
+        fn start_recorder(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
+            recorder.borrow_mut().take().unwrap().start()
+        }
     }
 
     #[test]
@@ -924,8 +1074,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -938,11 +1088,12 @@ mod tests {
             db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
-            consuming_wallet: Some(make_wallet("consuming")),
+            consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some("uninitialized".to_string()),
+            node_descriptor: NodeDescriptor::default(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
+            mapping_protocol_opt: None,
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
@@ -958,15 +1109,18 @@ mod tests {
             &Some(main_cryptde()),
             &Some(alias_cryptde()),
         );
-        let subject = ActorSystemFactoryReal {};
+        let subject = ActorSystemFactoryReal::new();
+        let mut tools = ActorSystemFactoryToolsReal::new();
+        tools.automap_control_factory = Box::new(
+            AutomapControlFactoryMock::new().make_result(
+                AutomapControlMock::new()
+                    .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+                    .add_mapping_result(Ok(())),
+            ),
+        );
 
         let system = System::new("test");
-        subject.make_and_start_actors(
-            config,
-            Box::new(actor_factory),
-            &persistent_config,
-            &ActorSystemFactoryToolsReal,
-        );
+        subject.make_and_start_actors(config, Box::new(actor_factory), &persistent_config, &tools);
         System::current().stop();
         system.run();
 
@@ -994,8 +1148,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1008,25 +1162,41 @@ mod tests {
             db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
-            consuming_wallet: Some(make_wallet("consuming")),
+            consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
+            node_descriptor: NodeDescriptor::try_from ((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
+            mapping_protocol_opt: None,
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop,
+                mode: NeighborhoodMode::Standard(
+                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234, 2345]),
+                    vec![],
+                    rate_pack(100),
+                ),
             },
         };
-        let system = System::new("MASQNode");
+        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = ActorSystemFactoryToolsReal::new();
+        subject.automap_control_factory = Box::new(
+            AutomapControlFactoryMock::new().make_result(
+                AutomapControlMock::new()
+                    .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+                    .add_mapping_params(&add_mapping_params_arc)
+                    .add_mapping_result(Ok(()))
+                    .add_mapping_result(Ok(())),
+            ),
+        );
 
-        let _ = ActorSystemFactoryToolsReal.prepare_initial_messages(
+        let _ = subject.prepare_initial_messages(
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
         );
 
+        let system = System::new("MASQNode");
         System::current().stop();
         system.run();
         check_bind_message(&recordings.dispatcher, false);
@@ -1036,15 +1206,25 @@ mod tests {
         check_bind_message(&recordings.neighborhood, false);
         check_bind_message(&recordings.ui_gateway, false);
         check_bind_message(&recordings.accountant, false);
-        check_start_message(&recordings.neighborhood);
+        check_new_ip_message(
+            &recordings.dispatcher,
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            2,
+        );
+        check_new_ip_message(
+            &recordings.neighborhood,
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            1,
+        );
+        check_start_message(&recordings.neighborhood, 2);
         let hopper_config = Parameters::get(parameters.hopper_params);
         check_cryptde(hopper_config.main_cryptde);
-        assert_eq!(hopper_config.per_routing_service, 0);
-        assert_eq!(hopper_config.per_routing_byte, 0);
+        assert_eq!(hopper_config.per_routing_service, 102);
+        assert_eq!(hopper_config.per_routing_byte, 101);
         let proxy_client_config = Parameters::get(parameters.proxy_client_params);
         check_cryptde(proxy_client_config.cryptde);
-        assert_eq!(proxy_client_config.exit_service_rate, 0);
-        assert_eq!(proxy_client_config.exit_byte_rate, 0);
+        assert_eq!(proxy_client_config.exit_service_rate, 104);
+        assert_eq!(proxy_client_config.exit_byte_rate, 103);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
         let (actual_main_cryptde, actual_alias_cryptde, bootstrapper_config) =
             Parameters::get(parameters.proxy_server_params);
@@ -1059,10 +1239,10 @@ mod tests {
                 .neighborhood_config
                 .mode
                 .is_decentralized(),
-            false
+            true
         );
         assert_eq!(
-            bootstrapper_config.consuming_wallet,
+            bootstrapper_config.consuming_wallet_opt,
             Some(make_wallet("consuming"))
         );
         let (cryptde, neighborhood_config) = Parameters::get(parameters.neighborhood_params);
@@ -1072,15 +1252,15 @@ mod tests {
             config.neighborhood_config
         );
         assert_eq!(
-            neighborhood_config.consuming_wallet,
-            config.consuming_wallet
+            neighborhood_config.consuming_wallet_opt,
+            config.consuming_wallet_opt
         );
         let ui_gateway_config = Parameters::get(parameters.ui_gateway_params);
         assert_eq!(ui_gateway_config.ui_port, 5335);
         let dispatcher_param = Parameters::get(parameters.dispatcher_params);
         assert_eq!(
-            dispatcher_param.node_descriptor_opt,
-            Some("NODE-DESCRIPTOR".to_string())
+            dispatcher_param.node_descriptor,
+            NodeDescriptor::try_from ((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap()
         );
         let blockchain_bridge_param = Parameters::get(parameters.blockchain_bridge_params);
         assert_eq!(
@@ -1092,13 +1272,58 @@ mod tests {
             }
         );
         assert_eq!(
-            blockchain_bridge_param.consuming_wallet,
+            blockchain_bridge_param.consuming_wallet_opt,
             Some(make_wallet("consuming"))
         );
+        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
+        assert_eq!(*add_mapping_params, vec![1234, 2345]);
     }
 
     #[test]
-    fn prepare_initial_messages_doesnt_start_up_proxy_client_if_consume_only_mode() {
+    #[should_panic(
+        expected = "1: IP change to 1.2.3.5 reported from ISP. We can't handle that until GH-499. Going down..."
+    )]
+    fn change_handler_panics_when_receiving_ip_change_from_isp() {
+        running_test();
+        let actor_factory = ActorFactoryMock::new();
+        let mut config = BootstrapperConfig::default();
+        config.neighborhood_config = NeighborhoodConfig {
+            mode: NeighborhoodMode::Standard(
+                NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234]),
+                vec![],
+                rate_pack(100),
+            ),
+        };
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = ActorSystemFactoryToolsReal::new();
+        subject.automap_control_factory = Box::new(
+            AutomapControlFactoryMock::new()
+                .make_params(&make_params_arc)
+                .make_result(
+                    AutomapControlMock::new()
+                        .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+                        .add_mapping_result(Ok(())),
+                ),
+        );
+
+        let _ = subject.prepare_initial_messages(
+            main_cryptde(),
+            alias_cryptde(),
+            config.clone(),
+            Box::new(actor_factory),
+        );
+
+        let mut make_params = make_params_arc.lock().unwrap();
+        let change_handler: ChangeHandler = make_params.remove(0).1;
+        change_handler(AutomapChange::NewIp(IpAddr::from_str("1.2.3.5").unwrap()));
+
+        let system = System::new("MASQNode");
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
+    fn prepare_initial_messages_doesnt_start_up_proxy_client_or_automap_if_consume_only_mode() {
         let actor_factory = ActorFactoryMock::new();
         let recordings = actor_factory.get_recordings();
         let config = BootstrapperConfig {
@@ -1106,8 +1331,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1120,19 +1345,22 @@ mod tests {
             db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
-            consuming_wallet: Some(make_wallet("consuming")),
+            consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
+            node_descriptor: NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
+            mapping_protocol_opt: None,
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
             },
         };
         let system = System::new("MASQNode");
+        let mut subject = ActorSystemFactoryToolsReal::new();
+        subject.automap_control_factory = Box::new(AutomapControlFactoryMock::new());
 
-        let _ = ActorSystemFactoryToolsReal.prepare_initial_messages(
+        let _ = subject.prepare_initial_messages(
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
@@ -1150,7 +1378,113 @@ mod tests {
         check_bind_message(&recordings.neighborhood, true);
         check_bind_message(&recordings.ui_gateway, true);
         check_bind_message(&recordings.accountant, true);
-        check_start_message(&recordings.neighborhood);
+        check_start_message(&recordings.neighborhood, 1);
+    }
+
+    #[test]
+    fn start_automap_aborts_if_neighborhood_mode_is_standard_and_public_ip_is_supplied() {
+        let mut subject = ActorSystemFactoryToolsReal::new();
+        let automap_control = AutomapControlMock::new();
+        subject.automap_control_factory =
+            Box::new(AutomapControlFactoryMock::new().make_result(automap_control));
+        let mut config = BootstrapperConfig::default();
+        config.neighborhood_config.mode = NeighborhoodMode::Standard(
+            NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
+            vec![],
+            DEFAULT_RATE_PACK,
+        );
+        let (recorder, _, _) = make_recorder();
+        let new_ip_recipient = recorder.start().recipient();
+
+        subject.start_automap(&config, vec![new_ip_recipient]);
+
+        // no not-enough-results-provided error: test passes
+    }
+
+    #[test]
+    #[should_panic(expected = "1: Automap failure: AllProtocolsFailed")]
+    fn start_automap_change_handler_handles_remapping_errors_properly() {
+        running_test();
+        let mut subject = ActorSystemFactoryToolsReal::new();
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let automap_control = AutomapControlMock::new()
+            .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+            .add_mapping_result(Ok(()));
+        subject.automap_control_factory = Box::new(
+            AutomapControlFactoryMock::new()
+                .make_params(&make_params_arc)
+                .make_result(automap_control),
+        );
+        let mut config = BootstrapperConfig::default();
+        config.mapping_protocol_opt = None;
+        config.neighborhood_config.mode = NeighborhoodMode::Standard(
+            NodeAddr::new(&IpAddr::from_str("0.0.0.0").unwrap(), &[1234]),
+            vec![],
+            DEFAULT_RATE_PACK,
+        );
+
+        subject.start_automap(&config, vec![]);
+
+        let make_params = make_params_arc.lock().unwrap();
+        assert_eq!(make_params[0].0, None);
+        let system = System::new("test");
+        let change_handler = &make_params[0].1;
+        change_handler(AutomapChange::Error(AutomapError::AllProtocolsFailed(
+            vec![],
+        )));
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
+    #[should_panic(expected = "1: Automap failure: Can't get public IP - AllProtocolsFailed")]
+    fn start_automap_change_handler_handles_get_public_ip_errors_properly() {
+        running_test();
+        let mut subject = ActorSystemFactoryToolsReal::new();
+        let automap_control = AutomapControlMock::new()
+            .get_public_ip_result(Err(AutomapError::AllProtocolsFailed(vec![])));
+        subject.automap_control_factory =
+            Box::new(AutomapControlFactoryMock::new().make_result(automap_control));
+        let mut config = BootstrapperConfig::default();
+        config.mapping_protocol_opt = None;
+        config.neighborhood_config.mode = NeighborhoodMode::Standard(
+            NodeAddr::new(&IpAddr::from_str("0.0.0.0").unwrap(), &[1234]),
+            vec![],
+            DEFAULT_RATE_PACK,
+        );
+
+        subject.start_automap(&config, vec![]);
+
+        let system = System::new("test");
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "1: Automap failure: Can't map port 1234 through the router - AllProtocolsFailed"
+    )]
+    fn start_automap_change_handler_handles_initial_mapping_error_properly() {
+        running_test();
+        let mut subject = ActorSystemFactoryToolsReal::new();
+        let automap_control = AutomapControlMock::new()
+            .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+            .add_mapping_result(Err(AutomapError::AllProtocolsFailed(vec![])));
+        subject.automap_control_factory =
+            Box::new(AutomapControlFactoryMock::new().make_result(automap_control));
+        let mut config = BootstrapperConfig::default();
+        config.mapping_protocol_opt = None;
+        config.neighborhood_config.mode = NeighborhoodMode::Standard(
+            NodeAddr::new(&IpAddr::from_str("0.0.0.0").unwrap(), &[1234]),
+            vec![],
+            DEFAULT_RATE_PACK,
+        );
+
+        subject.start_automap(&config, vec![]);
+
+        let system = System::new("test");
+        System::current().stop();
+        system.run();
     }
 
     #[test]
@@ -1163,8 +1497,8 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             accountant_config: AccountantConfig {
-                payable_scan_interval: Duration::from_secs(100),
-                payment_received_scan_interval: Duration::from_secs(100),
+                payables_scan_interval: Duration::from_secs(100),
+                receivables_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1176,12 +1510,12 @@ mod tests {
             port_configurations: HashMap::new(),
             db_password_opt: None,
             clandestine_port_opt: None,
+            consuming_wallet_opt: None,
             earning_wallet: make_wallet("earning"),
-            consuming_wallet: None,
             data_directory: PathBuf::new(),
-            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
+            mapping_protocol_opt: None,
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
@@ -1190,10 +1524,12 @@ mod tests {
                     rate_pack(100),
                 ),
             },
+            node_descriptor: Default::default(),
         };
+        let subject = ActorSystemFactoryToolsReal::new();
         let system = System::new("MASQNode");
 
-        let _ = ActorSystemFactoryToolsReal.prepare_initial_messages(
+        let _ = subject.prepare_initial_messages(
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
@@ -1203,7 +1539,7 @@ mod tests {
         System::current().stop();
         system.run();
         let (_, _, bootstrapper_config) = Parameters::get(parameters.proxy_server_params);
-        assert_eq!(bootstrapper_config.consuming_wallet, None);
+        assert_eq!(bootstrapper_config.consuming_wallet_opt, None);
     }
 
     #[test]
@@ -1358,8 +1694,13 @@ mod tests {
         };
     }
 
-    fn check_start_message(recording: &Arc<Mutex<Recording>>) {
-        let _start_message = Recording::get::<StartMessage>(recording, 1);
+    fn check_start_message(recording: &Arc<Mutex<Recording>>, idx: usize) {
+        let _start_message = Recording::get::<StartMessage>(recording, idx);
+    }
+
+    fn check_new_ip_message(recording: &Arc<Mutex<Recording>>, new_ip: IpAddr, idx: usize) {
+        let new_ip_message = Recording::get::<NewPublicIp>(recording, idx);
+        assert_eq!(new_ip_message.new_ip, new_ip);
     }
 
     fn check_cryptde(candidate: &dyn CryptDE) {
@@ -1377,7 +1718,8 @@ mod tests {
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
 
-        let _ = ActorSystemFactoryToolsReal.database_chain_assertion(chain, &persistent_config);
+        let _ =
+            ActorSystemFactoryToolsReal::new().database_chain_assertion(chain, &persistent_config);
     }
 
     #[test]
@@ -1393,12 +1735,13 @@ mod tests {
             &Some(main_cryptde().clone()),
             &Some(alias_cryptde().clone()),
         );
+        let subject = ActorSystemFactoryReal::new();
 
-        let _ = ActorSystemFactoryReal {}.make_and_start_actors(
+        let _ = subject.make_and_start_actors(
             bootstrapper_config,
             Box::new(ActorFactoryReal {}),
             &persistent_config,
-            &ActorSystemFactoryToolsReal,
+            &ActorSystemFactoryToolsReal::new(),
         );
     }
 
@@ -1430,8 +1773,9 @@ mod tests {
             )
             .prepare_initial_messages_params(&prepare_initial_messages_params_arc)
             .prepare_initial_messages_result(stream_holder_pool_subs);
+        let subject = ActorSystemFactoryReal::new();
 
-        let result = ActorSystemFactoryReal {}.make_and_start_actors(
+        let result = subject.make_and_start_actors(
             bootstrapper_config,
             Box::new(ActorFactoryReal {}),
             &persistent_config,
