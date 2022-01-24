@@ -160,7 +160,7 @@ pub trait PersistentConfiguration {
         interval_sec: u64,
     ) -> Result<(), PersistentConfigError>;
     fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError>;
-    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<u64, PersistentConfigError>;
+    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError>;
     fn routing_service_rate(&self) -> Result<u64, PersistentConfigError>;
     fn set_routing_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
@@ -547,7 +547,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
-    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<u64, PersistentConfigError> {
+    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
         todo!()
     }
 

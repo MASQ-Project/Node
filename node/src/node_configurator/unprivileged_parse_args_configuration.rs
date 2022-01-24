@@ -58,8 +58,8 @@ pub trait ParseArgsConfiguration {
                     Err(pce) => return Err(pce.into_configurator_error("gas-price")),
                 }
             };
-        configure_accountant_config(multi_config, unprivileged_config, &*persistent_config)?;
-        configure_rate_pack(multi_config, unprivileged_config, &*persistent_config)?;
+        configure_accountant_config(multi_config, unprivileged_config, persistent_config)?;
+        configure_rate_pack(multi_config, unprivileged_config, persistent_config)?;
         unprivileged_config.mapping_protocol_opt =
             compute_mapping_protocol_opt(multi_config, persistent_config, logger);
         let mnc_result = {
@@ -542,37 +542,71 @@ fn compute_mapping_protocol_opt(
 fn configure_accountant_config(
     multi_config: &MultiConfig,
     config: &mut BootstrapperConfig,
-    persist_config: &dyn PersistentConfiguration,
+    persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
     let payment_suggested_after_sec = configure_single_parameter_with_checking_overflow(
         multi_config,
         "payment-suggested-after",
-        Box::new(|| persist_config.payment_suggested_after_sec()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| {
+            persist_config.payment_suggested_after_sec()
+        },
+        &mut |interval, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_payment_suggested_after_sec(interval)
+        },
     )?;
     let payment_grace_before_ban_sec = configure_single_parameter_with_checking_overflow(
         multi_config,
         "payment-grace-before-ban",
-        Box::new(|| persist_config.payment_grace_before_ban_sec()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| {
+            persist_config.payment_grace_before_ban_sec()
+        },
+        &mut |interval, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_payment_grace_before_ban_sec(interval)
+        },
     )?;
     let permanent_debt_allowed_gwei = configure_single_parameter_with_checking_overflow(
         multi_config,
         "permanent-debt-allowed",
-        Box::new(|| persist_config.permanent_debt_allowed_gwei()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| {
+            persist_config.permanent_debt_allowed_gwei()
+        },
+        &mut |amount, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_permanent_debt_allowed_gwei(amount)
+        },
     )?;
     let balance_to_decrease_from_gwei = configure_single_parameter_with_checking_overflow(
         multi_config,
         "balance-to-decrease-from",
-        Box::new(|| persist_config.balance_to_decrease_from_gwei()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| {
+            persist_config.balance_to_decrease_from_gwei()
+        },
+        &mut |amount, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_balance_to_decrease_from_gwei(amount)
+        },
     )?;
     let balance_decreases_for_sec = configure_single_parameter_with_checking_overflow(
         multi_config,
         "balance-decreases-for",
-        Box::new(|| persist_config.balance_decreases_for_sec()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| persist_config.balance_decreases_for_sec(),
+        &mut |interval, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_balance_decreases_for_sec(interval)
+        },
     )?;
     let unban_when_balance_below_gwei = configure_single_parameter_with_checking_overflow(
         multi_config,
         "unban-when-balance-below",
-        Box::new(|| persist_config.unban_when_balance_below_gwei()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| {
+            persist_config.unban_when_balance_below_gwei()
+        },
+        &mut |amount, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_unban_when_balance_below_gwei(amount)
+        },
     )?;
     let payment_curves = PaymentCurves {
         payment_suggested_after_sec,
@@ -585,17 +619,31 @@ fn configure_accountant_config(
     let pending_payment_interval = Duration::from_secs(configure_single_parameter(
         multi_config,
         "pending-payment-scan-interval",
-        Box::new(|| persist_config.pending_payment_scan_interval()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| {
+            persist_config.pending_payment_scan_interval()
+        },
+        &mut |interval, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_pending_payment_scan_interval(interval)
+        },
     )?);
     let payable_interval = Duration::from_secs(configure_single_parameter(
         multi_config,
         "payable-scan-interval",
-        Box::new(|| persist_config.payable_scan_interval()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| persist_config.payable_scan_interval(),
+        &mut |interval, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_payable_scan_interval(interval)
+        },
     )?);
     let receivable_interval = Duration::from_secs(configure_single_parameter(
         multi_config,
         "receivable-scan-interval",
-        Box::new(|| persist_config.receivable_scan_interval()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| persist_config.receivable_scan_interval(),
+        &mut |interval, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_receivable_scan_interval(interval)
+        },
     )?);
     let accountant_config = AccountantConfig {
         pending_payment_scan_interval_opt: Some(pending_payment_interval),
@@ -610,29 +658,44 @@ fn configure_accountant_config(
 fn configure_rate_pack(
     multi_config: &MultiConfig,
     config: &mut BootstrapperConfig,
-    persist_config: &dyn PersistentConfiguration,
+    persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
     let routing_byte_rate = configure_single_parameter(
         multi_config,
         "routing-byte-rate",
-        Box::new(|| persist_config.routing_byte_rate()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| persist_config.routing_byte_rate(),
+        &mut |rate, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_routing_byte_rate(rate)
+        },
     )?;
     let routing_service_rate = configure_single_parameter(
         multi_config,
         "routing-service-rate",
-        Box::new(|| persist_config.routing_service_rate()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| persist_config.routing_service_rate(),
+        &mut |rate, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_routing_service_rate(rate)
+        },
     )?;
     let exit_byte_rate = configure_single_parameter(
         multi_config,
         "exit-byte-rate",
-        Box::new(|| persist_config.exit_byte_rate()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| persist_config.exit_byte_rate(),
+        &mut |rate, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_exit_byte_rate(rate)
+        },
     )?;
     let exit_service_rate = configure_single_parameter(
         multi_config,
         "exit-service-rate",
-        Box::new(|| persist_config.exit_service_rate()),
+        persist_config,
+        &|persist_config: &dyn PersistentConfiguration| persist_config.exit_service_rate(),
+        &mut |rate, persist_config: &mut dyn PersistentConfiguration| {
+            persist_config.set_exit_service_rate(rate)
+        },
     )?;
-
     let configured = RatePack {
         routing_byte_rate,
         routing_service_rate,
@@ -643,50 +706,75 @@ fn configure_rate_pack(
     Ok(())
 }
 
-fn configure_single_parameter<C, T>(
+fn configure_single_parameter<T, C1, C2>(
     multi_config: &MultiConfig,
     parameter_name: &str,
-    persistent_config_method: Box<C>,
+    persistent_config: &mut dyn PersistentConfiguration,
+    persistent_config_getter_method: &C1,
+    persistent_config_setter_method: &mut C2,
 ) -> Result<T, ConfiguratorError>
 where
-    C: FnOnce() -> Result<T, PersistentConfigError> + ?Sized,
-    T: std::str::FromStr,
+    C1: Fn(&dyn PersistentConfiguration) -> Result<T, PersistentConfigError> + ?Sized,
+    C2: FnMut(T, &mut dyn PersistentConfiguration) -> Result<(), PersistentConfigError> + ?Sized,
+    T: std::str::FromStr + PartialEq + Copy,
     <T as std::str::FromStr>::Err: std::fmt::Display,
 {
     Ok(
         match (
             value_m!(multi_config, parameter_name, String),
-            persistent_config_method,
+            persistent_config_getter_method(persistent_config),
         ) {
-            (Some(rate), _) => match rate.parse::<T>() {
-                Ok(rate) => rate,
-                //cannot be tested
-                Err(e) => panic!(
-                    "Clap let in bad value '{}' for {} due to {}",
-                    rate, parameter_name, e
-                ),
-            },
-            (None, pc_method) => {
-                pc_method().map_err(|e| e.into_configurator_error(parameter_name))?
+            (Some(rate), pc_result) => {
+                let cli_value = rate.parse::<T>().unwrap_or_else(|e|
+                    //cannot be tested, behind Clap
+                    panic!("Clap let in bad value '{}' for {} due to {}",
+                    rate, parameter_name, e));
+                let pc_value: T = pc_result.unwrap_or_else(|e| {
+                    panic!("{}: database query failed due to {:?}", parameter_name, e)
+                });
+                if cli_value == pc_value {
+                    unimplemented!()
+                } else {
+                    persistent_config_setter_method(cli_value, persistent_config).unwrap_or_else(
+                        |e| {
+                            panic!(
+                                "{}: setting value in the database failed due to: {:?}",
+                                parameter_name, e
+                            )
+                        },
+                    )
+                }
+                cli_value
+            }
+            (None, pc_result) => {
+                pc_result.map_err(|e| e.into_configurator_error(parameter_name))?
             }
         },
     )
 }
 
-fn configure_single_parameter_with_checking_overflow<S, T, C>(
+fn configure_single_parameter_with_checking_overflow<S, T, C1, C2>(
     multi_config: &MultiConfig,
     parameter_name: &str,
-    persistent_config_method: Box<C>,
+    persistent_config: &mut dyn PersistentConfiguration,
+    persistent_config_getter_method: &C1,
+    persistent_config_setter_method: &mut C2,
 ) -> Result<S, ConfiguratorError>
 where
-    T: std::str::FromStr + Display + Copy,
-    <T as std::str::FromStr>::Err: std::fmt::Display,
     S: std::convert::TryFrom<T>,
+    T: std::str::FromStr + PartialEq + Display + Copy,
+    C1: Fn(&dyn PersistentConfiguration) -> Result<T, PersistentConfigError> + ?Sized,
+    C2: FnMut(T, &mut dyn PersistentConfiguration) -> Result<(), PersistentConfigError> + ?Sized,
+    <T as std::str::FromStr>::Err: std::fmt::Display,
     <S as std::convert::TryFrom<T>>::Error: std::fmt::Display,
-    C: FnOnce() -> Result<T, PersistentConfigError> + ?Sized,
 {
-    let fetched_value =
-        configure_single_parameter::<C, T>(multi_config, parameter_name, persistent_config_method)?;
+    let fetched_value = configure_single_parameter::<T, C1, C2>(
+        multi_config,
+        parameter_name,
+        persistent_config,
+        persistent_config_getter_method,
+        persistent_config_setter_method,
+    )?;
     S::try_from(fetched_value).map_err(|e| {
         ConfiguratorError::required(
             parameter_name,
@@ -1862,11 +1950,21 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_configures_accountant_config_database_ignored() {
+    fn unprivileged_parse_args_configures_accountant_with_values_from_command_line_different_from_those_in_database(
+    ) {
         running_test();
+        let set_pending_payment_scan_interval_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_payable_scan_interval_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_receivable_scan_interval_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_payment_grace_before_ban_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_payment_suggested_after_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_permanent_debt_allowed_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_balance_to_decrease_from_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_unban_when_balance_below_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_balance_decreases_for_params_arc = Arc::new(Mutex::new(vec![]));
         let home_directory = ensure_node_home_directory_exists(
             "unprivileged_parse_args_configuration",
-            "unprivileged_parse_args_configures_accountant_config_database_ignored",
+            "unprivileged_parse_args_configures_accountant_with_values_from_command_line_different_from_those_in_database",
         );
         let args = [
             "--ip",
@@ -1894,8 +1992,34 @@ mod tests {
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
-        let mut persistent_configuration =
-            configure_default_persistent_config(0b0000_1001).mapping_protocol_result(Ok(None));
+        let mut persistent_configuration = configure_default_persistent_config(0b0000_1011)
+            .pending_payment_scan_interval_result(Ok(100))
+            .payable_scan_interval_result(Ok(101))
+            .receivable_scan_interval_result(Ok(102))
+            .payment_grace_before_ban_sec_result(Ok(900))
+            .payment_suggested_after_sec_result(Ok(900))
+            .permanent_debt_allowed_gwei_result(Ok(15000))
+            .balance_to_decrease_from_gwei_result(Ok(80000))
+            .unban_when_balance_below_gwei_result(Ok(15000))
+            .balance_decreases_for_sec_result(Ok(800))
+            .set_pending_payment_scan_interval_params(&set_pending_payment_scan_interval_params_arc)
+            .set_pending_payment_scan_interval_result(Ok(()))
+            .set_payable_scan_interval_params(&set_payable_scan_interval_params_arc)
+            .set_payable_scan_interval_result(Ok(()))
+            .set_receivable_scan_interval_params(&set_receivable_scan_interval_params_arc)
+            .set_receivable_scan_interval_result(Ok(()))
+            .set_payment_grace_before_ban_sec_params(&set_payment_grace_before_ban_params_arc)
+            .set_payment_grace_before_ban_sec_result(Ok(()))
+            .set_payment_suggested_after_sec_params(&set_payment_suggested_after_params_arc)
+            .set_payment_suggested_after_sec_result(Ok(()))
+            .set_permanent_debt_allowed_gwei_params(&set_permanent_debt_allowed_params_arc)
+            .set_permanent_debt_allowed_gwei_result(Ok(()))
+            .set_balance_to_decrease_from_gwei_params(&set_balance_to_decrease_from_params_arc)
+            .set_balance_to_decrease_from_gwei_result(Ok(()))
+            .set_unban_when_balance_below_gwei_params(&set_unban_when_balance_below_params_arc)
+            .set_unban_when_balance_below_gwei_result(Ok(()))
+            .set_balance_decreases_for_sec_params(&set_balance_decreases_for_params_arc)
+            .set_balance_decreases_for_sec_result(Ok(()));
         let subject = ParseArgsConfigurationDaoNull {};
 
         subject
@@ -1921,7 +2045,32 @@ mod tests {
                 unban_when_balance_below_gwei: 20000,
             }),
         };
-        assert_eq!(actual_rate_pack, expected_rate_pack)
+        assert_eq!(actual_rate_pack, expected_rate_pack);
+        let set_pending_payment_scan_interval_params =
+            set_pending_payment_scan_interval_params_arc.lock().unwrap();
+        assert_eq!(*set_pending_payment_scan_interval_params, vec![180]);
+        let set_payable_scan_interval_params = set_payable_scan_interval_params_arc.lock().unwrap();
+        assert_eq!(*set_payable_scan_interval_params, vec![150]);
+        let set_receivable_scan_interval_params =
+            set_receivable_scan_interval_params_arc.lock().unwrap();
+        assert_eq!(*set_receivable_scan_interval_params, vec![130]);
+        let set_payment_grace_before_ban_params =
+            set_payment_grace_before_ban_params_arc.lock().unwrap();
+        assert_eq!(*set_payment_grace_before_ban_params, vec![1000]);
+        let set_payment_suggested_after_params =
+            set_payment_suggested_after_params_arc.lock().unwrap();
+        assert_eq!(*set_payment_suggested_after_params, vec![1000]);
+        let set_permanent_debt_allowed_params =
+            set_permanent_debt_allowed_params_arc.lock().unwrap();
+        assert_eq!(*set_permanent_debt_allowed_params, vec![20000]);
+        let set_balance_to_decrease_from_params =
+            set_balance_to_decrease_from_params_arc.lock().unwrap();
+        assert_eq!(*set_balance_to_decrease_from_params, vec![100000]);
+        let set_unban_when_balance_below_params =
+            set_unban_when_balance_below_params_arc.lock().unwrap();
+        assert_eq!(*set_unban_when_balance_below_params, vec![20000]);
+        let set_balance_decreases_for_params = set_balance_decreases_for_params_arc.lock().unwrap();
+        assert_eq!(*set_balance_decreases_for_params, vec![1000])
     }
 
     #[test]
@@ -1951,11 +2100,16 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_configures_rate_pack_database_values_ignored() {
+    fn unprivileged_parse_args_configures_rate_pack_with_values_from_command_line_different_from_what_is_in_the_database(
+    ) {
         running_test();
+        let set_routing_byte_rate_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_routing_service_rate_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_exit_byte_rate_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_exit_service_rate_params_arc = Arc::new(Mutex::new(vec![]));
         let home_directory = ensure_node_home_directory_exists(
             "unprivileged_parse_args_configuration",
-            "unprivileged_parse_args_configures_rate_pack_database_values_ignored",
+            "unprivileged_parse_args_configures_rate_pack_with_values_from_command_line_different_from_what_is_in_the_database",
         );
         let args = [
             "--ip",
@@ -1969,16 +2123,28 @@ mod tests {
             "--routing-byte-rate",
             "2",
             "--routing-service-rate",
-            "2",
-            "--exit-byte-rate",
             "3",
+            "--exit-byte-rate",
+            "4",
             "--exit-service-rate",
             "5",
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
-        let mut persistent_configuration = configure_default_persistent_config(0b0000_0111);
-        //no prepared results for the tested parameters, that is they're uncalled
+        let mut persistent_configuration = configure_default_persistent_config(0b0000_0111)
+            .routing_byte_rate_result(Ok(10))
+            .routing_service_rate_result(Ok(11))
+            .exit_byte_rate_result(Ok(12))
+            .exit_service_rate_result(Ok(13))
+            .set_routing_byte_rate_params(&set_routing_byte_rate_params_arc)
+            .set_routing_byte_rate_result(Ok(()))
+            .set_routing_service_rate_params(&set_routing_service_rate_params_arc)
+            .set_routing_service_rate_result(Ok(()))
+            .set_exit_byte_rate_params(&set_exit_byte_rate_params_arc)
+            .set_exit_byte_rate_result(Ok(()))
+            .set_exit_service_rate_params(&set_exit_service_rate_params_arc)
+            .set_exit_service_rate_result(Ok(()));
+        //no prepared results for the getter methods, that is they're uncalled
         let subject = ParseArgsConfigurationDaoNull {};
 
         subject
@@ -1993,11 +2159,19 @@ mod tests {
         let actual_rate_pack = config.rate_pack_opt.take().unwrap();
         let expected_rate_pack = RatePack {
             routing_byte_rate: 2,
-            routing_service_rate: 2,
-            exit_byte_rate: 3,
+            routing_service_rate: 3,
+            exit_byte_rate: 4,
             exit_service_rate: 5,
         };
-        assert_eq!(actual_rate_pack, expected_rate_pack)
+        assert_eq!(actual_rate_pack, expected_rate_pack);
+        let set_routing_byte_rate_params = set_routing_byte_rate_params_arc.lock().unwrap();
+        assert_eq!(*set_routing_byte_rate_params, vec![2]);
+        let set_routing_service_rate_params = set_routing_service_rate_params_arc.lock().unwrap();
+        assert_eq!(*set_routing_service_rate_params, vec![3]);
+        let set_exit_byte_rate_params = set_exit_byte_rate_params_arc.lock().unwrap();
+        assert_eq!(*set_exit_byte_rate_params, vec![4]);
+        let set_exit_service_rate_params = set_exit_service_rate_params_arc.lock().unwrap();
+        assert_eq!(*set_exit_service_rate_params, vec![5])
     }
 
     #[test]
@@ -2329,14 +2503,20 @@ mod tests {
     #[test]
     fn configure_single_parameter_with_overflow_check_handles_overflow() {
         let multi_config = make_simplified_multi_config([]);
-        let persistent_config =
+        let mut persistent_config =
             PersistentConfigurationMock::default().exit_byte_rate_result(Ok(u64::MAX));
 
         let result: Result<i64, ConfiguratorError> =
             configure_single_parameter_with_checking_overflow(
                 &multi_config,
                 "exit-byte-rate",
-                Box::new(|| persistent_config.exit_byte_rate()),
+                &mut persistent_config,
+                &|persistent_config: &dyn PersistentConfiguration| {
+                    persistent_config.exit_byte_rate()
+                },
+                &mut |rate, persistent_config: &mut dyn PersistentConfiguration| {
+                    persistent_config.set_exit_byte_rate(rate)
+                },
             );
 
         assert_eq!(

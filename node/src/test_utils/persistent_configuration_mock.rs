@@ -102,9 +102,15 @@ impl PersistentConfiguration for PersistentConfigurationMock {
 
     fn set_balance_decreases_for_sec(
         &mut self,
-        decrease: u64,
+        interval: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_balance_decreases_for_sec_params
+            .lock()
+            .unwrap()
+            .push(interval);
+        self.set_balance_decreases_for_sec_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError> {
@@ -117,7 +123,13 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         &mut self,
         level: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_balance_to_decrease_from_gwei_params
+            .lock()
+            .unwrap()
+            .push(level);
+        self.set_balance_to_decrease_from_gwei_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
@@ -191,7 +203,8 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn set_exit_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_exit_byte_rate_params.lock().unwrap().push(rate);
+        self.set_exit_byte_rate_results.borrow_mut().remove(0)
     }
 
     fn exit_service_rate(&self) -> Result<u64, PersistentConfigError> {
@@ -199,7 +212,8 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn set_exit_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_exit_service_rate_params.lock().unwrap().push(rate);
+        self.set_exit_service_rate_results.borrow_mut().remove(0)
     }
 
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {
@@ -282,7 +296,13 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         &mut self,
         interval_sec: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_payable_scan_interval_params
+            .lock()
+            .unwrap()
+            .push(interval_sec);
+        self.set_payable_scan_interval_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn payment_grace_before_ban_sec(&self) -> Result<u64, PersistentConfigError> {
@@ -295,7 +315,13 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         &mut self,
         period_sec: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_payment_grace_before_ban_sec_params
+            .lock()
+            .unwrap()
+            .push(period_sec);
+        self.set_payment_grace_before_ban_sec_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn payment_suggested_after_sec(&self) -> Result<u64, PersistentConfigError> {
@@ -308,7 +334,13 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         &mut self,
         period: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_payment_suggested_after_sec_params
+            .lock()
+            .unwrap()
+            .push(period);
+        self.set_payment_suggested_after_sec_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError> {
@@ -321,7 +353,13 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         &mut self,
         interval_sec: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_pending_payment_scan_interval_params
+            .lock()
+            .unwrap()
+            .push(interval_sec);
+        self.set_pending_payment_scan_interval_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn permanent_debt_allowed_gwei(&self) -> Result<u64, PersistentConfigError> {
@@ -334,7 +372,13 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         &mut self,
         debt_amount: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_permanent_debt_allowed_gwei_params
+            .lock()
+            .unwrap()
+            .push(debt_amount);
+        self.set_permanent_debt_allowed_gwei_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn receivable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
@@ -345,15 +389,22 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         &mut self,
         interval_sec: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_receivable_scan_interval_params
+            .lock()
+            .unwrap()
+            .push(interval_sec);
+        self.set_receivable_scan_interval_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError> {
         self.routing_byte_rate_results.borrow_mut().remove(0)
     }
 
-    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<u64, PersistentConfigError> {
-        todo!()
+    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
+        self.set_routing_byte_rate_params.lock().unwrap().push(rate);
+        self.set_routing_byte_rate_results.borrow_mut().remove(0)
     }
 
     fn routing_service_rate(&self) -> Result<u64, PersistentConfigError> {
@@ -361,7 +412,11 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn set_routing_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_routing_service_rate_params
+            .lock()
+            .unwrap()
+            .push(rate);
+        self.set_routing_service_rate_results.borrow_mut().remove(0)
     }
 
     fn start_block(&self) -> Result<u64, PersistentConfigError> {
@@ -386,7 +441,13 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         &mut self,
         level: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.set_unban_when_balance_below_gwei_params
+            .lock()
+            .unwrap()
+            .push(level);
+        self.set_unban_when_balance_below_gwei_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn set_wallet_info(

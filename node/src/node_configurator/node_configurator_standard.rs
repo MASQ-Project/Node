@@ -433,6 +433,7 @@ mod tests {
                 &Logger::new("test logger"),
             )
             .unwrap();
+
         let consuming_private_key_bytes: Vec<u8> = consuming_private_key.from_hex().unwrap();
         let consuming_keypair =
             Bip32ECKeyProvider::from_raw_secret(consuming_private_key_bytes.as_ref()).unwrap();
@@ -440,7 +441,6 @@ mod tests {
             bootstrapper_config.consuming_wallet_opt,
             Some(Wallet::from(consuming_keypair)),
         );
-
         let public_key = PublicKey::new(&[1, 2, 3]);
         let payer = bootstrapper_config
             .consuming_wallet_opt
