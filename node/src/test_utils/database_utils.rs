@@ -83,7 +83,7 @@ pub fn retrieve_config_row(conn: &dyn ConnectionWrapper, name: &str) -> (Option<
             let encrypted_flag = match encrypted_num {
                 0 => false,
                 1 => true,
-                x => panic! ("Encrypted flag must be 0 or 1, not {}", x),
+                x => panic!("Encrypted flag must be 0 or 1, not {}", x),
             };
             Ok((value_opt, encrypted_flag))
         })

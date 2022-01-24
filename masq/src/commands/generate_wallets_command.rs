@@ -121,11 +121,14 @@ impl Command for GenerateWalletsCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiGenerateWalletsRequest {
             db_password: self.db_password.clone(),
-            seed_spec_opt: self.seed_spec_opt.as_ref().map(|ss| UiGenerateSeedSpec {
-                mnemonic_phrase_size_opt: Some(ss.word_count),
-                mnemonic_phrase_language_opt: Some(ss.language.clone()),
-                mnemonic_passphrase_opt: ss.passphrase_opt.clone(),
-            }),
+            seed_spec_opt: self
+                .seed_spec_opt
+                .as_ref()
+                .map(|seed_spec| UiGenerateSeedSpec {
+                    mnemonic_phrase_size_opt: Some(seed_spec.word_count),
+                    mnemonic_phrase_language_opt: Some(seed_spec.language.clone()),
+                    mnemonic_passphrase_opt: seed_spec.passphrase_opt.clone(),
+                }),
             consuming_derivation_path_opt: self.consuming_path_opt.as_ref().cloned(),
             earning_derivation_path_opt: self.earning_path_opt.as_ref().cloned(),
         };

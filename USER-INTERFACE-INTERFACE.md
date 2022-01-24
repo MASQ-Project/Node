@@ -718,7 +718,7 @@ derivation paths is supplied. If no derivation paths are supplied, this paramete
 `mnemonicPhrase` is the mnemonic phrase that represents the seed. It must have 12, 15, 18, 21, or 24 words.
 
 `mnemonicPhraseLanguageOpt` is the language in which the mnemonic phrase is supplied. Acceptable values are
-"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish". Defaultl
+"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish". Default
 is "English."
 
 `mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
