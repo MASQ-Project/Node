@@ -302,7 +302,7 @@ pub struct BootstrapperConfig {
     // These fields can be set while privileged without penalty
     pub log_level: LevelFilter,
     pub dns_servers: Vec<SocketAddr>,
-    pub accountant_config: AccountantConfig,
+    pub accountant_config_opt: Option<AccountantConfig>,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     pub ui_gateway_config: UiGatewayConfig,
@@ -336,7 +336,7 @@ impl BootstrapperConfig {
             // These fields can be set while privileged without penalty
             log_level: LevelFilter::Off,
             dns_servers: vec![],
-            accountant_config: AccountantConfig::default(),
+            accountant_config_opt: Default::default(),
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
             ui_gateway_config: UiGatewayConfig {

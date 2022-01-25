@@ -186,7 +186,7 @@ impl Default for ConfigDaoNull {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::db_initializer::{DbInitializer};
+    use crate::database::db_initializer::DbInitializer;
     use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoReal;
     use masq_lib::blockchains::chains::Chain;

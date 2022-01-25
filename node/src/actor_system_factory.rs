@@ -560,7 +560,6 @@ mod tests {
         make_stream_handler_pool_subs_from, make_stream_handler_pool_subs_from_an_addr,
         start_recorder_refcell_opt,
     };
-    use crate::sub_lib::accountant::AccountantConfig;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use crate::sub_lib::accountant::{
@@ -597,7 +596,9 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::unshared_test_utils::{CleanUpMessage, DummyActor};
+    use crate::test_utils::unshared_test_utils::{
+        make_populated_accountant_config_with_defaults, CleanUpMessage, DummyActor,
+    };
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
@@ -1073,7 +1074,7 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            accountant_config: AccountantConfig::default(),
+            accountant_config_opt: Some(make_populated_accountant_config_with_defaults()),
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1145,7 +1146,7 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            accountant_config: AccountantConfig::default(),
+            accountant_config_opt: None,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1326,7 +1327,7 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            accountant_config: AccountantConfig::default(),
+            accountant_config_opt: None,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1490,7 +1491,7 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            accountant_config: AccountantConfig::default(),
+            accountant_config_opt: None,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {

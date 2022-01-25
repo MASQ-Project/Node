@@ -509,6 +509,7 @@ pub mod unshared_test_utils {
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
+    use crate::sub_lib::accountant::AccountantConfig;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use actix::Message;
     use actix::{Actor, Addr, Context, Handler, System};
@@ -623,6 +624,26 @@ pub mod unshared_test_utils {
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {
         PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()))
+    }
+
+    pub fn make_populated_accountant_config_with_defaults() -> AccountantConfig {
+        AccountantConfig {
+            pending_payment_scan_interval: Duration::from_secs(
+                DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
+            ),
+            payable_scan_interval: Duration::from_secs(DEFAULT_PAYABLE_SCAN_INTERVAL),
+            receivable_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLE_SCAN_INTERVAL),
+            payment_curves: DEFAULT_PAYMENT_CURVES.clone(),
+        }
+    }
+
+    pub fn make_accountant_config_null() -> AccountantConfig {
+        AccountantConfig {
+            pending_payment_scan_interval: Default::default(),
+            payable_scan_interval: Default::default(),
+            receivable_scan_interval: Default::default(),
+            payment_curves: Default::default(),
+        }
     }
 
     pub struct ChannelFactoryMock {

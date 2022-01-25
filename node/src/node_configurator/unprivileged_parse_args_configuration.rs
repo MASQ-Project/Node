@@ -646,12 +646,12 @@ fn configure_accountant_config(
         },
     )?);
     let accountant_config = AccountantConfig {
-        pending_payment_scan_interval_opt: Some(pending_payment_interval),
-        payable_scan_interval_opt: Some(payable_interval),
-        receivable_scan_interval_opt: Some(receivable_interval),
-        payment_curves_opt: Some(payment_curves),
+        pending_payment_scan_interval: pending_payment_interval,
+        payable_scan_interval: payable_interval,
+        receivable_scan_interval: receivable_interval,
+        payment_curves,
     };
-    config.accountant_config = accountant_config;
+    config.accountant_config_opt = Some(accountant_config);
     Ok(())
 }
 
@@ -2023,21 +2023,21 @@ mod tests {
             )
             .unwrap();
 
-        let actual_rate_pack = config.accountant_config;
-        let expected_rate_pack = AccountantConfig {
-            pending_payment_scan_interval_opt: Some(Duration::from_secs(180)),
-            payable_scan_interval_opt: Some(Duration::from_secs(150)),
-            receivable_scan_interval_opt: Some(Duration::from_secs(130)),
-            payment_curves_opt: Some(PaymentCurves {
+        let actual_accountant_config = config.accountant_config_opt.unwrap();
+        let expected_accountant_config = AccountantConfig {
+            pending_payment_scan_interval: Duration::from_secs(180),
+            payable_scan_interval: Duration::from_secs(150),
+            receivable_scan_interval: Duration::from_secs(130),
+            payment_curves: PaymentCurves {
                 payment_suggested_after_sec: 1000,
                 payment_grace_before_ban_sec: 1000,
                 permanent_debt_allowed_gwei: 20000,
                 balance_to_decrease_from_gwei: 100000,
                 balance_decreases_for_sec: 1000,
                 unban_when_balance_below_gwei: 20000,
-            }),
+            },
         };
-        assert_eq!(actual_rate_pack, expected_rate_pack);
+        assert_eq!(actual_accountant_config, expected_accountant_config);
         let set_pending_payment_scan_interval_params =
             set_pending_payment_scan_interval_params_arc.lock().unwrap();
         assert_eq!(*set_pending_payment_scan_interval_params, vec![180]);
@@ -2114,21 +2114,21 @@ mod tests {
             )
             .unwrap();
 
-        let actual_rate_pack = config.accountant_config;
-        let expected_rate_pack = AccountantConfig {
-            pending_payment_scan_interval_opt: Some(Duration::from_secs(180)),
-            payable_scan_interval_opt: Some(Duration::from_secs(150)),
-            receivable_scan_interval_opt: Some(Duration::from_secs(130)),
-            payment_curves_opt: Some(PaymentCurves {
+        let actual_accountant_config = config.accountant_config_opt.unwrap();
+        let expected_accountant_config = AccountantConfig {
+            pending_payment_scan_interval: Duration::from_secs(180),
+            payable_scan_interval: Duration::from_secs(150),
+            receivable_scan_interval: Duration::from_secs(130),
+            payment_curves: PaymentCurves {
                 payment_suggested_after_sec: 1000,
                 payment_grace_before_ban_sec: 1000,
                 permanent_debt_allowed_gwei: 20000,
                 balance_to_decrease_from_gwei: 100000,
                 balance_decreases_for_sec: 1000,
                 unban_when_balance_below_gwei: 20000,
-            }),
+            },
         };
-        assert_eq!(actual_rate_pack, expected_rate_pack);
+        assert_eq!(actual_accountant_config, expected_accountant_config);
         //no prepared results for the setter methods, that is they're uncalled
     }
 

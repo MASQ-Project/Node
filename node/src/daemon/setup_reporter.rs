@@ -42,9 +42,9 @@ use masq_lib::multi_config::{
 };
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::utils::ExpectValue;
+use paste::paste;
 use std::collections::HashMap;
 use std::fmt::Display;
-use paste::paste;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -885,7 +885,7 @@ impl ValueRetriever for BalanceDecreasesForSec {
         "balance-decreases-for"
     }
 
-    payment_curve_params_computed_default_and_is_required!("balance-decreases-for-sec");
+    payment_curve_params_computed_default_and_is_required!("balance_decreases_for_sec");
 }
 
 struct BalanceToDecreaseFromGwei {}
@@ -1107,10 +1107,11 @@ macro_rules! payment_curve_params_computed_default_and_is_required {
                 _db_password_opt: &Option<String>,
             ) -> Option<(String, UiSetupResponseValueStatus)> {
                 let bootstrapper_value_opt = bootstrapper_config
-                    .accountant_config
-                    .payment_curves_opt
+                    .accountant_config_opt
                     .as_ref()
-                    .map(|curves| curves.[<$field_name>]);
+                    .map(|accountant_config| accountant_config
+                        .payment_curves.[<$field_name>]
+                    );
                 let pc_value = pc
                         .[<$field_name>]()
                         .expectv($field_name) as i64;
@@ -1137,9 +1138,11 @@ macro_rules! scan_interval_params_computed_default_and_is_required {
                 _db_password_opt: &Option<String>,
             ) -> Option<(String, UiSetupResponseValueStatus)> {
                 let bootstrapper_value_opt = bootstrapper_config
-                    .accountant_config
-                    .[<$field_name _opt>]
-                    .map(|duration|duration.as_secs());
+                    .accountant_config_opt
+                    .as_ref()
+                    .map(|accountant_config| accountant_config
+                        .[<$field_name>].as_secs()
+                    );
                 let pc_value = pc
                         .[<$field_name>]()
                         .expectv($field_name);
@@ -1203,6 +1206,7 @@ mod tests {
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
     use crate::test_utils::unshared_test_utils::{
         make_persistent_config_real_with_config_dao_null,
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
@@ -3373,111 +3377,31 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    //absence/presence of the dot after the default value has a significant impact
+    proc_macros::triple_test_computed_default!(routing_byte_rate, u64, 2);
 
-    proc_macros::triple_test_computed_default!(
-        routing_byte_rate,
-        DEFAULT_RATE_PACK.,
-        rate_pack_opt,
-        u64,
-        u64
-    );
+    proc_macros::triple_test_computed_default!(routing_service_rate, u64, 2);
 
-    proc_macros::triple_test_computed_default!(
-        routing_service_rate,
-        DEFAULT_RATE_PACK.,
-        rate_pack_opt,
-        u64,
-        u64
-    );
+    proc_macros::triple_test_computed_default!(exit_service_rate, u64, 2);
 
-    proc_macros::triple_test_computed_default!(
-        exit_service_rate,
-        DEFAULT_RATE_PACK.,
-        rate_pack_opt,
-        u64,
-        u64
-    );
+    proc_macros::triple_test_computed_default!(exit_byte_rate, u64, 2);
 
-    proc_macros::triple_test_computed_default!(
-        exit_byte_rate,
-        DEFAULT_RATE_PACK.,
-        rate_pack_opt,
-        u64,
-        u64
-    );
+    proc_macros::triple_test_computed_default!(pending_payment_scan_interval, u64, 3);
 
-    proc_macros::triple_test_computed_default!(
-        pending_payment_scan_interval,
-        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
-        accountant_config.pending_payment_scan_interval_opt,
-        u64,
-        Duration
-    );
+    proc_macros::triple_test_computed_default!(payable_scan_interval, u64, 3);
 
-    proc_macros::triple_test_computed_default!(
-        payable_scan_interval,
-        DEFAULT_PAYABLE_SCAN_INTERVAL,
-        accountant_config.payable_scan_interval_opt,
-        u64,
-        Duration
-    );
+    proc_macros::triple_test_computed_default!(receivable_scan_interval, u64, 3);
 
-    proc_macros::triple_test_computed_default!(
-        receivable_scan_interval,
-        DEFAULT_RECEIVABLE_SCAN_INTERVAL,
-        accountant_config.receivable_scan_interval_opt,
-        u64,
-        Duration
-    );
+    proc_macros::triple_test_computed_default!(balance_decreases_for_sec, u64, 1);
 
-    proc_macros::triple_test_computed_default!(
-        balance_decreases_for_sec,
-        DEFAULT_PAYMENT_CURVES.,
-        accountant_config.payment_curves_opt,
-        u64,
-        u64
-    );
+    proc_macros::triple_test_computed_default!(balance_to_decrease_from_gwei, u64, 1);
 
-    proc_macros::triple_test_computed_default!(
-        balance_to_decrease_from_gwei,
-        DEFAULT_PAYMENT_CURVES.,
-        accountant_config.payment_curves_opt,
-        u64,
-        u64
-    );
+    proc_macros::triple_test_computed_default!(payment_suggested_after_sec, u64, 1);
 
-    proc_macros::triple_test_computed_default!(
-        payment_suggested_after_sec,
-        DEFAULT_PAYMENT_CURVES.,
-        accountant_config.payment_curves_opt,
-        u64,
-        u64
-    );
+    proc_macros::triple_test_computed_default!(payment_grace_before_ban_sec, u64, 1);
 
-    proc_macros::triple_test_computed_default!(
-        payment_grace_before_ban_sec,
-        DEFAULT_PAYMENT_CURVES.,
-        accountant_config.payment_curves_opt,
-        u64,
-        u64
-    );
+    proc_macros::triple_test_computed_default!(permanent_debt_allowed_gwei, u64, 1);
 
-    proc_macros::triple_test_computed_default!(
-    permanent_debt_allowed_gwei,
-    DEFAULT_PAYMENT_CURVES.,
-    accountant_config.payment_curves_opt,
-    u64,
-    u64
-    );
-
-    proc_macros::triple_test_computed_default!(
-        unban_when_balance_below_gwei,
-        DEFAULT_PAYMENT_CURVES.,
-        accountant_config.payment_curves_opt,
-        u64,
-        u64
-    );
+    proc_macros::triple_test_computed_default!(unban_when_balance_below_gwei, u64, 1);
 
     fn verify_requirements(
         subject: &dyn ValueRetriever,

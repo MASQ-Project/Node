@@ -19,13 +19,12 @@ lazy_static! {
     pub static ref TEMPORARY_CONSUMING_WALLET: Wallet = Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
 }
 
-//TODO I could later change this config to be wholly optional instead of its fields
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct AccountantConfig {
-    pub pending_payment_scan_interval_opt: Option<Duration>,
-    pub payable_scan_interval_opt: Option<Duration>,
-    pub receivable_scan_interval_opt: Option<Duration>,
-    pub payment_curves_opt: Option<PaymentCurves>,
+    pub pending_payment_scan_interval: Duration,
+    pub payable_scan_interval: Duration,
+    pub receivable_scan_interval: Duration,
+    pub payment_curves: PaymentCurves,
 }
 
 #[derive(Clone)]

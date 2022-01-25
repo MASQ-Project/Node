@@ -27,7 +27,7 @@ use crate::node_configurator::{
     real_user_data_directory_opt_and_chain, real_user_from_multi_config_or_populate,
 };
 use crate::server_initializer::GatheredParams;
-use crate::sub_lib::cryptde::{PublicKey};
+use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
@@ -259,36 +259,36 @@ fn configure_database(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::bootstrapper::{BootstrapperConfig, RealUser};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
+    use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
+    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
     use crate::sub_lib::utils::make_new_test_multi_config;
+    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
+    use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::{array_of_borrows_to_vec, running_test};
+    use rustc_hex::FromHex;
     use std::convert::TryFrom;
     use std::fs::File;
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::vec;
-    use rustc_hex::FromHex;
-    use masq_lib::blockchains::chains::Chain;
-    use masq_lib::constants::DEFAULT_CHAIN;
-    use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::sub_lib::cryptde::CryptDE;
-    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
-    use crate::sub_lib::wallet::Wallet;
 
     #[test]
     fn configure_database_handles_error_during_setting_clandestine_port() {

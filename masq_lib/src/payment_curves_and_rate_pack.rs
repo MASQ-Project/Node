@@ -3,7 +3,7 @@
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub struct PaymentCurves {
     pub payment_suggested_after_sec: i64,
     pub payment_grace_before_ban_sec: i64,

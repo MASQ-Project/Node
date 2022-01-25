@@ -7,38 +7,62 @@ use proc_macro::TokenStream;
 use std::fmt::Display;
 
 pub fn triple_test_computed_default_body(args: Vec<&str>) -> TokenStream {
-    let name = args[0];
-    let full_default = args[1];
-    let bootstrapper_config_destination = args[2];
-    let num_cast_type = args[3];
-    let alternative_data_type = args[4];
-    let mut fundamental_default = args[1]
-        .chars()
-        .take_while(|char| char != &'.')
-        .collect::<String>();
-    if fundamental_default.chars().last().unwrap() == '.' {
-        fundamental_default = fundamental_default[..fundamental_default.len() - 1].to_string()
+    let parameter_name = args[0];
+    let num_cast_type = args[1];
+    let group = args[2];
+    let group = group.trim().parse().expect("parsing number");
+    let fundamental_default = match group {
+        1 => "DEFAULT_PAYMENT_CURVES",
+        2 => "DEFAULT_RATE_PACK",
+        3 => {
+            if parameter_name.contains("pending") {
+                "DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL"
+            } else if parameter_name.contains("receivable") {
+                "DEFAULT_RECEIVABLE_SCAN_INTERVAL"
+            } else {
+                "DEFAULT_PAYABLE_SCAN_INTERVAL"
+            }
+        }
+        x => panic!("only numbers 1, 2, 3 are allowed, not {}", x),
     };
-    let name_camel_case = name.to_camel_case();
-    let length_differ = full_default.len() != fundamental_default.len();
-    let default_location = if length_differ {
-        format!("{}.{}", fundamental_default, name)
-    } else {
-        fundamental_default.clone()
+    let name_camel_case = parameter_name.to_camel_case();
+    let default_location = match group {
+        1 | 2 => format!("{}.{}", fundamental_default, parameter_name),
+        3 => fundamental_default.to_string(),
+        _ => unreachable!(),
     };
-    let test_value_1 = configure_test_specific_section(name, length_differ, 0);
-    let test_value_2 = configure_test_specific_section(name, length_differ, 555);
-    let test_value_3 = configure_test_specific_section(name, length_differ, 1000);
-    let non_primitive_conv = configure_prospective_non_primitive_conversion(alternative_data_type);
+    let bootstrapper_conf_location = match group {
+        1 => format!(
+            "accountant_config_opt.as_mut().unwrap().payment_curves.{}",
+            parameter_name
+        ),
+        2 => format!("rate_pack_opt.as_mut().unwrap().{}", parameter_name),
+        3 => format!("accountant_config_opt.as_mut().unwrap().{}", parameter_name),
+        _ => unreachable!(),
+    };
+    let populate_bootstrapper_config_with_some = match group{
+        1 | 3 => "bootstrapper_config.accountant_config_opt = Some(make_populated_accountant_config_with_defaults());",
+        2 => "bootstrapper_config.rate_pack_opt = Some(DEFAULT_RATE_PACK);",
+        _ => unreachable!()
+    };
+    let test_value_1 = test_specific_value(parameter_name, group, 0);
+    let test_value_2 = test_specific_value(parameter_name, group, 555);
+    let test_value_3 = test_specific_value(parameter_name, group, 1000);
+    let non_primitive_conv = match group {
+        1 | 2 => "adjusted_default".to_string(),
+        3 => "Duration::from_secs(adjusted_default)".to_string(),
+        _ => unreachable!(),
+    };
     format!(
         "
     #[test]
     fn {nm}_computed_default_all_defaulted(){{
         let subject = {nmcc}{{}};
         let mut bootstrapper_config = BootstrapperConfig::new();
+        {pbc}
         let mut fundamental_default = {fd}.clone();
         {cs1}
-        bootstrapper_config.{bcd} = Some({conv});
+        bootstrapper_config.{bcd} = {conv};
 
         let result = subject.computed_default(
             &bootstrapper_config,
@@ -64,9 +88,10 @@ pub fn triple_test_computed_default_body(args: Vec<&str>) -> TokenStream {
                    ({dfl} + 555) as {nct})
             );
         let mut bootstrapper_config = BootstrapperConfig::new();
+        {pbc}
         let mut fundamental_default = {fd}.clone();
         {cs2}
-        bootstrapper_config.{bcd} = Some({conv});
+        bootstrapper_config.{bcd} = {conv};
 
         let result = subject.computed_default(
             &bootstrapper_config,
@@ -89,9 +114,10 @@ pub fn triple_test_computed_default_body(args: Vec<&str>) -> TokenStream {
         let persistent_config = PersistentConfigurationMock::default()
             .{nm}_result(Ok(({dfl} + 555) as {nct}));
         let mut bootstrapper_config = BootstrapperConfig::new();
+        {pbc}
         let mut fundamental_default = {fd}.clone();
         {cs3}
-        bootstrapper_config.{bcd} = Some({conv});
+        bootstrapper_config.{bcd} = {conv};
         let result = subject.computed_default(
             &bootstrapper_config,
             &persistent_config,
@@ -103,11 +129,12 @@ pub fn triple_test_computed_default_body(args: Vec<&str>) -> TokenStream {
         )
     }}
     ",
-        nm = name,
+        nm = parameter_name,
         nmcc = name_camel_case,
         dfl = default_location,
         fd = fundamental_default,
-        bcd = bootstrapper_config_destination,
+        bcd = bootstrapper_conf_location,
+        pbc = populate_bootstrapper_config_with_some,
         conv = non_primitive_conv,
         nct = num_cast_type,
         cs1 = test_value_1,
@@ -115,32 +142,17 @@ pub fn triple_test_computed_default_body(args: Vec<&str>) -> TokenStream {
         cs3 = test_value_3,
     )
     .parse()
-    .unwrap()
+    .expect("parsing into Rust code failed")
 }
 
-fn configure_test_specific_section<T: Display>(name: &str, len_diff: bool, num_diff: T) -> String {
-    if len_diff {
-        format!(
-            "
-        fundamental_default.{nm} = fundamental_default.{nm} + {nd};
-        ",
+fn test_specific_value<T: Display>(name: &str, group: u8, num_diff: T) -> String {
+    match group {
+        1 | 2 => format!(
+            "let adjusted_default = fundamental_default.{nm} + {nd};",
             nm = name,
             nd = num_diff
-        )
-    } else {
-        format!(
-            "
-        fundamental_default = fundamental_default + {};
-        ",
-            num_diff
-        )
-    }
-}
-
-fn configure_prospective_non_primitive_conversion(alternative_data_type: &str) -> &str {
-    match alternative_data_type.trim() {
-        "u64" => "fundamental_default",
-        "Duration" => "Duration::from_secs(fundamental_default)",
-        x => unreachable!("'{}'", x),
+        ),
+        3 => format!("let adjusted_default = fundamental_default + {};", num_diff),
+        _ => unreachable!(),
     }
 }

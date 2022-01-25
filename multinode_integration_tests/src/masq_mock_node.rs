@@ -7,6 +7,8 @@ use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::DEFAULT_RATE_PACK;
+use masq_lib::payment_curves_and_rate_pack::RatePack;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
@@ -19,7 +21,7 @@ use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::cryptde_real::CryptDEReal;
 use node_lib::sub_lib::framer::Framer;
 use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use node_lib::sub_lib::neighborhood::{GossipFailure_0v1};
+use node_lib::sub_lib::neighborhood::GossipFailure_0v1;
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::utils::indicates_dead_stream;
@@ -39,8 +41,6 @@ use std::ops::Add;
 use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
-use masq_lib::constants::DEFAULT_RATE_PACK;
-use masq_lib::payment_curves_and_rate_pack::RatePack;
 
 pub struct MASQMockNode {
     control_stream: RefCell<TcpStream>,

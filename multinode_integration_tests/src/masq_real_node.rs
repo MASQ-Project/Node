@@ -9,6 +9,7 @@ use crate::masq_node_server::MASQNodeServer;
 use bip39::{Language, Mnemonic, Seed};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_RATE_PACK, ZERO_RATE_PACK};
+use masq_lib::payment_curves_and_rate_pack::RatePack;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
@@ -29,7 +30,6 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::thread;
 use std::time::Duration;
-use masq_lib::payment_curves_and_rate_pack::RatePack;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
 

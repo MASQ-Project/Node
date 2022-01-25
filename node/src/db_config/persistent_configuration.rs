@@ -75,10 +75,8 @@ impl PersistentConfigError {
 
 pub trait PersistentConfiguration {
     fn balance_decreases_for_sec(&self) -> Result<u64, PersistentConfigError>;
-    fn set_balance_decreases_for_sec(
-        &mut self,
-        interval: u64,
-    ) -> Result<(), PersistentConfigError>;
+    fn set_balance_decreases_for_sec(&mut self, interval: u64)
+        -> Result<(), PersistentConfigError>;
     fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError>;
     fn set_balance_to_decrease_from_gwei(
         &mut self,
@@ -702,7 +700,11 @@ impl PersistentConfigurationReal {
         Wallet::from_str(address).is_ok()
     }
 
-    fn simple_set_method<T: Display>(&mut self, parameter_name: &str, value: T)->Result<(),PersistentConfigError>{
+    fn simple_set_method<T: Display>(
+        &mut self,
+        parameter_name: &str,
+        value: T,
+    ) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         writer.set(parameter_name, Some(value.to_string()))?;
         Ok(writer.commit()?)
@@ -725,17 +727,17 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::{ConfigDaoMock, ConfigDaoWriteableMock};
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
+    use crate::persistent_config_assertions_for_simple_get_method;
+    use crate::persistent_config_assertions_for_simple_set_method;
     use crate::test_utils::main_cryptde;
     use bip39::{Language, MnemonicType};
     use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, find_free_port};
+    use paste::paste;
     use std::convert::TryFrom;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
-    use crate::persistent_config_assertions_for_simple_get_method;
-    use crate::persistent_config_assertions_for_simple_set_method;
-    use paste::paste;
 
     lazy_static! {
         static ref CONFIG_TABLE_PARAMETERS: Vec<String> = list_of_config_parameters();
@@ -2105,8 +2107,8 @@ mod tests {
     }
 
     #[test]
-    fn set_routing_byte_rate_works(){
-        persistent_config_assertions_for_simple_set_method!("routing_byte_rate",4321);
+    fn set_routing_byte_rate_works() {
+        persistent_config_assertions_for_simple_set_method!("routing_byte_rate", 4321);
     }
 
     #[test]
@@ -2115,8 +2117,8 @@ mod tests {
     }
 
     #[test]
-    fn set_routing_service_rate_works(){
-        persistent_config_assertions_for_simple_set_method!("routing_service_rate",4444);
+    fn set_routing_service_rate_works() {
+        persistent_config_assertions_for_simple_set_method!("routing_service_rate", 4444);
     }
 
     #[test]
@@ -2125,8 +2127,8 @@ mod tests {
     }
 
     #[test]
-    fn set_exit_byte_rate_works(){
-        persistent_config_assertions_for_simple_set_method!("exit_byte_rate",6);
+    fn set_exit_byte_rate_works() {
+        persistent_config_assertions_for_simple_set_method!("exit_byte_rate", 6);
     }
 
     #[test]
@@ -2135,8 +2137,8 @@ mod tests {
     }
 
     #[test]
-    fn set_exit_service_rate_works(){
-        persistent_config_assertions_for_simple_set_method!("exit_service_rate",8);
+    fn set_exit_service_rate_works() {
+        persistent_config_assertions_for_simple_set_method!("exit_service_rate", 8);
     }
 
     #[test]
@@ -2145,8 +2147,8 @@ mod tests {
     }
 
     #[test]
-    fn set_balance_decreases_for_sec_works(){
-        persistent_config_assertions_for_simple_set_method!("balance_decreases_for_sec",3333);
+    fn set_balance_decreases_for_sec_works() {
+        persistent_config_assertions_for_simple_set_method!("balance_decreases_for_sec", 3333);
     }
 
     #[test]
@@ -2155,8 +2157,8 @@ mod tests {
     }
 
     #[test]
-    fn set_balance_to_decrease_from_gwei_works(){
-        persistent_config_assertions_for_simple_set_method!("balance_to_decrease_from_gwei",2222);
+    fn set_balance_to_decrease_from_gwei_works() {
+        persistent_config_assertions_for_simple_set_method!("balance_to_decrease_from_gwei", 2222);
     }
 
     #[test]
@@ -2165,8 +2167,8 @@ mod tests {
     }
 
     #[test]
-    fn set_payable_scan_interval_works(){
-        persistent_config_assertions_for_simple_set_method!("payable_scan_interval",2255);
+    fn set_payable_scan_interval_works() {
+        persistent_config_assertions_for_simple_set_method!("payable_scan_interval", 2255);
     }
 
     #[test]
@@ -2175,7 +2177,7 @@ mod tests {
     }
 
     #[test]
-    fn set_pending_payment_scan_interval_works(){
+    fn set_pending_payment_scan_interval_works() {
         persistent_config_assertions_for_simple_set_method!("pending_payment_scan_interval", 1133);
     }
 
@@ -2185,8 +2187,8 @@ mod tests {
     }
 
     #[test]
-    fn set_receivable_scan_interval_works(){
-        persistent_config_assertions_for_simple_set_method!("receivable_scan_interval",2222);
+    fn set_receivable_scan_interval_works() {
+        persistent_config_assertions_for_simple_set_method!("receivable_scan_interval", 2222);
     }
 
     #[test]
@@ -2195,8 +2197,8 @@ mod tests {
     }
 
     #[test]
-    fn set_payment_grace_before_ban_sec_works(){
-        persistent_config_assertions_for_simple_set_method!("payment_grace_before_ban_sec",3444);
+    fn set_payment_grace_before_ban_sec_works() {
+        persistent_config_assertions_for_simple_set_method!("payment_grace_before_ban_sec", 3444);
     }
 
     #[test]
@@ -2205,18 +2207,24 @@ mod tests {
     }
 
     #[test]
-    fn set_permanent_debt_allowed_gwei_works(){
-        persistent_config_assertions_for_simple_set_method!("permanent_debt_allowed_gwei",3333);
+    fn set_permanent_debt_allowed_gwei_works() {
+        persistent_config_assertions_for_simple_set_method!("permanent_debt_allowed_gwei", 3333);
     }
 
     #[test]
     fn unban_when_balance_below_gwei_works() {
-        persistent_config_assertions_for_simple_get_method!("unban_when_balance_below_gwei", 100000);
+        persistent_config_assertions_for_simple_get_method!(
+            "unban_when_balance_below_gwei",
+            100000
+        );
     }
 
     #[test]
-    fn set_unban_when_balance_below_gwei_works(){
-        persistent_config_assertions_for_simple_set_method!("unban_when_balance_below_gwei",111111);
+    fn set_unban_when_balance_below_gwei_works() {
+        persistent_config_assertions_for_simple_set_method!(
+            "unban_when_balance_below_gwei",
+            111111
+        );
     }
 
     #[test]
@@ -2225,8 +2233,8 @@ mod tests {
     }
 
     #[test]
-    fn set_payment_suggested_after_sec_works(){
-        persistent_config_assertions_for_simple_set_method!("payment_suggested_after_sec",8000);
+    fn set_payment_suggested_after_sec_works() {
+        persistent_config_assertions_for_simple_set_method!("payment_suggested_after_sec", 8000);
     }
 
     #[macro_export]
@@ -2260,9 +2268,9 @@ mod tests {
     }
 
     #[macro_export]
-    macro_rules! persistent_config_assertions_for_simple_set_method{
+    macro_rules! persistent_config_assertions_for_simple_set_method {
         ($parameter_name: literal,$set_value: expr) => {
-            paste!{
+            paste! {
                 let set_params_arc = Arc::new(Mutex::new(vec![]));
                 let config_dao = ConfigDaoWriteableMock::new()
                     .set_params(&set_params_arc)
@@ -2284,7 +2292,7 @@ mod tests {
                     )]
                 );
             }
-        }
+        };
     }
 
     fn list_of_config_parameters() -> Vec<String> {
