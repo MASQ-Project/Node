@@ -947,7 +947,7 @@ mod tests {
     };
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::cryptde::{PlainData, PublicKey};
+    use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
@@ -1060,11 +1060,7 @@ mod tests {
         config.set_clandestine_port(1234).unwrap();
         config
             .set_wallet_info(
-                &PlainData::new(
-                    b"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
-                )
-                .as_ref(),
-                "m/44'/60'/1'/2/3",
+                "1111111111111111111111111111111111111111111111111111111111111111",
                 "0x0000000000000000000000000000000000000000",
                 "password",
             )

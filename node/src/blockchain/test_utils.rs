@@ -12,6 +12,7 @@ use crate::blockchain::tool_wrappers::{
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, Mnemonic, Seed};
 use jsonrpc_core as rpc;
+use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -19,8 +20,23 @@ use std::sync::{Arc, Mutex};
 use web3::types::{Address, H256, U256};
 use web3::{Error, RequestId, Transport};
 
+lazy_static! {
+    static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
+        "parent", "prevent", "vehicle", "tooth", "crazy", "cruel", "update", "mango", "female",
+        "mad", "spread", "plunge", "tiny", "inch", "under", "engine", "enforce", "film", "awesome",
+        "plunge", "cloud", "spell", "empower", "pipe",
+    ];
+}
+
+pub fn make_meaningless_phrase_words() -> Vec<String> {
+    BIG_MEANINGLESS_PHRASE
+        .iter()
+        .map(|word| word.to_string())
+        .collect()
+}
+
 pub fn make_meaningless_phrase() -> String {
-    "phrase donate agent satoshi burst end company pear obvious achieve depth advice".to_string()
+    make_meaningless_phrase_words().join(" ").to_string()
 }
 
 pub fn make_meaningless_seed() -> Seed {

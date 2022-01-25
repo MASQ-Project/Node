@@ -481,8 +481,6 @@ pub struct UiConfigurationResponse {
     pub chain_name: String,
     #[serde(rename = "clandestinePort")]
     pub clandestine_port: u16,
-    #[serde(rename = "consumingWalletDerivationPathOpt")]
-    pub consuming_wallet_derivation_path_opt: Option<String>,
     #[serde(rename = "currentSchemaVersion")]
     pub current_schema_version: String,
     #[serde(rename = "earningWalletAddressOpt")]
@@ -495,8 +493,12 @@ pub struct UiConfigurationResponse {
     pub port_mapping_protocol_opt: Option<String>,
     #[serde(rename = "startBlock")]
     pub start_block: u64,
-    #[serde(rename = "mnemonicSeedOpt")]
-    pub mnemonic_seed_opt: Option<String>,
+    #[serde(rename = "consumingWalletPrivateKeyOpt")]
+    pub consuming_wallet_private_key_opt: Option<String>,
+    // This item is calculated from the private key, not stored in the database, so that
+    // the UI doesn't need the code to derive address from private key.
+    #[serde(rename = "consumingWalletAddressOpt")]
+    pub consuming_wallet_address_opt: Option<String>,
     #[serde(rename = "pastNeighbors")]
     pub past_neighbors: Vec<String>,
 }
@@ -553,31 +555,41 @@ pub struct UiFinancialsResponse {
 }
 conversation_message!(UiFinancialsResponse, "financials");
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiGenerateSeedSpec {
+    #[serde(rename = "mnemonicPhraseSizeOpt")]
+    pub mnemonic_phrase_size_opt: Option<usize>,
+    #[serde(rename = "mnemonicPhraseLanguageOpt")]
+    pub mnemonic_phrase_language_opt: Option<String>,
+    #[serde(rename = "mnemonicPassphraseOpt")]
+    pub mnemonic_passphrase_opt: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiGenerateWalletsRequest {
     #[serde(rename = "dbPassword")]
     pub db_password: String,
-    #[serde(rename = "mnemonicPhraseSize")]
-    pub mnemonic_phrase_size: usize,
-    #[serde(rename = "mnemonicPhraseLanguage")]
-    pub mnemonic_phrase_language: String,
-    #[serde(rename = "mnemonicPassphraseOpt")]
-    pub mnemonic_passphrase_opt: Option<String>,
-    #[serde(rename = "consumingDerivationPath")]
-    pub consuming_derivation_path: String,
-    #[serde(rename = "earningDerivationPath")]
-    pub earning_derivation_path: String,
+    #[serde(rename = "seedSpecOpt")]
+    pub seed_spec_opt: Option<UiGenerateSeedSpec>,
+    #[serde(rename = "consumingDerivationPathOpt")]
+    pub consuming_derivation_path_opt: Option<String>,
+    #[serde(rename = "earningDerivationPathOpt")]
+    pub earning_derivation_path_opt: Option<String>,
 }
 conversation_message!(UiGenerateWalletsRequest, "generateWallets");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiGenerateWalletsResponse {
-    #[serde(rename = "mnemonicPhrase")]
-    pub mnemonic_phrase: Vec<String>,
+    #[serde(rename = "mnemonicPhraseOpt")]
+    pub mnemonic_phrase_opt: Option<Vec<String>>,
     #[serde(rename = "consumingWalletAddress")]
     pub consuming_wallet_address: String,
+    #[serde(rename = "consumingWalletPrivateKey")]
+    pub consuming_wallet_private_key: String,
     #[serde(rename = "earningWalletAddress")]
     pub earning_wallet_address: String,
+    #[serde(rename = "earningWalletPrivateKey")]
+    pub earning_wallet_private_key: String,
 }
 conversation_message!(UiGenerateWalletsResponse, "generateWallets");
 
@@ -586,19 +598,29 @@ pub struct UiNewPasswordBroadcast {}
 fire_and_forget_message!(UiNewPasswordBroadcast, "newPassword");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiRecoverSeedSpec {
+    #[serde(rename = "mnemonicPhrase")]
+    pub mnemonic_phrase: Vec<String>,
+    #[serde(rename = "mnemonicPhraseLanguageOpt")]
+    pub mnemonic_phrase_language_opt: Option<String>,
+    #[serde(rename = "mnemonicPassphraseOpt")]
+    pub mnemonic_passphrase_opt: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiRecoverWalletsRequest {
     #[serde(rename = "dbPassword")]
     pub db_password: String,
-    #[serde(rename = "mnemonicPhrase")]
-    pub mnemonic_phrase: Vec<String>,
-    #[serde(rename = "mnemonicPassphraseOpt")]
-    pub mnemonic_passphrase_opt: Option<String>,
-    #[serde(rename = "mnemonicPhraseLanguage")]
-    pub mnemonic_phrase_language: String,
-    #[serde(rename = "consumingDerivationPath")]
-    pub consuming_derivation_path: String, // default to "m/44'/60'/0'/0/0"
-    #[serde(rename = "earningWallet")]
-    pub earning_wallet: String, // either derivation path (default to "m/44'/60'/0'/0/1") or address
+    #[serde(rename = "seedSpecOpt")]
+    pub seed_spec_opt: Option<UiRecoverSeedSpec>,
+    #[serde(rename = "consumingDerivationPathOpt")]
+    pub consuming_derivation_path_opt: Option<String>,
+    #[serde(rename = "consumingPrivateKeyOpt")]
+    pub consuming_private_key_opt: Option<String>,
+    #[serde(rename = "earningDerivationPathOpt")]
+    pub earning_derivation_path_opt: Option<String>,
+    #[serde(rename = "earningAddressOpt")]
+    pub earning_address_opt: Option<String>,
 }
 conversation_message!(UiRecoverWalletsRequest, "recoverWallets");
 

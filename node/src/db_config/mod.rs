@@ -2,6 +2,7 @@
 
 pub mod config_dao;
 pub mod config_dao_null;
+pub mod db_encryption_layer;
 pub mod persistent_configuration;
 pub mod secure_config_layer;
 pub mod typed_config_layer;
