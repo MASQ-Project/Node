@@ -406,7 +406,7 @@ impl Accountant {
             return None;
         }
 
-        let threshold = Accountant::calculate_payout_threshold(&self, time_since_last_paid);
+        let threshold = Accountant::calculate_payout_threshold(self, time_since_last_paid);
         if payable.balance as f64 > threshold {
             Some(threshold as u64)
         } else {

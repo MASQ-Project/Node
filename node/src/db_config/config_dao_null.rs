@@ -186,7 +186,7 @@ impl Default for ConfigDaoNull {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::db_initializer::DbInitializer;
+    use crate::database::db_initializer::{DbInitializer};
     use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoReal;
     use masq_lib::blockchains::chains::Chain;
@@ -196,32 +196,6 @@ mod tests {
     };
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
-
-    #[test]
-    fn get_all_knows_ever_present_values() {
-        let subject = ConfigDaoNull::default();
-
-        let data = subject.get_all().unwrap();
-
-        let expected_clandestine_port = subject.data.get("clandestine_port").unwrap();
-        assert_eq!(
-            data,
-            vec![
-                ConfigDaoRecord::new(
-                    "chain_name",
-                    Some(Chain::default().rec().literal_identifier),
-                    false
-                ),
-                ConfigDaoRecord::new("clandestine_port", Some(expected_clandestine_port), false),
-                ConfigDaoRecord::new("gas_price", Some("1"), false),
-                ConfigDaoRecord::new(
-                    "start_block",
-                    Some(&ETH_MAINNET_CONTRACT_CREATION_BLOCK.to_string()),
-                    false
-                ),
-            ]
-        )
-    }
 
     #[test]
     fn get_works() {

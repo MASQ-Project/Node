@@ -732,9 +732,7 @@ where
                 let pc_value: T = pc_result.unwrap_or_else(|e| {
                     panic!("{}: database query failed due to {:?}", parameter_name, e)
                 });
-                if cli_value == pc_value {
-                    unimplemented!()
-                } else {
+                if cli_value != pc_value {
                     persistent_config_setter_method(cli_value, persistent_config).unwrap_or_else(
                         |e| {
                             panic!(
@@ -1950,7 +1948,7 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_configures_accountant_with_values_from_command_line_different_from_those_in_database(
+    fn unprivileged_parse_args_configures_accountant_config_with_values_from_command_line_different_from_those_in_database(
     ) {
         running_test();
         let set_pending_payment_scan_interval_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1962,15 +1960,9 @@ mod tests {
         let set_balance_to_decrease_from_params_arc = Arc::new(Mutex::new(vec![]));
         let set_unban_when_balance_below_params_arc = Arc::new(Mutex::new(vec![]));
         let set_balance_decreases_for_params_arc = Arc::new(Mutex::new(vec![]));
-        let home_directory = ensure_node_home_directory_exists(
-            "unprivileged_parse_args_configuration",
-            "unprivileged_parse_args_configures_accountant_with_values_from_command_line_different_from_those_in_database",
-        );
         let args = [
             "--ip",
             "1.2.3.4",
-            "--data-directory",
-            home_directory.to_str().unwrap(),
             "--pending-payment-scan-interval",
             "180",
             "--payable-scan-interval",
@@ -2074,43 +2066,80 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_with_invalid_consuming_wallet_private_key_reacts_correctly() {
+    fn unprivileged_parse_args_configures_accountant_config_with_values_from_command_line_which_are_equal_to_those_in_database(
+    ) {
         running_test();
-        let home_directory = ensure_node_home_directory_exists(
-            "unprivileged_parse_args_configuration",
-            "parse_args_with_invalid_consuming_wallet_private_key_panics_correctly",
-        );
-        let args = ArgsBuilder::new().param("--data-directory", home_directory.to_str().unwrap());
-        let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
-            &"--consuming-private-key",
-            &"not valid hex",
-        ))];
-        let faux_environment = CommandLineVcl::from(vcl_args);
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(faux_environment),
-            Box::new(CommandLineVcl::new(args.into())),
+        let args = [
+            "--ip",
+            "1.2.3.4",
+            "--pending-payment-scan-interval",
+            "180",
+            "--payable-scan-interval",
+            "150",
+            "--receivable-scan-interval",
+            "130",
+            "--payment-grace-before-ban",
+            "1000",
+            "--payment-suggested-after",
+            "1000",
+            "--permanent-debt-allowed",
+            "20000",
+            "--balance-to-decrease-from",
+            "100000",
+            "--unban-when-balance-below",
+            "20000",
+            "--balance-decreases-for",
+            "1000",
         ];
+        let mut config = BootstrapperConfig::new();
+        let multi_config = make_simplified_multi_config(args);
+        let mut persistent_configuration = configure_default_persistent_config(0b0000_1011)
+            .pending_payment_scan_interval_result(Ok(180))
+            .payable_scan_interval_result(Ok(150))
+            .receivable_scan_interval_result(Ok(130))
+            .payment_grace_before_ban_sec_result(Ok(1000))
+            .payment_suggested_after_sec_result(Ok(1000))
+            .permanent_debt_allowed_gwei_result(Ok(20000))
+            .balance_to_decrease_from_gwei_result(Ok(100000))
+            .unban_when_balance_below_gwei_result(Ok(20000))
+            .balance_decreases_for_sec_result(Ok(1000));
+        let subject = ParseArgsConfigurationDaoNull {};
 
-        let result = make_new_test_multi_config(&app_node(), vcls).err().unwrap();
+        subject
+            .unprivileged_parse_args(
+                &multi_config,
+                &mut config,
+                &mut persistent_configuration,
+                &Logger::new("test"),
+            )
+            .unwrap();
 
-        assert_eq!(
-            result,
-            ConfiguratorError::required("consuming-private-key", "Invalid value: not valid hex")
-        )
+        let actual_rate_pack = config.accountant_config;
+        let expected_rate_pack = AccountantConfig {
+            pending_payment_scan_interval_opt: Some(Duration::from_secs(180)),
+            payable_scan_interval_opt: Some(Duration::from_secs(150)),
+            receivable_scan_interval_opt: Some(Duration::from_secs(130)),
+            payment_curves_opt: Some(PaymentCurves {
+                payment_suggested_after_sec: 1000,
+                payment_grace_before_ban_sec: 1000,
+                permanent_debt_allowed_gwei: 20000,
+                balance_to_decrease_from_gwei: 100000,
+                balance_decreases_for_sec: 1000,
+                unban_when_balance_below_gwei: 20000,
+            }),
+        };
+        assert_eq!(actual_rate_pack, expected_rate_pack);
+        //no prepared results for the setter methods, that is they're uncalled
     }
 
     #[test]
-    fn unprivileged_parse_args_configures_rate_pack_with_values_from_command_line_different_from_what_is_in_the_database(
+    fn unprivileged_parse_args_configures_rate_pack_with_values_from_command_line_different_from_those_in_the_database(
     ) {
         running_test();
         let set_routing_byte_rate_params_arc = Arc::new(Mutex::new(vec![]));
         let set_routing_service_rate_params_arc = Arc::new(Mutex::new(vec![]));
         let set_exit_byte_rate_params_arc = Arc::new(Mutex::new(vec![]));
         let set_exit_service_rate_params_arc = Arc::new(Mutex::new(vec![]));
-        let home_directory = ensure_node_home_directory_exists(
-            "unprivileged_parse_args_configuration",
-            "unprivileged_parse_args_configures_rate_pack_with_values_from_command_line_different_from_what_is_in_the_database",
-        );
         let args = [
             "--ip",
             "1.2.3.4",
@@ -2118,8 +2147,6 @@ mod tests {
             "some.service.com",
             "--gas-price",
             "170",
-            "--data-directory",
-            home_directory.to_str().unwrap(),
             "--routing-byte-rate",
             "2",
             "--routing-service-rate",
@@ -2172,6 +2199,81 @@ mod tests {
         assert_eq!(*set_exit_byte_rate_params, vec![4]);
         let set_exit_service_rate_params = set_exit_service_rate_params_arc.lock().unwrap();
         assert_eq!(*set_exit_service_rate_params, vec![5])
+    }
+
+    #[test]
+    fn unprivileged_parse_args_configures_rate_pack_with_values_from_command_line_equal_to_those_in_the_database(
+    ) {
+        running_test();
+        let args = [
+            "--ip",
+            "1.2.3.4",
+            "--blockchain-service-url",
+            "some.service.com",
+            "--gas-price",
+            "170",
+            "--routing-byte-rate",
+            "2",
+            "--routing-service-rate",
+            "3",
+            "--exit-byte-rate",
+            "4",
+            "--exit-service-rate",
+            "5",
+        ];
+        let mut config = BootstrapperConfig::new();
+        let multi_config = make_simplified_multi_config(args);
+        let mut persistent_configuration = configure_default_persistent_config(0b0000_0111)
+            .routing_byte_rate_result(Ok(2))
+            .routing_service_rate_result(Ok(3))
+            .exit_byte_rate_result(Ok(4))
+            .exit_service_rate_result(Ok(5));
+        let subject = ParseArgsConfigurationDaoNull {};
+
+        subject
+            .unprivileged_parse_args(
+                &multi_config,
+                &mut config,
+                &mut persistent_configuration,
+                &Logger::new("test"),
+            )
+            .unwrap();
+
+        let actual_rate_pack = config.rate_pack_opt.take().unwrap();
+        let expected_rate_pack = RatePack {
+            routing_byte_rate: 2,
+            routing_service_rate: 3,
+            exit_byte_rate: 4,
+            exit_service_rate: 5,
+        };
+        assert_eq!(actual_rate_pack, expected_rate_pack);
+        //no prepared results for the setter methods, that is they're uncalled
+    }
+
+    #[test]
+    fn unprivileged_parse_args_with_invalid_consuming_wallet_private_key_reacts_correctly() {
+        running_test();
+        let home_directory = ensure_node_home_directory_exists(
+            "unprivileged_parse_args_configuration",
+            "parse_args_with_invalid_consuming_wallet_private_key_panics_correctly",
+        );
+        let args = ArgsBuilder::new().param("--data-directory", home_directory.to_str().unwrap());
+        let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
+            &"--consuming-private-key",
+            &"not valid hex",
+        ))];
+        let faux_environment = CommandLineVcl::from(vcl_args);
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
+            Box::new(faux_environment),
+            Box::new(CommandLineVcl::new(args.into())),
+        ];
+
+        let result = make_new_test_multi_config(&app_node(), vcls).err().unwrap();
+
+        assert_eq!(
+            result,
+            ConfiguratorError::required("consuming-private-key", "Invalid value: not valid hex")
+        )
     }
 
     #[test]

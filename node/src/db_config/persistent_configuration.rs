@@ -1,3 +1,4 @@
+use std::fmt::Display;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::Bip39;
@@ -7,7 +8,6 @@ use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayer
 use crate::db_config::typed_config_layer::{
     decode_bytes, decode_u64, encode_bytes, encode_u64, TypedConfigLayerError,
 };
-use crate::persistent_config_assertion_for_simple_get_method;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
@@ -16,7 +16,6 @@ use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
-use paste::paste;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
@@ -78,7 +77,7 @@ pub trait PersistentConfiguration {
     fn balance_decreases_for_sec(&self) -> Result<u64, PersistentConfigError>;
     fn set_balance_decreases_for_sec(
         &mut self,
-        unit_of_decrease: u64,
+        interval: u64,
     ) -> Result<(), PersistentConfigError>;
     fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError>;
     fn set_balance_to_decrease_from_gwei(
@@ -194,9 +193,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_balance_decreases_for_sec(
         &mut self,
-        decrease: u64,
+        interval: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.simple_set_method("balance_decreases_for_sec", interval)
     }
 
     fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError> {
@@ -210,7 +209,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &mut self,
         level: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.simple_set_method("balance_to_decrease_from_gwei", level)
     }
 
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
@@ -334,7 +333,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn set_exit_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.simple_set_method("exit_byte_rate", rate)
     }
 
     fn exit_service_rate(&self) -> Result<u64, PersistentConfigError> {
@@ -345,7 +344,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn set_exit_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.simple_set_method("exit_service_rate", rate)
     }
 
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {
@@ -467,7 +466,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &mut self,
         interval_sec: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.simple_set_method("payable_scan_interval", interval_sec)
     }
 
     fn payment_grace_before_ban_sec(&self) -> Result<u64, PersistentConfigError> {
@@ -479,9 +478,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_payment_grace_before_ban_sec(
         &mut self,
-        period_sec: u64,
+        interval: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.simple_set_method("payment_grace_before_ban_sec", interval)
     }
 
     fn payment_suggested_after_sec(&self) -> Result<u64, PersistentConfigError> {
@@ -493,9 +492,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_payment_suggested_after_sec(
         &mut self,
-        period: u64,
+        interval: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.simple_set_method("payment_suggested_after_sec", interval)
     }
 
     fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError> {
@@ -509,7 +508,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &mut self,
         interval_sec: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.simple_set_method("pending_payment_scan_interval", interval_sec)
     }
 
     fn permanent_debt_allowed_gwei(&self) -> Result<u64, PersistentConfigError> {
@@ -521,9 +520,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_permanent_debt_allowed_gwei(
         &mut self,
-        debt_amount: u64,
+        amount: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.simple_set_method("permanent_debt_allowed_gwei", amount)
     }
 
     fn receivable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
@@ -537,7 +536,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &mut self,
         interval_sec: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.simple_set_method("receivable_scan_interval", interval_sec)
     }
 
     fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError> {
@@ -548,7 +547,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn set_routing_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
+        let mut writer = self.dao.start_transaction()?;
+        writer.set("routing_byte_rate", Some(rate.to_string()))?;
+        Ok(writer.commit()?)
     }
 
     fn routing_service_rate(&self) -> Result<u64, PersistentConfigError> {
@@ -559,7 +560,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn set_routing_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.simple_set_method("routing_service_rate", rate)
     }
 
     fn start_block(&self) -> Result<u64, PersistentConfigError> {
@@ -589,7 +590,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &mut self,
         level: u64,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.simple_set_method("unban_when_balance_below_gwei", level)
     }
 
     fn set_wallet_info(
@@ -700,6 +701,12 @@ impl PersistentConfigurationReal {
     fn validate_wallet_address(address: &str) -> bool {
         Wallet::from_str(address).is_ok()
     }
+
+    fn simple_set_method<T: Display>(&mut self, parameter_name: &str, value: T)->Result<(),PersistentConfigError>{
+        let mut writer = self.dao.start_transaction()?;
+        writer.set(parameter_name, Some(value.to_string()))?;
+        Ok(writer.commit()?)
+    }
 }
 
 fn value_missing_panic(parameter_name: &str) -> ! {
@@ -726,6 +733,9 @@ mod tests {
     use std::convert::TryFrom;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
+    use crate::persistent_config_assertions_for_simple_get_method;
+    use crate::persistent_config_assertions_for_simple_set_method;
+    use paste::paste;
 
     lazy_static! {
         static ref CONFIG_TABLE_PARAMETERS: Vec<String> = list_of_config_parameters();
@@ -2091,71 +2101,136 @@ mod tests {
 
     #[test]
     fn routing_byte_rate_works() {
-        persistent_config_assertion_for_simple_get_method!("routing_byte_rate", 1234);
+        persistent_config_assertions_for_simple_get_method!("routing_byte_rate", 1234);
+    }
+
+    #[test]
+    fn set_routing_byte_rate_works(){
+        persistent_config_assertions_for_simple_set_method!("routing_byte_rate",4321);
     }
 
     #[test]
     fn routing_service_rate_works() {
-        persistent_config_assertion_for_simple_get_method!("routing_service_rate", 1234);
+        persistent_config_assertions_for_simple_get_method!("routing_service_rate", 1212);
+    }
+
+    #[test]
+    fn set_routing_service_rate_works(){
+        persistent_config_assertions_for_simple_set_method!("routing_service_rate",4444);
     }
 
     #[test]
     fn exit_byte_rate_works() {
-        persistent_config_assertion_for_simple_get_method!("exit_byte_rate", 5);
+        persistent_config_assertions_for_simple_get_method!("exit_byte_rate", 5);
+    }
+
+    #[test]
+    fn set_exit_byte_rate_works(){
+        persistent_config_assertions_for_simple_set_method!("exit_byte_rate",6);
     }
 
     #[test]
     fn exit_service_rate_works() {
-        persistent_config_assertion_for_simple_get_method!("exit_service_rate", 9);
+        persistent_config_assertions_for_simple_get_method!("exit_service_rate", 9);
     }
 
     #[test]
-    fn balance_decrease_for_sec_works() {
-        persistent_config_assertion_for_simple_get_method!("balance_decreases_for_sec", 1234);
+    fn set_exit_service_rate_works(){
+        persistent_config_assertions_for_simple_set_method!("exit_service_rate",8);
+    }
+
+    #[test]
+    fn balance_decreases_for_sec_works() {
+        persistent_config_assertions_for_simple_get_method!("balance_decreases_for_sec", 1234);
+    }
+
+    #[test]
+    fn set_balance_decreases_for_sec_works(){
+        persistent_config_assertions_for_simple_set_method!("balance_decreases_for_sec",3333);
     }
 
     #[test]
     fn balance_to_decrease_from_gwei_works() {
-        persistent_config_assertion_for_simple_get_method!("balance_to_decrease_from_gwei", 1234);
+        persistent_config_assertions_for_simple_get_method!("balance_to_decrease_from_gwei", 1234);
+    }
+
+    #[test]
+    fn set_balance_to_decrease_from_gwei_works(){
+        persistent_config_assertions_for_simple_set_method!("balance_to_decrease_from_gwei",2222);
     }
 
     #[test]
     fn payable_scan_interval_works() {
-        persistent_config_assertion_for_simple_get_method!("payable_scan_interval", 3600);
+        persistent_config_assertions_for_simple_get_method!("payable_scan_interval", 3600);
+    }
+
+    #[test]
+    fn set_payable_scan_interval_works(){
+        persistent_config_assertions_for_simple_set_method!("payable_scan_interval",2255);
     }
 
     #[test]
     fn pending_payment_scan_interval_works() {
-        persistent_config_assertion_for_simple_get_method!("pending_payment_scan_interval", 3600);
+        persistent_config_assertions_for_simple_get_method!("pending_payment_scan_interval", 3600);
+    }
+
+    #[test]
+    fn set_pending_payment_scan_interval_works(){
+        persistent_config_assertions_for_simple_set_method!("pending_payment_scan_interval", 1133);
     }
 
     #[test]
     fn receivable_scan_interval_works() {
-        persistent_config_assertion_for_simple_get_method!("receivable_scan_interval", 3600);
+        persistent_config_assertions_for_simple_get_method!("receivable_scan_interval", 3600);
+    }
+
+    #[test]
+    fn set_receivable_scan_interval_works(){
+        persistent_config_assertions_for_simple_set_method!("receivable_scan_interval",2222);
     }
 
     #[test]
     fn payment_grace_before_ban_sec_works() {
-        persistent_config_assertion_for_simple_get_method!("payment_grace_before_ban_sec", 10000);
+        persistent_config_assertions_for_simple_get_method!("payment_grace_before_ban_sec", 10000);
+    }
+
+    #[test]
+    fn set_payment_grace_before_ban_sec_works(){
+        persistent_config_assertions_for_simple_set_method!("payment_grace_before_ban_sec",3444);
     }
 
     #[test]
     fn permanent_debt_allowed_gwei_works() {
-        persistent_config_assertion_for_simple_get_method!("permanent_debt_allowed_gwei", 100000);
+        persistent_config_assertions_for_simple_get_method!("permanent_debt_allowed_gwei", 100000);
+    }
+
+    #[test]
+    fn set_permanent_debt_allowed_gwei_works(){
+        persistent_config_assertions_for_simple_set_method!("permanent_debt_allowed_gwei",3333);
     }
 
     #[test]
     fn unban_when_balance_below_gwei_works() {
-        persistent_config_assertion_for_simple_get_method!("unban_when_balance_below_gwei", 100000);
+        persistent_config_assertions_for_simple_get_method!("unban_when_balance_below_gwei", 100000);
+    }
+
+    #[test]
+    fn set_unban_when_balance_below_gwei_works(){
+        persistent_config_assertions_for_simple_set_method!("unban_when_balance_below_gwei",111111);
     }
 
     #[test]
     fn payment_suggested_after_sec_works() {
-        persistent_config_assertion_for_simple_get_method!("payment_suggested_after_sec", 7200);
+        persistent_config_assertions_for_simple_get_method!("payment_suggested_after_sec", 7200);
+    }
+
+    #[test]
+    fn set_payment_suggested_after_sec_works(){
+        persistent_config_assertions_for_simple_set_method!("payment_suggested_after_sec",8000);
     }
 
     #[macro_export]
-    macro_rules! persistent_config_assertion_for_simple_get_method {
+    macro_rules! persistent_config_assertions_for_simple_get_method {
         ($parameter_name: literal,$expected_value: expr) => {
             paste! {
                 let get_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2182,6 +2257,34 @@ mod tests {
                 1
             )
         };
+    }
+
+    #[macro_export]
+    macro_rules! persistent_config_assertions_for_simple_set_method{
+        ($parameter_name: literal,$set_value: expr) => {
+            paste!{
+                let set_params_arc = Arc::new(Mutex::new(vec![]));
+                let config_dao = ConfigDaoWriteableMock::new()
+                    .set_params(&set_params_arc)
+                    .set_result(Ok(()))
+                    .commit_result(Ok(()));
+                let mut subject = PersistentConfigurationReal::new(Box::new(
+                    ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
+                ));
+
+                let result = subject.[<set_ $parameter_name>]($set_value);
+
+                assert!(result.is_ok());
+                let set_params = set_params_arc.lock().unwrap();
+                assert_eq!(
+                    *set_params,
+                    vec![(
+                        $parameter_name.to_string(),
+                        Some($set_value.to_string())
+                    )]
+                );
+            }
+        }
     }
 
     fn list_of_config_parameters() -> Vec<String> {

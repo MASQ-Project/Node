@@ -42,9 +42,9 @@ use masq_lib::multi_config::{
 };
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::utils::ExpectValue;
-use paste::paste;
 use std::collections::HashMap;
 use std::fmt::Display;
+use paste::paste;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;

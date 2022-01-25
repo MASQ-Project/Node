@@ -19,7 +19,7 @@ use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::cryptde_real::CryptDEReal;
 use node_lib::sub_lib::framer::Framer;
 use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use node_lib::sub_lib::neighborhood::{GossipFailure_0v1, RatePack, DEFAULT_RATE_PACK};
+use node_lib::sub_lib::neighborhood::{GossipFailure_0v1};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::utils::indicates_dead_stream;
@@ -39,6 +39,8 @@ use std::ops::Add;
 use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
+use masq_lib::constants::DEFAULT_RATE_PACK;
+use masq_lib::payment_curves_and_rate_pack::RatePack;
 
 pub struct MASQMockNode {
     control_stream: RefCell<TcpStream>,

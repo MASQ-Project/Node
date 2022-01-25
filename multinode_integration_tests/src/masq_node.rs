@@ -8,7 +8,7 @@ use masq_lib::constants::{
 };
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::neighborhood::{NodeDescriptor, RatePack};
+use node_lib::sub_lib::neighborhood::{NodeDescriptor};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
@@ -25,6 +25,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use masq_lib::payment_curves_and_rate_pack::RatePack;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct NodeReference {

@@ -63,6 +63,7 @@ unindent = "0.1.7"
 web3 = {version = "0.11.0", default-features = false, features = ["http", "tls"]}
 websocket = {version = "0.26.2", default-features = false, features = ["async", "sync"]}
 secp256k1secrets = {package = "secp256k1", version = "0.17.2"}
+paste = "1.0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.4.0"
@@ -85,7 +86,6 @@ simple-server = "0.4.0"
 serial_test_derive = "0.5.1"
 serial_test = "0.5.1"
 trust-dns-proto = "0.8.0"
-paste = "1.0.6"
 
 [[bin]]
 name = "MASQNode"

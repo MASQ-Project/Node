@@ -15,7 +15,6 @@ use clap::value_t;
 use log::LevelFilter;
 
 use crate::apps::app_node;
-use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::bootstrapper::PortConfiguration;
 use crate::database::db_migrations::{ExternalData, MigratorConfig};
 use crate::db_config::persistent_configuration::PersistentConfiguration;
@@ -28,18 +27,14 @@ use crate::node_configurator::{
     real_user_data_directory_opt_and_chain, real_user_from_multi_config_or_populate,
 };
 use crate::server_initializer::GatheredParams;
-use crate::sub_lib::cryptde::{CryptDE, PublicKey};
+use crate::sub_lib::cryptde::{PublicKey};
 use crate::sub_lib::cryptde_null::CryptDENull;
-use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
 use crate::sub_lib::utils::make_new_multi_config;
-use crate::sub_lib::wallet::Wallet;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
-use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
+use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use masq_lib::utils::WrapResult;
-use rustc_hex::FromHex;
 use std::str::FromStr;
 
 pub struct NodeConfiguratorStandardPrivileged {
@@ -287,6 +282,13 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::vec;
+    use rustc_hex::FromHex;
+    use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::DEFAULT_CHAIN;
+    use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::sub_lib::cryptde::CryptDE;
+    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
+    use crate::sub_lib::wallet::Wallet;
 
     #[test]
     fn configure_database_handles_error_during_setting_clandestine_port() {
