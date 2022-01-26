@@ -697,8 +697,9 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::{ConfigDaoMock, ConfigDaoWriteableMock};
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
-    use crate::persistent_config_assertions_for_simple_get_method;
-    use crate::persistent_config_assertions_for_simple_set_method;
+    use crate::getter_method_plain_data_does_not_tolerate_none_value;
+    use crate::persistent_config_plain_data_assertions_for_simple_get_method;
+    use crate::persistent_config_plain_data_assertions_for_simple_set_method;
     use crate::test_utils::main_cryptde;
     use bip39::{Language, MnemonicType};
     use lazy_static::lazy_static;
@@ -1894,125 +1895,267 @@ mod tests {
 
     #[test]
     fn routing_byte_rate_works() {
-        persistent_config_assertions_for_simple_get_method!("routing_byte_rate", 1234);
+        persistent_config_plain_data_assertions_for_simple_get_method!("routing_byte_rate", 1234);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: routing_byte_rate; database is corrupt!"
+    )]
+    fn routing_byte_rate_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("routing_byte_rate");
     }
 
     #[test]
     fn set_routing_byte_rate_works() {
-        persistent_config_assertions_for_simple_set_method!("routing_byte_rate", 4321);
+        persistent_config_plain_data_assertions_for_simple_set_method!("routing_byte_rate", 4321);
     }
 
     #[test]
     fn routing_service_rate_works() {
-        persistent_config_assertions_for_simple_get_method!("routing_service_rate", 1212);
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "routing_service_rate",
+            1212
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: routing_service_rate; database is corrupt!"
+    )]
+    fn routing_service_rate_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("routing_service_rate");
     }
 
     #[test]
     fn set_routing_service_rate_works() {
-        persistent_config_assertions_for_simple_set_method!("routing_service_rate", 4444);
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "routing_service_rate",
+            4444
+        );
     }
 
     #[test]
     fn exit_byte_rate_works() {
-        persistent_config_assertions_for_simple_get_method!("exit_byte_rate", 5);
+        persistent_config_plain_data_assertions_for_simple_get_method!("exit_byte_rate", 5);
+    }
+
+    #[test]
+    #[should_panic(expected = "ever-supplied value missing: exit_byte_rate; database is corrupt!")]
+    fn exit_byte_rate_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("exit_byte_rate");
     }
 
     #[test]
     fn set_exit_byte_rate_works() {
-        persistent_config_assertions_for_simple_set_method!("exit_byte_rate", 6);
+        persistent_config_plain_data_assertions_for_simple_set_method!("exit_byte_rate", 6);
     }
 
     #[test]
     fn exit_service_rate_works() {
-        persistent_config_assertions_for_simple_get_method!("exit_service_rate", 9);
+        persistent_config_plain_data_assertions_for_simple_get_method!("exit_service_rate", 9);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: exit_service_rate; database is corrupt!"
+    )]
+    fn exit_service_rate_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("exit_service_rate");
     }
 
     #[test]
     fn set_exit_service_rate_works() {
-        persistent_config_assertions_for_simple_set_method!("exit_service_rate", 8);
+        persistent_config_plain_data_assertions_for_simple_set_method!("exit_service_rate", 8);
     }
 
     #[test]
     fn balance_decreases_for_sec_works() {
-        persistent_config_assertions_for_simple_get_method!("balance_decreases_for_sec", 1234);
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "balance_decreases_for_sec",
+            1234
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: balance_decreases_for_sec; database is corrupt!"
+    )]
+    fn balance_decreases_for_sec_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("balance_decreases_for_sec");
     }
 
     #[test]
     fn set_balance_decreases_for_sec_works() {
-        persistent_config_assertions_for_simple_set_method!("balance_decreases_for_sec", 3333);
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "balance_decreases_for_sec",
+            3333
+        );
     }
 
     #[test]
     fn balance_to_decrease_from_gwei_works() {
-        persistent_config_assertions_for_simple_get_method!("balance_to_decrease_from_gwei", 1234);
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "balance_to_decrease_from_gwei",
+            1234
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: balance_to_decrease_from_gwei; database is corrupt!"
+    )]
+    fn balance_to_decrease_from_gwei_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("balance_to_decrease_from_gwei");
     }
 
     #[test]
     fn set_balance_to_decrease_from_gwei_works() {
-        persistent_config_assertions_for_simple_set_method!("balance_to_decrease_from_gwei", 2222);
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "balance_to_decrease_from_gwei",
+            2222
+        );
     }
 
     #[test]
     fn payable_scan_interval_works() {
-        persistent_config_assertions_for_simple_get_method!("payable_scan_interval", 3600);
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "payable_scan_interval",
+            3600
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: payable_scan_interval; database is corrupt!"
+    )]
+    fn payable_scan_interval_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("payable_scan_interval");
     }
 
     #[test]
     fn set_payable_scan_interval_works() {
-        persistent_config_assertions_for_simple_set_method!("payable_scan_interval", 2255);
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "payable_scan_interval",
+            2255
+        );
     }
 
     #[test]
     fn pending_payment_scan_interval_works() {
-        persistent_config_assertions_for_simple_get_method!("pending_payment_scan_interval", 3600);
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "pending_payment_scan_interval",
+            3600
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: pending_payment_scan_interval; database is corrupt!"
+    )]
+    fn pending_payment_scan_interval_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("pending_payment_scan_interval");
     }
 
     #[test]
     fn set_pending_payment_scan_interval_works() {
-        persistent_config_assertions_for_simple_set_method!("pending_payment_scan_interval", 1133);
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "pending_payment_scan_interval",
+            1133
+        );
     }
 
     #[test]
     fn receivable_scan_interval_works() {
-        persistent_config_assertions_for_simple_get_method!("receivable_scan_interval", 3600);
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "receivable_scan_interval",
+            3600
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: receivable_scan_interval; database is corrupt!"
+    )]
+    fn receivable_scan_interval_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("receivable_scan_interval");
     }
 
     #[test]
     fn set_receivable_scan_interval_works() {
-        persistent_config_assertions_for_simple_set_method!("receivable_scan_interval", 2222);
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "receivable_scan_interval",
+            2222
+        );
     }
 
     #[test]
     fn payment_grace_before_ban_sec_works() {
-        persistent_config_assertions_for_simple_get_method!("payment_grace_before_ban_sec", 10000);
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "payment_grace_before_ban_sec",
+            10000
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: payment_grace_before_ban_sec; database is corrupt!"
+    )]
+    fn payment_grace_before_ban_sec_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("payment_grace_before_ban_sec");
     }
 
     #[test]
     fn set_payment_grace_before_ban_sec_works() {
-        persistent_config_assertions_for_simple_set_method!("payment_grace_before_ban_sec", 3444);
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "payment_grace_before_ban_sec",
+            3444
+        );
     }
 
     #[test]
     fn permanent_debt_allowed_gwei_works() {
-        persistent_config_assertions_for_simple_get_method!("permanent_debt_allowed_gwei", 100000);
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "permanent_debt_allowed_gwei",
+            100000
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: permanent_debt_allowed_gwei; database is corrupt!"
+    )]
+    fn permanent_debt_allowed_gwei_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("permanent_debt_allowed_gwei");
     }
 
     #[test]
     fn set_permanent_debt_allowed_gwei_works() {
-        persistent_config_assertions_for_simple_set_method!("permanent_debt_allowed_gwei", 3333);
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "permanent_debt_allowed_gwei",
+            3333
+        );
     }
 
     #[test]
     fn unban_when_balance_below_gwei_works() {
-        persistent_config_assertions_for_simple_get_method!(
+        persistent_config_plain_data_assertions_for_simple_get_method!(
             "unban_when_balance_below_gwei",
             100000
         );
     }
 
     #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: unban_when_balance_below_gwei; database is corrupt!"
+    )]
+    fn unban_when_balance_below_gwei_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("unban_when_balance_below_gwei");
+    }
+
+    #[test]
     fn set_unban_when_balance_below_gwei_works() {
-        persistent_config_assertions_for_simple_set_method!(
+        persistent_config_plain_data_assertions_for_simple_set_method!(
             "unban_when_balance_below_gwei",
             111111
         );
@@ -2020,16 +2163,30 @@ mod tests {
 
     #[test]
     fn payment_suggested_after_sec_works() {
-        persistent_config_assertions_for_simple_get_method!("payment_suggested_after_sec", 7200);
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "payment_suggested_after_sec",
+            7200
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: payment_suggested_after_sec; database is corrupt!"
+    )]
+    fn payment_suggested_after_sec_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("payment_suggested_after_sec");
     }
 
     #[test]
     fn set_payment_suggested_after_sec_works() {
-        persistent_config_assertions_for_simple_set_method!("payment_suggested_after_sec", 8000);
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "payment_suggested_after_sec",
+            8000
+        );
     }
 
     #[macro_export]
-    macro_rules! persistent_config_assertions_for_simple_get_method {
+    macro_rules! persistent_config_plain_data_assertions_for_simple_get_method {
         ($parameter_name: literal,$expected_value: expr) => {
             paste! {
                 let get_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2059,7 +2216,7 @@ mod tests {
     }
 
     #[macro_export]
-    macro_rules! persistent_config_assertions_for_simple_set_method {
+    macro_rules! persistent_config_plain_data_assertions_for_simple_set_method {
         ($parameter_name: literal,$set_value: expr) => {
             paste! {
                 let set_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2082,6 +2239,23 @@ mod tests {
                         Some($set_value.to_string())
                     )]
                 );
+            }
+        };
+    }
+
+    #[macro_export]
+    macro_rules! getter_method_plain_data_does_not_tolerate_none_value {
+        ($parameter_name: literal) => {
+            paste! {
+                let config_dao = ConfigDaoMock::new()
+                    .get_result(Ok(ConfigDaoRecord::new(
+                        $parameter_name,
+                        None,
+                        false,
+                    )));
+                let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+                let _ = subject.[<$parameter_name>]();
             }
         };
     }
