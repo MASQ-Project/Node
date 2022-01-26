@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::db_initializer::{DbInitializerReal, ENCRYPTED_ROWS};
+use crate::database::db_initializer::{DbInitializerReal, CURRENT_SCHEMA_VERSION};
 use crate::db_config::config_dao::{
     ConfigDao, ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord, ConfigDaoWrite,
 };
@@ -46,7 +46,7 @@ insurmountable, but it would need to be considered and coded around.
  */
 
 pub struct ConfigDaoNull {
-    data: HashMap<String, String>,
+    data: HashMap<String, (Option<String>, bool)>,
 }
 
 impl ConfigDao for ConfigDaoNull {
@@ -66,22 +66,21 @@ impl ConfigDaoRead for ConfigDaoNull {
         let keys = self.data.keys().sorted();
         Ok(keys
             .map(|key| {
-                ConfigDaoRecord::new(
-                    key,
-                    Some(self.data.get(key).expect("Value disappeared")),
-                    false,
-                )
+                let value_pair = self.data.get(key).expect("Value disappeared");
+                ConfigDaoRecord::new_owned(key.to_string(), value_pair.0.clone(), value_pair.1)
             })
             .collect())
     }
 
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
-        let is_encrypted = ENCRYPTED_ROWS.contains(&name);
-        Ok(ConfigDaoRecord::new(
-            name,
-            self.data.get(name).map(|s| s.as_str()),
-            is_encrypted,
-        ))
+        match self.data.get(name) {
+            None => Err(ConfigDaoError::NotPresent),
+            Some((value_opt, encrypted)) => Ok(ConfigDaoRecord::new_owned(
+                name.to_string(),
+                value_opt.clone(),
+                *encrypted,
+            )),
+        }
     }
 }
 
@@ -106,78 +105,132 @@ impl Default for ConfigDaoNull {
         let mut data = HashMap::new();
         data.insert(
             "chain_name".to_string(),
-            Chain::default().rec().literal_identifier.to_string(),
+            (
+                Some(Chain::default().rec().literal_identifier.to_string()),
+                false,
+            ),
         );
         data.insert(
             "clandestine_port".to_string(),
-            DbInitializerReal::choose_clandestine_port().to_string(),
+            (
+                Some(DbInitializerReal::choose_clandestine_port().to_string()),
+                false,
+            ),
         );
-        data.insert("gas_price".to_string(), "1".to_string());
+        data.insert("gas_price".to_string(), (Some("1".to_string()), false));
         data.insert(
             "start_block".to_string(),
-            ETH_MAINNET_CONTRACT_CREATION_BLOCK.to_string(),
+            (Some(ETH_MAINNET_CONTRACT_CREATION_BLOCK.to_string()), false),
+        );
+        data.insert("consuming_wallet_private_key".to_string(), (None, true));
+        data.insert("example_encrypted".to_string(), (None, true));
+        data.insert(
+            "neighborhood_mode".to_string(),
+            (Some("standard".to_string()), false),
+        );
+        data.insert("blockchain_service_url".to_string(), (None, false));
+        data.insert("past_neighbors".to_string(), (None, true));
+        data.insert("mapping_protocol".to_string(), (None, false));
+        data.insert("earning_wallet_address".to_string(), (None, false));
+        data.insert(
+            "schema_version".to_string(),
+            (Some(format!("{}", CURRENT_SCHEMA_VERSION)), false),
         );
         data.insert(
             "balance_decreases_for_sec".to_string(),
-            DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec.to_string(),
+            (
+                Some(DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec.to_string()),
+                false,
+            ),
         );
         data.insert(
             "balance_to_decrease_from_gwei".to_string(),
-            DEFAULT_PAYMENT_CURVES
-                .balance_to_decrease_from_gwei
-                .to_string(),
+            (
+                Some(
+                    DEFAULT_PAYMENT_CURVES
+                        .balance_to_decrease_from_gwei
+                        .to_string(),
+                ),
+                false,
+            ),
         );
         data.insert(
             "exit_byte_rate".to_string(),
-            DEFAULT_RATE_PACK.exit_byte_rate.to_string(),
+            (Some(DEFAULT_RATE_PACK.exit_byte_rate.to_string()), false),
         );
         data.insert(
             "exit_service_rate".to_string(),
-            DEFAULT_RATE_PACK.exit_service_rate.to_string(),
+            (Some(DEFAULT_RATE_PACK.exit_service_rate.to_string()), false),
         );
         data.insert(
             "payable_scan_interval".to_string(),
-            DEFAULT_PAYABLE_SCAN_INTERVAL.to_string(),
+            (Some(DEFAULT_PAYABLE_SCAN_INTERVAL.to_string()), false),
         );
         data.insert(
             "payment_grace_before_ban_sec".to_string(),
-            DEFAULT_PAYMENT_CURVES
-                .payment_grace_before_ban_sec
-                .to_string(),
+            (
+                Some(
+                    DEFAULT_PAYMENT_CURVES
+                        .payment_grace_before_ban_sec
+                        .to_string(),
+                ),
+                false,
+            ),
         );
         data.insert(
             "payment_suggested_after_sec".to_string(),
-            DEFAULT_PAYMENT_CURVES
-                .payment_suggested_after_sec
-                .to_string(),
+            (
+                Some(
+                    DEFAULT_PAYMENT_CURVES
+                        .payment_suggested_after_sec
+                        .to_string(),
+                ),
+                false,
+            ),
         );
         data.insert(
             "pending_payment_scan_interval".to_string(),
-            DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL.to_string(),
+            (
+                Some(DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL.to_string()),
+                false,
+            ),
         );
         data.insert(
             "permanent_debt_allowed_gwei".to_string(),
-            DEFAULT_PAYMENT_CURVES
-                .permanent_debt_allowed_gwei
-                .to_string(),
+            (
+                Some(
+                    DEFAULT_PAYMENT_CURVES
+                        .permanent_debt_allowed_gwei
+                        .to_string(),
+                ),
+                false,
+            ),
         );
         data.insert(
             "receivable_scan_interval".to_string(),
-            DEFAULT_RECEIVABLE_SCAN_INTERVAL.to_string(),
+            (Some(DEFAULT_RECEIVABLE_SCAN_INTERVAL.to_string()), false),
         );
         data.insert(
             "routing_byte_rate".to_string(),
-            DEFAULT_RATE_PACK.routing_byte_rate.to_string(),
+            (Some(DEFAULT_RATE_PACK.routing_byte_rate.to_string()), false),
         );
         data.insert(
             "routing_service_rate".to_string(),
-            DEFAULT_RATE_PACK.routing_service_rate.to_string(),
+            (
+                Some(DEFAULT_RATE_PACK.routing_service_rate.to_string()),
+                false,
+            ),
         );
         data.insert(
             "unban_when_balance_below_gwei".to_string(),
-            DEFAULT_PAYMENT_CURVES
-                .unban_when_balance_below_gwei
-                .to_string(),
+            (
+                Some(
+                    DEFAULT_PAYMENT_CURVES
+                        .unban_when_balance_below_gwei
+                        .to_string(),
+                ),
+                false,
+            ),
         );
         Self { data }
     }
@@ -211,9 +264,9 @@ mod tests {
         );
         assert_eq!(
             subject.get("clandestine_port").unwrap(),
-            ConfigDaoRecord::new(
-                "clandestine_port",
-                Some(subject.data.get("clandestine_port").unwrap()),
+            ConfigDaoRecord::new_owned(
+                "clandestine_port".to_string(),
+                subject.data.get("clandestine_port").unwrap().0.clone(),
                 false
             )
         );
@@ -229,13 +282,10 @@ mod tests {
                 false
             )
         );
+        assert_eq!(subject.get("booga"), Err(ConfigDaoError::NotPresent));
         assert_eq!(
-            subject.get("booga").unwrap(),
-            ConfigDaoRecord::new("booga", None, false)
-        );
-        assert_eq!(
-            subject.get("seed").unwrap(),
-            ConfigDaoRecord::new("seed", None, true)
+            subject.get("consuming_wallet_private_key").unwrap(),
+            ConfigDaoRecord::new("consuming_wallet_private_key", None, true)
         );
         assert_eq!(
             subject.get("balance_decreases_for_sec").unwrap(),
@@ -364,44 +414,75 @@ mod tests {
     }
 
     #[test]
-    fn encrypted_rows_are_encrypted() {
-        let subject = ConfigDaoNull::default();
-
-        let results = ENCRYPTED_ROWS
-            .iter()
-            .map(|name| subject.get(*name))
-            .collect_vec();
-
-        results.into_iter().for_each(|result| {
-            let rec = result.unwrap();
-            assert_eq!(rec.value_opt, None);
-            assert_eq!(rec.encrypted, true);
-        })
-    }
-
-    #[test]
-    fn encrypted_rows_constant_is_correct() {
+    fn all_configurable_items_are_included() {
         let data_dir = ensure_node_home_directory_exists(
             "config_dao_null",
-            "encrypted_rows_constant_is_correct",
+            "all_configurable_items_are_included",
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
             .initialize(&data_dir, true, MigratorConfig::test_default())
             .unwrap();
         let real_config_dao = ConfigDaoReal::new(conn);
-        let records = real_config_dao.get_all().unwrap();
-        let expected_encrypted_names = records
+        let subject = ConfigDaoNull::default();
+        let real_pairs = return_parameter_pairs(&real_config_dao);
+
+        let null_pairs = return_parameter_pairs(&subject);
+
+        assert_eq!(null_pairs, real_pairs);
+    }
+
+    fn return_parameter_pairs(dao: &dyn ConfigDao) -> HashSet<(String, bool)> {
+        dao.get_all()
+            .unwrap()
             .into_iter()
-            .filter(|record| record.encrypted)
-            .map(|record| record.name.clone())
-            .collect::<HashSet<String>>();
+            .map(|r| (r.name, r.encrypted))
+            .collect()
+    }
 
-        let actual_encrypted_names = ENCRYPTED_ROWS
-            .iter()
-            .map(|name| name.to_string())
-            .collect::<HashSet<String>>();
+    #[test]
+    fn values_are_correct() {
+        let subject = ConfigDaoNull::default();
 
-        assert_eq!(actual_encrypted_names, expected_encrypted_names);
+        let value_pairs = subject
+            .get_all()
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.name, r.value_opt))
+            .collect::<Vec<(String, Option<String>)>>()
+            .sort_by_key(|p| p.0.clone());
+
+        let expected_pairs = vec![
+            (
+                "chain_name",
+                Some(Chain::default().rec().literal_identifier),
+            ),
+            (
+                "clandestine_port",
+                Some(format!("{}", DbInitializerReal::choose_clandestine_port()).as_str()),
+            ),
+            ("gas_price", Some("1")),
+            (
+                "start_block",
+                Some(ETH_MAINNET_CONTRACT_CREATION_BLOCK.to_string().as_str()),
+            ),
+            ("consuming_wallet_private_key", None),
+            ("example_encrypted", None),
+            ("neighborhood_mode", Some("standard")),
+            ("blockchain_service_url", None),
+            ("past_neighbors", None),
+            ("mapping_protocol", None),
+            ("earning_wallet_address", None),
+            (
+                "schema_version",
+                Some(format!("{}", CURRENT_SCHEMA_VERSION).as_str()),
+            ),
+        ]
+        .into_iter()
+        .map(|(k, v_opt)| (k.to_string(), v_opt.map(|v| v.to_string())))
+        .collect::<Vec<(String, Option<String>)>>()
+        .sort_by_key(|p| p.0.clone());
+
+        assert_eq!(value_pairs, expected_pairs);
     }
 }

@@ -108,17 +108,24 @@ impl NodeConfiguratorStandardUnprivileged {
     }
 
     fn wrap_up_db_externals(&self, multi_config: &MultiConfig) -> ExternalData {
-        let neighborhood_mode = collect_externals_from_multi_config(multi_config);
+        let (neighborhood_mode, db_password_opt) =
+            collect_externals_from_multi_config(multi_config);
         ExternalData::new(
             self.privileged_config.blockchain_bridge_config.chain,
             neighborhood_mode,
+            db_password_opt,
         )
     }
 }
 
-fn collect_externals_from_multi_config(multi_config: &MultiConfig) -> NeighborhoodModeLight {
-    value_m!(multi_config, "neighborhood-mode", NeighborhoodModeLight)
-        .unwrap_or(NeighborhoodModeLight::Standard)
+fn collect_externals_from_multi_config(
+    multi_config: &MultiConfig,
+) -> (NeighborhoodModeLight, Option<String>) {
+    (
+        value_m!(multi_config, "neighborhood-mode", NeighborhoodModeLight)
+            .unwrap_or(NeighborhoodModeLight::Standard),
+        value_m!(multi_config, "db-password", String),
+    )
 }
 
 pub fn server_initializer_collected_params<'a>(
@@ -878,14 +885,35 @@ mod tests {
     }
 
     #[test]
-    fn wrap_up_db_externals_is_properly_set() {
+    fn wrap_up_db_externals_is_properly_set_when_password_is_provided() {
+        let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
+        subject.privileged_config.blockchain_bridge_config.chain = DEFAULT_CHAIN;
+        let multi_config = make_simplified_multi_config([
+            "--neighborhood-mode",
+            "zero-hop",
+            "--db-password",
+            "password",
+        ]);
+
+        let result = subject.wrap_up_db_externals(&multi_config);
+
+        let expected = ExternalData::new(
+            DEFAULT_CHAIN,
+            NeighborhoodModeLight::ZeroHop,
+            Some("password".to_string()),
+        );
+        assert_eq!(result, expected)
+    }
+
+    #[test]
+    fn wrap_up_db_externals_is_properly_set_when_no_password_is_provided() {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config.blockchain_bridge_config.chain = DEFAULT_CHAIN;
         let multi_config = make_simplified_multi_config(["--neighborhood-mode", "zero-hop"]);
 
         let result = subject.wrap_up_db_externals(&multi_config);
 
-        let expected = ExternalData::new(DEFAULT_CHAIN, NeighborhoodModeLight::ZeroHop);
+        let expected = ExternalData::new(DEFAULT_CHAIN, NeighborhoodModeLight::ZeroHop, None);
         assert_eq!(result, expected)
     }
 }
