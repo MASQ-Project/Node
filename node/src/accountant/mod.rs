@@ -41,6 +41,7 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
+use masq_lib::payment_curves_and_rate_pack::PaymentCurves;
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
@@ -71,6 +72,7 @@ pub struct Accountant {
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayments>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
+    payable_threshold_tools: Box<dyn PayableExceedThresholdTools>,
     logger: Logger,
 }
 
@@ -234,6 +236,7 @@ impl Accountant {
             report_new_payments_sub: None,
             report_sent_payments_sub: None,
             ui_message_sub: None,
+            payable_threshold_tools: Box::new(PayableExceedThresholdToolsReal {}),
             logger: Logger::new("Accountant"),
         }
     }
@@ -376,31 +379,28 @@ impl Accountant {
             .expect("Internal error")
             .as_secs();
 
-        if time_since_last_paid <= DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec as u64 {
+        if self.payable_threshold_tools.safe_age(
+            time_since_last_paid,
+            self.config.payment_curves.payment_suggested_after_sec as u64,
+        ) {
             return None;
         }
 
-        if payable.balance <= DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei {
+        if self.payable_threshold_tools.safe_balance(
+            payable.balance,
+            self.config.payment_curves.permanent_debt_allowed_gwei,
+        ) {
             return None;
         }
 
-        let threshold = Accountant::calculate_payout_threshold(self, time_since_last_paid);
+        let threshold = self
+            .payable_threshold_tools
+            .calculate_payout_threshold(self.config.payment_curves, time_since_last_paid);
         if payable.balance as f64 > threshold {
             Some(threshold as u64)
         } else {
             None
         }
-    }
-
-    fn calculate_payout_threshold(&self, x: u64) -> f64 {
-        let payment_curves = self.config.payment_curves;
-        let m = -((payment_curves.balance_to_decrease_from_gwei as f64
-            - payment_curves.permanent_debt_allowed_gwei as f64)
-            / (payment_curves.balance_decreases_for_sec as f64
-                - payment_curves.payment_suggested_after_sec as f64));
-        let b = payment_curves.balance_to_decrease_from_gwei as f64
-            - m * payment_curves.payment_suggested_after_sec as f64;
-        m * x as f64 + b
     }
 
     fn record_service_provided(
@@ -498,18 +498,25 @@ impl Accountant {
                     .duration_since(p.last_paid_timestamp)
                     .expect("Payable time is corrupt");
                 {
-                    //seek for a test for this if you don't understand the purpose
-                    let check_age_significance_across =
+                    //pursue a test for this if you don't understand;
+                    //but we choose a candidate by a strong parameter where also the second parameter is weighted
+                    //when finding the already highest value for the first one
+                    let check_age_parameter_if_the_first_are_the_same =
                         || -> bool { p.balance == biggest.balance && p_age > biggest.age };
-                    if p.balance > biggest.balance || check_age_significance_across() {
+
+                    if p.balance > biggest.balance
+                        || check_age_parameter_if_the_first_are_the_same()
+                    {
                         biggest = PayableInfo {
                             balance: p.balance,
                             age: p_age,
                         }
                     }
-                    let check_balance_significance_across =
+
+                    let check_balance_parameter_if_the_first_are_the_same =
                         || -> bool { p_age == oldest.age && p.balance > oldest.balance };
-                    if p_age > oldest.age || check_balance_significance_across() {
+
+                    if p_age > oldest.age || check_balance_parameter_if_the_first_are_the_same() {
                         oldest = PayableInfo {
                             balance: p.balance,
                             age: p_age,
@@ -734,6 +741,35 @@ pub fn jackass_unsigned_to_signed(unsigned: u64) -> Result<i64, PaymentError> {
         Ok(unsigned as i64)
     } else {
         Err(PaymentError::SignConversion(unsigned))
+    }
+}
+
+//TODO the data types should change with GH-497 (including signed => unsigned)
+trait PayableExceedThresholdTools {
+    fn safe_age(&self, age: u64, limit: u64) -> bool;
+    fn safe_balance(&self, balance: i64, limit: i64) -> bool;
+    fn calculate_payout_threshold(&self, payment_curves: PaymentCurves, x: u64) -> f64;
+}
+
+struct PayableExceedThresholdToolsReal {}
+
+impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
+    fn safe_age(&self, age: u64, limit: u64) -> bool {
+        age <= limit
+    }
+
+    fn safe_balance(&self, balance: i64, limit: i64) -> bool {
+        balance <= limit
+    }
+
+    fn calculate_payout_threshold(&self, payment_curves: PaymentCurves, x: u64) -> f64 {
+        let m = -((payment_curves.balance_to_decrease_from_gwei as f64
+            - payment_curves.permanent_debt_allowed_gwei as f64)
+            / (payment_curves.balance_decreases_for_sec as f64
+                - payment_curves.payment_suggested_after_sec as f64));
+        let b = payment_curves.balance_to_decrease_from_gwei as f64
+            - m * payment_curves.payment_suggested_after_sec as f64;
+        m * x as f64 + b
     }
 }
 
@@ -1224,6 +1260,78 @@ pub mod tests {
 
         fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
             self.called = called.clone();
+            self
+        }
+    }
+
+    #[derive(Default)]
+    struct PayableThresholdToolsMock {
+        safe_age_params: Arc<Mutex<Vec<(u64, u64)>>>,
+        safe_age_results: RefCell<Vec<bool>>,
+        safe_balance_params: Arc<Mutex<Vec<(i64, i64)>>>,
+        safe_balance_results: RefCell<Vec<bool>>,
+        calculate_payout_threshold_params: Arc<Mutex<Vec<(PaymentCurves, u64)>>>,
+        calculate_payout_threshold_results: RefCell<Vec<f64>>,
+    }
+
+    impl PayableExceedThresholdTools for PayableThresholdToolsMock {
+        fn safe_age(&self, age: u64, limit: u64) -> bool {
+            self.safe_age_params.lock().unwrap().push((age, limit));
+            self.safe_age_results.borrow_mut().remove(0)
+        }
+
+        fn safe_balance(&self, balance: i64, limit: i64) -> bool {
+            self.safe_balance_params
+                .lock()
+                .unwrap()
+                .push((balance, limit));
+            self.safe_balance_results.borrow_mut().remove(0)
+        }
+
+        fn calculate_payout_threshold(&self, payment_curves: PaymentCurves, x: u64) -> f64 {
+            self.calculate_payout_threshold_params
+                .lock()
+                .unwrap()
+                .push((payment_curves, x));
+            self.calculate_payout_threshold_results
+                .borrow_mut()
+                .remove(0)
+        }
+    }
+
+    impl PayableThresholdToolsMock {
+        fn safe_age_params(mut self, params: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
+            self.safe_age_params = params.clone();
+            self
+        }
+
+        fn safe_age_result(self, result: bool) -> Self {
+            self.safe_age_results.borrow_mut().push(result);
+            self
+        }
+
+        fn safe_balance_params(mut self, params: &Arc<Mutex<Vec<(i64, i64)>>>) -> Self {
+            self.safe_balance_params = params.clone();
+            self
+        }
+
+        fn safe_balance_result(self, result: bool) -> Self {
+            self.safe_balance_results.borrow_mut().push(result);
+            self
+        }
+
+        fn calculate_payout_threshold_params(
+            mut self,
+            params: &Arc<Mutex<Vec<(PaymentCurves, u64)>>>,
+        ) -> Self {
+            self.calculate_payout_threshold_params = params.clone();
+            self
+        }
+
+        fn calculate_payout_threshold_result(self, result: f64) -> Self {
+            self.calculate_payout_threshold_results
+                .borrow_mut()
+                .push(result);
             self
         }
     }
@@ -2678,6 +2786,83 @@ pub mod tests {
                    10001000 owed for 2593234sec exceeds threshold: 9512428; creditor: 0x0000000000000000000000000077616c6c657430\n\
                    10000001 owed for 2592001sec exceeds threshold: 9999604; creditor: 0x0000000000000000000000000077616c6c657431"
         )
+    }
+
+    #[test]
+    fn threshold_calculation_depends_on_user_defined_payment_curves() {
+        let safe_age_params_arc = Arc::new(Mutex::new(vec![]));
+        let safe_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        let calculate_payable_threshold_params_arc = Arc::new(Mutex::new(vec![]));
+        let balance = 5555;
+        let how_far_in_past = Duration::from_secs(1111 + 1);
+        let last_paid_timestamp = SystemTime::now().sub(how_far_in_past);
+        let payable_account = PayableAccount {
+            wallet: make_wallet("hi"),
+            balance,
+            last_paid_timestamp,
+            pending_payment_transaction: None,
+        };
+        let custom_payment_curves = PaymentCurves {
+            payment_suggested_after_sec: 1111,
+            payment_grace_before_ban_sec: 2222,
+            permanent_debt_allowed_gwei: 3333,
+            balance_to_decrease_from_gwei: 4444,
+            balance_decreases_for_sec: 5555,
+            unban_when_balance_below_gwei: 3333,
+        };
+        let mut bootstrapper_config = BootstrapperConfig::default();
+        bootstrapper_config.accountant_config_opt = Some(AccountantConfig {
+            pending_payment_scan_interval: Default::default(),
+            payable_scan_interval: Default::default(),
+            receivable_scan_interval: Default::default(),
+            payment_curves: custom_payment_curves,
+        });
+        let payable_thresholds_tools = PayableThresholdToolsMock::default()
+            .safe_age_params(&safe_age_params_arc)
+            .safe_age_result(
+                how_far_in_past.as_secs()
+                    <= custom_payment_curves.payment_suggested_after_sec as u64,
+            )
+            .safe_balance_params(&safe_balance_params_arc)
+            .safe_balance_result(balance <= custom_payment_curves.permanent_debt_allowed_gwei)
+            .calculate_payout_threshold_params(&calculate_payable_threshold_params_arc)
+            .calculate_payout_threshold_result(4567.0); //made up value
+        let mut subject = make_subject(Some(bootstrapper_config), None, None, None, None);
+        subject.payable_threshold_tools = Box::new(payable_thresholds_tools);
+
+        let result = subject.payable_exceeded_threshold(&payable_account);
+
+        assert_eq!(result, Some(4567));
+        let mut safe_age_params = safe_age_params_arc.lock().unwrap();
+        let safe_age_single_params = safe_age_params.remove(0);
+        assert_eq!(*safe_age_params, vec![]);
+        let (time_elapsed, curve_derived_time) = safe_age_single_params;
+        assert!(
+            (how_far_in_past.as_secs() - 3) < time_elapsed
+                && time_elapsed < (how_far_in_past.as_secs() + 3)
+        );
+        assert_eq!(
+            curve_derived_time,
+            custom_payment_curves.payment_suggested_after_sec as u64
+        );
+        let safe_balance_params = safe_balance_params_arc.lock().unwrap();
+        assert_eq!(
+            *safe_balance_params,
+            vec![(
+                payable_account.balance,
+                custom_payment_curves.permanent_debt_allowed_gwei
+            )]
+        );
+        let mut calculate_payable_curves_params =
+            calculate_payable_threshold_params_arc.lock().unwrap();
+        let calculate_payable_curves_single_params = calculate_payable_curves_params.remove(0);
+        assert_eq!(*calculate_payable_curves_params, vec![]);
+        let (payment_curves, time_elapsed) = calculate_payable_curves_single_params;
+        assert!(
+            (how_far_in_past.as_secs() - 3) < time_elapsed
+                && time_elapsed < (how_far_in_past.as_secs() + 3)
+        );
+        assert_eq!(payment_curves, custom_payment_curves)
     }
 
     #[test]
