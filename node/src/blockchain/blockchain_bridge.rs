@@ -14,7 +14,6 @@ use crate::db_config::persistent_configuration::{
 };
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::handle_ui_crash_request;
@@ -25,6 +24,7 @@ use actix::Handler;
 use actix::Message;
 use actix::{Addr, Recipient};
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::convert::TryFrom;
 use std::path::PathBuf;
@@ -213,22 +213,24 @@ impl BlockchainBridge {
             .retrieve_transactions(start_block, &msg.recipient);
         match retrieved_transactions {
             Ok(transactions) => {
-                if let Err(e) = self.persistent_config.set_start_block(transactions.new_start_block) {
+                if let Err(e) = self
+                    .persistent_config
+                    .set_start_block(transactions.new_start_block)
+                {
                     panic! ("Cannot set start block in database; payments to you may not be processed: {:?}", e)
                 };
                 if transactions.transactions.is_empty() {
                     debug!(self.logger, "No new receivable detected");
                     return;
                 }
-                self
-                    .received_payments_subs_opt
+                self.received_payments_subs_opt
                     .as_ref()
                     .expect("Accountant is unbound")
                     .try_send(ReceivedPayments {
                         payments: transactions.transactions,
                     })
                     .expect("Accountant is dead.")
-            },
+            }
             Err(e) => warning!(
                 self.logger,
                 "Attempted to retrieve received payments but failed: {:?}",
@@ -279,13 +281,13 @@ mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::blockchain::blockchain_interface::{BlockchainError, RetrievedTransactions, Transaction};
+    use crate::blockchain::blockchain_interface::{
+        BlockchainError, RetrievedTransactions, Transaction,
+    };
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::{
         make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up,
@@ -295,6 +297,8 @@ mod tests {
     use actix::System;
     use ethsign_crypto::Keccak256;
     use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use rustc_hex::FromHex;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
@@ -586,8 +590,7 @@ mod tests {
         let blockchain_interface = BlockchainInterfaceMock::default().retrieve_transactions_result(
             Err(BlockchainError::QueryFailed("we have no luck".to_string())),
         );
-        let persistent_config = PersistentConfigurationMock::new ()
-            .start_block_result(Ok(5)); // no set_start_block_result: set_start_block() must not be called
+        let persistent_config = PersistentConfigurationMock::new().start_block_result(Ok(5)); // no set_start_block_result: set_start_block() must not be called
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),
@@ -628,7 +631,7 @@ mod tests {
                     from: earning_wallet.clone(),
                     gwei_amount: amount2,
                 },
-            ]
+            ],
         };
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
@@ -674,13 +677,16 @@ mod tests {
     #[test]
     fn processing_of_received_payments_does_not_continue_if_no_payments_detected() {
         init_test_logging();
-        let blockchain_interface_mock =
-            BlockchainInterfaceMock::default().retrieve_transactions_result(Ok(RetrievedTransactions {new_start_block: 7, transactions: vec![]}));
-        let set_start_block_params_arc = Arc::new (Mutex::new (vec![]));
-        let persistent_config = PersistentConfigurationMock::new ()
-            .start_block_result (Ok (6))
-            .set_start_block_params (&set_start_block_params_arc)
-            .set_start_block_result (Ok(()));
+        let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .retrieve_transactions_result(Ok(RetrievedTransactions {
+                new_start_block: 7,
+                transactions: vec![],
+            }));
+        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .start_block_result(Ok(6))
+            .set_start_block_params(&set_start_block_params_arc)
+            .set_start_block_result(Ok(()));
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_config),
@@ -694,17 +700,19 @@ mod tests {
         let _ = subject.handle_retrieve_transactions(retrieve_transactions);
 
         let set_start_block_params = set_start_block_params_arc.lock().unwrap();
-        assert_eq! (*set_start_block_params, vec![7]);
+        assert_eq!(*set_start_block_params, vec![7]);
         TestLogHandler::new()
             .exists_log_containing("DEBUG: BlockchainBridge: No new receivable detected");
         //the test did not panic, meaning we did not try to send the actor message
     }
 
     #[test]
-    #[should_panic (expected = "Cannot retrieve start block from database; payments to you may not be processed: TransactionError")]
+    #[should_panic(
+        expected = "Cannot retrieve start block from database; payments to you may not be processed: TransactionError"
+    )]
     fn handle_retrieve_transactions_panics_if_start_block_cannot_be_read() {
-        let persistent_config = PersistentConfigurationMock::new ()
-            .start_block_result (Err (PersistentConfigError::TransactionError));
+        let persistent_config = PersistentConfigurationMock::new()
+            .start_block_result(Err(PersistentConfigError::TransactionError));
         let mut subject = BlockchainBridge::new(
             Box::new(BlockchainInterfaceMock::default()),
             Box::new(persistent_config),
@@ -719,20 +727,23 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Cannot set start block in database; payments to you may not be processed: TransactionError")]
+    #[should_panic(
+        expected = "Cannot set start block in database; payments to you may not be processed: TransactionError"
+    )]
     fn handle_retrieve_transactions_panics_if_start_block_cannot_be_written() {
-        let persistent_config = PersistentConfigurationMock::new ()
-            .start_block_result (Ok (1234))
-            .set_start_block_result (Err (PersistentConfigError::TransactionError));
-        let blockchain_interface = BlockchainInterfaceMock::default()
-            .retrieve_transactions_result(Ok (RetrievedTransactions {
+        let persistent_config = PersistentConfigurationMock::new()
+            .start_block_result(Ok(1234))
+            .set_start_block_result(Err(PersistentConfigError::TransactionError));
+        let blockchain_interface = BlockchainInterfaceMock::default().retrieve_transactions_result(
+            Ok(RetrievedTransactions {
                 new_start_block: 1234,
                 transactions: vec![Transaction {
                     block_number: 1000,
-                    from: make_wallet ("somewallet"),
-                    gwei_amount: 2345
-                }]
-            }));
+                    from: make_wallet("somewallet"),
+                    gwei_amount: 2345,
+                }],
+            }),
+        );
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),

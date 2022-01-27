@@ -513,7 +513,7 @@ mod tests {
 
         let result = wallet.string_address_from_keypair();
 
-        assert_eq!(result, "0x30ff09882f583e76e965f21f1893ad9cdf03f02d")
+        assert_eq!(result, "0x28330c4b886fc83bd6e3409a9eae776c19403c2e")
     }
 
     #[test]

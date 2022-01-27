@@ -1,14 +1,20 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::bip39::Bip39;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
-use crate::sub_lib::logger::Logger;
+use crate::db_config::db_encryption_layer::DbEncryptionLayer;
+use crate::db_config::typed_config_layer::decode_bytes;
+use crate::sub_lib::cryptde::PlainData;
+use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::logger::Logger;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use rusqlite::Transaction;
 use std::fmt::Debug;
+use tiny_hderive::bip32::ExtendedPrivKey;
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -54,8 +60,9 @@ trait DatabaseMigration: Debug {
 }
 
 trait MigDeclarationUtilities {
+    fn db_password(&self) -> Option<String>;
+    fn transaction(&self) -> &Transaction;
     fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()>;
-
     fn external_parameters(&self) -> &ExternalData;
 }
 
@@ -149,6 +156,14 @@ impl<'a> MigDeclarationUtilitiesReal<'a> {
 }
 
 impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
+    fn db_password(&self) -> Option<String> {
+        self.external.db_password_opt.clone()
+    }
+
+    fn transaction(&self) -> &Transaction {
+        self.root_transaction_ref
+    }
+
     fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()> {
         let transaction = self.root_transaction_ref;
         sql_statements.iter().fold(Ok(()), |so_far, stm| {
@@ -178,9 +193,6 @@ impl DBMigratorInnerConfiguration {
         }
     }
 }
-
-//define a new migration record here and add it to this list: 'list_of_migrations()'
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
@@ -240,10 +252,7 @@ impl DatabaseMigration for Migrate_2_to_3 {
             "INSERT INTO config (name, value, encrypted) VALUES ('blockchain_service_url', null, 0)";
         let statement_2 = format!(
             "INSERT INTO config (name, value, encrypted) VALUES ('neighborhood_mode', '{}', 0)",
-            declaration_utils
-                .external_parameters()
-                .neighborhood_mode
-                .to_string()
+            declaration_utils.external_parameters().neighborhood_mode
         );
         declaration_utils.execute_upon_transaction(&[statement_1, statement_2.as_str()])
     }
@@ -253,6 +262,83 @@ impl DatabaseMigration for Migrate_2_to_3 {
     }
 }
 
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+struct Migrate_3_to_4;
+
+impl DatabaseMigration for Migrate_3_to_4 {
+    fn migrate<'a>(&self, utils: Box<dyn MigDeclarationUtilities + 'a>) -> rusqlite::Result<()> {
+        let transaction = utils.transaction();
+        let mut stmt = transaction
+            .prepare("select name, value from config where name in ('example_encrypted', 'seed', 'consuming_wallet_derivation_path') order by name")
+            .expect("Internal error");
+
+        let rows = stmt
+            .query_map([], |row| {
+                let name = row.get::<usize, String>(0).expect("Internal error");
+                let value_opt = row.get::<usize, Option<String>>(1).expect("Internal error");
+                Ok((name, value_opt))
+            })
+            .expect("Database is corrupt")
+            .map(|r| r.unwrap())
+            .collect::<Vec<(String, Option<String>)>>();
+        if rows.iter().map(|r| r.0.as_str()).collect_vec()
+            != vec![
+                "consuming_wallet_derivation_path",
+                "example_encrypted",
+                "seed",
+            ]
+        {
+            panic!("Database is corrupt");
+        }
+        let consuming_path_opt = rows[0].1.clone();
+        let example_encrypted = rows[1].1.clone();
+        let seed_encrypted = rows[2].1.clone();
+        let private_key_encoded = match (consuming_path_opt, example_encrypted, seed_encrypted) {
+            (Some(consuming_path), Some(example_encrypted), Some(seed_encrypted)) => {
+                let password_opt = utils.db_password();
+                if !DbEncryptionLayer::password_matches(&password_opt, &Some(example_encrypted)) {
+                    panic!("Bad password");
+                }
+                let seed_encoded =
+                    DbEncryptionLayer::decrypt_value(&Some(seed_encrypted), &password_opt, "seed")
+                        .expect("Internal error")
+                        .expect("Internal error");
+                let seed_data = decode_bytes(Some(seed_encoded))
+                    .expect("Internal error")
+                    .expect("Internal error");
+                let extended_private_key =
+                    ExtendedPrivKey::derive(seed_data.as_ref(), consuming_path.as_str())
+                        .expect("Internal error");
+                let private_key_data = PlainData::new(&extended_private_key.secret());
+                Some(
+                    Bip39::encrypt_bytes(
+                        &private_key_data.as_slice(),
+                        password_opt.as_ref().expect("Test-drive me!"),
+                    )
+                    .expect("Internal error: encryption failed"),
+                )
+            }
+            _ => None,
+        };
+        let private_key_column = if let Some(private_key) = private_key_encoded {
+            format!("'{}'", private_key)
+        } else {
+            "null".to_string()
+        };
+        utils.execute_upon_transaction(&[
+            format! ("insert into config (name, value, encrypted) values ('consuming_wallet_private_key', {}, 1)",
+                private_key_column).as_str(),
+            "delete from config where name in ('seed', 'consuming_wallet_derivation_path', 'consuming_wallet_public_key')",
+        ])
+    }
+
+    fn old_version(&self) -> usize {
+        3
+    }
+}
+
+//define a new migration record here and add it to this list: 'list_of_migrations()'
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 impl DbMigratorReal {
@@ -264,7 +350,12 @@ impl DbMigratorReal {
     }
 
     fn list_of_migrations<'a>() -> &'a [&'a dyn DatabaseMigration] {
-        &[&Migrate_0_to_1, &Migrate_1_to_2, &Migrate_2_to_3]
+        &[
+            &Migrate_0_to_1,
+            &Migrate_1_to_2,
+            &Migrate_2_to_3,
+            &Migrate_3_to_4,
+        ]
     }
 
     fn initiate_migrations<'a>(
@@ -295,6 +386,12 @@ impl DbMigratorReal {
         record: &dyn DatabaseMigration,
         migration_utilities: &'a (dyn DBMigrationUtilities + 'a),
     ) -> rusqlite::Result<()> {
+        info!(
+            &self.logger,
+            "Migrating from version {} to version {}",
+            record.old_version(),
+            record.old_version() + 1
+        );
         record.migrate(migration_utilities.make_mig_declaration_utils(&self.external))?;
         let migrate_to = record.old_version() + 1;
         migration_utilities.update_schema_version(migrate_to)
@@ -359,13 +456,13 @@ impl DbMigratorReal {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct MigratorConfig {
     pub should_be_suppressed: Suppression,
     pub external_dataset: Option<ExternalData>,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Suppression {
     No,
     Yes,
@@ -409,6 +506,7 @@ impl MigratorConfig {
             external_dataset: Some(ExternalData {
                 chain: TEST_DEFAULT_CHAIN,
                 neighborhood_mode: NeighborhoodModeLight::Standard,
+                db_password_opt: None,
             }),
         }
     }
@@ -418,13 +516,19 @@ impl MigratorConfig {
 pub struct ExternalData {
     pub chain: Chain,
     pub neighborhood_mode: NeighborhoodModeLight,
+    pub db_password_opt: Option<String>,
 }
 
 impl ExternalData {
-    pub fn new(chain: Chain, neighborhood_mode: NeighborhoodModeLight) -> Self {
+    pub fn new(
+        chain: Chain,
+        neighborhood_mode: NeighborhoodModeLight,
+        db_password_opt: Option<String>,
+    ) -> Self {
         Self {
             chain,
             neighborhood_mode,
+            db_password_opt,
         }
     }
 }
@@ -447,6 +551,7 @@ impl From<(MigratorConfig, bool)> for ExternalData {
 
 #[cfg(test)]
 mod tests {
+    use crate::blockchain::bip39::Bip39;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
@@ -457,19 +562,25 @@ mod tests {
         ExternalData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, Suppression,
     };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
+    use crate::db_config::db_encryption_layer::DbEncryptionLayer;
+    use crate::db_config::typed_config_layer::encode_bytes;
+    use crate::sub_lib::cryptde::PlainData;
     use crate::test_utils::database_utils::{
-        assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
+        bring_db_of_version_0_back_to_life_and_return_connection, retrieve_config_row,
     };
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use bip39::{Language, Mnemonic, MnemonicType, Seed};
     use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::NeighborhoodModeLight;
-    use rusqlite::{Connection, Error, OptionalExtension};
+    use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
+    use rand::Rng;
+    use rusqlite::{Connection, Error, OptionalExtension, ToSql, Transaction};
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
+    use tiny_hderive::bip32::ExtendedPrivKey;
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
@@ -552,11 +663,18 @@ mod tests {
 
     #[derive(Default)]
     struct DBMigrateDeclarationUtilitiesMock {
+        db_password_results: RefCell<Vec<Option<String>>>,
         execute_upon_transaction_params: Arc<Mutex<Vec<Vec<String>>>>,
         execute_upon_transaction_results: RefCell<Vec<rusqlite::Result<()>>>,
     }
 
     impl DBMigrateDeclarationUtilitiesMock {
+        #[allow(dead_code)]
+        pub fn db_password_result(self, result: Option<String>) -> Self {
+            self.db_password_results.borrow_mut().push(result);
+            self
+        }
+
         pub fn execute_upon_transaction_params(
             mut self,
             params: &Arc<Mutex<Vec<Vec<String>>>>,
@@ -574,6 +692,14 @@ mod tests {
     }
 
     impl MigDeclarationUtilities for DBMigrateDeclarationUtilitiesMock {
+        fn db_password(&self) -> Option<String> {
+            self.db_password_results.borrow_mut().remove(0)
+        }
+
+        fn transaction(&self) -> &Transaction {
+            unimplemented!("Probably can't do this")
+        }
+
         fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()> {
             self.execute_upon_transaction_params.lock().unwrap().push(
                 sql_statements
@@ -593,6 +719,7 @@ mod tests {
         ExternalData {
             chain: TEST_DEFAULT_CHAIN,
             neighborhood_mode: NeighborhoodModeLight::Standard,
+            db_password_opt: None,
         }
     }
 
@@ -833,6 +960,54 @@ mod tests {
     }
 
     #[test]
+    fn db_password_works() {
+        let dir_path = ensure_node_home_directory_exists("db_migrations", "db_password_works");
+        let db_path = dir_path.join("test_database.db");
+        let mut connection_wrapper =
+            ConnectionWrapperReal::new(Connection::open(&db_path).unwrap());
+        let utils = DBMigrationUtilitiesReal::new(
+            &mut connection_wrapper,
+            DBMigratorInnerConfiguration {
+                db_configuration_table: "irrelevant".to_string(),
+                current_schema_version: 0,
+            },
+        )
+        .unwrap();
+        let mut external_parameters = make_external_migration_parameters();
+        external_parameters.db_password_opt = Some("booga".to_string());
+        let subject = utils.make_mig_declaration_utils(&external_parameters);
+
+        let result = subject.db_password();
+
+        assert_eq!(result, Some("booga".to_string()));
+    }
+
+    #[test]
+    fn transaction_works() {
+        let dir_path = ensure_node_home_directory_exists("db_migrations", "transaction_works");
+        let db_path = dir_path.join("test_database.db");
+        let mut connection_wrapper =
+            ConnectionWrapperReal::new(Connection::open(&db_path).unwrap());
+        let utils = DBMigrationUtilitiesReal::new(
+            &mut connection_wrapper,
+            DBMigratorInnerConfiguration {
+                db_configuration_table: "irrelevant".to_string(),
+                current_schema_version: 0,
+            },
+        )
+        .unwrap();
+        let external_parameters = make_external_migration_parameters();
+        let subject = utils.make_mig_declaration_utils(&external_parameters);
+
+        let result = subject.transaction();
+
+        result
+            .execute("CREATE TABLE IF NOT EXISTS test (column TEXT)", [])
+            .unwrap();
+        // no panic? Test passes!
+    }
+
+    #[test]
     fn execute_upon_transaction_returns_the_first_error_encountered_and_the_transaction_is_canceled(
     ) {
         let dir_path = ensure_node_home_directory_exists("db_migrations","execute_upon_transaction_returns_the_first_error_encountered_and_the_transaction_is_canceled");
@@ -1055,10 +1230,11 @@ mod tests {
         assert!(result.is_ok());
         let execute_upon_transaction_params = execute_upon_transaction_params_arc.lock().unwrap();
         assert_eq!(
-            *execute_upon_transaction_params[0],
+            *execute_upon_transaction_params.get(0).unwrap(),
             vec![
                 "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)"
-            ]
+                    .to_string()
+            ],
         );
         let update_schema_version_params = update_schema_version_params_arc.lock().unwrap();
         assert_eq!(update_schema_version_params[0], 1);
@@ -1070,7 +1246,8 @@ mod tests {
             *make_mig_declaration_utils_params,
             vec![ExternalData {
                 chain: TEST_DEFAULT_CHAIN,
-                neighborhood_mode: NeighborhoodModeLight::Standard
+                neighborhood_mode: NeighborhoodModeLight::Standard,
+                db_password_opt: None,
             }]
         )
     }
@@ -1128,22 +1305,12 @@ mod tests {
             MigratorConfig::create_or_migrate(make_external_migration_parameters()),
         );
         let connection = result.unwrap();
-        let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'mapping_protocol'",
-            );
-        let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'schema_version'",
-            );
-        assert_eq!(mp_name, "mapping_protocol".to_string());
+        let (mp_value, mp_encrypted) = retrieve_config_row(connection.as_ref(), "mapping_protocol");
+        let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
         assert_eq!(mp_value, None);
-        assert_eq!(mp_encrypted, 0);
-        assert_eq!(cs_name, "schema_version".to_string());
+        assert_eq!(mp_encrypted, false);
         assert_eq!(cs_value, Some("1".to_string()));
-        assert_eq!(cs_encrypted, 0)
+        assert_eq!(cs_encrypted, false)
     }
 
     #[test]
@@ -1172,22 +1339,12 @@ mod tests {
         );
 
         let connection = result.unwrap();
-        let (chn_name, chn_value, chn_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'chain_name'",
-            );
-        let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'schema_version'",
-            );
-        assert_eq!(chn_name, "chain_name".to_string());
+        let (chn_value, chn_encrypted) = retrieve_config_row(connection.as_ref(), "chain_name");
+        let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
         assert_eq!(chn_value, Some("eth-ropsten".to_string()));
-        assert_eq!(chn_encrypted, 0);
-        assert_eq!(cs_name, "schema_version".to_string());
+        assert_eq!(chn_encrypted, false);
         assert_eq!(cs_value, Some("2".to_string()));
-        assert_eq!(cs_encrypted, 0);
+        assert_eq!(cs_encrypted, false);
     }
 
     #[test]
@@ -1215,33 +1372,148 @@ mod tests {
             MigratorConfig::create_or_migrate(ExternalData::new(
                 DEFAULT_CHAIN,
                 NeighborhoodModeLight::ConsumeOnly,
+                None,
             )),
         );
 
         let connection = result.unwrap();
-        let (bchs_name, bchs_value, bchs_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'blockchain_service_url'",
-            );
-        assert_eq!(bchs_name, "blockchain_service_url".to_string());
+        let (bchs_value, bchs_encrypted) =
+            retrieve_config_row(connection.as_ref(), "blockchain_service_url");
         assert_eq!(bchs_value, None);
-        assert_eq!(bchs_encrypted, 0);
-        let (nm_name, nm_value, nm_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'neighborhood_mode'",
-            );
-        assert_eq!(nm_name, "neighborhood_mode".to_string());
+        assert_eq!(bchs_encrypted, false);
+        let (nm_value, nm_encrypted) =
+            retrieve_config_row(connection.as_ref(), "neighborhood_mode");
         assert_eq!(nm_value, Some("consume-only".to_string()));
-        assert_eq!(nm_encrypted, 0);
-        let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'schema_version'",
-            );
-        assert_eq!(cs_name, "schema_version".to_string());
+        assert_eq!(nm_encrypted, false);
+        let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
         assert_eq!(cs_value, Some("3".to_string()));
-        assert_eq!(cs_encrypted, 0);
+        assert_eq!(cs_encrypted, false);
+    }
+
+    #[test]
+    fn migration_from_3_to_4_with_wallets() {
+        let data_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_3_to_4_with_wallets",
+        );
+        let db_path = data_path.join(DATABASE_FILE);
+        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let password_opt = &Some("password".to_string());
+        let subject = DbInitializerReal::default();
+        let mut migrator_config =
+            MigratorConfig::create_or_migrate(make_external_migration_parameters());
+        migrator_config
+            .external_dataset
+            .as_mut()
+            .unwrap()
+            .db_password_opt = password_opt.clone();
+        let original_private_key = {
+            let schema3_conn = subject
+                .initialize_to_version(&data_path, 3, true, migrator_config.clone())
+                .unwrap();
+            let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
+            let seed = Seed::new(&mnemonic, "booga");
+            let consuming_path = derivation_path(0, 150);
+            let original_private_key =
+                ExtendedPrivKey::derive(seed.as_bytes(), consuming_path.as_str())
+                    .unwrap()
+                    .secret();
+            let seed_plain = PlainData::new(seed.as_bytes());
+            let seed_encoded = encode_bytes(Some(seed_plain)).unwrap().unwrap();
+            let seed_encrypted =
+                DbEncryptionLayer::encrypt_value(&Some(seed_encoded), password_opt, "seed")
+                    .unwrap()
+                    .unwrap();
+            let mut example_data = [0u8; 32];
+            rand::thread_rng().fill(&mut example_data);
+            let example_encrypted =
+                Bip39::encrypt_bytes(&example_data, password_opt.as_ref().unwrap())
+                    .expect("Encryption failed");
+            let updates = vec![
+                ("consuming_wallet_derivation_path", consuming_path, false),
+                ("consuming_wallet_public_key", "booga".to_string(), false),
+                ("example_encrypted", example_encrypted, true),
+                ("seed", seed_encrypted, true),
+            ];
+            updates.into_iter().for_each(|(name, value, flag)| {
+                let mut stmt = schema3_conn
+                    .prepare("update config set value = ?, encrypted = ? where name = ?")
+                    .expect(&format!(
+                        "Couldn't prepare statement to set {} to {}",
+                        name, value
+                    ));
+                let params: &[&dyn ToSql] =
+                    &[&value, &(if flag { 1 } else { 0 }), &name.to_string()];
+                let count = stmt.execute(params).unwrap();
+                if count != 1 {
+                    panic!(
+                        "Updating {} to '{}' should have affected 1 row, but affected {}",
+                        name, value, count
+                    );
+                }
+            });
+            original_private_key.to_vec()
+        };
+
+        let migrated_private_key = {
+            let mut schema4_conn = subject
+                .initialize_to_version(&data_path, 4, false, migrator_config)
+                .unwrap();
+            {
+                let mut stmt = schema4_conn.prepare("select count(*) from config where name in ('consuming_wallet_derivation_path', 'consuming_wallet_public_key', 'seed')").unwrap();
+                let cruft = stmt
+                    .query_row([], |row| Ok(row.get::<usize, u32>(0)))
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(cruft, 0);
+            }
+            let (private_key_encrypted, encrypted) =
+                retrieve_config_row(schema4_conn.as_mut(), "consuming_wallet_private_key");
+            assert_eq!(encrypted, true);
+            let private_key = Bip39::decrypt_bytes(
+                &private_key_encrypted.unwrap(),
+                password_opt.as_ref().unwrap(),
+            )
+            .unwrap();
+            private_key.as_slice().to_vec()
+        };
+
+        assert_eq!(migrated_private_key, original_private_key);
+    }
+
+    #[test]
+    fn migration_from_3_to_4_without_password() {
+        let data_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_3_to_4_without_password",
+        );
+        let db_path = data_path.join(DATABASE_FILE);
+        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let password_opt = &Some("password".to_string());
+        let subject = DbInitializerReal::default();
+        let mut migrator_config =
+            MigratorConfig::create_or_migrate(make_external_migration_parameters());
+        migrator_config
+            .external_dataset
+            .as_mut()
+            .unwrap()
+            .db_password_opt = password_opt.clone();
+
+        let mut schema4_conn = subject
+            .initialize_to_version(&data_path, 4, false, migrator_config)
+            .unwrap();
+
+        {
+            let mut stmt = schema4_conn.prepare("select count(*) from config where name in ('consuming_wallet_derivation_path', 'consuming_wallet_public_key', 'seed')").unwrap();
+            let cruft = stmt
+                .query_row([], |row| Ok(row.get::<usize, u32>(0)))
+                .unwrap()
+                .unwrap();
+            assert_eq!(cruft, 0);
+        }
+        let (private_key_encrypted, encrypted) =
+            retrieve_config_row(schema4_conn.as_mut(), "consuming_wallet_private_key");
+        assert_eq!(private_key_encrypted, None);
+        assert_eq!(encrypted, true);
     }
 }

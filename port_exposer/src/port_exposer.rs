@@ -24,13 +24,8 @@ struct ListenerAndPort {
     loopback_port: u16,
 }
 
+#[derive(Default)]
 pub struct PortExposer {}
-
-impl Default for PortExposer {
-    fn default() -> PortExposer {
-        PortExposer {}
-    }
-}
 
 impl PortExposer {
     pub fn new() -> PortExposer {

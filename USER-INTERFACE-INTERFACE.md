@@ -352,20 +352,22 @@ database password. If you want to know whether the password you have is the corr
 `checkPassword` message.
 
 * `blockchainServiceUrl`: The url which will be used for obtaining a communication to chosen services to interact with the blockchain.
-This parameter is read, if present, only if the same parameter wasn't specified at another place (UI, configuration file, environment variables).
+  This parameter is read, if present, only if the same parameter wasn't specified at another place (UI, configuration file, environment variables).
 
 * `chainName`: This value reveals the chain which the open database has been created for. It is always present and once initiated,
-during creation of the database, it never changes. It's basically a read-only value.  
+  during creation of the database, it never changes. It's basically a read-only value.  
 
 * `clandestinePort`: The port on which the Node is currently listening for connections from other Nodes.
 
-* `consumingWalletDerivationPathOpt`: This is the derivation path (from the mnemonic seed) of the consuming wallet.
-  More than likely, it's m/44'/60'/0'/0/0.
+* `consumingWalletPrivateKey`: This is the private key of the consuming wallet, as a 64-digit hexadecimal number.
+  It's a secret, so if you don't supply the `dbPasswordOpt` in the request you won't see it.
+
+* `consumingWalletAddress`: This is the address of the consuming wallet, as a 40-digit hexadecimal number prefixed by "0x".
 
 * `currentSchemaVersion`: This will be a version number for the database schema represented as an ordinal numeral. This will always
-be the same for a given version of Node. If you upgrade your Node, and the new Node wants to see a later
-schema version in the database, it will migrate your existing data to the new schema and update its schema
-version. If this attempt fails for some reason, this value can be used to diagnose the issue.
+  be the same for a given version of Node. If you upgrade your Node, and the new Node wants to see a later
+  schema version in the database, it will migrate your existing data to the new schema and update its schema
+  version. If this attempt fails for some reason, this value can be used to diagnose the issue.
 
 * `earningWalletAddressOpt`: The wallet address for the earning wallet. This is not secret, so
   if you don't get this field, it's because it hasn't been set yet.
@@ -373,19 +375,16 @@ version. If this attempt fails for some reason, this value can be used to diagno
 * `gasPrice`: The Node will not pay more than this number of wei for gas to complete a transaction.
 
 * `neighborhoodMode`: The neighborhood mode being currently used, this parameter has nothing to do with descriptors which 
-may have been used in order to set the Node's nearest neighborhood. It is only informative, to know what mode is running at the moment. 
-This value is ever present since the creation of the database.    
+  may have been used in order to set the Node's nearest neighborhood. It is only informative, to know what mode is running at the moment. 
+  This value is ever present since the creation of the database.    
 
 * `startBlock`: When the Node scans for incoming payments, it can't scan the whole blockchain: that would take
   much too long. So instead, it scans starting from wherever it left off last time. This block number is where
   it left off last time.
 
-* `mnemonicSeedOpt`: This is a secret string of hexadecimal digits that corresponds exactly with the mnemonic
-  phrase, plus any "25th word" mnemonic passphrase. You won't see this if the password isn't correct. You also
-  won't see it if the password is correct but the seed hasn't been set yet.
-
 * `pastNeighbors`: This is an array containing the Node descriptors of the neighbors the Node is planning to
-  try to connect to when it starts up next time.
+  try to connect to when it starts up next time.  It's a secret, so if you don't supply the `dbPasswordOpt` in the
+  request you won't see it.
 
 #### `configurationChanged`
 ##### Direction: Broadcast
@@ -467,11 +466,14 @@ Requests the Node descriptor from a Node.
 ##### Layout:
 ```
 "payload": {
-    "nodeDescriptor": <string>
+    "nodeDescriptorOpt": <optional string>
 }
 ```
 ##### Description:
-Contains a Node's Node descriptor.
+If the Node has a Node descriptor, it's returned in this message. If the Node has not yet established its Node
+descriptor (for example, if it's still waiting on the router to get a public IP address) or will never have a
+Node descriptor (for example, if its neighborhood mode is not Standard), the `nodeDescriptorOpt`
+field will be null or absent.
 
 #### `financials`
 ##### Direction: Request
@@ -560,41 +562,64 @@ of payments that have not yet been confirmed. Only cumulative account balances a
 ```
 "payload": {
     "dbPassword": <string>,
-    "mnemonicPhraseSize": <number>,
-    "mnemonicPhraseLanguage": <string>,
-    "mnemonicPassphraseOpt": <optional string>,
-    "consumingDerivationPath": <string>,
-    "earningDerivationPath": <string>
+    "seedSpecOpt": {
+        "mnemonicPhraseSizeOpt": <optional number>,
+        "mnemonicPhraseLanguageOpt": <optional string>,
+        "mnemonicPassphraseOpt": <optional string>
+    },
+    "consumingDerivationPathOpt": <optional string>,
+    "earningDerivationPathOpt": <optional string>
 }
 ```
 ##### Description:
-This message directs the Node to generate a pair of wallets and report their mnemonic phrase and their addresses
-back to the UI. If the database already contains a wallet pair, the wallet generation will fail.
+This message directs the Node to generate a pair of wallets and report their vital statistics back to the UI. 
+If the database already contains a wallet pair, the wallet generation will fail.
 
-`dbPassword` is the current database password. If this is incorrect, the wallet generation will fail.
+Wallets can be generated in several ways:
 
-`mnemonicPhraseSize` is the number of words that should be generated in the mnemonic phrase. The acceptable values
-are 12, 15, 18, 21, and 24. It's recommended that UIs default to 24-word phrases and require the user to specifically
-demand a lower value, if desired.
+* Using derivation paths from a seed: in this case the request should contain a specification for the seed and 
+  a derivation path for each wallet, and the response will contain a mnemonic phrase representing the generated
+  seed, along with the address and private key for each wallet generated.
+* Entirely at random: in this case no direction should be given in the request, and the response will contain
+  only the address and private key for each wallet generated.
+* With one wallet generated using a seed and a derivation path, and the other generated at random: in this case,
+  there should be a specification for the seed and a derivation path for only the seed/path wallet; the other
+  wallet will be generated randomly.
 
-`mnemonicPhraseLanguage` is the language in which the mnemonic phrase should be generated. Acceptable values are
-"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish".
+`dbPassword` is the current database password. If this is incorrect or absent, the wallet generation will fail.
+
+`seedSpecOpt` gives the parameters for generating the seed. This only makes sense if one or more of the 
+derivation paths is supplied. If no derivation paths are supplied, this parameter is ignored.
+
+`mnemonicPhraseSizeOpt` is the number of words that should be generated in the mnemonic phrase. The acceptable values
+are 12, 15, 18, 21, and 24. Default is 24.
+
+`mnemonicPhraseLanguageOpt` is the language in which the mnemonic phrase should be generated. Acceptable values are
+"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish". Default
+is "English."
 
 `mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
 (it can be any word; it's not constrained to the official mnemonic-phrase list) that will be used along with the
 24 standard words to generate the seed number from which the wallet keys are derived. If this value is supplied,
 then the user will have to specify it as well as the 24 standard words in order to recover the wallet pair. Note
 that neither the 24 standard words nor this value is persisted anywhere: it's up to the user to keep track of them.
+Note also that the "25th word," if generated, is part of the seed and can never be changed: a different "25th word"
+will reference a different seed, which means that all wallets derived from it will also be different.
 
-`consumingDerivationPath` is the derivation path from the generated seed number to be used to generate the consuming
-wallet. By convention, it is "m/44'/60'/0'/0/0", but in this message it is required and no defaulting is performed
-by the Node.
+`consumingDerivationPathOpt` if supplied, is the derivation path from the generated seed number to be used to generate
+the consuming wallet. By convention, it is "m/44'/60'/0'/0/0", but you can supply whatever path you want. Note that if
+you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
+wallet. If you don't supply `consumingDerivationPathOpt`, your consuming wallet will be generated entirely at random.
 
-`earningDerivationPath` is the derivation path from the generated seed number to be used to generate the earning
-wallet. By convention, it is "m/44'/60'/0'/0/1", but in this message it is required and no defaulting is performed
-by the Node.
+`earningDerivationPathOpt` is the derivation path from the generated seed number to be used to generate the earning
+wallet. By convention, it is "m/44'/60'/0'/0/1", but you can supply whatever path you want. Note that if
+you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
+wallet. If you don't supply `earningDerivationPathOpt`, your earning wallet will be generated entirely at random.
 
-If the user wants to consume from and earn into the same wallet, he should provide the same derivation path for both.
+If the user wants to consume from and earn into the same wallet, he should supply a `seedSpecOpt` and provide the same 
+derivation path for both. (Note that just because you direct the Node to generate a mnemonic phrase, you don't
+necessarily have to use it. If you need to recover these wallets, you can use their private keys if you don't have
+their mnemonic seeds.)
 
 #### `generateWallets`
 ##### Direction: Response
@@ -602,25 +627,34 @@ If the user wants to consume from and earn into the same wallet, he should provi
 ##### Layout:
 ```
 "payload": {
-    "mnemonicPhrase": [
+    "mnemonicPhraseOpt": [
         <string>,
         <string>,
         [...]
     ],
     "consumingWalletAddress": <string>,
-    "earningWalletAddress": <string>
+    "consumingWalletPrivateKey": <string>,
+    "earningWalletAddress": <string>,
+    "earningWalletPrivateKey": <string>
 }
 ```
 ##### Description:
 This message describes the pair of wallets that has been generated and configured on the Node.
 
-`mnemonicPhrase` is the list of 24 (or 12 or 15 or 18 or 21) words that, when combined with the mnemonic passphrase,
-if specified, will produce the seed from which the consuming and earning wallets are derived. They are rendered in
-the requested language, including non-ASCII Unicode characters encoded in UTF-8 where appropriate.
+`mnemonicPhraseOpt`, if present, is the requested list of 24 (or 12 or 15 or 18 or 21) words that, when combined with 
+the mnemonic passphrase, if present, will produce the seed from which the consuming and earning wallets are derived. 
+They are rendered in the requested language, including non-ASCII Unicode characters encoded in UTF-8 where appropriate.
 
 `consumingWalletAddress` is the address of the generated consuming wallet.
 
+`consumingWalletPrivateKey` is the private key of the generated consuming wallet. The Node will retain this key in
+its database, in encrypted form, because it needs to withdraw money from the wallet to pay other Nodes in the network.
+
 `earningWalletAddress` is the address of the generated earning wallet.
+
+`earningWalletPrivateKey` is the private key of the generated earning wallet. The Node does not need this key, and
+will not retain it; but you'll need it to withdraw earned funds from the wallet, especially if you didn't request or
+retain a mnemonic phrase.
 
 #### `newPassword`
 ##### Direction: Broadcast
@@ -640,41 +674,75 @@ If the UI is remembering the database password, it should forget it when this me
 ```
 "payload": {
     "dbPassword": <string>,
-    "mnemonicPhrase": [
-        <string>,
-        <string>,
-        [...]
-    ],
-    "mnemonicPassphraseOpt": <optional string>,
-    "mnemonicPhraseLanguage": <string>,
-    "consumingDerivationPath": <string>,
-    "earningWallet": <string>
+    "seedSpecOpt": {
+        "mnemonicPhrase": [
+            <string>,
+            <string>,
+            [...]
+        ],
+        "mnemonicPhraseLanguageOpt": <optional string>,
+        "mnemonicPassphraseOpt": <optional string>
+    },
+    "consumingDerivationPathOpt": <optional string>,
+    "consumingPrivateKeyOpt": <optional string>,
+    "earningDerivationPathOpt": <optional string>,
+    "earningAddressOpt": <optional string>,
 }
 ```
 ##### Description:
 This message directs the Node to set its wallet pair to a preexisting pair of wallets described in the message.
 If the database already contains a wallet pair, the wallet recovery will fail.
 
+Each wallet can be recovered in one of two ways.
+
+The consuming wallet can be recovered by specifying the mnemonic phrase of its seed and its derivation path, or by
+giving its private key. (The Node needs the private key of the consuming wallet so that it can withdraw funds from it
+to pay bills.)
+
+The earning wallet can be recovered by specifying the mnemonic phrase of its seed and its derivation path, or by
+giving its address. (The Node does not need (and will not accept) the private key of the earning wallet, because all
+it ever has to do is deposit funds in it from other Nodes. The private key can be derived from the seed and the
+derivation path, but the Node does not store it.)
+
+This message schema allows you to provide more information than is necessary: for example, both earning address
+and earning derivation path (which may conflict), or both consuming private key and consuming derivation path
+(which also may conflict). If you do so, the derivation path will be overridden by the key or address and ignored.
+
+If you expect the derivation path to be used for either wallet, you must also provide the seed specification.
+
 `dbPassword` is the current database password. If this is incorrect, the wallet recovery will fail.
 
-`mnemonicPhrase` is the mnemonic phrase that was used to generate the consuming wallet and possibly the earning
-wallet as well. It must have 12, 15, 18, 21, or 24 words.
+`seedSpecOpt` gives the parameters for generating the seed. This only makes sense if one or more of the
+derivation paths is supplied. If no derivation paths are supplied, this parameter is ignored.
+
+`mnemonicPhrase` is the mnemonic phrase that represents the seed. It must have 12, 15, 18, 21, or 24 words.
+
+`mnemonicPhraseLanguageOpt` is the language in which the mnemonic phrase is supplied. Acceptable values are
+"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish". Default
+is "English."
 
 `mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
 (it can be any word; it's not constrained to the official mnemonic-phrase list) that was used along with the
 words of the mnemonic phrase to generate the seed number from which the consuming and possibly earning wallets
-were derived. If no mnemonic passphrase was used to generate the wallets, this value must be absent.
+were derived. If no mnemonic passphrase was used to generate the wallets, this value must be null or absent.
 
-`mnemonicPhraseLanguage` is the language in which the mnemonic phrase is supplied. Acceptable values are
-"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish".
+`consumingDerivationPathOpt`, if supplied, is the derivation path from the generated seed number to be used to generate
+the consuming wallet. By convention, it is "m/44'/60'/0'/0/0", but you can supply whatever path you want. Note that if
+you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
+wallet. If you don't supply `consumingDerivationPathOpt`, you must supply `consumingPrivateKeyOpt`.
 
-`consumingDerivationPath` is the derivation path from the mnemonic phrase that was used to generate the consuming
-wallet. By convention, it is "m/60'/44'/0'/0/0", but in this message it is required and no defaulting is performed
-by the Node.
+`consumingPrivateKeyOpt`, if specified, is the private key of the consuming wallet, represented as a string of 64
+hexadecimal digits. This value supersedes `consumingDerivationPathOpt` if both are supplied; but if you don't supply 
+that value, you must supply this one.
 
-`earningWallet` is either the derivation path from the mnemonic phrase that was used to generate the earning
-wallet, or--if the derivation path is unknown or the earning wallet is not related to the mnemonic phrase--the
-address of the earning wallet.
+`earningDerivationPathOpt` is the derivation path from the generated seed number to be used to generate the earning
+wallet. By convention, it is "m/44'/60'/0'/0/1", but you can supply whatever path you want. Note that if
+you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
+wallet. If you don't supply `earningDerivationPathOpt`, you must supply `earningAddressOpt`.
+
+`earningAddressOpt`, if specified, is the address of the earning wallet, represented as "0x" followed by a string
+of 40 hexadecimal digits. This value supersedes `earningDerivationPathOpt` if both are supplied; but if you don't 
+supply that value, you must supply this one.
 
 The consuming and earning wallet information may evaluate to the same wallet; there's nothing wrong with that.
 
@@ -790,6 +858,7 @@ be cleared.
 * `gas-price` - Transaction fee to offer on the blockchain.
 * `ip` - The public IP address of the Node.
 * `log-level` - The lowest level of logs that should be recorded. `off`, `error`, `warn`, `info`, `debug`, `trace`
+* `mapping-protocol` - The management protocol to try first with the router. `pcp`, `pmp`, `igdp`
 * `neighborhood-mode` - `zero-hop`, `originate-only`, `consume-only`, `standard`
 * `neighbors` - Comma-separated list of Node descriptors for neighbors to contact on startup
 * `real-user` - Non-Windows platforms only, only where required: <uid>:<gid>:<home directory>
@@ -877,7 +946,6 @@ information is presently in its Setup space.
 ```
 "payload": {
     "newProcessId": <integer>,
-    "nodeDescriptor": <string>,
     "redirectUiPort": <integer greater than 1024>,
 }
 ```

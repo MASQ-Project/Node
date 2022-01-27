@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::logger::Logger;
 use futures::Async;
 use masq_lib::crash_point::CrashPoint;
+use masq_lib::logger::Logger;
 use tokio::prelude::future::Future;
 
 pub struct CrashTestDummy<C> {

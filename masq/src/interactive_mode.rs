@@ -353,24 +353,24 @@ mod tests {
 
         let _ = handle_help_or_version("help", &mut stdout, &terminal_interface);
 
-        let time_period_when_loosen = now.elapsed();
+        let time_period_when_unblocked = now.elapsed();
         let handle = thread::spawn(move || {
             let _lock = background_interface_clone.lock();
             tx.send(()).unwrap();
-            thread::sleep(time_period_when_loosen * 15);
+            thread::sleep((time_period_when_unblocked + Duration::from_millis(1)) * 15);
         });
         rx.recv().unwrap();
         let now = Instant::now();
 
         let _ = handle_help_or_version("help", &mut stdout, &terminal_interface);
 
-        let time_period_when_locked = now.elapsed();
+        let time_period_when_blocked = now.elapsed();
         handle.join().unwrap();
         assert!(
-            time_period_when_locked > 3 * time_period_when_loosen,
-            "{:?} is not longer than 3* {:?}",
-            time_period_when_locked,
-            time_period_when_loosen
+            time_period_when_blocked > 3 * time_period_when_unblocked,
+            "{:?} is not longer than 3 * {:?}",
+            time_period_when_blocked,
+            time_period_when_unblocked
         );
     }
 
@@ -390,29 +390,36 @@ mod tests {
         let mut stream_holder = FakeStreamHolder::new();
         let mut streams = stream_holder.streams();
         let (tx, rx) = bounded(1);
+        // Time pass_args_or_print_messages to see how long it takes with these parameters
+        // without a block
         let now = Instant::now();
 
         let _ =
             pass_args_or_print_messages(&mut streams, tested_variant.clone(), &terminal_interface);
 
-        let time_period_when_loosen = now.elapsed();
+        let time_period_when_unblocked = now.elapsed();
+        // Establish a block for 40 times that long
         let handle = thread::spawn(move || {
             let _lock = background_interface_clone.lock();
             tx.send(()).unwrap();
-            thread::sleep((time_period_when_loosen + Duration::from_nanos(10)) * 40);
+            // Add a millisecond just in case the trial above started in one millisecond and
+            // finished later in the same millisecond, meaning its length would evaluate to 0ms
+            thread::sleep((time_period_when_unblocked + Duration::from_millis(1)) * 40);
         });
         rx.recv().unwrap();
+        // Time pass_args_or_print_messages again when running against the block above
         let now = Instant::now();
 
         let _ = pass_args_or_print_messages(&mut streams, tested_variant, &terminal_interface);
 
-        let time_period_when_locked = now.elapsed();
+        let time_period_when_blocked = now.elapsed();
         handle.join().unwrap();
+        // It should have taken significantly longer when waiting for the 40x block to end
         assert!(
-            time_period_when_locked > 3 * time_period_when_loosen,
-            "{:?} is not longer than 3* {:?}",
-            time_period_when_locked,
-            time_period_when_loosen
+            time_period_when_blocked > 2 * time_period_when_unblocked,
+            "{:?} is not longer than 2 * {:?}",
+            time_period_when_blocked,
+            time_period_when_unblocked
         );
     }
 }

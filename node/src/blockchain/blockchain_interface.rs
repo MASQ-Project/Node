@@ -3,12 +3,12 @@
 use crate::blockchain::tool_wrappers::{
     SendTransactionToolsWrapper, SendTransactionToolsWrapperReal,
 };
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use futures::{future, Future};
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::constants::DEFAULT_CHAIN;
+use masq_lib::logger::Logger;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -72,7 +72,7 @@ pub type Balance = BlockchainResult<web3::types::U256>;
 pub type Nonce = BlockchainResult<web3::types::U256>;
 pub type Transactions = BlockchainResult<RetrievedTransactions>;
 
-#[derive (Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RetrievedTransactions {
     pub new_start_block: u64,
     pub transactions: Vec<Transaction>,
@@ -253,11 +253,12 @@ where
                             debug!(logger, "Retrieved transactions: {:?}", transactions);
                             // Get the block number of the last transaction, unless there are no
                             // transactions, in which case use start_block.
-                            let last_transaction_block = transactions.iter()
+                            let last_transaction_block = transactions
+                                .iter()
                                 .fold(start_block, |_, elem| elem.block_number);
                             Ok(RetrievedTransactions {
                                 new_start_block: last_transaction_block + 1,
-                                transactions
+                                transactions,
                             })
                         }
                     }
@@ -425,7 +426,7 @@ mod tests {
     use crate::test_utils::pure_test_utils::decode_hex;
     use crate::test_utils::{await_value, make_paying_wallet};
     use crate::test_utils::{make_wallet, TestRawTransaction};
-    use crossbeam_channel::unbounded;
+    use crossbeam_channel::{unbounded, Receiver};
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -433,12 +434,15 @@ mod tests {
     use serde_derive::Deserialize;
     use serde_json::json;
     use serde_json::Value;
-    use simple_server::Server;
+    use simple_server::{Request, Server};
     use std::cell::RefCell;
-    use std::net::Ipv4Addr;
+    use std::io::Write;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+    use std::ops::Add;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::time::{Duration, Instant};
     use web3::transports::Http;
     use web3::types::SignedTransaction;
     use web3::Error as Web3Error;
@@ -447,6 +451,69 @@ mod tests {
         Http::with_max_parallel("http://86.75.30.9", REQUESTS_IN_PARALLEL)
             .unwrap()
             .0
+    }
+
+    struct TestServer {
+        port: u16,
+        rx: Receiver<Request<Vec<u8>>>,
+    }
+
+    impl Drop for TestServer {
+        fn drop(&mut self) {
+            self.stop();
+        }
+    }
+
+    impl TestServer {
+        fn start(port: u16, bodies: Vec<Vec<u8>>) -> Self {
+            std::env::set_var("SIMPLESERVER_THREADS", "1");
+            let (tx, rx) = unbounded();
+            let _ = thread::spawn(move || {
+                let bodies_arc = Arc::new(Mutex::new(bodies));
+                Server::new(move |req, mut rsp| {
+                    if req.headers().get("X-Quit").is_some() {
+                        panic!("Server stop requested");
+                    }
+                    tx.send(req).unwrap();
+                    let body = bodies_arc.lock().unwrap().remove(0);
+                    Ok(rsp.body(body)?)
+                })
+                .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
+            });
+            let deadline = Instant::now().add(Duration::from_secs(5));
+            loop {
+                thread::sleep(Duration::from_millis(10));
+                match TcpStream::connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)) {
+                    Ok(_) => break,
+                    Err(e) => eprintln!("No: {:?}", e),
+                }
+                if Instant::now().gt(&deadline) {
+                    panic!("TestServer still not started after 5sec");
+                }
+            }
+            TestServer { port, rx }
+        }
+
+        fn requests_so_far(&self) -> Vec<Request<Vec<u8>>> {
+            let mut requests = vec![];
+            while let Ok(request) = self.rx.try_recv() {
+                requests.push(request);
+            }
+            return requests;
+        }
+
+        fn stop(&mut self) {
+            let mut stream = match TcpStream::connect(SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::LOCALHOST),
+                self.port,
+            )) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            stream
+                .write(b"DELETE /irrelevant.htm HTTP/1.1\r\nX-Quit: Yes")
+                .unwrap();
+        }
     }
 
     #[derive(Default)]
@@ -503,14 +570,9 @@ mod tests {
     fn blockchain_interface_non_clandestine_retrieves_transactions() {
         let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
         let port = find_free_port();
-
-        let (tx, rx) = unbounded();
-        thread::spawn(move || {
-            Server::new(move |req, mut rsp| {
-                tx.send(req.body().clone()).unwrap();
-                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec())?)
-            }).listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
-        });
+        let test_server = TestServer::start (port, vec![
+            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
+        ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -530,7 +592,8 @@ mod tests {
             )
             .unwrap();
 
-        let body: Value = serde_json::from_slice(&rx.recv().unwrap()).unwrap();
+        let requests = test_server.requests_so_far();
+        let body: Value = serde_json::from_slice(&requests[0].body()).unwrap();
         assert_eq!(
             format!("\"0x000000000000000000000000{}\"", &to[2..]),
             body["params"][0]["topics"][2].to_string(),
@@ -577,13 +640,9 @@ mod tests {
     fn blockchain_interface_non_clandestine_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned(
     ) {
         let port = find_free_port();
-
-        thread::spawn(move || {
-            Server::new(|_req, mut rsp| {
-                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec())?)
-            }).listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
-        });
-
+        let _test_server = TestServer::start (port, vec![
+            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
+        ]);
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
@@ -610,12 +669,9 @@ mod tests {
     fn blockchain_interface_non_clandestine_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned(
     ) {
         let port = find_free_port();
-
-        thread::spawn(move || {
-            Server::new(move |_req, mut rsp| {
-                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec())?)
-            }).listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
-        });
+        let _test_server = TestServer::start(port, vec![
+            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
+        ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -641,13 +697,9 @@ mod tests {
     fn blockchain_interface_non_clandestine_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number(
     ) {
         let port = find_free_port();
-
-        thread::spawn(move || {
-            Server::new(|_req, mut rsp| {
-                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec())?)
-            })
-            .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
-        });
+        let _test_server = TestServer::start (port, vec![
+            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
+        ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -666,19 +718,22 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        assert_eq!(result, Ok(RetrievedTransactions{new_start_block: 43, transactions: vec![]}));
+        assert_eq!(
+            result,
+            Ok(RetrievedTransactions {
+                new_start_block: 43,
+                transactions: vec![]
+            })
+        );
     }
 
     #[test]
     fn blockchain_interface_non_clandestine_can_retrieve_eth_balance_of_a_wallet() {
         let port = find_free_port();
-
-        thread::spawn(move || {
-            Server::new(|_req, mut rsp| {
-                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFF"}"#.to_vec())?)
-            })
-            .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
-        });
+        let _test_server = TestServer::start(
+            port,
+            vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFF"}"#.to_vec()],
+        );
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -727,16 +782,16 @@ mod tests {
     fn blockchain_interface_non_clandestine_returns_an_error_for_unintelligible_response_to_requesting_eth_balance(
     ) {
         let port = find_free_port();
-        thread::spawn(move || {
-            Server::new(|_req, mut rsp| {
-                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFQ"}"#.to_vec())?)
-            })
-            .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
-        });
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
+        let _test_server = TestServer::start(
+            port,
+            vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFQ"}"#.to_vec()],
+        );
+
+        let (event_loop_handle, transport) = Http::new(&format!(
+            "http://{}:{}",
+            &Ipv4Addr::LOCALHOST.to_string(),
+            port
+        ))
         .unwrap();
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
@@ -759,16 +814,9 @@ mod tests {
     #[test]
     fn blockchain_interface_non_clandestine_can_retrieve_token_balance_of_a_wallet() {
         let port = find_free_port();
-
-        thread::spawn(move || {
-            Server::new(|_req, mut rsp| {
-                Ok(rsp.body(
-                    br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFF"}"#
-                        .to_vec(),
-                )?)
-            })
-                .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
-        });
+        let _test_server = TestServer::start (port, vec![
+            br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFF"}"#.to_vec()
+        ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -816,16 +864,9 @@ mod tests {
     fn blockchain_interface_non_clandestine_returns_an_error_for_unintelligible_response_when_requesting_token_balance(
     ) {
         let port = find_free_port();
-
-        thread::spawn(move || {
-            Server::new(|_req, mut rsp| {
-                Ok(rsp.body(
-                    br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFQ"}"#
-                        .to_vec(),
-                )?)
-            })
-            .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
-        });
+        let _test_server = TestServer::start (port, vec![
+            br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFQ"}"#.to_vec()
+        ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -851,16 +892,10 @@ mod tests {
     #[test]
     fn blockchain_interface_non_clandestine_can_request_both_eth_and_token_balances_happy_path() {
         let port = find_free_port();
-
-        thread::spawn(move || {
-            Server::new(|_req, mut rsp| {
-                Ok(rsp.body(
-                    br#"{"jsonrpc":"2.0","id":0,"result":"0x0000000000000000000000000000000000000000000000000000000000000001"}"#
-                        .to_vec(),
-                )?)
-            })
-            .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
-        });
+        let _test_server = TestServer::start (port, vec![
+            br#"{"jsonrpc":"2.0","id":0,"result":"0x0000000000000000000000000000000000000000000000000000000000000001"}"#.to_vec(),
+            br#"{"jsonrpc":"2.0","id":0,"result":"0x0000000000000000000000000000000000000000000000000000000000000001"}"#.to_vec(),
+        ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
