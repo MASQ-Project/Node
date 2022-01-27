@@ -24,7 +24,7 @@ impl PaymentCurves {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct RatePack {
     pub routing_byte_rate: u64,
     pub routing_service_rate: u64,

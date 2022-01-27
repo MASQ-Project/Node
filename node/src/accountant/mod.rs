@@ -36,7 +36,6 @@ use actix::Handler;
 use actix::Message;
 use actix::Recipient;
 use itertools::Itertools;
-use masq_lib::constants::DEFAULT_PAYMENT_CURVES;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
@@ -800,6 +799,7 @@ pub mod tests {
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
+    use masq_lib::constants::DEFAULT_PAYMENT_CURVES;
     use masq_lib::payment_curves_and_rate_pack::PaymentCurves;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;

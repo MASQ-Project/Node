@@ -50,11 +50,12 @@ pub trait ActorSystemFactory: Send {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
         persist_config: &dyn PersistentConfiguration,
-        actor_system_factory_tools: &dyn ActorSystemFactoryTools,
     ) -> StreamHandlerPoolSubs;
 }
 
-pub struct ActorSystemFactoryReal;
+pub struct ActorSystemFactoryReal {
+    t: Box<dyn ActorSystemFactoryTools>,
+}
 
 impl ActorSystemFactory for ActorSystemFactoryReal {
     fn make_and_start_actors(
@@ -62,23 +63,22 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
         persist_config: &dyn PersistentConfiguration,
-        tools: &dyn ActorSystemFactoryTools,
     ) -> StreamHandlerPoolSubs {
-        let main_cryptde = tools.main_cryptde_ref();
-        let alias_cryptde = tools.alias_cryptde_ref();
-        tools.database_chain_assertion(config.blockchain_bridge_config.chain, persist_config);
-
-        tools.prepare_initial_messages(main_cryptde, alias_cryptde, config, actor_factory)
+        let (main_cryptde, alias_cryptde) = self.t.cryptdes_ref();
+        self.t
+            .validate_database_chain(persist_config,config.blockchain_bridge_config.chain);
+        self.t
+            .prepare_initial_messages(main_cryptde, alias_cryptde, config, actor_factory)
     }
 }
 
 impl ActorSystemFactoryReal {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(tools: Box<dyn ActorSystemFactoryTools>) -> Self {
+        Self { t: tools }
     }
 }
 
-pub trait ActorSystemFactoryTools {
+pub trait ActorSystemFactoryTools: Send {
     fn prepare_initial_messages(
         &self,
         main_cryptde: &'static dyn CryptDE,
@@ -86,12 +86,11 @@ pub trait ActorSystemFactoryTools {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs;
-    fn main_cryptde_ref(&self) -> &'static dyn CryptDE;
-    fn alias_cryptde_ref(&self) -> &'static dyn CryptDE;
-    fn database_chain_assertion(
+    fn cryptdes_ref(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE);
+    fn validate_database_chain(
         &self,
-        chain: Chain,
         persistent_config: &dyn PersistentConfiguration,
+        chain: Chain,
     );
 }
 
@@ -215,25 +214,24 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         stream_handler_pool_subs
     }
 
-    fn main_cryptde_ref(&self) -> &'static dyn CryptDE {
-        bootstrapper::main_cryptde_ref()
+    fn cryptdes_ref(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
+        (
+            bootstrapper::main_cryptde_ref(),
+            bootstrapper::alias_cryptde_ref(),
+        )
     }
 
-    fn alias_cryptde_ref(&self) -> &'static dyn CryptDE {
-        bootstrapper::alias_cryptde_ref()
-    }
-
-    fn database_chain_assertion(
+    fn validate_database_chain(
         &self,
-        chain: Chain,
         persistent_config: &dyn PersistentConfiguration,
+        chain: Chain,
     ) {
-        let requested_chain = chain.rec().literal_identifier.to_string();
-        let chain_in_db = persistent_config.chain_name();
-        if requested_chain != chain_in_db {
+        let from_db = persistent_config.chain_name();
+        let demanded = chain.rec().literal_identifier.to_string();
+        if demanded != from_db {
             panic!(
                 "Database with the wrong chain name detected; expected: {}, was: {}",
-                requested_chain, chain_in_db
+                demanded, from_db
             )
         }
     }
@@ -637,10 +635,8 @@ mod tests {
             >,
         >,
         prepare_initial_messages_results: RefCell<Vec<StreamHandlerPoolSubs>>,
-        main_cryptde_ref_results: RefCell<Vec<&'static dyn CryptDE>>,
-        alias_cryptde_ref_results: RefCell<Vec<&'static dyn CryptDE>>,
+        cryptdes_ref_results: RefCell<Vec<(&'static dyn CryptDE, &'static dyn CryptDE)>>, //first main, second alias
         database_chain_assertion_params: Arc<Mutex<Vec<Chain>>>,
-        compare_persistent_config_to_pointer: RefCell<Vec<*const dyn PersistentConfiguration>>,
     }
 
     impl ActorSystemFactoryTools for ActorSystemFactoryToolsMock {
@@ -660,52 +656,36 @@ mod tests {
             self.prepare_initial_messages_results.borrow_mut().remove(0)
         }
 
-        fn main_cryptde_ref(&self) -> &'static dyn CryptDE {
-            self.main_cryptde_ref_results.borrow_mut().remove(0)
+        fn cryptdes_ref(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
+            self.cryptdes_ref_results.borrow_mut().remove(0)
         }
 
-        fn alias_cryptde_ref(&self) -> &'static dyn CryptDE {
-            self.alias_cryptde_ref_results.borrow_mut().remove(0)
-        }
-
-        fn database_chain_assertion(
+        fn validate_database_chain(
             &self,
-            chain: Chain,
             persistent_config: &dyn PersistentConfiguration,
+            chain: Chain,
         ) {
             self.database_chain_assertion_params
                 .lock()
                 .unwrap()
                 .push(chain);
-            assert_eq!(
-                self.compare_persistent_config_to_pointer
-                    .borrow_mut()
-                    .remove(0),
-                addr_of!(*persistent_config)
-            )
+            //nonstandard...
+            //for an outer assertion, proving that we're using the expected, inserted object
+            persistent_config.chain_name();
         }
     }
 
     impl ActorSystemFactoryToolsMock {
-        pub fn main_cryptde_ref_result(self, result: &'static dyn CryptDE) -> Self {
-            self.main_cryptde_ref_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn alias_cryptde_ref_result(self, result: &'static dyn CryptDE) -> Self {
-            self.alias_cryptde_ref_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn database_chain_assertion_params(
-            mut self,
-            real_param: &Arc<Mutex<Vec<Chain>>>,
-            to_compare_for_in_place_param: *const dyn PersistentConfiguration,
+        pub fn cryptdes_ref_result(
+            self,
+            result: (&'static dyn CryptDE, &'static dyn CryptDE),
         ) -> Self {
-            self.database_chain_assertion_params = real_param.clone();
-            self.compare_persistent_config_to_pointer
-                .borrow_mut()
-                .push(to_compare_for_in_place_param);
+            self.cryptdes_ref_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn database_chain_assertion_params(mut self, params: &Arc<Mutex<Vec<Chain>>>) -> Self {
+            self.database_chain_assertion_params = params.clone();
             self
         }
 
@@ -1108,7 +1088,6 @@ mod tests {
             &Some(main_cryptde()),
             &Some(alias_cryptde()),
         );
-        let subject = ActorSystemFactoryReal::new();
         let mut tools = ActorSystemFactoryToolsReal::new();
         tools.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new().make_result(
@@ -1117,9 +1096,10 @@ mod tests {
                     .add_mapping_result(Ok(())),
             ),
         );
+        let subject = ActorSystemFactoryReal::new(Box::new(tools));
 
         let system = System::new("test");
-        subject.make_and_start_actors(config, Box::new(actor_factory), &persistent_config, &tools);
+        subject.make_and_start_actors(config, Box::new(actor_factory), &persistent_config);
         System::current().stop();
         system.run();
 
@@ -1539,6 +1519,7 @@ mod tests {
     fn proxy_server_drags_down_the_whole_system_due_to_local_panic() {
         let closure = || {
             let mut bootstrapper_config = BootstrapperConfig::default();
+            bootstrapper_config.rate_pack_opt = Some(DEFAULT_RATE_PACK);
             bootstrapper_config.crash_point = CrashPoint::Message;
             let subscribers = ActorFactoryReal {}.make_and_start_proxy_server(
                 main_cryptde(),
@@ -1706,20 +1687,20 @@ mod tests {
     }
 
     #[test]
-    fn database_chain_validity_happy_path() {
+    fn validate_database_chain_happy_path() {
         let chain = DEFAULT_CHAIN;
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
 
         let _ =
-            ActorSystemFactoryToolsReal::new().database_chain_assertion(chain, &persistent_config);
+            ActorSystemFactoryToolsReal::new().validate_database_chain(&persistent_config, chain);
     }
 
     #[test]
     #[should_panic(
         expected = "Database with the wrong chain name detected; expected: eth-ropsten, was: eth-mainnet"
     )]
-    fn make_and_start_actors_will_not_tolerate_differences_in_setup_chain_and_database_chain() {
+    fn make_and_start_actors_does_not_tolerate_differences_in_setup_chain_and_database_chain() {
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
         let persistent_config =
@@ -1728,13 +1709,12 @@ mod tests {
             &Some(main_cryptde().clone()),
             &Some(alias_cryptde().clone()),
         );
-        let subject = ActorSystemFactoryReal::new();
+        let subject = ActorSystemFactoryReal::new(Box::new(ActorSystemFactoryToolsReal::new()));
 
         let _ = subject.make_and_start_actors(
             bootstrapper_config,
             Box::new(ActorFactoryReal {}),
             &persistent_config,
-            &ActorSystemFactoryToolsReal::new(),
         );
     }
 
@@ -1742,6 +1722,7 @@ mod tests {
     fn make_and_start_actors_happy_path() {
         let database_chain_assertion_params_arc = Arc::new(Mutex::new(vec![]));
         let prepare_initial_messages_params_arc = Arc::new(Mutex::new(vec![]));
+        let chain_name_params_arc = Arc::new(Mutex::new(vec![]));
         let (recorder, _, recording_arc) = make_recorder();
         let stream_holder_pool_subs = make_stream_handler_pool_subs_from(Some(recorder));
         let mut bootstrapper_config = BootstrapperConfig::new();
@@ -1755,24 +1736,22 @@ mod tests {
         let alias_cryptde_public_key_before = public_key_for_dyn_cryptde_being_null(alias_cryptde);
         let actor_factory = Box::new(ActorFactoryReal {}) as Box<dyn ActorFactory>;
         let actor_factory_raw_address = addr_of!(*actor_factory);
-        let persistent_config = PersistentConfigurationMock::default();
-        let persistent_config_raw_address = addr_of!(persistent_config);
+        let persistent_config = PersistentConfigurationMock::default()
+            .chain_name_params(&chain_name_params_arc)
+            .chain_name_result(
+                "believe or not, supplied for nothing but prevention of panicking".to_string(),
+            );
         let tools = ActorSystemFactoryToolsMock::default()
-            .main_cryptde_ref_result(main_cryptde)
-            .alias_cryptde_ref_result(alias_cryptde)
-            .database_chain_assertion_params(
-                &database_chain_assertion_params_arc,
-                persistent_config_raw_address,
-            )
+            .cryptdes_ref_result((main_cryptde,alias_cryptde))
+            .database_chain_assertion_params(&database_chain_assertion_params_arc)
             .prepare_initial_messages_params(&prepare_initial_messages_params_arc)
             .prepare_initial_messages_result(stream_holder_pool_subs);
-        let subject = ActorSystemFactoryReal::new();
+        let subject = ActorSystemFactoryReal::new(Box::new(tools));
 
         let result = subject.make_and_start_actors(
             bootstrapper_config,
             Box::new(ActorFactoryReal {}),
             &persistent_config,
-            &tools,
         );
 
         let database_chain_assertion_params = database_chain_assertion_params_arc.lock().unwrap();
@@ -1820,7 +1799,9 @@ mod tests {
         system.run();
         let recording = recording_arc.lock().unwrap();
         let msg = recording.get_record::<NodeFromUiMessage>(0);
-        assert_eq!(msg, &msg_of_irrelevant_choice)
+        assert_eq!(msg, &msg_of_irrelevant_choice);
+        let chain_name_params = chain_name_params_arc.lock().unwrap();
+        assert_eq!(*chain_name_params, vec![()])
     }
 
     fn public_key_for_dyn_cryptde_being_null(cryptde: &dyn CryptDE) -> &PublicKey {

@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::fmt::Display;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::blockchain::bip32::Bip32ECKeyProvider;
@@ -176,6 +177,7 @@ pub trait PersistentConfiguration {
         earning_wallet_address: &str,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
+    as_any_dcl!();
 }
 
 pub struct PersistentConfigurationReal {
@@ -605,6 +607,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             Some(earning_wallet_address.to_string()),
         )?;
         Ok(writer.commit()?)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        todo!()
     }
 }
 

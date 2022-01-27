@@ -413,7 +413,6 @@ impl Future for Bootstrapper {
 
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
         try_ready!(CrashTestDummy::new(self.config.crash_point, BootstrapperConfig::new()).poll());
-
         try_ready!(self.listener_handlers.poll());
         Ok(Async::Ready(()))
     }
@@ -488,7 +487,6 @@ impl ConfiguredByPrivilege for Bootstrapper {
                 MigratorConfig::panic_on_migration(),
             )
             .as_ref(),
-            &ActorSystemFactoryToolsReal::new(),
         );
 
         self.listener_handlers
@@ -504,7 +502,9 @@ impl Bootstrapper {
             listener_handler_factory: Box::new(ListenerHandlerFactoryReal::new()),
             listener_handlers:
                 FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new(),
-            actor_system_factory: Box::new(ActorSystemFactoryReal::new()),
+            actor_system_factory: Box::new(ActorSystemFactoryReal::new(Box::new(
+                ActorSystemFactoryToolsReal::new(),
+            ))),
             logger_initializer,
             config: BootstrapperConfig::new(),
         }
@@ -693,7 +693,7 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 
-    use crate::actor_system_factory::{ActorFactory, ActorSystemFactory, ActorSystemFactoryTools};
+    use crate::actor_system_factory::{ActorFactory, ActorSystemFactory};
     use crate::bootstrapper::{
         main_cryptde_ref, Bootstrapper, BootstrapperConfig, EnvironmentWrapper, PortConfiguration,
         RealUser,
@@ -2048,7 +2048,7 @@ mod tests {
             config: BootstrapperConfig,
             _actor_factory: Box<dyn ActorFactory>,
             _persist_config: &dyn PersistentConfiguration,
-            _tools: &dyn ActorSystemFactoryTools,
+            // _tools: &dyn ActorSystemFactoryTools,
         ) -> StreamHandlerPoolSubs {
             let mut parameter_guard = self.dnss.lock().unwrap();
             let parameter_ref = parameter_guard.deref_mut();
