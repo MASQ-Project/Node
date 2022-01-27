@@ -96,6 +96,7 @@ impl SetupReporter for SetupReporterReal {
                     blanked_out_former_values.insert(v.name.clone(), former_value);
                 };
             });
+        //TODO improve this, embarrassing
         //we had troubles at an attempt to blank out this parameter on an error resulting in a diverging chain from the data_dir
         if blanked_out_former_values.get("chain").is_some() {
             let _ = blanked_out_former_values.remove("chain");
@@ -1168,9 +1169,11 @@ macro_rules! rate_pack_params_computed_default_and_is_required {
                 pc: &dyn PersistentConfiguration,
                 _db_password_opt: &Option<String>,
             ) -> Option<(String, UiSetupResponseValueStatus)> {
-                let bootstrapper_value_opt = bootstrapper_config
-                    .rate_pack_opt.as_ref()
-                    .map(|rate_pack|rate_pack.[<$field_name>]);
+                let neighborhood_mode = &bootstrapper_config.neighborhood_config.mode;
+                let bootstrapper_value_opt =
+                    if neighborhood_mode.is_standard() {Some(neighborhood_mode.rate_pack().[<$field_name>])}
+                    else if neighborhood_mode.is_originate_only() {todo!()}
+                    else {None};
                 let pc_value = pc
                         .[<$field_name>]()
                         .expectv($field_name);
@@ -1181,7 +1184,13 @@ macro_rules! rate_pack_params_computed_default_and_is_required {
                 )
             }
 
-                fn is_required(&self, _params: &SetupCluster) -> bool {true}
+                fn is_required(&self, params: &SetupCluster) -> bool {
+                       match params.get("neighborhood-mode") {
+                        Some(nhm) if &nhm.value == "standard" => true,
+                        Some(nhm) if &nhm.value == "originate-only" => true,
+                         _ => false,
+                        }
+                }
         }
     };
 }
@@ -1201,6 +1210,7 @@ mod tests {
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::neighborhood::NeighborhoodMode::Standard;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
@@ -1221,6 +1231,7 @@ mod tests {
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::utils::localhost;
     use masq_lib::utils::AutomapProtocol;
     use std::cell::RefCell;
     use std::convert::TryFrom;
@@ -3482,6 +3493,62 @@ mod tests {
         verify_needed_for_blockchain(&GasPrice {});
     }
 
+    #[test]
+    fn routing_byte_rate_requirements() {
+        verify_requirements(
+            &RoutingByteRate {},
+            "neighborhood-mode",
+            vec![
+                ("standard", true),
+                ("zero-hop", false),
+                ("originate-only", true),
+                ("consume-only", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn routing_service_rate_requirements() {
+        verify_requirements(
+            &RoutingServiceRate {},
+            "neighborhood-mode",
+            vec![
+                ("standard", true),
+                ("zero-hop", false),
+                ("originate-only", true),
+                ("consume-only", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn exit_byte_rate_requirements() {
+        verify_requirements(
+            &ExitByteRate {},
+            "neighborhood-mode",
+            vec![
+                ("standard", true),
+                ("zero-hop", false),
+                ("originate-only", true),
+                ("consume-only", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn exit_service_rate_requirements() {
+        verify_requirements(
+            &ExitServiceRate {},
+            "neighborhood-mode",
+            vec![
+                ("standard", true),
+                ("zero-hop", false),
+                ("originate-only", true),
+                ("consume-only", false),
+            ],
+        );
+    }
+
     //those marked with asterisk are factually irrelevant because values for them are always present
     //in the database and can be reset to defaults only (sort of factory settings)
     #[test]
@@ -3497,8 +3564,6 @@ mod tests {
         assert_eq!(DbPassword {}.is_required(&params), true);
         assert_eq!(DnsServers::new().is_required(&params), true);
         assert_eq!(EarningWallet {}.is_required(&params), false);
-        assert_eq!(ExitByteRate {}.is_required(&params), true); //*
-        assert_eq!(ExitServiceRate {}.is_required(&params), true); //*
         assert_eq!(GasPrice {}.is_required(&params), true);
         assert_eq!(Ip {}.is_required(&params), false);
         assert_eq!(LogLevel {}.is_required(&params), true);
@@ -3514,8 +3579,6 @@ mod tests {
             crate::daemon::setup_reporter::RealUser::default().is_required(&params),
             false
         );
-        assert_eq!(RoutingByteRate {}.is_required(&params), true); //*
-        assert_eq!(RoutingServiceRate {}.is_required(&params), true); //*
         assert_eq!(UnbanWhenBalanceBelowGwei {}.is_required(&params), true) //*
     }
 

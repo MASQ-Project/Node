@@ -64,9 +64,9 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         actor_factory: Box<dyn ActorFactory>,
         persist_config: &dyn PersistentConfiguration,
     ) -> StreamHandlerPoolSubs {
-        let (main_cryptde, alias_cryptde) = self.t.cryptdes_ref();
         self.t
-            .validate_database_chain(persist_config,config.blockchain_bridge_config.chain);
+            .validate_database_chain(persist_config, config.blockchain_bridge_config.chain);
+        let (main_cryptde, alias_cryptde) = self.t.cryptdes();
         self.t
             .prepare_initial_messages(main_cryptde, alias_cryptde, config, actor_factory)
     }
@@ -86,7 +86,7 @@ pub trait ActorSystemFactoryTools: Send {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs;
-    fn cryptdes_ref(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE);
+    fn cryptdes(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE);
     fn validate_database_chain(
         &self,
         persistent_config: &dyn PersistentConfiguration,
@@ -120,7 +120,6 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
                         .neighborhood_config
                         .mode
                         .rate_pack()
-                        .clone()
                         .exit_service_rate,
                     exit_byte_rate: config.neighborhood_config.mode.rate_pack().exit_byte_rate,
                     crashable: is_crashable(&config),
@@ -136,13 +135,11 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
                 .neighborhood_config
                 .mode
                 .rate_pack()
-                .clone()
                 .routing_service_rate,
             per_routing_byte: config
                 .neighborhood_config
                 .mode
                 .rate_pack()
-                .clone()
                 .routing_byte_rate,
             is_decentralized: config.neighborhood_config.mode.is_decentralized(),
             crashable: is_crashable(&config),
@@ -214,7 +211,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         stream_handler_pool_subs
     }
 
-    fn cryptdes_ref(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
+    fn cryptdes(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
         (
             bootstrapper::main_cryptde_ref(),
             bootstrapper::alias_cryptde_ref(),
@@ -635,8 +632,8 @@ mod tests {
             >,
         >,
         prepare_initial_messages_results: RefCell<Vec<StreamHandlerPoolSubs>>,
-        cryptdes_ref_results: RefCell<Vec<(&'static dyn CryptDE, &'static dyn CryptDE)>>, //first main, second alias
-        database_chain_assertion_params: Arc<Mutex<Vec<Chain>>>,
+        cryptdes_results: RefCell<Vec<(&'static dyn CryptDE, &'static dyn CryptDE)>>, //first main, second alias
+        validate_database_chain_params: Arc<Mutex<Vec<Chain>>>,
     }
 
     impl ActorSystemFactoryTools for ActorSystemFactoryToolsMock {
@@ -656,8 +653,8 @@ mod tests {
             self.prepare_initial_messages_results.borrow_mut().remove(0)
         }
 
-        fn cryptdes_ref(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
-            self.cryptdes_ref_results.borrow_mut().remove(0)
+        fn cryptdes(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
+            self.cryptdes_results.borrow_mut().remove(0)
         }
 
         fn validate_database_chain(
@@ -665,7 +662,7 @@ mod tests {
             persistent_config: &dyn PersistentConfiguration,
             chain: Chain,
         ) {
-            self.database_chain_assertion_params
+            self.validate_database_chain_params
                 .lock()
                 .unwrap()
                 .push(chain);
@@ -676,16 +673,13 @@ mod tests {
     }
 
     impl ActorSystemFactoryToolsMock {
-        pub fn cryptdes_ref_result(
-            self,
-            result: (&'static dyn CryptDE, &'static dyn CryptDE),
-        ) -> Self {
-            self.cryptdes_ref_results.borrow_mut().push(result);
+        pub fn cryptdes_result(self, result: (&'static dyn CryptDE, &'static dyn CryptDE)) -> Self {
+            self.cryptdes_results.borrow_mut().push(result);
             self
         }
 
-        pub fn database_chain_assertion_params(mut self, params: &Arc<Mutex<Vec<Chain>>>) -> Self {
-            self.database_chain_assertion_params = params.clone();
+        pub fn validate_database_chain_params(mut self, params: &Arc<Mutex<Vec<Chain>>>) -> Self {
+            self.validate_database_chain_params = params.clone();
             self
         }
 
@@ -1064,7 +1058,6 @@ mod tests {
             },
             port_configurations: HashMap::new(),
             db_password_opt: None,
-            rate_pack_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
@@ -1136,7 +1129,6 @@ mod tests {
             },
             port_configurations: HashMap::new(),
             db_password_opt: None,
-            rate_pack_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
@@ -1317,7 +1309,6 @@ mod tests {
             },
             port_configurations: HashMap::new(),
             db_password_opt: None,
-            rate_pack_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
@@ -1481,7 +1472,6 @@ mod tests {
             },
             port_configurations: HashMap::new(),
             db_password_opt: None,
-            rate_pack_opt: None,
             clandestine_port_opt: None,
             consuming_wallet_opt: None,
             earning_wallet: make_wallet("earning"),
@@ -1519,7 +1509,6 @@ mod tests {
     fn proxy_server_drags_down_the_whole_system_due_to_local_panic() {
         let closure = || {
             let mut bootstrapper_config = BootstrapperConfig::default();
-            bootstrapper_config.rate_pack_opt = Some(DEFAULT_RATE_PACK);
             bootstrapper_config.crash_point = CrashPoint::Message;
             let subscribers = ActorFactoryReal {}.make_and_start_proxy_server(
                 main_cryptde(),
@@ -1742,8 +1731,8 @@ mod tests {
                 "believe or not, supplied for nothing but prevention of panicking".to_string(),
             );
         let tools = ActorSystemFactoryToolsMock::default()
-            .cryptdes_ref_result((main_cryptde,alias_cryptde))
-            .database_chain_assertion_params(&database_chain_assertion_params_arc)
+            .cryptdes_result((main_cryptde, alias_cryptde))
+            .validate_database_chain_params(&database_chain_assertion_params_arc)
             .prepare_initial_messages_params(&prepare_initial_messages_params_arc)
             .prepare_initial_messages_result(stream_holder_pool_subs);
         let subject = ActorSystemFactoryReal::new(Box::new(tools));

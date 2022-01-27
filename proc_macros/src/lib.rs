@@ -2,14 +2,14 @@
 
 mod setup_reporter_tests;
 
-use crate::setup_reporter_tests::triple_test_computed_default_body;
+use crate::setup_reporter_tests::triple_test_computed_default_impl;
 use proc_macro::TokenStream;
 
 #[proc_macro]
 pub fn triple_test_computed_default(input: TokenStream) -> TokenStream {
     let input = input.to_string();
     let args = input.split(',').collect::<Vec<&str>>();
-    triple_test_computed_default_body(args)
+    triple_test_computed_default_impl(args)
 }
 
 //cargo rustc --profile=check -- -Zunpretty=expanded

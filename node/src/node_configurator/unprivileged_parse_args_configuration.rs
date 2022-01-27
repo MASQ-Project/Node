@@ -59,7 +59,6 @@ pub trait ParseArgsConfiguration {
                 }
             };
         configure_accountant_config(multi_config, unprivileged_config, persistent_config)?;
-        configure_rate_pack(multi_config, unprivileged_config, persistent_config)?;
         unprivileged_config.mapping_protocol_opt =
             compute_mapping_protocol_opt(multi_config, persistent_config, logger);
         let mnc_result = {
@@ -240,17 +239,18 @@ fn make_neighborhood_mode(
 ) -> Result<NeighborhoodMode, ConfiguratorError> {
     let neighborhood_mode_opt = value_m!(multi_config, "neighborhood-mode", String);
     match neighborhood_mode_opt {
-        Some(ref s) if s == "standard" => {
-            neighborhood_mode_standard(multi_config, neighbor_configs)
-        }
-        Some(ref s) if s == "originate-only" => {
-            if neighbor_configs.is_empty() {
-                Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode originate-only without --neighbors specified"))
-            } else {
-                Ok(NeighborhoodMode::OriginateOnly(
-                    neighbor_configs,
-                    DEFAULT_RATE_PACK,
-                ))
+        Some(ref s) if s == "standard" || s == "originate-only" => {
+            let rate_pack = configure_rate_pack(multi_config, persistent_config)?;
+            match s.as_str() {
+                "standard" => neighborhood_mode_standard(multi_config, neighbor_configs, rate_pack),
+                "originate-only" => {
+                    if neighbor_configs.is_empty() {
+                        Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode originate-only without --neighbors specified"))
+                    } else {
+                        Ok(NeighborhoodMode::OriginateOnly(neighbor_configs, rate_pack))
+                    }
+                }
+                _ => unreachable!(),
             }
         }
         Some(ref s) if s == "consume-only" => {
@@ -290,7 +290,10 @@ fn make_neighborhood_mode(
             "--neighborhood-mode {} has not been properly provided for in the code",
             s
         ),
-        None => neighborhood_mode_standard(multi_config, neighbor_configs),
+        None => {
+            let rate_pack = configure_rate_pack(multi_config, persistent_config)?;
+            neighborhood_mode_standard(multi_config, neighbor_configs, rate_pack)
+        }
     }
 }
 
@@ -318,12 +321,13 @@ fn zero_hop_neighbors_configuration(
 fn neighborhood_mode_standard(
     multi_config: &MultiConfig,
     neighbor_configs: Vec<NodeDescriptor>,
+    rate_pack: RatePack,
 ) -> Result<NeighborhoodMode, ConfiguratorError> {
     let ip = get_public_ip(multi_config)?;
     Ok(NeighborhoodMode::Standard(
         NodeAddr::new(&ip, &[]),
         neighbor_configs,
-        DEFAULT_RATE_PACK,
+        rate_pack,
     ))
 }
 
@@ -598,9 +602,8 @@ fn configure_accountant_config(
 
 fn configure_rate_pack(
     multi_config: &MultiConfig,
-    config: &mut BootstrapperConfig,
     persist_config: &mut dyn PersistentConfiguration,
-) -> Result<(), ConfiguratorError> {
+) -> Result<RatePack, ConfiguratorError> {
     let routing_byte_rate = configure_single_parameter(
         multi_config,
         "routing-byte-rate",
@@ -637,14 +640,13 @@ fn configure_rate_pack(
             persist_config.set_exit_service_rate(rate)
         },
     )?;
-    let configured = RatePack {
+    let rate_pack = RatePack {
         routing_byte_rate,
         routing_service_rate,
         exit_byte_rate,
         exit_service_rate,
     };
-    config.rate_pack_opt = Some(configured);
-    Ok(())
+    Ok(rate_pack)
 }
 
 fn configure_single_parameter<T, C1, C2>(
@@ -824,7 +826,7 @@ mod tests {
         let result = make_neighborhood_config(
             &ParseArgsConfigurationDaoNull {},
             &multi_config,
-            &mut configure_default_persistent_config(0b0000_0001),
+            &mut configure_default_persistent_config(0b0000_1001),
             &mut BootstrapperConfig::new(),
         );
 
@@ -873,7 +875,7 @@ mod tests {
         let result = make_neighborhood_config(
             &ParseArgsConfigurationDaoNull {},
             &multi_config,
-            &mut configure_default_persistent_config(0b0000_0001),
+            &mut configure_default_persistent_config(0b0000_1001),
             &mut BootstrapperConfig::new(),
         );
 
@@ -907,7 +909,7 @@ mod tests {
         let result = make_neighborhood_config(
             &ParseArgsConfigurationDaoNull {},
             &multi_config,
-            &mut configure_default_persistent_config(0b0000_0001),
+            &mut configure_default_persistent_config(0b0000_1001),
             &mut BootstrapperConfig::new(),
         );
 
@@ -949,7 +951,7 @@ mod tests {
         let result = make_neighborhood_config(
             &ParseArgsConfigurationDaoNull {},
             &multi_config,
-            &mut configure_default_persistent_config(0b0000_0001).check_password_result(Ok(false)),
+            &mut configure_default_persistent_config(0b0000_1001).check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1890,7 +1892,7 @@ mod tests {
             .set_unban_when_balance_below_gwei_result(Ok(()))
             .set_balance_decreases_for_sec_params(&set_balance_decreases_for_params_arc)
             .set_balance_decreases_for_sec_result(Ok(()));
-        let subject = ParseArgsConfigurationDaoNull {};
+        let subject = ParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -1981,7 +1983,7 @@ mod tests {
             .balance_to_decrease_from_gwei_result(Ok(100000))
             .unban_when_balance_below_gwei_result(Ok(20000))
             .balance_decreases_for_sec_result(Ok(1000));
-        let subject = ParseArgsConfigurationDaoNull {};
+        let subject = ParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -2011,7 +2013,7 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_configures_rate_pack_with_values_from_command_line_different_from_those_in_the_database(
+    fn unprivileged_parse_args_rate_pack_values_from_cli_different_from_database_standard_mode_defaulted(
     ) {
         running_test();
         let set_routing_byte_rate_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2050,7 +2052,7 @@ mod tests {
             .set_exit_service_rate_params(&set_exit_service_rate_params_arc)
             .set_exit_service_rate_result(Ok(()));
         //no prepared results for the getter methods, that is they're uncalled
-        let subject = ParseArgsConfigurationDaoNull {};
+        let subject = ParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -2061,7 +2063,7 @@ mod tests {
             )
             .unwrap();
 
-        let actual_rate_pack = config.rate_pack_opt.take().unwrap();
+        let actual_rate_pack = *config.neighborhood_config.mode.rate_pack();
         let expected_rate_pack = RatePack {
             routing_byte_rate: 2,
             routing_service_rate: 3,
@@ -2080,12 +2082,67 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_configures_rate_pack_with_values_from_command_line_equal_to_those_in_the_database(
+    fn unprivileged_parse_args_rate_pack_with_values_from_cli_equal_to_database_standard_mode() {
+        running_test();
+        let args = [
+            "--ip",
+            "1.2.3.4",
+            "--neighborhood-mode",
+            "standard",
+            "--blockchain-service-url",
+            "some.service.com",
+            "--gas-price",
+            "170",
+            "--routing-byte-rate",
+            "6",
+            "--routing-service-rate",
+            "7",
+            "--exit-byte-rate",
+            "8",
+            "--exit-service-rate",
+            "9",
+        ];
+        let mut config = BootstrapperConfig::new();
+        let multi_config = make_simplified_multi_config(args);
+        let mut persistent_configuration = configure_default_persistent_config(0b0000_0111)
+            .routing_byte_rate_result(Ok(6))
+            .routing_service_rate_result(Ok(7))
+            .exit_byte_rate_result(Ok(8))
+            .exit_service_rate_result(Ok(9));
+        let subject = ParseArgsConfigurationDaoReal {};
+
+        subject
+            .unprivileged_parse_args(
+                &multi_config,
+                &mut config,
+                &mut persistent_configuration,
+                &Logger::new("test"),
+            )
+            .unwrap();
+
+        assert_eq!(config.neighborhood_config.mode.is_standard(), true);
+        let actual_rate_pack = *config.neighborhood_config.mode.rate_pack();
+        let expected_rate_pack = RatePack {
+            routing_byte_rate: 6,
+            routing_service_rate: 7,
+            exit_byte_rate: 8,
+            exit_service_rate: 9,
+        };
+        assert_eq!(actual_rate_pack, expected_rate_pack);
+        //no prepared results for the setter methods, that is they're uncalled
+    }
+
+    #[test]
+    fn unprivileged_parse_args_rate_pack_with_values_from_cli_equal_to_database_originate_only_mode(
     ) {
         running_test();
         let args = [
             "--ip",
             "1.2.3.4",
+            "--chain",
+            "polygon-mainnet",
+            "--neighborhood-mode",
+            "originate-only",
             "--blockchain-service-url",
             "some.service.com",
             "--gas-price",
@@ -2098,6 +2155,8 @@ mod tests {
             "4",
             "--exit-service-rate",
             "5",
+            "--neighbors",
+            "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342",
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
@@ -2106,7 +2165,7 @@ mod tests {
             .routing_service_rate_result(Ok(3))
             .exit_byte_rate_result(Ok(4))
             .exit_service_rate_result(Ok(5));
-        let subject = ParseArgsConfigurationDaoNull {};
+        let subject = ParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -2117,7 +2176,8 @@ mod tests {
             )
             .unwrap();
 
-        let actual_rate_pack = config.rate_pack_opt.take().unwrap();
+        assert_eq!(config.neighborhood_config.mode.is_originate_only(), true);
+        let actual_rate_pack = *config.neighborhood_config.mode.rate_pack();
         let expected_rate_pack = RatePack {
             routing_byte_rate: 2,
             routing_service_rate: 3,
@@ -2351,7 +2411,6 @@ mod tests {
             "--data-directory",
             home_directory.to_str().unwrap(),
         ];
-        let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
         let mut persistent_configuration = PersistentConfigurationMock::new()
             .mapping_protocol_result(Ok(None))
@@ -2360,24 +2419,23 @@ mod tests {
             .exit_byte_rate_result(Ok(10))
             .exit_service_rate_result(Ok(11));
 
-        configure_rate_pack(&multi_config, &mut config, &mut persistent_configuration).unwrap();
+        let result = configure_rate_pack(&multi_config, &mut persistent_configuration).unwrap();
 
-        let actual_rate_pack = config.rate_pack_opt.take().unwrap();
         let expected_rate_pack = RatePack {
             routing_byte_rate: 8,
             routing_service_rate: 7,
             exit_byte_rate: 10,
             exit_service_rate: 11,
         };
-        assert_eq!(actual_rate_pack, expected_rate_pack)
+        assert_eq!(result, expected_rate_pack)
     }
 
     #[test]
-    fn configure_rate_pack_command_line_absent_null_config_dao_so_all_defaults() {
+    fn configure_rate_pack_command_line_absent_config_dao_null_so_all_defaults() {
         running_test();
         let home_directory = ensure_node_home_directory_exists(
             "unprivileged_parse_args_configuration",
-            "configure_rate_pack_command_line_absent_null_config_dao_so_all_defaults",
+            "configure_rate_pack_command_line_absent_config_dao_null_so_all_defaults",
         );
         let args = [
             "--ip",
@@ -2389,20 +2447,18 @@ mod tests {
             "--data-directory",
             home_directory.to_str().unwrap(),
         ];
-        let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
         let mut persistent_config = make_persistent_config_real_with_config_dao_null();
 
-        configure_rate_pack(&multi_config, &mut config, &mut persistent_config).unwrap();
+        let result = configure_rate_pack(&multi_config, &mut persistent_config).unwrap();
 
-        let actual_rate_pack = config.rate_pack_opt.take().unwrap();
         let expected_rate_pack = RatePack {
             routing_byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
             routing_service_rate: DEFAULT_RATE_PACK.routing_service_rate,
             exit_byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
             exit_service_rate: DEFAULT_RATE_PACK.exit_service_rate,
         };
-        assert_eq!(actual_rate_pack, expected_rate_pack)
+        assert_eq!(result, expected_rate_pack)
     }
 
     #[test]
