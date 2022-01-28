@@ -703,9 +703,6 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::{ConfigDaoMock, ConfigDaoWriteableMock};
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
-    use crate::getter_method_plain_data_does_not_tolerate_none_value;
-    use crate::persistent_config_plain_data_assertions_for_simple_get_method;
-    use crate::persistent_config_plain_data_assertions_for_simple_set_method;
     use crate::test_utils::main_cryptde;
     use bip39::{Language, MnemonicType};
     use lazy_static::lazy_static;
@@ -1899,6 +1896,78 @@ mod tests {
         );
     }
 
+    macro_rules! persistent_config_plain_data_assertions_for_simple_get_method {
+        ($parameter_name: literal,$expected_value: expr) => {
+            paste! {
+                let get_params_arc = Arc::new(Mutex::new(vec![]));
+                let config_dao = ConfigDaoMock::new()
+                    .get_params(&get_params_arc)
+                    .get_result(Ok(ConfigDaoRecord::new(
+                        $parameter_name,
+                        Some($expected_value.to_string().as_str()),
+                        false,
+                    )));
+                let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+                let result = subject.[<$parameter_name>]().unwrap();
+
+                assert_eq!(result, $expected_value);
+                let get_params = get_params_arc.lock().unwrap();
+                assert_eq!(*get_params, vec![$parameter_name.to_string()]);
+            }
+            assert_eq!(
+                CONFIG_TABLE_PARAMETERS
+                    .iter()
+                    .filter(|parameter_name| parameter_name.as_str() == $parameter_name)
+                    .count(),
+                1
+            )
+        };
+    }
+
+    macro_rules! persistent_config_plain_data_assertions_for_simple_set_method {
+        ($parameter_name: literal,$set_value: expr) => {
+            paste! {
+                let set_params_arc = Arc::new(Mutex::new(vec![]));
+                let config_dao = ConfigDaoWriteableMock::new()
+                    .set_params(&set_params_arc)
+                    .set_result(Ok(()))
+                    .commit_result(Ok(()));
+                let mut subject = PersistentConfigurationReal::new(Box::new(
+                    ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
+                ));
+
+                let result = subject.[<set_ $parameter_name>]($set_value);
+
+                assert!(result.is_ok());
+                let set_params = set_params_arc.lock().unwrap();
+                assert_eq!(
+                    *set_params,
+                    vec![(
+                        $parameter_name.to_string(),
+                        Some($set_value.to_string())
+                    )]
+                );
+            }
+        };
+    }
+
+    macro_rules! getter_method_plain_data_does_not_tolerate_none_value {
+        ($parameter_name: literal) => {
+            paste! {
+                let config_dao = ConfigDaoMock::new()
+                    .get_result(Ok(ConfigDaoRecord::new(
+                        $parameter_name,
+                        None,
+                        false,
+                    )));
+                let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+                let _ = subject.[<$parameter_name>]();
+            }
+        };
+    }
+
     #[test]
     fn routing_byte_rate_works() {
         persistent_config_plain_data_assertions_for_simple_get_method!("routing_byte_rate", 1234);
@@ -2189,81 +2258,6 @@ mod tests {
             "payment_suggested_after_sec",
             8000
         );
-    }
-
-    #[macro_export]
-    macro_rules! persistent_config_plain_data_assertions_for_simple_get_method {
-        ($parameter_name: literal,$expected_value: expr) => {
-            paste! {
-                let get_params_arc = Arc::new(Mutex::new(vec![]));
-                let config_dao = ConfigDaoMock::new()
-                    .get_params(&get_params_arc)
-                    .get_result(Ok(ConfigDaoRecord::new(
-                        $parameter_name,
-                        Some($expected_value.to_string().as_str()),
-                        false,
-                    )));
-                let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-
-                let result = subject.[<$parameter_name>]().unwrap();
-
-                assert_eq!(result, $expected_value);
-                let get_params = get_params_arc.lock().unwrap();
-                assert_eq!(*get_params, vec![$parameter_name.to_string()]);
-            }
-            assert_eq!(
-                CONFIG_TABLE_PARAMETERS
-                    .iter()
-                    .filter(|parameter_name| parameter_name.as_str() == $parameter_name)
-                    .count(),
-                1
-            )
-        };
-    }
-
-    #[macro_export]
-    macro_rules! persistent_config_plain_data_assertions_for_simple_set_method {
-        ($parameter_name: literal,$set_value: expr) => {
-            paste! {
-                let set_params_arc = Arc::new(Mutex::new(vec![]));
-                let config_dao = ConfigDaoWriteableMock::new()
-                    .set_params(&set_params_arc)
-                    .set_result(Ok(()))
-                    .commit_result(Ok(()));
-                let mut subject = PersistentConfigurationReal::new(Box::new(
-                    ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
-                ));
-
-                let result = subject.[<set_ $parameter_name>]($set_value);
-
-                assert!(result.is_ok());
-                let set_params = set_params_arc.lock().unwrap();
-                assert_eq!(
-                    *set_params,
-                    vec![(
-                        $parameter_name.to_string(),
-                        Some($set_value.to_string())
-                    )]
-                );
-            }
-        };
-    }
-
-    #[macro_export]
-    macro_rules! getter_method_plain_data_does_not_tolerate_none_value {
-        ($parameter_name: literal) => {
-            paste! {
-                let config_dao = ConfigDaoMock::new()
-                    .get_result(Ok(ConfigDaoRecord::new(
-                        $parameter_name,
-                        None,
-                        false,
-                    )));
-                let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-
-                let _ = subject.[<$parameter_name>]();
-            }
-        };
     }
 
     fn list_of_config_parameters() -> Vec<String> {

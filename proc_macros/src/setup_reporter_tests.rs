@@ -60,7 +60,7 @@ pub fn triple_test_computed_default_impl(args: Vec<&str>) -> TokenStream {
     format!(
         "
     #[test]
-    fn {parameter_name}_computed_default_all_defaulted(){{
+    fn {parameter_name}_computed_default_all_values_same_as_default(){{
         let subject = {name_camel_case}{{}};
         let mut bootstrapper_config = BootstrapperConfig::new();
         {populate_bc_with_some_val}
@@ -165,7 +165,7 @@ fn test_specific_value<T: Display>(
         let neighbor =
         NodeDescriptor::try_from((main_cryptde(), \"masq://eth-mainnet:AgMEBQ@2.3.4.5:2345\"))
         .unwrap();
-        let adjusted_default = Standard(
+        let adjusted_default = NeighborhoodModeEnum::Standard(
             NodeAddr::new(&localhost(), &[1234]),
             vec![neighbor],
             rate_pack,

@@ -879,7 +879,6 @@ impl ValueRetriever for Neighbors {
     }
 }
 
-//TODO write macro that would supply all methods together
 struct BalanceDecreasesForSec {}
 impl ValueRetriever for BalanceDecreasesForSec {
     fn value_name(&self) -> &'static str {
@@ -999,6 +998,212 @@ impl ValueRetriever for UnbanWhenBalanceBelowGwei {
     payment_curve_params_computed_default_and_is_required!("unban_when_balance_below_gwei");
 }
 
+//this allows me to avoid excessive test-set inflation,
+//just proving this logic is used for every parameter of this kind
+trait PaymentCurvesComputedDefaultEvaluation{
+    fn computed_default_payment_curves(
+        bootstrapper_config_value_opt: &Option<u64>,
+        persistent_config_value: u64,
+        default: u64,
+    ) -> Option<(String, UiSetupResponseValueStatus)>;
+}
+
+struct PaymentCurvesComputedDefaultEvaluationReal{}
+
+impl PaymentCurvesComputedDefaultEvaluation for PaymentCurvesComputedDefaultEvaluationReal{
+    fn computed_default_payment_curves(
+        bootstrapper_config_value_opt: &Option<u64>,
+        persistent_config_value: u64,
+        default: u64
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        todo!()
+    }
+}
+
+//this allows me to avoid excessive test-set inflation,
+//just proving this logic is used for every parameter of this kind
+trait ScanIntervalsComputedDefaultEvaluation{
+    fn computed_default_scan_intervals(
+        bootstrapper_config_value_opt: &Option<u64>,
+        persistent_config_value: u64,
+        default: u64,
+    ) -> Option<(String, UiSetupResponseValueStatus)>;
+}
+
+struct ScanIntervalsComputedDefaultEvaluationReal{}
+
+impl ScanIntervalsComputedDefaultEvaluation for ScanIntervalsComputedDefaultEvaluationReal{
+    fn computed_default_scan_intervals(
+        bootstrapper_config_value_opt: &Option<u64>,
+        persistent_config_value: u64,
+        default: u64
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        todo!()
+    }
+}
+
+//this allows me to avoid excessive test-set inflation,
+//just proving this logic is used for every parameter of this kind
+trait RatePackComputedDefaultEvaluation{
+    fn computed_default_rate_pack(
+        bootstrapper_config_value_opt: &Option<u64>,
+        persistent_config_value: u64,
+        default: u64,
+    ) -> Option<(String, UiSetupResponseValueStatus)>;
+}
+
+struct RatePackComputedDefaultEvaluationReal{}
+
+impl RatePackComputedDefaultEvaluation for RatePackComputedDefaultEvaluationReal{
+    fn computed_default_rate_pack(
+        bootstrapper_config_value_opt: &Option<u64>,
+        persistent_config_value: u64,
+        default: u64
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        todo!()
+    }
+}
+
+//TODO should finally flow into the trait's method and evaporate
+fn computed_default_rate_pack(
+    bootstrapper_config_value_opt: &Option<u64>,
+    persistent_config_value: u64,
+    default: u64,
+) -> Option<(String, UiSetupResponseValueStatus)>
+{
+    match bootstrapper_config_value_opt{
+        Some(rate) =>
+            if *rate == default {
+                Some((default.to_string(), Default))
+            } else if *rate == persistent_config_value {
+                Some((persistent_config_value.to_string(), Configured))
+            } else {
+                None
+            }
+        None => None
+    }
+}
+
+//TODO if the bootstrapper config value is believed to be ever Some() we don't need the Option
+fn computed_default_payment_curves_and_scan_intervals_inner_body<T>(
+    bootstrapper_config_value_opt: &Option<T>,
+    persistent_config_value: T,
+    default: T,
+) -> Option<(String, UiSetupResponseValueStatus)>
+    where
+        T: PartialEq + Display + Copy,
+{
+    let value =
+        bootstrapper_config_value_opt.expect("bootstrapper config should've been populated now");
+    if value == default {
+        Some((default.to_string(), Default))
+    } else if value == persistent_config_value {
+        Some((persistent_config_value.to_string(), Configured))
+    } else {
+        None
+    }
+}
+
+#[macro_export]
+macro_rules! payment_curve_params_computed_default_and_is_required {
+    ($field_name: literal) => {
+        paste! {
+                fn computed_default(
+                &self,
+                bootstrapper_config: &BootstrapperConfig,
+                pc: &dyn PersistentConfiguration,
+                _db_password_opt: &Option<String>,
+            ) -> Option<(String, UiSetupResponseValueStatus)> {
+                let bootstrapper_value_opt = bootstrapper_config
+                    .accountant_config_opt
+                    .as_ref()
+                    .map(|accountant_config| accountant_config
+                        .payment_curves.[<$field_name>]
+                    );
+                let pc_value = pc
+                        .[<$field_name>]()
+                        .expectv($field_name) as i64;
+                computed_default_payment_curves_and_scan_intervals_inner_body(
+                    &bootstrapper_value_opt,
+                    pc_value,
+                    DEFAULT_PAYMENT_CURVES.[<$field_name>],
+                )
+            }
+
+               fn is_required(&self, _params: &SetupCluster) -> bool {true}
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! scan_interval_params_computed_default_and_is_required {
+    ($field_name: literal,$default: expr) => {
+        paste! {
+                fn computed_default(
+                &self,
+                bootstrapper_config: &BootstrapperConfig,
+                pc: &dyn PersistentConfiguration,
+                _db_password_opt: &Option<String>,
+            ) -> Option<(String, UiSetupResponseValueStatus)> {
+                let bootstrapper_value_opt = bootstrapper_config
+                    .accountant_config_opt
+                    .as_ref()
+                    .map(|accountant_config| accountant_config
+                        .[<$field_name>].as_secs()
+                    );
+                let pc_value = pc
+                        .[<$field_name>]()
+                        .expectv($field_name);
+                computed_default_payment_curves_and_scan_intervals_inner_body(
+                    &bootstrapper_value_opt,
+                    pc_value,
+                    $default,
+                )
+            }
+
+                fn is_required(&self, _params: &SetupCluster) -> bool {true}
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! rate_pack_params_computed_default_and_is_required {
+    ($field_name: literal) => {
+        paste! {
+                fn computed_default(
+                &self,
+                bootstrapper_config: &BootstrapperConfig,
+                pc: &dyn PersistentConfiguration,
+                _db_password_opt: &Option<String>,
+            ) -> Option<(String, UiSetupResponseValueStatus)> {
+                let neighborhood_mode = &bootstrapper_config.neighborhood_config.mode;
+                let bootstrapper_value_opt =
+                    if let NeighborhoodModeEnum::Standard(_,_,rate_pack) = neighborhood_mode
+                        {Some(rate_pack.[<$field_name>])}
+                    else if let NeighborhoodModeEnum::OriginateOnly(_,rate_pack) = neighborhood_mode
+                        {Some(rate_pack.[<$field_name>])}
+                    else {None};
+                let pc_value = pc
+                        .[<$field_name>]()
+                        .expectv($field_name);
+                computed_default_rate_pack(
+                    &bootstrapper_value_opt,
+                    pc_value,
+                    DEFAULT_RATE_PACK.[<$field_name>],
+                )
+            }
+
+                fn is_required(&self, params: &SetupCluster) -> bool {
+                       match params.get("neighborhood-mode") {
+                        Some(nhm) if &nhm.value == "standard" => true,
+                        Some(nhm) if &nhm.value == "originate-only" => true,
+                         _ => false,
+                        }
+                }
+        }
+    };
+}
+
 struct RealUser {
     #[allow(dead_code)]
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -1078,123 +1283,6 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
     ]
 }
 
-fn computed_default_payment_curves_rate_pack_scan_intervals<T>(
-    bootstrapper_config_value_opt: &Option<T>,
-    persistent_config_value: T,
-    default: T,
-) -> Option<(String, UiSetupResponseValueStatus)>
-where
-    T: PartialEq + Display + Copy,
-{
-    let value =
-        bootstrapper_config_value_opt.expect("bootstrapper config should've been populated now");
-    if value == default {
-        Some((default.to_string(), Default))
-    } else if value == persistent_config_value {
-        Some((persistent_config_value.to_string(), Configured))
-    } else {
-        None
-    }
-}
-
-#[macro_export]
-macro_rules! payment_curve_params_computed_default_and_is_required {
-    ($field_name: literal) => {
-        paste! {
-                fn computed_default(
-                &self,
-                bootstrapper_config: &BootstrapperConfig,
-                pc: &dyn PersistentConfiguration,
-                _db_password_opt: &Option<String>,
-            ) -> Option<(String, UiSetupResponseValueStatus)> {
-                let bootstrapper_value_opt = bootstrapper_config
-                    .accountant_config_opt
-                    .as_ref()
-                    .map(|accountant_config| accountant_config
-                        .payment_curves.[<$field_name>]
-                    );
-                let pc_value = pc
-                        .[<$field_name>]()
-                        .expectv($field_name) as i64;
-                computed_default_payment_curves_rate_pack_scan_intervals(
-                    &bootstrapper_value_opt,
-                    pc_value,
-                    DEFAULT_PAYMENT_CURVES.[<$field_name>],
-                )
-            }
-
-               fn is_required(&self, _params: &SetupCluster) -> bool {true}
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! scan_interval_params_computed_default_and_is_required {
-    ($field_name: literal,$default: expr) => {
-        paste! {
-                fn computed_default(
-                &self,
-                bootstrapper_config: &BootstrapperConfig,
-                pc: &dyn PersistentConfiguration,
-                _db_password_opt: &Option<String>,
-            ) -> Option<(String, UiSetupResponseValueStatus)> {
-                let bootstrapper_value_opt = bootstrapper_config
-                    .accountant_config_opt
-                    .as_ref()
-                    .map(|accountant_config| accountant_config
-                        .[<$field_name>].as_secs()
-                    );
-                let pc_value = pc
-                        .[<$field_name>]()
-                        .expectv($field_name);
-                computed_default_payment_curves_rate_pack_scan_intervals(
-                    &bootstrapper_value_opt,
-                    pc_value,
-                    $default,
-                )
-            }
-
-                fn is_required(&self, _params: &SetupCluster) -> bool {true}
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! rate_pack_params_computed_default_and_is_required {
-    ($field_name: literal) => {
-        paste! {
-                fn computed_default(
-                &self,
-                bootstrapper_config: &BootstrapperConfig,
-                pc: &dyn PersistentConfiguration,
-                _db_password_opt: &Option<String>,
-            ) -> Option<(String, UiSetupResponseValueStatus)> {
-                let neighborhood_mode = &bootstrapper_config.neighborhood_config.mode;
-                let bootstrapper_value_opt =
-                    if neighborhood_mode.is_standard() {Some(neighborhood_mode.rate_pack().[<$field_name>])}
-                    else if neighborhood_mode.is_originate_only() {todo!()}
-                    else {None};
-                let pc_value = pc
-                        .[<$field_name>]()
-                        .expectv($field_name);
-                computed_default_payment_curves_rate_pack_scan_intervals(
-                    &bootstrapper_value_opt,
-                    pc_value,
-                    DEFAULT_RATE_PACK.[<$field_name>],
-                )
-            }
-
-                fn is_required(&self, params: &SetupCluster) -> bool {
-                       match params.get("neighborhood-mode") {
-                        Some(nhm) if &nhm.value == "standard" => true,
-                        Some(nhm) if &nhm.value == "originate-only" => true,
-                         _ => false,
-                        }
-                }
-        }
-    };
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1210,10 +1298,9 @@ mod tests {
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::PublicKey;
-    use crate::sub_lib::neighborhood::NeighborhoodMode::Standard;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::assert_string_contains;
+    use crate::test_utils::{assert_string_contains, rate_pack};
     use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
@@ -3384,7 +3471,44 @@ mod tests {
         assert_eq!(result, None);
     }
 
+    macro_rules! rate_pack_computed_default_all_values_equal_to_default  {
+        ($parameter_name: ident,$subject: ident) => {
+            let subject = $subject{};
+            let mut bootstrapper_config = BootstrapperConfig::new();
+            let mut rate_pack = DEFAULT_RATE_PACK;
+            rate_pack.$parameter_name = rate_pack.$parameter_name;
+            let neighbor = NodeDescriptor::try_from((main_cryptde(),
+                "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345"))
+                .unwrap();
+            let neighborhood_mode = NeighborhoodModeEnum::Standard(
+                NodeAddr::new(&localhost(), &[1234]),
+                vec![neighbor],
+                DEFAULT_RATE_PACK,
+            );
+            bootstrapper_config.neighborhood_config.mode = neighborhood_mode;
+
+            let result = subject.computed_default(
+                  &bootstrapper_config,
+                  &make_persistent_config_real_with_config_dao_null(),
+                  &None,
+            );
+
+            assert_eq!(
+                result,
+                Some((
+                    DEFAULT_RATE_PACK.$parameter_name.to_string(),
+                    Default
+                ))
+            )
+        }
+    }
+
     proc_macros::triple_test_computed_default!(routing_byte_rate, u64, 2);
+
+    #[test]
+    fn routing_byte_rate_computed_default_all_values_equal_to_default(){
+        rate_pack_computed_default_all_values_equal_to_default!(routing_byte_rate,RoutingByteRate);
+    }
 
     proc_macros::triple_test_computed_default!(routing_service_rate, u64, 2);
 
@@ -3409,6 +3533,42 @@ mod tests {
     proc_macros::triple_test_computed_default!(permanent_debt_allowed_gwei, u64, 1);
 
     proc_macros::triple_test_computed_default!(unban_when_balance_below_gwei, u64, 1);
+
+    #[test]
+    fn computed_default_rate_pack_when_value_from_bootstrapper_config_is_none(){
+        //this None actually means that a neighborhood mode different from 'standard' or 'originate-only'
+        //has been set
+        let bc_value = None;
+        let persistent_config_value = 5555;
+
+        let result = computed_default_rate_pack(&bc_value, persistent_config_value,DEFAULT_RATE_PACK.routing_service_rate );
+
+        assert_eq!(result,None)
+    }
+
+    #[test]
+    fn exit_service_rate_computed_default_value_when_neighborhood_mode_is_originate_only(){
+        let subject = ExitServiceRate{};
+        let mut config = BootstrapperConfig::new();
+        let mut rate_pack = rate_pack(123);
+        rate_pack.exit_service_rate = DEFAULT_RATE_PACK.exit_service_rate;
+        let cryptde = main_cryptde();
+        let originate_only = NeighborhoodModeEnum::OriginateOnly(
+            vec![NodeDescriptor::from((
+                cryptde.public_key(),
+                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
+                Blockchain::EthRopsten,
+                cryptde,
+            ))],
+            rate_pack,
+        );
+        config.neighborhood_config.mode = originate_only;
+        let persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
+
+        let result = subject.computed_default(&config,&persistent_config,&None);
+
+        assert_eq!(result,Some((DEFAULT_RATE_PACK.exit_service_rate.to_string(),Default)))
+    }
 
     fn verify_requirements(
         subject: &dyn ValueRetriever,
