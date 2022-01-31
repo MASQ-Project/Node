@@ -69,7 +69,7 @@ impl Handler<BindMessage> for BlockchainBridge {
         //     msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         // ]);
         self.payment_confirmation.transaction_backup_subs_opt =
-            Some(msg.peer_actors.accountant.payment_fingerprint);
+            Some(msg.peer_actors.accountant.pending_payable_fingerprint);
         self.payment_confirmation
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
@@ -283,7 +283,7 @@ impl BlockchainBridge {
                     .as_ref()
                     .expect("Accountant is unbound")
                     .try_send(ReportTransactionReceipts {
-                        payment_fingerprints_with_receipts: pairs,
+                        pending_payable_fingerprints_with_receipts: pairs,
                     })
                     .expect("Accountant is dead")
             },
@@ -348,14 +348,14 @@ struct PendingTxInfo {
 mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
-    use crate::accountant::test_utils::make_payment_fingerprint;
+    use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::Payment;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransactionError, Transaction,
     };
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
-    use crate::blockchain::tool_wrappers::SendTransactionToolWrapperNull;
+    use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -453,7 +453,7 @@ mod tests {
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_params(&get_transaction_count_params_arc)
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
-            .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
+            .send_transaction_tools_result(Box::new(SendTransactionToolsWrapperNull))
             .send_transaction_result(Err(BlockchainTransactionError::Sending(
                 String::from("mock payment failure"),
                 transaction_hash,
@@ -472,11 +472,11 @@ mod tests {
                 wallet: make_wallet("blah"),
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
-                pending_payment_rowid_opt: Some(789),
+                pending_payable_rowid_opt: Some(789),
             }],
         };
-        let (accountat, _, _) = make_recorder();
-        let backup_recipient = accountat.start().recipient();
+        let (accountant, _, _) = make_recorder();
+        let backup_recipient = accountant.start().recipient();
         subject.payment_confirmation.transaction_backup_subs_opt = Some(backup_recipient);
 
         let result = subject.handle_report_accounts_payable_inner(request);
@@ -507,7 +507,7 @@ mod tests {
                 wallet: make_wallet("blah"),
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
-                pending_payment_rowid_opt: Some(123),
+                pending_payable_rowid_opt: Some(123),
             }],
         };
 
@@ -527,8 +527,8 @@ mod tests {
             .get_transaction_count_params(&get_transaction_count_params_arc)
             .get_transaction_count_result(Ok(U256::from(1)))
             .get_transaction_count_result(Ok(U256::from(2)))
-            .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
-            .send_transaction_tools_result(Box::new(SendTransactionToolWrapperNull))
+            .send_transaction_tools_result(Box::new(SendTransactionToolsWrapperNull))
+            .send_transaction_tools_result(Box::new(SendTransactionToolsWrapperNull))
             .send_transaction_params(&send_transaction_params_arc)
             .send_transaction_result(Ok((
                 H256::from("sometransactionhash".keccak256()),
@@ -560,13 +560,13 @@ mod tests {
                         wallet: make_wallet("blah"),
                         balance: 420,
                         last_paid_timestamp: from_time_t(150_000_000),
-                        pending_payment_rowid_opt: None,
+                        pending_payable_rowid_opt: None,
                     },
                     PayableAccount {
                         wallet: make_wallet("foo"),
                         balance: 210,
                         last_paid_timestamp: from_time_t(160_000_000),
-                        pending_payment_rowid_opt: None,
+                        pending_payable_rowid_opt: None,
                     },
                 ],
             })
@@ -640,7 +640,7 @@ mod tests {
                 wallet: make_wallet("blah"),
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
-                pending_payment_rowid_opt: None,
+                pending_payable_rowid_opt: None,
             }],
         };
 
@@ -655,10 +655,10 @@ mod tests {
     fn blockchain_bridge_processes_requests_for_transaction_receipts_when_all_were_ok() {
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let payment_fingerprint_1 = make_payment_fingerprint();
-        let hash_1 = payment_fingerprint_1.hash;
+        let pending_payable_fingerprint_1 = make_pending_payable_fingerprint();
+        let hash_1 = pending_payable_fingerprint_1.hash;
         let hash_2 = H256::from_uint(&U256::from(78989));
-        let payment_fingerprint_2 = PaymentFingerprint {
+        let pending_payable_fingerprint_2 = PaymentFingerprint {
             rowid: 456,
             timestamp: SystemTime::now(),
             hash: hash_2,
@@ -681,7 +681,7 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
         let msg = RequestTransactionReceipts {
-            pending_payable: vec![payment_fingerprint_1.clone(), payment_fingerprint_2.clone()],
+            pending_payable: vec![pending_payable_fingerprint_1.clone(), pending_payable_fingerprint_2.clone()],
         };
 
         let _ = addr.try_send(msg).unwrap();
@@ -695,14 +695,14 @@ mod tests {
         assert_eq!(
             received_message,
             &ReportTransactionReceipts {
-                payment_fingerprints_with_receipts: vec![
-                    (Some(TransactionReceipt::default()), payment_fingerprint_1),
-                    (None, payment_fingerprint_2),
+                pending_payable_fingerprints_with_receipts: vec![
+                    (Some(TransactionReceipt::default()), pending_payable_fingerprint_1),
+                    (None, pending_payable_fingerprint_2),
                 ]
             }
         );
-        let get_transaction_params = get_transaction_receipt_params_arc.lock().unwrap();
-        assert_eq!(*get_transaction_params, vec![hash_1, hash_2])
+        let get_transaction_receipt_params = get_transaction_receipt_params_arc.lock().unwrap();
+        assert_eq!(*get_transaction_receipt_params, vec![hash_1, hash_2])
     }
 
     #[test]
@@ -742,9 +742,9 @@ mod tests {
         let hash_1 = H256::from_uint(&U256::from(111334));
         let hash_2 = H256::from_uint(&U256::from(78989));
         let hash_3 = H256::from_uint(&U256::from(11111));
-        let mut payment_fingerprint_1 = make_payment_fingerprint();
-        payment_fingerprint_1.hash = hash_1;
-        let payment_fingerprint_2 = PaymentFingerprint {
+        let mut pending_payable_fingerprint_1 = make_pending_payable_fingerprint();
+        pending_payable_fingerprint_1.hash = hash_1;
+        let pending_payable_fingerprint_2 = PaymentFingerprint {
             rowid: 456,
             timestamp: SystemTime::now(),
             hash: hash_2,
@@ -752,7 +752,7 @@ mod tests {
             amount: 4565,
             process_error: None,
         };
-        let payment_fingerprint_3 = PaymentFingerprint {
+        let pending_payable_fingerprint_3 = PaymentFingerprint {
             rowid: 450,
             timestamp: from_time_t(230_000_000),
             hash: hash_3,
@@ -778,9 +778,9 @@ mod tests {
             .report_transaction_receipts_sub_opt = Some(accountant_recipient);
         let msg = RequestTransactionReceipts {
             pending_payable: vec![
-                payment_fingerprint_1.clone(),
-                payment_fingerprint_2.clone(),
-                payment_fingerprint_3.clone(),
+                pending_payable_fingerprint_1.clone(),
+                pending_payable_fingerprint_2.clone(),
+                pending_payable_fingerprint_3.clone(),
             ],
         };
 

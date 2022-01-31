@@ -11,34 +11,34 @@ use web3::types::{Bytes, SignedTransaction, TransactionParameters};
 use web3::Error as Web3Error;
 use web3::{Transport, Web3};
 
-pub trait SendTransactionToolWrapper {
+pub trait SendTransactionToolsWrapper {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
         key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
-    fn request_new_payment_fingerprint(&self, transaction_hash: H256, amount: u64) -> SystemTime;
+    fn request_new_pending_payable_fingerprint(&self, transaction_hash: H256, amount: u64) -> SystemTime;
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error>;
 }
 
 pub struct SendTransactionToolWrapperReal<'a, T: Transport + Debug> {
     web3: &'a Web3<T>,
-    payment_fingerprint_sub: &'a dyn PaymentBackupRecipientWrapper,
+    pending_payable_fingerprint_sub: &'a dyn PaymentBackupRecipientWrapper,
 }
 
 impl<'a, T: Transport + Debug> SendTransactionToolWrapperReal<'a, T> {
     pub fn new(
         web3: &'a Web3<T>,
-        payment_fingerprint_sub: &'a dyn PaymentBackupRecipientWrapper,
+        pending_payable_fingerprint_sub: &'a dyn PaymentBackupRecipientWrapper,
     ) -> Self {
         Self {
             web3,
-            payment_fingerprint_sub,
+            pending_payable_fingerprint_sub,
         }
     }
 }
 
-impl<'a, T: Transport + Debug> SendTransactionToolWrapper
+impl<'a, T: Transport + Debug> SendTransactionToolsWrapper
     for SendTransactionToolWrapperReal<'a, T>
 {
     fn sign_transaction(
@@ -52,9 +52,9 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
             .wait()
     }
 
-    fn request_new_payment_fingerprint(&self, hash: H256, amount: u64) -> SystemTime {
+    fn request_new_pending_payable_fingerprint(&self, hash: H256, amount: u64) -> SystemTime {
         let now = SystemTime::now();
-        self.payment_fingerprint_sub
+        self.pending_payable_fingerprint_sub
             .try_send(PaymentFingerprint {
                 amount,
                 rowid: 0, //disregarded in this context
@@ -72,19 +72,19 @@ impl<'a, T: Transport + Debug> SendTransactionToolWrapper
     }
 }
 
-pub struct SendTransactionToolWrapperNull;
+pub struct SendTransactionToolsWrapperNull;
 
-impl SendTransactionToolWrapper for SendTransactionToolWrapperNull {
+impl SendTransactionToolsWrapper for SendTransactionToolsWrapperNull {
     fn sign_transaction(
         &self,
         _transaction_params: TransactionParameters,
         _key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error> {
-        panic!("sing_transaction() should never be called on the null object")
+        panic!("sign_transaction() should never be called on the null object")
     }
 
-    fn request_new_payment_fingerprint(&self, _transaction_hash: H256, _amount: u64) -> SystemTime {
-        panic!("request_new_payment_fingerprint() should never be called on the null object")
+    fn request_new_pending_payable_fingerprint(&self, _transaction_hash: H256, _amount: u64) -> SystemTime {
+        panic!("request_new_pending_payable_fingerprint() should never be called on the null object")
     }
 
     fn send_raw_transaction(&self, _rlp: Bytes) -> Result<H256, Web3Error> {
@@ -125,13 +125,13 @@ mod tests {
     use crate::blockchain::blockchain_bridge::PaymentFingerprint;
     use crate::blockchain::tool_wrappers::{
         PaymentBackupRecipientWrapper, PaymentBackupRecipientWrapperNull,
-        SendTransactionToolWrapper, SendTransactionToolWrapperNull,
+        SendTransactionToolsWrapper, SendTransactionToolsWrapperNull,
     };
     use std::time::SystemTime;
     use web3::types::{Bytes, TransactionParameters};
 
     #[test]
-    #[should_panic(expected = "sing_transaction() should never be called on the null object")]
+    #[should_panic(expected = "sign_transaction() should never be called on the null object")]
     fn null_sign_transaction_stops_the_run() {
         let transaction_parameters = TransactionParameters {
             nonce: None,
@@ -147,7 +147,7 @@ mod tests {
                 .unwrap();
 
         let _ =
-            SendTransactionToolWrapperNull.sign_transaction(transaction_parameters, &secret_key);
+            SendTransactionToolsWrapperNull.sign_transaction(transaction_parameters, &secret_key);
     }
 
     #[test]
@@ -155,15 +155,16 @@ mod tests {
     fn null_send_raw_transaction_stops_the_run() {
         let rlp = Bytes(b"data".to_vec());
 
-        let _ = SendTransactionToolWrapperNull.send_raw_transaction(rlp);
+        let _ = SendTransactionToolsWrapperNull.send_raw_transaction(rlp);
     }
 
     #[test]
     #[should_panic(
-        expected = "request_new_payment_fingerprint() should never be called on the null object"
+        expected = "request_new_pending_payable_fingerprint() should never be called on the null object"
     )]
-    fn null_request_new_payment_fingerprint_stops_the_run() {
-        let _ = SendTransactionToolWrapperNull.request_new_payment_fingerprint(Default::default(), 5);
+    fn null_request_new_pending_payable_fingerprint_stops_the_run() {
+        let _ =
+            SendTransactionToolsWrapperNull.request_new_pending_payable_fingerprint(Default::default(), 5);
     }
 
     #[test]

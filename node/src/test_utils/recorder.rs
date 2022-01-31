@@ -378,7 +378,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
         report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
         report_new_payments: recipient!(addr, ReceivedPayments),
-        payment_fingerprint: recipient!(addr, PaymentFingerprint),
+        pending_payable_fingerprint: recipient!(addr, PaymentFingerprint),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
         report_sent_payments: recipient!(addr, SentPayments),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),

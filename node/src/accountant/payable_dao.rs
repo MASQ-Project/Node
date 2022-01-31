@@ -18,7 +18,7 @@ pub struct PayableAccount {
     pub wallet: Wallet,
     pub balance: i64,
     pub last_paid_timestamp: SystemTime,
-    pub pending_payment_rowid_opt: Option<u64>,
+    pub pending_payable_rowid_opt: Option<u64>,
 }
 
 //TODO we probably can cut back this struct below as we need very little from it
@@ -45,7 +45,7 @@ impl Payment {
 pub trait PayableDao: Debug + Send {
     fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), DebtRecordingError>;
 
-    fn mark_pending_payment_rowid(
+    fn mark_pending_payable_rowid(
         &self,
         wallet: &Wallet,
         transaction_id: TransactionId,
@@ -90,14 +90,14 @@ impl PayableDao for PayableDaoReal {
         }
     }
 
-    fn mark_pending_payment_rowid(
+    fn mark_pending_payable_rowid(
         &self,
         wallet: &Wallet,
         transaction_id: TransactionId,
     ) -> Result<(), PaymentError> {
         let mut stm = self
             .conn
-            .prepare("update payable set pending_payment_rowid=? where wallet_address=?")
+            .prepare("update payable set pending_payable_rowid=? where wallet_address=?")
             .expect("Internal Error");
         let params: &[&dyn ToSql] = &[
             &i64::try_from(transaction_id.rowid)
@@ -106,10 +106,7 @@ impl PayableDao for PayableDaoReal {
         ];
         match stm.execute(params) {
             Ok(1) => Ok(()),
-            Ok(num) => Err(PaymentError(
-                PaymentErrorKind::RusqliteError(format!("Returned {} rows but expected 1", num)),
-                transaction_id,
-            )),
+            Ok(num) => panic!("Affected {} rows but expected 1",num),
             Err(e) => Err(PaymentError(
                 PaymentErrorKind::RusqliteError(e.to_string()),
                 transaction_id,
@@ -130,15 +127,12 @@ impl PayableDao for PayableDaoReal {
             i64::try_from(transaction_id.rowid).expect("SQLite counts up to i64::MAX");
         let mut stm = self
             .conn
-            .prepare("update payable set pending_payment_rowid = ? where pending_payment_rowid = ?")
+            .prepare("update payable set pending_payable_rowid = ? where pending_payable_rowid = ?")
             .expect("Internal error");
         let params: &[&dyn ToSql] = &[&Null, &formally_signed_rowid];
         match stm.execute(params) {
             Ok(1) => Ok(()),
-            Ok(num) => Err(PaymentError(
-                PaymentErrorKind::RusqliteError(format!("Returned {} rows but expected 1", num)),
-                transaction_id,
-            )),
+            Ok(num) => panic!("Affected {} rows but expected 1",num),
             Err(e) => Err(PaymentError(
                 PaymentErrorKind::RusqliteError(e.to_string()),
                 transaction_id,
@@ -148,23 +142,23 @@ impl PayableDao for PayableDaoReal {
 
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount> {
         let mut stmt = self.conn
-            .prepare("select rowid, balance, last_paid_timestamp, pending_payment_rowid from payable where wallet_address = ?")
+            .prepare("select balance, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?")
             .expect("Internal error");
         match stmt
             .query_row(&[&wallet], |row| {
-                let balance_result = row.get(1);
-                let last_paid_timestamp_result = row.get(2);
-                let pending_payment_rowid_result: Result<Option<i64>, Error> = row.get(3);
+                let balance_result = row.get(0);
+                let last_paid_timestamp_result = row.get(1);
+                let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(2);
                 match (
                     balance_result,
                     last_paid_timestamp_result,
-                    pending_payment_rowid_result,
+                    pending_payable_rowid_result,
                 ) {
                     (Ok(balance), Ok(last_paid_timestamp), Ok(rowid)) => Ok(PayableAccount {
                         wallet: wallet.clone(),
                         balance,
                         last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                        pending_payment_rowid_opt: rowid.map(|num| {
+                        pending_payable_rowid_opt: rowid.map(|num| {
                             u64::try_from(num).expect("SQLite counts this just in positive numbers")
                         }),
                     }),
@@ -180,7 +174,7 @@ impl PayableDao for PayableDaoReal {
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
         let mut stmt = self.conn
-            .prepare("select wallet_address, balance, last_paid_timestamp from payable where pending_payment_rowid is null")
+            .prepare("select wallet_address, balance, last_paid_timestamp from payable where pending_payable_rowid is null")
             .expect("Internal error");
 
         stmt.query_map([], |row| {
@@ -192,7 +186,7 @@ impl PayableDao for PayableDaoReal {
                     wallet,
                     balance,
                     last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    pending_payment_rowid_opt: None,
+                    pending_payable_rowid_opt: None,
                 }),
                 _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
             }
@@ -214,7 +208,7 @@ impl PayableDao for PayableDaoReal {
                     balance,
                     last_paid_timestamp,
                     wallet_address,
-                    pending_payment_rowid
+                    pending_payable_rowid
                 from
                     payable
                 where
@@ -242,12 +236,12 @@ impl PayableDao for PayableDaoReal {
                     Ok(wallet),
                     Ok(balance),
                     Ok(last_paid_timestamp),
-                    Ok(pending_payment_rowid_opt),
+                    Ok(pending_payable_rowid_opt),
                 ) => Ok(PayableAccount {
                     wallet,
                     balance,
                     last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    pending_payment_rowid_opt: pending_payment_rowid_opt.map(|num| {
+                    pending_payable_rowid_opt: pending_payable_rowid_opt.map(|num| {
                         u64::try_from(num).expect(
                             "SQLite counts this just in positive numbers; should never happened",
                         )
@@ -299,7 +293,7 @@ impl PayableDaoReal {
     fn try_increase_balance(&self, wallet: &Wallet, amount: i64) -> Result<bool, String> {
         let mut stmt = self
             .conn
-            .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_rowid) values (:address, :balance, strftime('%s','now'), null) on conflict (wallet_address) do update set balance = balance + :balance where wallet_address = :address")
+            .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:address, :balance, strftime('%s','now'), null) on conflict (wallet_address) do update set balance = balance + :balance where wallet_address = :address")
             .expect("Internal error");
         let params: &[(&str, &dyn ToSql)] = &[(":address", &wallet), (":balance", &amount)];
         match stmt.execute(params) {
@@ -317,7 +311,7 @@ impl PayableDaoReal {
     ) -> Result<(), String> {
         let mut stmt = self
             .conn
-            .prepare("update payable set balance = balance - :balance, last_paid_timestamp = :last_paid, pending_payment_rowid = null where pending_payment_rowid = :referential_rowid")
+            .prepare("update payable set balance = balance - :balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :referential_rowid")
             .expect("Internal error");
         let params: &[(&str, &dyn ToSql)] = &[
             (":balance", &amount),
@@ -341,7 +335,7 @@ impl PayableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::test_utils::make_payment_fingerprint;
+    use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::accountant::TransactionId;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::{from_time_t, to_time_t};
@@ -489,12 +483,12 @@ mod tests {
             wallet: wallet.clone(),
             balance: 5000,
             last_paid_timestamp: from_time_t(150_000_000),
-            pending_payment_rowid_opt: None,
+            pending_payable_rowid_opt: None,
         };
         assert_eq!(before_account_status, before_expected_status.clone());
 
         subject
-            .mark_pending_payment_rowid(
+            .mark_pending_payable_rowid(
                 &wallet,
                 TransactionId {
                     hash: Default::default(),
@@ -505,11 +499,12 @@ mod tests {
 
         let after_account_status = subject.account_status(&wallet).unwrap();
         let mut after_expected_status = before_expected_status;
-        after_expected_status.pending_payment_rowid_opt = Some(pending_payable_rowid);
+        after_expected_status.pending_payable_rowid_opt = Some(pending_payable_rowid);
         assert_eq!(after_account_status, after_expected_status)
     }
 
     #[test]
+    #[should_panic(expected = "Affected 0 rows but expected 1")]
     fn mark_pending_payment_returned_different_row_count_than_expected() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
@@ -523,15 +518,7 @@ mod tests {
             .unwrap();
         let subject = PayableDaoReal::new(conn);
 
-        let result = subject.mark_pending_payment_rowid(&wallet, TransactionId { hash, rowid });
-
-        assert_eq!(
-            result,
-            Err(PaymentError(
-                PaymentErrorKind::RusqliteError("Returned 0 rows but expected 1".to_string()),
-                TransactionId { hash, rowid }
-            ))
-        )
+        let _ = subject.mark_pending_payable_rowid(&wallet, TransactionId { hash, rowid });
     }
 
     #[test]
@@ -547,7 +534,7 @@ mod tests {
         let conn_wrapped = ConnectionWrapperReal::new(conn);
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
-        let result = subject.mark_pending_payment_rowid(&wallet, TransactionId { hash, rowid });
+        let result = subject.mark_pending_payable_rowid(&wallet, TransactionId { hash, rowid });
 
         assert_eq!(
             result,
@@ -565,7 +552,7 @@ mod tests {
         timestamp: SystemTime,
         rowid: u64,
     ) {
-        let mut stm1 = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_rowid) values (?,?,?,?)").unwrap();
+        let mut stm1 = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?,?,?,?)").unwrap();
         let params: &[&dyn ToSql] = &[
             &recipient_wallet,
             &amount,
@@ -605,7 +592,7 @@ mod tests {
                 wallet: recipient_wallet.clone(),
                 balance: amount,
                 last_paid_timestamp: timestamp,
-                pending_payment_rowid_opt: Some(656)
+                pending_payable_rowid_opt: Some(656)
             })
         );
 
@@ -620,7 +607,7 @@ mod tests {
                 wallet: recipient_wallet,
                 balance: amount,
                 last_paid_timestamp: timestamp,
-                pending_payment_rowid_opt: None
+                pending_payable_rowid_opt: None
             })
         )
     }
@@ -649,6 +636,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Affected 0 rows but expected 1")]
     fn transaction_canceled_returned_different_row_count_than_expected() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
@@ -661,15 +649,7 @@ mod tests {
             .unwrap();
         let subject = PayableDaoReal::new(conn);
 
-        let result = subject.transaction_canceled(TransactionId { hash, rowid });
-
-        assert_eq!(
-            result,
-            Err(PaymentError(
-                PaymentErrorKind::RusqliteError("Returned 0 rows but expected 1".to_string()),
-                TransactionId { hash, rowid }
-            ))
-        )
+        let _ = subject.transaction_canceled(TransactionId { hash, rowid });
     }
 
     #[test]
@@ -704,10 +684,10 @@ mod tests {
                 wallet: wallet.clone(),
                 balance: starting_amount,
                 last_paid_timestamp: previous_timestamp,
-                pending_payment_rowid_opt: Some(rowid)
+                pending_payable_rowid_opt: Some(rowid)
             })
         );
-        let payment_fingerprint = PaymentFingerprint {
+        let pending_payable_fingerprint = PaymentFingerprint {
             rowid,
             timestamp: payment_timestamp,
             hash,
@@ -716,7 +696,7 @@ mod tests {
             process_error: None,
         };
 
-        let result = subject.transaction_confirmed(&payment_fingerprint);
+        let result = subject.transaction_confirmed(&pending_payable_fingerprint);
 
         assert_eq!(result, Ok(()));
         let status_after = subject.account_status(&wallet);
@@ -726,7 +706,7 @@ mod tests {
                 wallet,
                 balance: starting_amount - payment,
                 last_paid_timestamp: payment_timestamp,
-                pending_payment_rowid_opt: None
+                pending_payable_rowid_opt: None
             })
         )
     }
@@ -739,14 +719,14 @@ mod tests {
         );
         let conn = how_to_trick_rusqlite_for_an_error(&home_dir);
         let conn_wrapped = ConnectionWrapperReal::new(conn);
-        let mut payment_fingerprint = make_payment_fingerprint();
+        let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
-        payment_fingerprint.hash = hash;
-        payment_fingerprint.rowid = rowid;
+        pending_payable_fingerprint.hash = hash;
+        pending_payable_fingerprint.rowid = rowid;
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
-        let result = subject.transaction_confirmed(&payment_fingerprint);
+        let result = subject.transaction_confirmed(&pending_payable_fingerprint);
 
         assert_eq!(
             result,
@@ -768,14 +748,14 @@ mod tests {
                 .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
-        let mut payment_fingerprint = make_payment_fingerprint();
+        let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
-        payment_fingerprint.hash = hash;
-        payment_fingerprint.rowid = rowid;
-        payment_fingerprint.amount = u64::MAX;
+        pending_payable_fingerprint.hash = hash;
+        pending_payable_fingerprint.rowid = rowid;
+        pending_payable_fingerprint.amount = u64::MAX;
 
-        let result = subject.transaction_confirmed(&payment_fingerprint);
+        let result = subject.transaction_confirmed(&pending_payable_fingerprint);
 
         assert_eq!(
             result,
@@ -797,7 +777,7 @@ mod tests {
                     wallet_address real primary key,
                     balance text not null,
                     last_paid_timestamp real not null,
-                    pending_payment_rowid integer null)\
+                    pending_payable_rowid integer null)\
                     ",
                 )
                 .unwrap();
@@ -861,11 +841,11 @@ mod tests {
         let conn =
             Connection::open_with_flags(&home_dir.join(db_initializer::DATABASE_FILE), flags)
                 .unwrap();
-        let insert = |wallet: &str, balance: i64, pending_payment_rowid: Option<i64>| {
-            let params: &[&dyn ToSql] = &[&wallet, &balance, &0i64, &pending_payment_rowid];
+        let insert = |wallet: &str, balance: i64, pending_payable_rowid: Option<i64>| {
+            let params: &[&dyn ToSql] = &[&wallet, &balance, &0i64, &pending_payable_rowid];
 
             conn
-                .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_rowid) values (?, ?, ?, ?)")
+                .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?)")
                 .unwrap()
                 .execute(params)
                 .unwrap();
@@ -885,13 +865,13 @@ mod tests {
                     wallet: make_wallet("foobar"),
                     balance: 44,
                     last_paid_timestamp: from_time_t(0),
-                    pending_payment_rowid_opt: None
+                    pending_payable_rowid_opt: None
                 },
                 PayableAccount {
                     wallet: make_wallet("barfoo"),
                     balance: 22,
                     last_paid_timestamp: from_time_t(0),
-                    pending_payment_rowid_opt: None
+                    pending_payable_rowid_opt: None
                 },
             ]
         );
@@ -922,7 +902,7 @@ mod tests {
         );
         let hash = H256::from_uint(&U256::from(123));
         let rowid = 3;
-        let payment_fingerprint = PaymentFingerprint {
+        let pending_payable_fingerprint = PaymentFingerprint {
             rowid,
             timestamp: SystemTime::now(),
             hash,
@@ -936,7 +916,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.transaction_confirmed(&payment_fingerprint);
+        let result = subject.transaction_confirmed(&pending_payable_fingerprint);
 
         assert_eq!(
             result,
@@ -956,10 +936,10 @@ mod tests {
         let insert = |wallet: &str,
                       balance: i64,
                       timestamp: i64,
-                      pending_payment_rowid: Option<i64>| {
-            let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp, &pending_payment_rowid];
+                      pending_payable_rowid: Option<i64>| {
+            let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp, &pending_payable_rowid];
             conn
-                .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_rowid) values (?, ?, ?, ?)")
+                .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?)")
                 .unwrap()
                 .execute(params)
                 .unwrap();
@@ -1005,13 +985,13 @@ mod tests {
                     wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
                     balance: 1_000_000_001,
                     last_paid_timestamp: dao_utils::from_time_t(timestamp4),
-                    pending_payment_rowid_opt: Some(4789)
+                    pending_payable_rowid_opt: Some(4789)
                 },
                 PayableAccount {
                     wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
                     balance: 1_000_000_000,
                     last_paid_timestamp: dao_utils::from_time_t(timestamp3),
-                    pending_payment_rowid_opt: None
+                    pending_payable_rowid_opt: None
                 },
             ]
         );

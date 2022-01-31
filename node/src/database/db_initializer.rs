@@ -279,7 +279,7 @@ impl DbInitializerReal {
                 wallet_address text primary key,
                 balance integer not null,
                 last_paid_timestamp integer not null,
-                pending_payment_rowid integer null
+                pending_payable_rowid integer null
             )"
             ),
             [],
@@ -712,7 +712,7 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
-        let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payment_rowid from payable").unwrap ();
+        let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payable_rowid from payable").unwrap ();
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
         //caution: the words 'if not exists' are left out in the schema's data
@@ -721,7 +721,7 @@ mod tests {
                 wallet_address text primary key,
                 balance integer not null,
                 last_paid_timestamp integer not null,
-                pending_payment_rowid integer null
+                pending_payable_rowid integer null
             )"
         );
         assert_on_part_of_the_schema(conn.as_ref(), expected_sql_used_to_create_this_table);

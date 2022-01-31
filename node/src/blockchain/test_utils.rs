@@ -6,7 +6,7 @@ use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
     Nonce, Receipt, SendTransactionInputs, Transaction, Transactions, REQUESTS_IN_PARALLEL,
 };
-use crate::blockchain::tool_wrappers::{PaymentBackupRecipientWrapper, SendTransactionToolWrapper};
+use crate::blockchain::tool_wrappers::{PaymentBackupRecipientWrapper, SendTransactionToolsWrapper};
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::H256;
@@ -38,7 +38,7 @@ pub struct BlockchainInterfaceMock {
     send_transaction_results: RefCell<Vec<Result<(H256, SystemTime), BlockchainTransactionError>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<Receipt>>,
-    send_transaction_tools_results: RefCell<Vec<Box<dyn SendTransactionToolWrapper>>>,
+    send_transaction_tools_results: RefCell<Vec<Box<dyn SendTransactionToolsWrapper>>>,
     contract_address_results: RefCell<Vec<Address>>,
     get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
     get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
@@ -103,7 +103,7 @@ impl BlockchainInterfaceMock {
 
     pub fn send_transaction_tools_result(
         self,
-        result: Box<dyn SendTransactionToolWrapper>,
+        result: Box<dyn SendTransactionToolsWrapper>,
     ) -> Self {
         self.send_transaction_tools_results
             .borrow_mut()
@@ -128,7 +128,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     fn send_transaction<'b>(
         &self,
         inputs: SendTransactionInputs,
-        _send_transaction_tools: &'b dyn SendTransactionToolWrapper,
+        _send_transaction_tools: &'b dyn SendTransactionToolsWrapper,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         self.send_transaction_parameters
             .lock()
@@ -164,7 +164,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     fn send_transaction_tools<'a>(
         &'a self,
         _backup_recipient: &dyn PaymentBackupRecipientWrapper,
-    ) -> Box<dyn SendTransactionToolWrapper + 'a> {
+    ) -> Box<dyn SendTransactionToolsWrapper + 'a> {
         self.send_transaction_tools_results.borrow_mut().remove(0)
     }
 }
@@ -238,28 +238,28 @@ pub fn make_fake_event_loop_handle() -> EventLoopHandle {
 
 #[derive(Default)]
 pub struct SendTransactionToolWrapperFactoryMock {
-    make_results: RefCell<Vec<Box<dyn SendTransactionToolWrapper>>>,
+    make_results: RefCell<Vec<Box<dyn SendTransactionToolsWrapper>>>,
 }
 
 impl SendTransactionToolWrapperFactoryMock {
-    pub fn make_result(self, result: Box<dyn SendTransactionToolWrapper>) -> Self {
+    pub fn make_result(self, result: Box<dyn SendTransactionToolsWrapper>) -> Self {
         self.make_results.borrow_mut().push(result);
         self
     }
 }
 
 #[derive(Default, Debug)]
-pub struct SendTransactionToolWrapperMock {
+pub struct SendTransactionToolsWrapperMock {
     sign_transaction_params:
         Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
     sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
-    request_new_payment_fingerprint_params: Arc<Mutex<Vec<(H256, u64)>>>,
-    request_new_payment_fingerprint_results: RefCell<Vec<SystemTime>>,
+    request_new_pending_payable_fingerprint_params: Arc<Mutex<Vec<(H256, u64)>>>,
+    request_new_pending_payable_fingerprint_results: RefCell<Vec<SystemTime>>,
     send_raw_transaction_params: Arc<Mutex<Vec<Bytes>>>,
     send_raw_transaction_results: RefCell<Vec<Result<H256, Web3Error>>>,
 }
 
-impl SendTransactionToolWrapper for SendTransactionToolWrapperMock {
+impl SendTransactionToolsWrapper for SendTransactionToolsWrapperMock {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
@@ -272,12 +272,12 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperMock {
         self.sign_transaction_results.borrow_mut().remove(0)
     }
 
-    fn request_new_payment_fingerprint(&self, transaction_hash: H256, amount: u64) -> SystemTime {
-        self.request_new_payment_fingerprint_params
+    fn request_new_pending_payable_fingerprint(&self, transaction_hash: H256, amount: u64) -> SystemTime {
+        self.request_new_pending_payable_fingerprint_params
             .lock()
             .unwrap()
             .push((transaction_hash, amount));
-        self.request_new_payment_fingerprint_results
+        self.request_new_pending_payable_fingerprint_results
             .borrow_mut()
             .remove(0)
     }
@@ -288,7 +288,7 @@ impl SendTransactionToolWrapper for SendTransactionToolWrapperMock {
     }
 }
 
-impl SendTransactionToolWrapperMock {
+impl SendTransactionToolsWrapperMock {
     pub fn sign_transaction_params(
         mut self,
         params: &Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
@@ -301,16 +301,16 @@ impl SendTransactionToolWrapperMock {
         self
     }
 
-    pub fn request_new_payment_fingerprint_params(
+    pub fn request_new_pending_payable_fingerprint_params(
         mut self,
         params: &Arc<Mutex<Vec<(H256, u64)>>>,
     ) -> Self {
-        self.request_new_payment_fingerprint_params = params.clone();
+        self.request_new_pending_payable_fingerprint_params = params.clone();
         self
     }
 
-    pub fn request_new_payment_fingerprint_result(self, result: SystemTime) -> Self {
-        self.request_new_payment_fingerprint_results
+    pub fn request_new_pending_payable_fingerprint_result(self, result: SystemTime) -> Self {
+        self.request_new_pending_payable_fingerprint_results
             .borrow_mut()
             .push(result);
         self

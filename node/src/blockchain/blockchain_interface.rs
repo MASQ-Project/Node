@@ -1,9 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::PayableAccount;
-use crate::blockchain::tool_wrappers::{
-    PaymentBackupRecipientWrapper, SendTransactionToolWrapper, SendTransactionToolWrapperReal,
-};
+use crate::blockchain::tool_wrappers::{PaymentBackupRecipientWrapper, SendTransactionToolsWrapper, SendTransactionToolsWrapperNull, SendTransactionToolWrapperReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use futures::{future, Future};
@@ -67,8 +65,7 @@ pub enum BlockchainError {
 pub enum BlockchainTransactionError {
     UnusableWallet(String),
     Signing(String),
-    Sending(String, H256),
-    SentinelVariant,
+    Sending(String, H256)
 }
 
 impl Display for BlockchainError {
@@ -91,7 +88,7 @@ pub trait BlockchainInterface {
     fn send_transaction<'a>(
         &self,
         inputs: SendTransactionInputs,
-        send_transaction_tools: &'a dyn SendTransactionToolWrapper,
+        send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError>;
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
@@ -112,9 +109,7 @@ pub trait BlockchainInterface {
     fn send_transaction_tools<'a>(
         &'a self,
         _backup_recipient: &'a dyn PaymentBackupRecipientWrapper,
-    ) -> Box<dyn SendTransactionToolWrapper + 'a> {
-        intentionally_blank!()
-    }
+    ) -> Box<dyn SendTransactionToolsWrapper + 'a>;
 }
 
 // TODO: This probably should go away
@@ -152,11 +147,11 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn send_transaction<'a>(
         &self,
         _inputs: SendTransactionInputs,
-        _send_transaction_tools: &'a dyn SendTransactionToolWrapper,
+        _send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         let msg = "Can't send transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
-        Err(BlockchainTransactionError::SentinelVariant)
+        Err(BlockchainTransactionError::Sending(msg,H256::default()))
     }
 
     fn get_eth_balance(&self, _address: &Wallet) -> Balance {
@@ -180,6 +175,12 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
             "Can't get transaction receipt clandestinely yet",
         );
         Ok(None)
+    }
+
+    //TODO if it turns out that we don't need this method for the clandestine interface, we can create a supplemental trait to be implemented just for the version that needs it
+    fn send_transaction_tools<'a>(&'a self, _backup_recipient: &'a dyn PaymentBackupRecipientWrapper) -> Box<dyn SendTransactionToolsWrapper + 'a> {
+        error!(self.logger, "Nonsense, we haven't implemented the clandestine version yet",);
+        Box::new(SendTransactionToolsWrapperNull)
     }
 }
 
@@ -273,13 +274,13 @@ where
     fn send_transaction<'a>(
         &self,
         inputs: SendTransactionInputs,
-        send_transaction_tools: &'a dyn SendTransactionToolWrapper,
+        send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         self.logger.debug(|| self.log_debug_before_sending(&inputs));
         let signed_transaction =
             self.prepare_signed_transaction(&inputs, send_transaction_tools)?;
         let payment_timestamp = send_transaction_tools
-            .request_new_payment_fingerprint(signed_transaction.transaction_hash, inputs.amount);
+            .request_new_pending_payable_fingerprint(signed_transaction.transaction_hash, inputs.amount);
         self.logger
             .info(|| self.log_sending(inputs.recipient, inputs.amount));
         match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
@@ -331,7 +332,7 @@ where
     fn send_transaction_tools<'a>(
         &'a self,
         backup_recipient: &'a dyn PaymentBackupRecipientWrapper,
-    ) -> Box<dyn SendTransactionToolWrapper + 'a> {
+    ) -> Box<dyn SendTransactionToolsWrapper + 'a> {
         Box::new(SendTransactionToolWrapperReal::new(
             &self.web3,
             backup_recipient,
@@ -360,7 +361,7 @@ where
     fn prepare_signed_transaction<'a>(
         &self,
         inputs: &SendTransactionInputs,
-        send_transaction_tools: &'a dyn SendTransactionToolWrapper,
+        send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
     ) -> Result<SignedTransaction, BlockchainTransactionError> {
         let mut data = [0u8; 4 + 32 + 32];
         data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
@@ -500,8 +501,7 @@ impl Display for BlockchainTransactionError {
         match self {
             Self::UnusableWallet(msg) => write!(f, "UnusableWallet: {}", msg),
             Self::Signing(msg) => write!(f, "Signing: {}", msg),
-            Self::Sending(msg, _) => write!(f, "Sending: {}", msg),
-            Self::SentinelVariant => write!(f, "This is sentinel for BlockchainTransactionError"),
+            Self::Sending(msg, _) => write!(f, "Sending: {}", msg)
         }
     }
 }
@@ -520,9 +520,6 @@ impl From<BlockchainTransactionError> for BlockchainError {
             BlockchainTransactionError::Sending(_, hash) => BlockchainError::TransactionFailed {
                 msg: error.to_string(),
                 hash_opt: Some(hash),
-            },
-            BlockchainTransactionError::SentinelVariant => {
-                panic!("this operation should not happen")
             }
         }
     }
@@ -538,7 +535,7 @@ mod tests {
     use crate::blockchain::blockchain_bridge::PaymentFingerprint;
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle,
-        SendTransactionToolWrapperMock, TestTransport,
+        SendTransactionToolsWrapperMock, TestTransport,
     };
     use crate::blockchain::tool_wrappers::{
         PaymentBackupRecipientWrapperNull, PaymentBackupRecipientWrapperReal,
@@ -995,9 +992,9 @@ mod tests {
         ));
         let (recorder, _, recording_arc) = make_recorder();
         let actor_addr = recorder.start();
-        let recipient_of_payment_fingerprint = recipient!(actor_addr, PaymentFingerprint);
-        let payment_fingerprint_recipient_wrapper =
-            PaymentBackupRecipientWrapperReal::new(&recipient_of_payment_fingerprint);
+        let recipient_of_pending_payable_fingerprint = recipient!(actor_addr, PaymentFingerprint);
+        let pending_payable_fingerprint_recipient_wrapper =
+            PaymentBackupRecipientWrapperReal::new(&recipient_of_pending_payable_fingerprint);
         let subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),
@@ -1019,7 +1016,7 @@ mod tests {
             .send_transaction(
                 inputs,
                 subject
-                    .send_transaction_tools(&payment_fingerprint_recipient_wrapper)
+                    .send_transaction_tools(&pending_payable_fingerprint_recipient_wrapper)
                     .as_ref(),
             )
             .unwrap();
@@ -1046,7 +1043,7 @@ mod tests {
         );
         let recording = recording_arc.lock().unwrap();
         let sent_backup = recording.get_record::<PaymentFingerprint>(0);
-        let expected_payment_fingerprint = PaymentFingerprint {
+        let expected_pending_payable_fingerprint = PaymentFingerprint {
             rowid: 0,
             timestamp,
             hash,
@@ -1054,7 +1051,7 @@ mod tests {
             amount: amount as u64,
             process_error: None,
         };
-        assert_eq!(sent_backup, &expected_payment_fingerprint);
+        assert_eq!(sent_backup, &expected_pending_payable_fingerprint);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
         log_handler.exists_log_containing(
@@ -1074,7 +1071,7 @@ mod tests {
             Chain::EthMainnet,
         );
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
-        let request_new_payment_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
+        let request_new_pending_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let send_raw_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let payment_timestamp = SystemTime::now();
         let transaction_parameters_expected = TransactionParameters {
@@ -1102,11 +1099,11 @@ mod tests {
             .unwrap();
         let hash = signed_transaction.transaction_hash;
         let nonce = U256::from(5);
-        let send_transaction_tools = &SendTransactionToolWrapperMock::default()
+        let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             .sign_transaction_result(Ok(signed_transaction.clone()))
-            .request_new_payment_fingerprint_params(&request_new_payment_fingerprint_params_arc)
-            .request_new_payment_fingerprint_result(payment_timestamp)
+            .request_new_pending_payable_fingerprint_params(&request_new_pending_payable_fingerprint_params_arc)
+            .request_new_pending_payable_fingerprint_result(payment_timestamp)
             .send_raw_transaction_params(&send_raw_transaction_params_arc)
             .send_raw_transaction_result(Ok(hash));
         let amount = 50_000;
@@ -1131,10 +1128,10 @@ mod tests {
                 .unwrap())
                 .into()
         );
-        let request_new_payment_fingerprint_params =
-            request_new_payment_fingerprint_params_arc.lock().unwrap();
+        let request_new_pending_payable_fingerprint_params =
+            request_new_pending_payable_fingerprint_params_arc.lock().unwrap();
         assert_eq!(
-            *request_new_payment_fingerprint_params,
+            *request_new_pending_payable_fingerprint_params,
             vec![(hash, amount as u64)]
         );
         let send_raw_transaction = send_raw_transaction_params_arc.lock().unwrap();
@@ -1177,7 +1174,7 @@ mod tests {
             Chain::PolyMainnet,
         );
 
-        assert_gas_limit_is_not_under(subject, 70000, u64::MAX)
+        assert_gas_limit_is_between(subject, 70000, u64::MAX)
     }
 
     #[test]
@@ -1189,7 +1186,7 @@ mod tests {
             Chain::Dev,
         );
 
-        assert_gas_limit_is_not_under(subject, 55000, 65000)
+        assert_gas_limit_is_between(subject, 55000, 65000)
     }
 
     #[test]
@@ -1201,17 +1198,17 @@ mod tests {
             Chain::EthMainnet,
         );
 
-        assert_gas_limit_is_not_under(subject, 55000, 65000)
+        assert_gas_limit_is_between(subject, 55000, 65000)
     }
 
-    fn assert_gas_limit_is_not_under<T: Transport + Debug + 'static>(
+    fn assert_gas_limit_is_between<T: Transport + Debug + 'static>(
         subject: BlockchainInterfaceNonClandestine<T>,
         not_under_this_value: u64,
         not_above_this_value: u64,
     ) {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let consuming_wallet_secret_raw_bytes = b"my-wallet";
-        let send_transaction_tools = &SendTransactionToolWrapperMock::default()
+        let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             //I don't want to set up all the mocks - I want see just the params coming in
             .sign_transaction_result(Err(Web3Error::Internal));
@@ -1271,7 +1268,7 @@ mod tests {
     #[test]
     fn send_transaction_fails_on_signing_transaction() {
         let transport = TestTransport::default();
-        let send_transaction_tools = &SendTransactionToolWrapperMock::default()
+        let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
             .sign_transaction_result(Err(Web3Error::Signing(
                 secp256k1secrets::Error::InvalidSecretKey,
             )));
@@ -1304,9 +1301,9 @@ mod tests {
     fn send_transaction_fails_on_sending_raw_transaction() {
         let transport = TestTransport::default();
         let signed_transaction = make_default_signed_transaction();
-        let send_transaction_tools = &SendTransactionToolWrapperMock::default()
+        let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
             .sign_transaction_result(Ok(signed_transaction))
-            .request_new_payment_fingerprint_result(SystemTime::now())
+            .request_new_pending_payable_fingerprint_result(SystemTime::now())
             .send_raw_transaction_result(Err(Web3Error::Transport(
                 "Transaction crashed".to_string(),
             )));
@@ -1800,12 +1797,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "this operation should not happen")]
-    fn sentinel_value_should_not_be_converted() {
-        let _: BlockchainError = BlockchainTransactionError::SentinelVariant.into();
-    }
-
-    #[test]
     fn display_for_blockchain_transaction_error() {
         assert_eq!(
             BlockchainTransactionError::UnusableWallet("haha".to_string()).to_string(),
@@ -1822,10 +1813,6 @@ mod tests {
             )
             .to_string(),
             String::from("Sending: hihi")
-        );
-        assert_eq!(
-            BlockchainTransactionError::SentinelVariant.to_string(),
-            String::from("This is sentinel for BlockchainTransactionError")
         );
     }
 

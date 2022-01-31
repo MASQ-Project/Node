@@ -3,7 +3,7 @@
 pub(in crate::accountant) mod accountant_tools {
     use crate::accountant::{
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction,
-        RequestTransactionReceipts, ScanForPendingPayments,
+        RequestTransactionReceipts, ScanForPayables, ScanForPendingPayable, ScanForReceivables,
     };
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use actix::Recipient;
@@ -74,7 +74,9 @@ pub(in crate::accountant) mod accountant_tools {
     #[derive(Default)]
     pub struct TransactionConfirmationTools {
         pub notify_later_handle_scan_for_pending_payable:
-            Box<dyn NotifyLaterHandle<ScanForPendingPayments>>,
+            Box<dyn NotifyLaterHandle<ScanForPendingPayable>>,
+        pub notify_later_handle_scan_for_payable: Box<dyn NotifyLaterHandle<ScanForPayables>>,
+        pub notify_later_handle_scan_for_receivable: Box<dyn NotifyLaterHandle<ScanForReceivables>>,
         pub request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
         pub notify_handle_confirm_transaction: Box<dyn NotifyHandle<ConfirmPendingTransaction>>,
         pub notify_handle_cancel_failed_transaction:

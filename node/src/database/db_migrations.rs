@@ -307,7 +307,7 @@ impl DatabaseMigration for Migrate_4_to_5 {
                 balance integer not null, \
                 last_paid_timestamp integer not null\
         )";
-        let statement_3 = "ALTER TABLE payable ADD pending_payment_rowid integer null";
+        let statement_3 = "ALTER TABLE payable ADD pending_payable_rowid integer null";
         let statement_4 = "INSERT INTO payable (wallet_address, balance, last_paid_timestamp) SELECT wallet_address, balance, last_paid_timestamp FROM _payable_old";
         let statement_5 = "CREATE TABLE pending_payable (\
                 rowid integer primary key, \
@@ -1576,7 +1576,7 @@ mod tests {
         CREATE TABLE payable (wallet_address text primary key, \
          balance integer not null, \
          last_paid_timestamp integer not null, \
-         pending_payment_rowid integer null)"
+         pending_payable_rowid integer null)"
                     .to_string()
             ),
             "{:?}",

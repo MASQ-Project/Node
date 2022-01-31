@@ -22,22 +22,25 @@ pub enum PendingPayableDaoError {
 }
 
 pub trait PendingPayableDao {
-    fn payment_fingerprint_exists(&self, transaction_hash: H256) -> Option<u64>;
-    fn return_all_payment_fingerprints(&self) -> Vec<PaymentFingerprint>;
-    fn insert_new_payment_fingerprint(
+    fn pending_payable_fingerprint_exists(&self, transaction_hash: H256) -> Option<u64>;
+    fn return_all_pending_payable_fingerprints(&self) -> Vec<PaymentFingerprint>;
+    fn insert_new_pending_payable_fingerprint(
         &self,
         transaction_hash: H256,
         amount: u64,
         timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError>;
-    fn hash(&self,id: u64) -> Result<H256, PendingPayableDaoError>;
-    fn delete_payment_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;
-    fn update_payment_fingerprint_after_scan_cycle(&self, id: u64) -> Result<(), PendingPayableDaoError>;
+    fn hash(&self, id: u64) -> Result<H256, PendingPayableDaoError>;
+    fn delete_pending_payable_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;
+    fn update_pending_payable_fingerprint_after_scan_cycle(
+        &self,
+        id: u64,
+    ) -> Result<(), PendingPayableDaoError>;
     fn mark_failure(&self, id: u64) -> Result<(), PendingPayableDaoError>;
 }
 
 impl PendingPayableDao for PendingPayableDaoReal<'_> {
-    fn payment_fingerprint_exists(&self, transaction_hash: H256) -> Option<u64> {
+    fn pending_payable_fingerprint_exists(&self, transaction_hash: H256) -> Option<u64> {
         let mut stm = self
             .conn
             .prepare("select rowid from pending_payable where transaction_hash = ?")
@@ -52,7 +55,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         }
     }
 
-    fn return_all_payment_fingerprints(&self) -> Vec<PaymentFingerprint> {
+    fn return_all_pending_payable_fingerprints(&self) -> Vec<PaymentFingerprint> {
         let mut stm = self.conn.prepare("select rowid, transaction_hash, amount, payment_timestamp, attempt from pending_payable where process_error is null").expect("Internal error");
         stm.query_map([], |row| {
             let rowid: i64 = Self::get_with_expect(row, 0);
@@ -74,7 +77,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         .collect()
     }
 
-    fn insert_new_payment_fingerprint(
+    fn insert_new_pending_payable_fingerprint(
         &self,
         transaction_hash: H256,
         amount: u64,
@@ -105,13 +108,15 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             .conn
             .prepare("select transaction_hash from pending_payable where rowid = ?")
             .expect("Internal error");
-        Ok(stm.query_row([&signed_id],|row|{
-            let string_hash: String = row.get(0).expectv("hash parameter");
-            Ok(H256::from_str(&string_hash).expectv("integer hash"))
-        }).expect("behaves quite infallibly"))
+        Ok(stm
+            .query_row([&signed_id], |row| {
+                let string_hash: String = row.get(0).expectv("hash parameter");
+                Ok(H256::from_str(&string_hash).expectv("integer hash"))
+            })
+            .expect("behaves quite infallibly"))
     }
 
-    fn delete_payment_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
+    fn delete_pending_payable_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
         let signed_id = jackass_unsigned_to_signed(id)
             .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
@@ -128,7 +133,10 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         }
     }
 
-    fn update_payment_fingerprint_after_scan_cycle(&self, id: u64) -> Result<(), PendingPayableDaoError> {
+    fn update_pending_payable_fingerprint_after_scan_cycle(
+        &self,
+        id: u64,
+    ) -> Result<(), PendingPayableDaoError> {
         let signed_id = jackass_unsigned_to_signed(id)
             .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
@@ -191,7 +199,7 @@ impl<'a> PendingPayableDaoReal<'a> {
 mod tests {
     use crate::accountant::jackass_unsigned_to_signed;
     use crate::accountant::pending_payable_dao::{
-        PendingPayableDaoError, PendingPayableDao, PendingPayableDaoReal,
+        PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
     };
     use crate::blockchain::blockchain_bridge::PaymentFingerprint;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
@@ -206,10 +214,10 @@ mod tests {
     use web3::types::{H256, U256};
 
     #[test]
-    fn insert_payment_fingerprint_happy_path() {
+    fn insert_pending_payable_fingerprint_happy_path() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "insert_payment_fingerprint_happy_path",
+            "insert_pending_payable_fingerprint_happy_path",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -220,7 +228,7 @@ mod tests {
         let subject = PendingPayableDaoReal::new(wrapped_conn);
 
         let _ = subject
-            .insert_new_payment_fingerprint(hash, amount, timestamp)
+            .insert_new_pending_payable_fingerprint(hash, amount, timestamp)
             .unwrap();
 
         let assertion_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
@@ -259,9 +267,11 @@ mod tests {
     }
 
     #[test]
-    fn insert_payment_fingerprint_sad_path() {
-        let home_dir =
-            ensure_node_home_directory_exists("pending_payable_dao", "insert_payment_fingerprint_sad_path");
+    fn insert_pending_payable_fingerprint_sad_path() {
+        let home_dir = ensure_node_home_directory_exists(
+            "pending_payable_dao",
+            "insert_pending_payable_fingerprint_sad_path",
+        );
         {
             DbInitializerReal::default()
                 .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -278,7 +288,7 @@ mod tests {
         let timestamp = from_time_t(200_000_000);
         let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.insert_new_payment_fingerprint(hash, amount, timestamp);
+        let result = subject.insert_new_pending_payable_fingerprint(hash, amount, timestamp);
 
         assert_eq!(
             result,
@@ -303,11 +313,11 @@ mod tests {
         let amount = 787;
         {
             subject
-                .insert_new_payment_fingerprint(hash, amount, timestamp)
+                .insert_new_pending_payable_fingerprint(hash, amount, timestamp)
                 .unwrap();
         }
 
-        let result = subject.payment_fingerprint_exists(hash);
+        let result = subject.pending_payable_fingerprint_exists(hash);
 
         assert_eq!(result, Some(1))
     }
@@ -332,16 +342,16 @@ mod tests {
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let hash = H256::from_uint(&U256::from(11119));
 
-        let result = subject.payment_fingerprint_exists(hash);
+        let result = subject.pending_payable_fingerprint_exists(hash);
 
         assert_eq!(result, None)
     }
 
     #[test]
-    fn return_all_payment_fingerprints_works_when_no_records_with_errors_marks() {
+    fn return_all_pending_payable_fingerprints_works_when_no_records_with_errors_marks() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "return_all_payment_fingerprints_works_when_no_records_with_errors_marks",
+            "return_all_pending_payable_fingerprints_works_when_no_records_with_errors_marks",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -355,16 +365,16 @@ mod tests {
         let amount_2 = 333;
         {
             subject
-                .insert_new_payment_fingerprint(hash_1, amount_1, timestamp_1)
+                .insert_new_pending_payable_fingerprint(hash_1, amount_1, timestamp_1)
                 .unwrap();
         }
         {
             subject
-                .insert_new_payment_fingerprint(hash_2, amount_2, timestamp_2)
+                .insert_new_pending_payable_fingerprint(hash_2, amount_2, timestamp_2)
                 .unwrap();
         }
 
-        let result = subject.return_all_payment_fingerprints();
+        let result = subject.return_all_pending_payable_fingerprints();
 
         assert_eq!(
             result,
@@ -390,10 +400,10 @@ mod tests {
     }
 
     #[test]
-    fn return_all_payment_fingerprints_works_when_some_records_with_errors_marks() {
+    fn return_all_pending_payable_fingerprints_works_when_some_records_with_errors_marks() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "return_all_payment_fingerprints_works_when_some_records_with_errors_marks",
+            "return_all_pending_payable_fingerprints_works_when_some_records_with_errors_marks",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -404,16 +414,20 @@ mod tests {
         let amount = 333;
         {
             subject
-                .insert_new_payment_fingerprint(H256::from_uint(&U256::from(11119)), 2000, SystemTime::now())
+                .insert_new_pending_payable_fingerprint(
+                    H256::from_uint(&U256::from(11119)),
+                    2000,
+                    SystemTime::now(),
+                )
                 .unwrap();
             //we know that the previous record has a rowid=1, so we don't need to ask
             subject.mark_failure(1).unwrap();
             subject
-                .insert_new_payment_fingerprint(hash, amount, timestamp)
+                .insert_new_pending_payable_fingerprint(hash, amount, timestamp)
                 .unwrap();
         }
 
-        let result = subject.return_all_payment_fingerprints();
+        let result = subject.return_all_pending_payable_fingerprints();
 
         assert_eq!(
             result,
@@ -429,10 +443,10 @@ mod tests {
     }
 
     #[test]
-    fn delete_payment_fingerprint_happy_path() {
+    fn delete_pending_payable_fingerprint_happy_path() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "delete_payment_fingerprint_happy_path",
+            "delete_pending_payable_fingerprint_happy_path",
         );
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -442,12 +456,12 @@ mod tests {
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
-                .insert_new_payment_fingerprint(hash, 5555, SystemTime::now())
+                .insert_new_pending_payable_fingerprint(hash, 5555, SystemTime::now())
                 .unwrap();
-            assert!(subject.payment_fingerprint_exists(hash).is_some())
+            assert!(subject.pending_payable_fingerprint_exists(hash).is_some())
         }
 
-        let result = subject.delete_payment_fingerprint(rowid);
+        let result = subject.delete_pending_payable_fingerprint(rowid);
 
         assert_eq!(result, Ok(()));
         let conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
@@ -462,10 +476,10 @@ mod tests {
     }
 
     #[test]
-    fn delete_payment_fingerprint_sad_path() {
+    fn delete_pending_payable_fingerprint_sad_path() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "delete_payment_fingerprint_sad_path",
+            "delete_pending_payable_fingerprint_sad_path",
         );
         {
             DbInitializerReal::default()
@@ -481,7 +495,7 @@ mod tests {
         let rowid = 45;
         let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.delete_payment_fingerprint(rowid);
+        let result = subject.delete_pending_payable_fingerprint(rowid);
 
         assert_eq!(
             result,
@@ -492,10 +506,10 @@ mod tests {
     }
 
     #[test]
-    fn update_payment_fingerprint_after_scan_cycle_works() {
+    fn update_pending_payable_fingerprint_after_scan_cycle_works() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "update_payment_fingerprint_after_scan_cycle_works",
+            "update_pending_payable_fingerprint_after_scan_cycle_works",
         );
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -506,10 +520,10 @@ mod tests {
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
-                .insert_new_payment_fingerprint(hash, amount, timestamp)
+                .insert_new_pending_payable_fingerprint(hash, amount, timestamp)
                 .unwrap();
         }
-        let mut all_records_before = subject.return_all_payment_fingerprints();
+        let mut all_records_before = subject.return_all_pending_payable_fingerprints();
         assert_eq!(all_records_before.len(), 1);
         let mut record_before = all_records_before.remove(0);
         assert_eq!(record_before.hash, hash);
@@ -518,10 +532,10 @@ mod tests {
         assert_eq!(record_before.process_error, None);
         assert_eq!(record_before.timestamp, timestamp);
 
-        let result = subject.update_payment_fingerprint_after_scan_cycle(1);
+        let result = subject.update_pending_payable_fingerprint_after_scan_cycle(1);
 
         assert_eq!(result, Ok(()));
-        let mut all_records_after = subject.return_all_payment_fingerprints();
+        let mut all_records_after = subject.return_all_pending_payable_fingerprints();
         assert_eq!(all_records_after.len(), 1);
         let backup_after = all_records_after.remove(0);
         record_before.attempt = 2;
@@ -529,10 +543,10 @@ mod tests {
     }
 
     #[test]
-    fn update_payment_fingerprint_after_scan_cycle_sad_path() {
+    fn update_pending_payable_fingerprint_after_scan_cycle_sad_path() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "update_payment_fingerprint_after_scan_cycle_sad_path",
+            "update_pending_payable_fingerprint_after_scan_cycle_sad_path",
         );
         {
             DbInitializerReal::default()
@@ -547,7 +561,7 @@ mod tests {
         let wrapped_conn = ConnectionWrapperReal::new(conn_read_only);
         let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.update_payment_fingerprint_after_scan_cycle(1);
+        let result = subject.update_pending_payable_fingerprint_after_scan_cycle(1);
 
         assert_eq!(
             result,
@@ -570,7 +584,7 @@ mod tests {
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
-                .insert_new_payment_fingerprint(hash, amount, timestamp)
+                .insert_new_pending_payable_fingerprint(hash, amount, timestamp)
                 .unwrap();
         }
         let assert_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
@@ -644,10 +658,7 @@ mod tests {
 
     #[test]
     fn hash_works() {
-        let home_dir = ensure_node_home_directory_exists(
-            "pending_payable_dao",
-            "hash_works",
-        );
+        let home_dir = ensure_node_home_directory_exists("pending_payable_dao", "hash_works");
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
@@ -657,7 +668,7 @@ mod tests {
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
-                .insert_new_payment_fingerprint(hash, amount, timestamp)
+                .insert_new_pending_payable_fingerprint(hash, amount, timestamp)
                 .unwrap();
         }
 

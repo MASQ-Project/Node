@@ -36,7 +36,7 @@ pub struct AccountantSubs {
     pub report_routing_service_consumed: Recipient<ReportRoutingServiceConsumedMessage>,
     pub report_exit_service_consumed: Recipient<ReportExitServiceConsumedMessage>,
     pub report_new_payments: Recipient<ReceivedPayments>,
-    pub payment_fingerprint: Recipient<PaymentFingerprint>,
+    pub pending_payable_fingerprint: Recipient<PaymentFingerprint>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
     pub report_sent_payments: Recipient<SentPayments>,
     pub ui_message_sub: Recipient<NodeFromUiMessage>,
