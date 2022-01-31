@@ -3354,34 +3354,6 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    #[test]
-    fn exit_service_rate_computed_default_value_when_neighborhood_mode_is_originate_only() {
-        let subject = ExitServiceRate {};
-        let mut config = BootstrapperConfig::new();
-        let mut rate_pack = rate_pack(123);
-        rate_pack.exit_service_rate = DEFAULT_RATE_PACK.exit_service_rate;
-        let cryptde = main_cryptde();
-        let originate_only = NeighborhoodModeEnum::OriginateOnly(
-            vec![NodeDescriptor::from((
-                cryptde.public_key(),
-                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                Blockchain::EthRopsten,
-                cryptde,
-            ))],
-            rate_pack,
-        );
-        config.neighborhood_config.mode = originate_only;
-        let persistent_config =
-            PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
-
-        let result = subject.computed_default(&config, &persistent_config, &None);
-
-        assert_eq!(
-            result,
-            Some((DEFAULT_RATE_PACK.exit_service_rate.to_string(), Default))
-        )
-    }
-
     macro_rules! assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation {
         ($subject: ident, $field_name: ident,$neighborhood_mode: expr) => {
             let subject = $subject {};
