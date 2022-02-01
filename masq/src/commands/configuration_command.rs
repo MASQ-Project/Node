@@ -156,7 +156,7 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(
             stream,
             "Pending payment scan interval:",
-            &configuration.pending_payment_scan_interval.to_string(),
+            &configuration.pending_payable_scan_interval.to_string(),
         );
         Self::dump_configuration_line(
             stream,
@@ -182,13 +182,6 @@ impl ConfigurationCommand {
             stream,
             "Unban when balance below gwei:",
             &configuration.unban_when_balance_below_gwei.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Mnemonic seed:",
-            &configuration
-                .mnemonic_seed_opt
-                .unwrap_or_else(|| "[?]".to_string()),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
     }
@@ -229,11 +222,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::constants::{
-        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
-        NODE_NOT_RUNNING_ERROR,
-    };
+    use masq_lib::constants::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL, NODE_NOT_RUNNING_ERROR};
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
     use masq_lib::utils::AutomapProtocol;
     use std::sync::{Arc, Mutex};
@@ -323,7 +312,7 @@ mod tests {
             payment_suggested_after_sec: DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec as u64,
             payment_grace_before_ban_sec: DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec
                 as u64,
-            pending_payment_scan_interval: DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
+            pending_payable_scan_interval: DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
             permanent_debt_allowed_gwei: DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei as u64,
             receivable_scan_interval: DEFAULT_RECEIVABLE_SCAN_INTERVAL,
             routing_byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
@@ -384,7 +373,6 @@ mod tests {
 |Routing byte rate:                {}\n\
 |Routing service rate:             {}\n\
 |Unban when balance below gwei:    {}\n\
-|Mnemonic seed:                    mnemonic seed\n\
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
 ",
@@ -395,7 +383,7 @@ mod tests {
                 DEFAULT_PAYABLE_SCAN_INTERVAL,
                 DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec,
                 DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec,
-                DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
+                DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
                 DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei,
                 DEFAULT_RECEIVABLE_SCAN_INTERVAL,
                 DEFAULT_RATE_PACK.routing_byte_rate,
@@ -431,7 +419,7 @@ mod tests {
             payment_suggested_after_sec: DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec as u64,
             payment_grace_before_ban_sec: DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec
                 as u64,
-            pending_payment_scan_interval: DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
+            pending_payable_scan_interval: DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
             permanent_debt_allowed_gwei: DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei as u64,
             receivable_scan_interval: DEFAULT_RECEIVABLE_SCAN_INTERVAL,
             routing_byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
@@ -490,7 +478,6 @@ Receivable scan interval:         {}\n\
 Routing byte rate:                {}\n\
 Routing service rate:             {}\n\
 Unban when balance below gwei:    {}\n\
-Mnemonic seed:                    [?]\n\
 Past neighbors:                   [?]\n\
 ",
                 DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec,
@@ -500,7 +487,7 @@ Past neighbors:                   [?]\n\
                 DEFAULT_PAYABLE_SCAN_INTERVAL,
                 DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec,
                 DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec,
-                DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
+                DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
                 DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei,
                 DEFAULT_RECEIVABLE_SCAN_INTERVAL,
                 DEFAULT_RATE_PACK.routing_byte_rate,

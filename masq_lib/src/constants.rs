@@ -53,7 +53,7 @@ pub const ZERO_RATE_PACK: RatePack = RatePack {
     exit_service_rate: 0,
 };
 
-pub const DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL: u64 = 3600;
+pub const DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL: u64 = 3600;
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_RECEIVABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 

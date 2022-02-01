@@ -332,14 +332,27 @@ Another reason the secrets might be missing is that there are not yet any secret
     "blockchainServiceUrl": <optional string>,
     "chainName": <String>, 
     "clandestinePort": <string>,
-    "consumingWalletDerivationPathOpt": <optional string>,
     "currentSchemaVersion": <string>,
     "earningWalletAddressOpt": <optional string>,
     "gasPrice": <number>,
     "neighborhoodMode": <string>,
+    "consumingWalletPrivateKeyOpt": <optional string>,
+    "consumingWalletAddressOpt": <optional string>,
     "startBlock": <number>,
-    "mnemonicSeedOpt": <optional string>,
-    "pastNeighbors": [
+    "balanceDecreasesForSec": <number>,
+    "balanceToDecreaseFromGwei": <number>,
+    "exitByteRate": <number>,
+    "exitServiceRate": <number>,
+    "payableScanInterval": <number>,
+    "paymentSuggestedAfterSec": <number>,
+    "paymentGraceBeforeBanSec": <number>,
+    "pendingPaymentScanInterval": <number>,
+    "permanentDebtAllowedGwei": <number>,
+    "receivableScanInterval": <number>,
+    "routingByteRate": <number>,
+    "routingServiceRate": <number>,
+    "unbanWhenBalanceBelowGwei": <number>,
+    "pastNeighbors":[
         <string>,
         <string>, ...
     ],
@@ -381,6 +394,45 @@ database password. If you want to know whether the password you have is the corr
 * `startBlock`: When the Node scans for incoming payments, it can't scan the whole blockchain: that would take
   much too long. So instead, it scans starting from wherever it left off last time. This block number is where
   it left off last time.
+
+* `balanceDecreasesForSec`: A time period that describes in seconds the width of the section in the Payment Curves that is declining.
+
+* `balanceToDecreaseFromGwei`: The highest point of the declining part of the Payment Curves, measured on the vertical axis,
+  in Gwei.
+
+* `paymentSuggestedAfterSec`: A Payment Curve parameter from the time axis. This is how many initial seconds we overlook the debt
+  regardless the number of Gwei it takes. 
+
+* `paymentGraceBeforeBanSec`: finish me.
+
+* `permanentDebtAllowedGwei`: This parameter speaks about a maximum number of Gwei which is ever permitted, no matter how long this lasts. 
+
+* `unbanWhenBalanceBelowGwei`: You can say by adjusting this parameter when you wish to unban a Node which you have banned but
+  the debt was partly or fully eliminated and so it got under this boundary, meaning the given Node is no longer banned from taking 
+  your services.
+
+* `pendingPayableScanInterval`: Amount of seconds between two sequential cycles of scanning for payments that are marked as currently
+  pending; the payments were sent to pay our debts, the payable. The purpose of this process is to confirm that the payment was written
+  into the blockchain or failed.
+
+* `payableScanInterval`: Amount of seconds between two sequential cycles of scanning pointed to payable accounts of certain parameters; these 
+  accounts are tracked on behalf of our creditors. If they qualify with enough big significance of the debt we let the debt be paid by
+  sending a transaction to the corresponding creditor's wallet.
+
+* `receivableScanInterval`: Amount of seconds between two sequential cycles of scanning for payments on the blockchain that have been sent
+  by our creditors to us, they pay for our services this way.
+
+* `exitByteRate`: This parameter indicates the amount of MASQ demanded to process 1 byte of a routed payload while the Node figures as
+  the exit Node.
+
+* `exitServiceRate`: This parameter indicates the amount of MASQ demanded to provide services, unpacking and repacking 1 CORES
+  package, while the Node figures as the exit Node.
+
+* `routingByteRate`: This parameter indicates the amount of MASQ demanded to process 1 byte of a routed payload while the Node
+  figures as an ordinary relay Node.
+
+* `routingServiceRate`: This parameter indicates the amount of MASQ demanded to provide services, unpacking and repacking 1 CORES
+  package, while the Node figures as an ordinary relay Node.
 
 * `pastNeighbors`: This is an array containing the Node descriptors of the neighbors the Node is planning to
   try to connect to when it starts up next time.  It's a secret, so if you don't supply the `dbPasswordOpt` in the

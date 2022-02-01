@@ -504,8 +504,8 @@ pub struct UiConfigurationResponse {
     pub payment_suggested_after_sec: u64,
     #[serde(rename = "paymentGraceBeforeBanSec")]
     pub payment_grace_before_ban_sec: u64,
-    #[serde(rename = "pendingPaymentScanInterval")]
-    pub pending_payment_scan_interval: u64,
+    #[serde(rename = "pendingPayableScanInterval")]
+    pub pending_payable_scan_interval: u64,
     #[serde(rename = "permanentDebtAllowedGwei")]
     pub permanent_debt_allowed_gwei: u64,
     #[serde(rename = "receivableScanInterval")]
