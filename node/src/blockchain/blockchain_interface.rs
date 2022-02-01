@@ -1,7 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::PayableAccount;
-use crate::blockchain::tool_wrappers::{PaymentBackupRecipientWrapper, SendTransactionToolsWrapper, SendTransactionToolsWrapperNull, SendTransactionToolWrapperReal};
+use crate::blockchain::tool_wrappers::{
+    PaymentBackupRecipientWrapper, SendTransactionToolWrapperReal, SendTransactionToolsWrapper,
+    SendTransactionToolsWrapperNull,
+};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use futures::{future, Future};
@@ -65,7 +68,7 @@ pub enum BlockchainError {
 pub enum BlockchainTransactionError {
     UnusableWallet(String),
     Signing(String),
-    Sending(String, H256)
+    Sending(String, H256),
 }
 
 impl Display for BlockchainError {
@@ -151,7 +154,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         let msg = "Can't send transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
-        Err(BlockchainTransactionError::Sending(msg,H256::default()))
+        Err(BlockchainTransactionError::Sending(msg, H256::default()))
     }
 
     fn get_eth_balance(&self, _address: &Wallet) -> Balance {
@@ -178,8 +181,14 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     }
 
     //TODO if it turns out that we don't need this method for the clandestine interface, we can create a supplemental trait to be implemented just for the version that needs it
-    fn send_transaction_tools<'a>(&'a self, _backup_recipient: &'a dyn PaymentBackupRecipientWrapper) -> Box<dyn SendTransactionToolsWrapper + 'a> {
-        error!(self.logger, "Nonsense, we haven't implemented the clandestine version yet",);
+    fn send_transaction_tools<'a>(
+        &'a self,
+        _backup_recipient: &'a dyn PaymentBackupRecipientWrapper,
+    ) -> Box<dyn SendTransactionToolsWrapper + 'a> {
+        error!(
+            self.logger,
+            "Nonsense, we haven't implemented the clandestine version yet",
+        );
         Box::new(SendTransactionToolsWrapperNull)
     }
 }
@@ -279,8 +288,10 @@ where
         self.logger.debug(|| self.log_debug_before_sending(&inputs));
         let signed_transaction =
             self.prepare_signed_transaction(&inputs, send_transaction_tools)?;
-        let payment_timestamp = send_transaction_tools
-            .request_new_pending_payable_fingerprint(signed_transaction.transaction_hash, inputs.amount);
+        let payment_timestamp = send_transaction_tools.request_new_pending_payable_fingerprint(
+            signed_transaction.transaction_hash,
+            inputs.amount,
+        );
         self.logger
             .info(|| self.log_sending(inputs.recipient, inputs.amount));
         match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
@@ -501,7 +512,7 @@ impl Display for BlockchainTransactionError {
         match self {
             Self::UnusableWallet(msg) => write!(f, "UnusableWallet: {}", msg),
             Self::Signing(msg) => write!(f, "Signing: {}", msg),
-            Self::Sending(msg, _) => write!(f, "Sending: {}", msg)
+            Self::Sending(msg, _) => write!(f, "Sending: {}", msg),
         }
     }
 }
@@ -520,7 +531,7 @@ impl From<BlockchainTransactionError> for BlockchainError {
             BlockchainTransactionError::Sending(_, hash) => BlockchainError::TransactionFailed {
                 msg: error.to_string(),
                 hash_opt: Some(hash),
-            }
+            },
         }
     }
 }
@@ -532,7 +543,7 @@ mod tests {
         make_payable_account, make_payable_account_with_recipient_and_balance_and_timestamp_opt,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::blockchain::blockchain_bridge::PaymentFingerprint;
+    use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle,
         SendTransactionToolsWrapperMock, TestTransport,
@@ -992,7 +1003,8 @@ mod tests {
         ));
         let (recorder, _, recording_arc) = make_recorder();
         let actor_addr = recorder.start();
-        let recipient_of_pending_payable_fingerprint = recipient!(actor_addr, PaymentFingerprint);
+        let recipient_of_pending_payable_fingerprint =
+            recipient!(actor_addr, PendingPayableFingerprint);
         let pending_payable_fingerprint_recipient_wrapper =
             PaymentBackupRecipientWrapperReal::new(&recipient_of_pending_payable_fingerprint);
         let subject = BlockchainInterfaceNonClandestine::new(
@@ -1042,8 +1054,8 @@ mod tests {
             comparable_now
         );
         let recording = recording_arc.lock().unwrap();
-        let sent_backup = recording.get_record::<PaymentFingerprint>(0);
-        let expected_pending_payable_fingerprint = PaymentFingerprint {
+        let sent_backup = recording.get_record::<PendingPayableFingerprint>(0);
+        let expected_pending_payable_fingerprint = PendingPayableFingerprint {
             rowid: 0,
             timestamp,
             hash,
@@ -1102,7 +1114,9 @@ mod tests {
         let send_transaction_tools = &SendTransactionToolsWrapperMock::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             .sign_transaction_result(Ok(signed_transaction.clone()))
-            .request_new_pending_payable_fingerprint_params(&request_new_pending_payable_fingerprint_params_arc)
+            .request_new_pending_payable_fingerprint_params(
+                &request_new_pending_payable_fingerprint_params_arc,
+            )
             .request_new_pending_payable_fingerprint_result(payment_timestamp)
             .send_raw_transaction_params(&send_raw_transaction_params_arc)
             .send_raw_transaction_result(Ok(hash));
@@ -1129,7 +1143,9 @@ mod tests {
                 .into()
         );
         let request_new_pending_payable_fingerprint_params =
-            request_new_pending_payable_fingerprint_params_arc.lock().unwrap();
+            request_new_pending_payable_fingerprint_params_arc
+                .lock()
+                .unwrap();
         assert_eq!(
             *request_new_pending_payable_fingerprint_params,
             vec![(hash, amount as u64)]

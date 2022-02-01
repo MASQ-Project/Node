@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::jackass_unsigned_to_signed;
-use crate::blockchain::blockchain_bridge::PaymentFingerprint;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::{from_time_t, to_time_t, DaoFactoryReal};
 use masq_lib::utils::ExpectValue;
@@ -22,8 +22,8 @@ pub enum PendingPayableDaoError {
 }
 
 pub trait PendingPayableDao {
-    fn pending_payable_fingerprint_exists(&self, transaction_hash: H256) -> Option<u64>;
-    fn return_all_pending_payable_fingerprints(&self) -> Vec<PaymentFingerprint>;
+    fn pending_payable_fingerprint_rowid(&self, transaction_hash: H256) -> Option<u64>;
+    fn return_all_pending_payable_fingerprints(&self) -> Vec<PendingPayableFingerprint>;
     fn insert_new_pending_payable_fingerprint(
         &self,
         transaction_hash: H256,
@@ -32,20 +32,17 @@ pub trait PendingPayableDao {
     ) -> Result<(), PendingPayableDaoError>;
     fn hash(&self, id: u64) -> Result<H256, PendingPayableDaoError>;
     fn delete_pending_payable_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;
-    fn update_pending_payable_fingerprint_after_scan_cycle(
-        &self,
-        id: u64,
-    ) -> Result<(), PendingPayableDaoError>;
+    fn update_pending_payable_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;
     fn mark_failure(&self, id: u64) -> Result<(), PendingPayableDaoError>;
 }
 
 impl PendingPayableDao for PendingPayableDaoReal<'_> {
-    fn pending_payable_fingerprint_exists(&self, transaction_hash: H256) -> Option<u64> {
+    fn pending_payable_fingerprint_rowid(&self, transaction_hash: H256) -> Option<u64> {
         let mut stm = self
             .conn
             .prepare("select rowid from pending_payable where transaction_hash = ?")
             .expect("Internal error");
-        match stm.query_row(&[&format!("{:x}", transaction_hash)], |row| {
+        match stm.query_row(&[&format!("{:?}", transaction_hash)], |row| {
             let rowid: i64 = row.get(0).expectv("rowid_opt");
             Ok(rowid)
         }) {
@@ -55,25 +52,28 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         }
     }
 
-    fn return_all_pending_payable_fingerprints(&self) -> Vec<PaymentFingerprint> {
+    fn return_all_pending_payable_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
         let mut stm = self.conn.prepare("select rowid, transaction_hash, amount, payment_timestamp, attempt from pending_payable where process_error is null").expect("Internal error");
         stm.query_map([], |row| {
-            let rowid: i64 = Self::get_with_expect(row, 0);
+            let rowid: u64 = Self::get_with_expect(row, 0);
             let transaction_hash: String = Self::get_with_expect(row, 1);
-            let amount: i64 = Self::get_with_expect(row, 2);
+            let amount: u64 = Self::get_with_expect(row, 2);
             let timestamp: i64 = Self::get_with_expect(row, 3);
-            let attempt: i64 = Self::get_with_expect(row, 4);
-            Ok(PaymentFingerprint {
-                rowid: u64::try_from(rowid).expectv("positive value"),
+            let attempt: u16 = Self::get_with_expect(row, 4);
+            Ok(PendingPayableFingerprint {
+                rowid,
                 timestamp: from_time_t(timestamp),
-                hash: H256::from_str(transaction_hash.as_str()).expectv("string hash"),
-                attempt: u16::try_from(attempt).expectv("positive and low value"),
-                amount: u64::try_from(amount).expectv("positive value"),
+                hash: H256::from_str(&transaction_hash[2..]).expectv("string hash"),
+                attempt,
+                amount,
                 process_error: None,
             })
         })
-        .expect("behaves quite infallibly")
-        .flatten()
+        .expect("rusqlite failure")
+        .map(|fingerprint_result| match fingerprint_result {
+            Ok(val) => val,
+            Err(e) => panic!("hitting an error: {:?}", e),
+        })
         .collect()
     }
 
@@ -88,7 +88,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         let mut stm = self.conn.prepare("insert into pending_payable (rowid, transaction_hash, amount, payment_timestamp, attempt, process_error) values (?,?,?,?,?,?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[
             &Null, //to let it increment automatically by SQLite
-            &format!("{:x}", transaction_hash),
+            &format!("{:?}", transaction_hash),
             &signed_amount,
             &to_time_t(timestamp),
             &1,
@@ -111,9 +111,9 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         Ok(stm
             .query_row([&signed_id], |row| {
                 let string_hash: String = row.get(0).expectv("hash parameter");
-                Ok(H256::from_str(&string_hash).expectv("integer hash"))
+                Ok(H256::from_str(&string_hash[2..]).expectv("integer hash"))
             })
-            .expect("behaves quite infallibly"))
+            .expect("rusqlite failure"))
     }
 
     fn delete_pending_payable_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
@@ -133,10 +133,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         }
     }
 
-    fn update_pending_payable_fingerprint_after_scan_cycle(
-        &self,
-        id: u64,
-    ) -> Result<(), PendingPayableDaoError> {
+    fn update_pending_payable_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
         let signed_id = jackass_unsigned_to_signed(id)
             .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
@@ -201,7 +198,7 @@ mod tests {
     use crate::accountant::pending_payable_dao::{
         PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
     };
-    use crate::blockchain::blockchain_bridge::PaymentFingerprint;
+    use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
@@ -231,38 +228,17 @@ mod tests {
             .insert_new_pending_payable_fingerprint(hash, amount, timestamp)
             .unwrap();
 
-        let assertion_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
-        let mut stm = assertion_conn
-            .prepare("select * from pending_payable")
-            .unwrap();
-        let record = stm
-            .query_row([], |row| {
-                let rowid: i64 = row.get(0).unwrap();
-                let hash: String = row.get(1).unwrap();
-                let amount: i64 = row.get(2).unwrap();
-                let payment_timestamp = row.get(3);
-                let attempt: i64 = row.get(4).unwrap();
-                let process_error = row.get(5);
-                Ok(PaymentFingerprint {
-                    rowid: rowid as u64,
-                    timestamp: from_time_t(payment_timestamp.unwrap()),
-                    hash: H256::from_str(&hash).unwrap(),
-                    attempt: attempt as u16,
-                    amount: amount as u64,
-                    process_error: process_error.unwrap(),
-                })
-            })
-            .unwrap();
+        let records = subject.return_all_pending_payable_fingerprints();
         assert_eq!(
-            record,
-            PaymentFingerprint {
+            records,
+            vec![PendingPayableFingerprint {
                 rowid: 1,
                 timestamp,
                 hash,
                 attempt: 1,
                 amount,
                 process_error: None
-            }
+            }]
         )
     }
 
@@ -299,10 +275,10 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_exists_when_reachable() {
+    fn fingerprint_rowid_when_record_reachable() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "fingerprint_exists_when_reachable",
+            "fingerprint_rowid_when_record_reachable",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -317,16 +293,16 @@ mod tests {
                 .unwrap();
         }
 
-        let result = subject.pending_payable_fingerprint_exists(hash);
+        let result = subject.pending_payable_fingerprint_rowid(hash);
 
         assert_eq!(result, Some(1))
     }
 
     #[test]
-    fn fingerprint_exists_when_nonexistent() {
+    fn fingerprint_rowid_when_nonexistent_record() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "fingerprint_exists_when_nonexistent",
+            "fingerprint_rowid_when_nonexistent_record",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -342,7 +318,7 @@ mod tests {
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let hash = H256::from_uint(&U256::from(11119));
 
-        let result = subject.pending_payable_fingerprint_exists(hash);
+        let result = subject.pending_payable_fingerprint_rowid(hash);
 
         assert_eq!(result, None)
     }
@@ -379,7 +355,7 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                PaymentFingerprint {
+                PendingPayableFingerprint {
                     rowid: 1,
                     timestamp: timestamp_1,
                     hash: hash_1,
@@ -387,7 +363,7 @@ mod tests {
                     amount: amount_1,
                     process_error: None
                 },
-                PaymentFingerprint {
+                PendingPayableFingerprint {
                     rowid: 2,
                     timestamp: timestamp_2,
                     hash: hash_2,
@@ -431,7 +407,7 @@ mod tests {
 
         assert_eq!(
             result,
-            vec![PaymentFingerprint {
+            vec![PendingPayableFingerprint {
                 rowid: 2,
                 timestamp,
                 hash,
@@ -458,7 +434,7 @@ mod tests {
             subject
                 .insert_new_pending_payable_fingerprint(hash, 5555, SystemTime::now())
                 .unwrap();
-            assert!(subject.pending_payable_fingerprint_exists(hash).is_some())
+            assert!(subject.pending_payable_fingerprint_rowid(hash).is_some())
         }
 
         let result = subject.delete_pending_payable_fingerprint(rowid);
@@ -532,7 +508,7 @@ mod tests {
         assert_eq!(record_before.process_error, None);
         assert_eq!(record_before.timestamp, timestamp);
 
-        let result = subject.update_pending_payable_fingerprint_after_scan_cycle(1);
+        let result = subject.update_pending_payable_fingerprint(1);
 
         assert_eq!(result, Ok(()));
         let mut all_records_after = subject.return_all_pending_payable_fingerprints();
@@ -561,7 +537,7 @@ mod tests {
         let wrapped_conn = ConnectionWrapperReal::new(conn_read_only);
         let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.update_pending_payable_fingerprint_after_scan_cycle(1);
+        let result = subject.update_pending_payable_fingerprint(1);
 
         assert_eq!(
             result,
@@ -594,18 +570,18 @@ mod tests {
         let mut assert_closure = || {
             assert_stm
                 .query_row([], |row| {
-                    let rowid: i64 = row.get(0).unwrap();
+                    let rowid: u64 = row.get(0).unwrap();
                     let transaction_hash: String = row.get(1).unwrap();
-                    let amount: i64 = row.get(2).unwrap();
+                    let amount: u64 = row.get(2).unwrap();
                     let timestamp: i64 = row.get(3).unwrap();
-                    let attempt: i64 = row.get(4).unwrap();
+                    let attempt: u16 = row.get(4).unwrap();
                     let process_error: Option<String> = row.get(5).unwrap();
-                    Ok(PaymentFingerprint {
-                        rowid: u64::try_from(rowid).unwrap(),
+                    Ok(PendingPayableFingerprint {
+                        rowid,
                         timestamp: from_time_t(timestamp),
-                        hash: H256::from_str(transaction_hash.as_str()).unwrap(),
-                        attempt: u16::try_from(attempt).unwrap(),
-                        amount: u64::try_from(amount).unwrap(),
+                        hash: H256::from_str(&transaction_hash[2..]).unwrap(),
+                        attempt,
+                        amount,
                         process_error,
                     })
                 })

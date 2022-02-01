@@ -1517,7 +1517,7 @@ mod tests {
                 &wallet,
                 &amount,
                 &to_time_t(timestamp),
-                &format!("{:x}", transaction_hash),
+                &format!("{:?}", transaction_hash),
             ];
             let row_count = stm.execute(params).unwrap();
             assert_eq!(row_count, 1);
@@ -1550,7 +1550,7 @@ mod tests {
 
         assert_on_schema_5_was_adopted(conn_schema5.as_ref());
         TestLogHandler::new().exists_log_containing("WARN: DbMigrator: Migration from 4 to 5: database belonging to the chain 'eth-ropsten'; \
-         we discovered possibly abandoned transactions that are said yet to be pending, these are: '0000000000000000000000000000000000000000000000000000000002b594d1', '00000000000000000000000000000000000000000000000000000000000f41d0'; continuing");
+         we discovered possibly abandoned transactions that are said yet to be pending, these are: '0x0000000000000000000000000000000000000000000000000000000002b594d1', '0x00000000000000000000000000000000000000000000000000000000000f41d0'; continuing");
     }
 
     fn assert_on_schema_5_was_adopted(conn_schema5: &dyn ConnectionWrapper) {

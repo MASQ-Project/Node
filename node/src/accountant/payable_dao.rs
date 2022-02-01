@@ -2,7 +2,7 @@
 use crate::accountant::{
     jackass_unsigned_to_signed, DebtRecordingError, PaymentError, PaymentErrorKind, TransactionId,
 };
-use crate::blockchain::blockchain_bridge::PaymentFingerprint;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::DaoFactoryReal;
@@ -51,7 +51,10 @@ pub trait PayableDao: Debug + Send {
         transaction_id: TransactionId,
     ) -> Result<(), PaymentError>;
 
-    fn transaction_confirmed(&self, payment: &PaymentFingerprint) -> Result<(), PaymentError>;
+    fn transaction_confirmed(
+        &self,
+        payment: &PendingPayableFingerprint,
+    ) -> Result<(), PaymentError>;
 
     //TODO this method doesn't have a use now; what is its future?
     fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PaymentError>;
@@ -106,7 +109,10 @@ impl PayableDao for PayableDaoReal {
         ];
         match stm.execute(params) {
             Ok(1) => Ok(()),
-            Ok(num) => panic!("Affected {} rows but expected 1",num),
+            Ok(num) => panic!(
+                "Marking pending payable rowid: affected {} rows but expected 1",
+                num
+            ),
             Err(e) => Err(PaymentError(
                 PaymentErrorKind::RusqliteError(e.to_string()),
                 transaction_id,
@@ -114,7 +120,10 @@ impl PayableDao for PayableDaoReal {
         }
     }
 
-    fn transaction_confirmed(&self, payment: &PaymentFingerprint) -> Result<(), PaymentError> {
+    fn transaction_confirmed(
+        &self,
+        payment: &PendingPayableFingerprint,
+    ) -> Result<(), PaymentError> {
         let signed_amount = jackass_unsigned_to_signed(payment.amount).map_err(|err_num| {
             PaymentError(PaymentErrorKind::SignConversion(err_num), payment.into())
         })?;
@@ -132,7 +141,10 @@ impl PayableDao for PayableDaoReal {
         let params: &[&dyn ToSql] = &[&Null, &formally_signed_rowid];
         match stm.execute(params) {
             Ok(1) => Ok(()),
-            Ok(num) => panic!("Affected {} rows but expected 1",num),
+            Ok(num) => panic!(
+                "Cancelling transaction: affected {} rows but expected 1",
+                num
+            ),
             Err(e) => Err(PaymentError(
                 PaymentErrorKind::RusqliteError(e.to_string()),
                 transaction_id,
@@ -323,10 +335,10 @@ impl PayableDaoReal {
         ];
         match stmt.execute(params) {
             Ok(1) => Ok(()),
-            Ok(x) => Err(format!(
-                "Trying to decrease balance, {} rows changed instead of 1",
-                x
-            )),
+            Ok(num) => panic!(
+                "Trying to decrease balance: {} rows changed instead of 1",
+                num
+            ),
             Err(e) => Err(format!("{}", e)),
         }
     }
@@ -351,6 +363,7 @@ mod tests {
     use web3::types::U256;
 
     #[test]
+    #[should_panic(expected = "Trying to decrease balance: 0 rows changed instead of 1")]
     fn try_decrease_balance_changed_no_rows() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
@@ -361,12 +374,7 @@ mod tests {
             .unwrap();
         let subject = PayableDaoReal::new(wrapped_conn);
 
-        let result = subject.try_decrease_balance(45, 1111, SystemTime::now());
-
-        assert_eq!(
-            result,
-            Err("Trying to decrease balance, 0 rows changed instead of 1".to_string())
-        )
+        let _ = subject.try_decrease_balance(45, 1111, SystemTime::now());
     }
 
     #[test]
@@ -504,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Affected 0 rows but expected 1")]
+    #[should_panic(expected = "Marking pending payable rowid: affected 0 rows but expected 1")]
     fn mark_pending_payment_returned_different_row_count_than_expected() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
@@ -636,7 +644,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Affected 0 rows but expected 1")]
+    #[should_panic(expected = "Cancelling transaction: affected 0 rows but expected 1")]
     fn transaction_canceled_returned_different_row_count_than_expected() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
@@ -687,7 +695,7 @@ mod tests {
                 pending_payable_rowid_opt: Some(rowid)
             })
         );
-        let pending_payable_fingerprint = PaymentFingerprint {
+        let pending_payable_fingerprint = PendingPayableFingerprint {
             rowid,
             timestamp: payment_timestamp,
             hash,
@@ -738,10 +746,11 @@ mod tests {
     }
 
     #[test]
-    fn transaction_confirmed_works_for_overflow() {
+    fn transaction_confirmed_works_for_overflow_from_amount_stored_in_pending_payable_fingerprint()
+    {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "transaction_confirmed_works_for_overflow",
+            "transaction_confirmed_works_for_overflow_from_amount_stored_in_pending_payable_fingerprint",
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
@@ -754,6 +763,7 @@ mod tests {
         pending_payable_fingerprint.hash = hash;
         pending_payable_fingerprint.rowid = rowid;
         pending_payable_fingerprint.amount = u64::MAX;
+        //The overflow occurs before we start modifying the payable account so I decided not to create an example in the database
 
         let result = subject.transaction_confirmed(&pending_payable_fingerprint);
 
@@ -892,39 +902,6 @@ mod tests {
         let result = subject.more_money_payable(&make_wallet("foobar"), u64::MAX);
 
         assert_eq!(result, Err(DebtRecordingError::SignConversion(u64::MAX)))
-    }
-
-    #[test]
-    fn payable_amount_error_on_transaction_confirmed_updating_balance_out_of_range() {
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "payable_amount_precision_loss_panics_on_update_balance",
-        );
-        let hash = H256::from_uint(&U256::from(123));
-        let rowid = 3;
-        let pending_payable_fingerprint = PaymentFingerprint {
-            rowid,
-            timestamp: SystemTime::now(),
-            hash,
-            attempt: 1,
-            amount: u64::MAX,
-            process_error: None,
-        };
-        let subject = PayableDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
-                .unwrap(),
-        );
-
-        let result = subject.transaction_confirmed(&pending_payable_fingerprint);
-
-        assert_eq!(
-            result,
-            Err(PaymentError(
-                PaymentErrorKind::SignConversion(u64::MAX),
-                TransactionId { hash, rowid }
-            ))
-        )
     }
 
     #[test]

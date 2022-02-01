@@ -6,7 +6,9 @@ use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
     Nonce, Receipt, SendTransactionInputs, Transaction, Transactions, REQUESTS_IN_PARALLEL,
 };
-use crate::blockchain::tool_wrappers::{PaymentBackupRecipientWrapper, SendTransactionToolsWrapper};
+use crate::blockchain::tool_wrappers::{
+    PaymentBackupRecipientWrapper, SendTransactionToolsWrapper,
+};
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::H256;
@@ -272,7 +274,11 @@ impl SendTransactionToolsWrapper for SendTransactionToolsWrapperMock {
         self.sign_transaction_results.borrow_mut().remove(0)
     }
 
-    fn request_new_pending_payable_fingerprint(&self, transaction_hash: H256, amount: u64) -> SystemTime {
+    fn request_new_pending_payable_fingerprint(
+        &self,
+        transaction_hash: H256,
+        amount: u64,
+    ) -> SystemTime {
         self.request_new_pending_payable_fingerprint_params
             .lock()
             .unwrap()

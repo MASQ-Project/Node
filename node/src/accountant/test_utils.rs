@@ -7,9 +7,12 @@ use crate::accountant::pending_payable_dao::{
     PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory,
 };
 use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoFactory};
-use crate::accountant::{Accountant, DebtRecordingError, PaymentCurves, PaymentError, TransactionId};
+use crate::accountant::{
+    Accountant, DebtRecordingError, PaymentCurves, PaymentError, TransactionId,
+};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
-use crate::blockchain::blockchain_bridge::PaymentFingerprint;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+use crate::blockchain::blockchain_interface::Transaction;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
@@ -24,7 +27,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use crate::blockchain::blockchain_interface::Transaction;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -62,40 +64,6 @@ pub fn make_payable_account_with_recipient_and_balance_and_timestamp_opt(
     }
 }
 
-//TODO should I replace this with the builder?
-pub fn make_accountant(
-    config_opt: Option<BootstrapperConfig>,
-    payable_dao_opt: Option<PayableDaoMock>,
-    receivable_dao_opt: Option<ReceivableDaoMock>,
-    pending_payable_dao_opt: Option<PendingPayableDaoMock>,
-    banned_dao_opt: Option<BannedDaoMock>,
-    persistent_config_opt: Option<PersistentConfigurationMock>,
-) -> Accountant {
-    let payable_dao_factory =
-        PayableDaoFactoryMock::new(Box::new(payable_dao_opt.unwrap_or(PayableDaoMock::new())));
-    let receivable_dao_factory =
-        ReceivableDaoFactoryMock::new(receivable_dao_opt.unwrap_or(ReceivableDaoMock::new()));
-    let pending_payable_dao_factory = PendingPaymentsDaoFactoryMock::new(
-        pending_payable_dao_opt.unwrap_or(PendingPayableDaoMock::default()),
-    );
-    let banned_dao_factory =
-        BannedDaoFactoryMock::new(banned_dao_opt.unwrap_or(BannedDaoMock::new()));
-    let mut subject = Accountant::new(
-        &config_opt.unwrap_or(BootstrapperConfig::new()),
-        Box::new(payable_dao_factory),
-        Box::new(receivable_dao_factory),
-        Box::new(pending_payable_dao_factory),
-        Box::new(banned_dao_factory),
-        Box::new(ConfigDaoFactoryMock::new(ConfigDaoMock::new())),
-    );
-    subject.persistent_configuration = if let Some(persistent_config) = persistent_config_opt {
-        Box::new(persistent_config)
-    } else {
-        Box::new(PersistentConfigurationMock::new())
-    };
-    subject
-}
-
 pub struct AccountantBuilder {
     config: BootstrapperConfig,
     payable_dao_factory: Box<dyn PayableDaoFactory>,
@@ -103,23 +71,23 @@ pub struct AccountantBuilder {
     pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
     banned_dao_factory: Box<dyn BannedDaoFactory>,
     config_dao_factory: Box<dyn ConfigDaoFactory>,
+    persistent_configuration: PersistentConfigurationMock,
 }
 
 impl Default for AccountantBuilder {
     fn default() -> Self {
         Self {
             config: Default::default(),
-            payable_dao_factory: Box::new(PayableDaoFactoryMock::new(Box::new(
-                PayableDaoMock::new(),
-            ))),
+            payable_dao_factory: Box::new(PayableDaoFactoryMock::new(PayableDaoMock::new())),
             receivable_dao_factory: Box::new(ReceivableDaoFactoryMock::new(
                 ReceivableDaoMock::new(),
             )),
-            pending_payable_dao_factory: Box::new(PendingPaymentsDaoFactoryMock::new(
+            pending_payable_dao_factory: Box::new(PendingPayableDaoFactoryMock::new(
                 PendingPayableDaoMock::default(),
             )),
             banned_dao_factory: Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new())),
             config_dao_factory: Box::new(ConfigDaoFactoryMock::new(ConfigDaoMock::new())),
+            persistent_configuration: Default::default(),
         }
     }
 }
@@ -129,60 +97,66 @@ impl AccountantBuilder {
         self.config = config;
         self
     }
-    pub fn payable_dao_factory(mut self, payable_dao: Box<dyn PayableDaoFactory>) -> Self {
-        self.payable_dao_factory = payable_dao;
-        self
-    }
-    pub fn receivable_dao_factory(mut self, receivable_dao: Box<dyn ReceivableDaoFactory>) -> Self {
-        self.receivable_dao_factory = receivable_dao;
+
+    pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> Self {
+        self.payable_dao_factory = Box::new(PayableDaoFactoryMock::new(payable_dao));
         self
     }
 
-    pub fn pending_payable_dao_factory(
-        mut self,
-        pending_payable_dao: Box<dyn PendingPayableDaoFactory>,
-    ) -> Self {
-        self.pending_payable_dao_factory = pending_payable_dao;
+    pub fn receivable_dao(mut self, receivable_dao: ReceivableDaoMock) -> Self {
+        self.receivable_dao_factory = Box::new(ReceivableDaoFactoryMock::new(receivable_dao));
         self
     }
 
-    pub fn banned_dao_factory(mut self, banned_dao: Box<dyn BannedDaoFactory>) -> Self {
-        self.banned_dao_factory = banned_dao;
+    pub fn pending_payable_dao(mut self, pending_payable_dao: PendingPayableDaoMock) -> Self {
+        self.pending_payable_dao_factory =
+            Box::new(PendingPayableDaoFactoryMock::new(pending_payable_dao));
         self
     }
-    pub fn persistent_config_dao_factory(
-        mut self,
-        persistent_config_dao: Box<dyn ConfigDaoFactory>,
-    ) -> Self {
-        self.config_dao_factory = persistent_config_dao;
+
+    pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {
+        self.banned_dao_factory = Box::new(BannedDaoFactoryMock::new(banned_dao));
         self
     }
+
+    pub fn config_dao(mut self, persistent_config_dao: ConfigDaoMock) -> Self {
+        self.config_dao_factory = Box::new(ConfigDaoFactoryMock::new(persistent_config_dao));
+        self
+    }
+
+    pub fn persistent_config(mut self, persistent_config: PersistentConfigurationMock) -> Self {
+        self.persistent_configuration = persistent_config;
+        self
+    }
+
     pub fn build(self) -> Accountant {
-        Accountant::new(
+        let mut accountant = Accountant::new(
             &self.config,
             self.payable_dao_factory,
             self.receivable_dao_factory,
             self.pending_payable_dao_factory,
             self.banned_dao_factory,
             self.config_dao_factory,
-        )
+        );
+        accountant.persistent_configuration = Box::new(self.persistent_configuration);
+        accountant
     }
 }
 
 pub struct PayableDaoFactoryMock {
     called: Rc<RefCell<bool>>,
-    mock: RefCell<Vec<Box<dyn PayableDao>>>,
+    mock: RefCell<Vec<PayableDaoMock>>,
 }
 
 impl PayableDaoFactory for PayableDaoFactoryMock {
     fn make(&self) -> Box<dyn PayableDao> {
         *self.called.borrow_mut() = true;
-        self.mock.borrow_mut().remove(0)
+        Box::new(self.mock.borrow_mut().remove(0))
     }
 }
 
 impl PayableDaoFactoryMock {
-    pub fn new(mock: Box<dyn PayableDao>) -> Self {
+    pub fn new(mock: PayableDaoMock) -> Self {
         Self {
             called: Rc::new(RefCell::new(false)),
             mock: RefCell::new(vec![mock]),
@@ -197,13 +171,13 @@ impl PayableDaoFactoryMock {
 
 pub struct ReceivableDaoFactoryMock {
     called: Rc<RefCell<bool>>,
-    mock: RefCell<Option<ReceivableDaoMock>>,
+    mock: RefCell<Vec<ReceivableDaoMock>>,
 }
 
 impl ReceivableDaoFactory for ReceivableDaoFactoryMock {
     fn make(&self) -> Box<dyn ReceivableDao> {
         *self.called.borrow_mut() = true;
-        Box::new(self.mock.borrow_mut().take().unwrap())
+        Box::new(self.mock.borrow_mut().remove(0))
     }
 }
 
@@ -211,7 +185,7 @@ impl ReceivableDaoFactoryMock {
     pub fn new(mock: ReceivableDaoMock) -> Self {
         Self {
             called: Rc::new(RefCell::new(false)),
-            mock: RefCell::new(Some(mock)),
+            mock: RefCell::new(vec![mock]),
         }
     }
 
@@ -283,7 +257,7 @@ pub struct PayableDaoMock {
     non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
     mark_pending_payable_rowid_parameters: Arc<Mutex<Vec<(Wallet, TransactionId)>>>,
     mark_pending_payable_rowid_results: RefCell<Vec<Result<(), PaymentError>>>,
-    transaction_confirmed_params: Arc<Mutex<Vec<PaymentFingerprint>>>,
+    transaction_confirmed_params: Arc<Mutex<Vec<PendingPayableFingerprint>>>,
     transaction_confirmed_results: RefCell<Vec<Result<(), PaymentError>>>,
     transaction_canceled_params: Arc<Mutex<Vec<TransactionId>>>,
     transaction_canceled_results: RefCell<Vec<Result<(), PaymentError>>>,
@@ -294,11 +268,7 @@ pub struct PayableDaoMock {
 }
 
 impl PayableDao for PayableDaoMock {
-    fn more_money_payable(
-        &self,
-        wallet: &Wallet,
-        amount: u64,
-    ) -> Result<(), DebtRecordingError> {
+    fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), DebtRecordingError> {
         self.more_money_payable_parameters
             .lock()
             .unwrap()
@@ -320,7 +290,10 @@ impl PayableDao for PayableDaoMock {
             .remove(0)
     }
 
-    fn transaction_confirmed(&self, payment: &PaymentFingerprint) -> Result<(), PaymentError> {
+    fn transaction_confirmed(
+        &self,
+        payment: &PendingPayableFingerprint,
+    ) -> Result<(), PaymentError> {
         self.transaction_confirmed_params
             .lock()
             .unwrap()
@@ -413,7 +386,7 @@ impl PayableDaoMock {
 
     pub fn transaction_confirmed_params(
         mut self,
-        params: &Arc<Mutex<Vec<PaymentFingerprint>>>,
+        params: &Arc<Mutex<Vec<PendingPayableFingerprint>>>,
     ) -> Self {
         self.transaction_confirmed_params = params.clone();
         self
@@ -424,10 +397,7 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn transaction_canceled_params(
-        mut self,
-        params: &Arc<Mutex<Vec<TransactionId>>>,
-    ) -> Self {
+    pub fn transaction_canceled_params(mut self, params: &Arc<Mutex<Vec<TransactionId>>>) -> Self {
         self.transaction_canceled_params = params.clone();
         self
     }
@@ -690,35 +660,35 @@ pub fn bc_from_ac_plus_wallets(
 
 #[derive(Default)]
 pub struct PendingPayableDaoMock {
-    pending_payable_fingerprint_exists_params: Arc<Mutex<Vec<H256>>>,
-    pending_payable_fingerprint_exists_results: RefCell<Vec<Option<u64>>>,
+    pending_payable_fingerprint_rowid_params: Arc<Mutex<Vec<H256>>>,
+    pending_payable_fingerprint_rowid_results: RefCell<Vec<Option<u64>>>,
     delete_pending_payable_fingerprint_params: Arc<Mutex<Vec<u64>>>,
     delete_pending_payable_fingerprint_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     insert_pending_payable_fingerprint_params: Arc<Mutex<Vec<(H256, u64, SystemTime)>>>,
     insert_pending_payable_fingerprint_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
-    update_backup_after_scan_cycle_params: Arc<Mutex<Vec<u64>>>,
-    update_backup_after_scan_cycle_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
+    update_pending_payable_fingerprint_params: Arc<Mutex<Vec<u64>>>,
+    update_pending_payable_fingerprint_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     hash_params: Arc<Mutex<Vec<u64>>>,
     hash_results: RefCell<Vec<Result<H256, PendingPayableDaoError>>>,
     mark_failure_params: Arc<Mutex<Vec<u64>>>,
     mark_failure_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     return_all_pending_payable_fingerprints_params: Arc<Mutex<Vec<()>>>,
-    return_all_pending_payable_fingerprints_results: RefCell<Vec<Vec<PaymentFingerprint>>>,
+    return_all_pending_payable_fingerprints_results: RefCell<Vec<Vec<PendingPayableFingerprint>>>,
     pub have_return_all_pending_payable_fingerprints_shut_down_the_system: bool,
 }
 
 impl PendingPayableDao for PendingPayableDaoMock {
-    fn pending_payable_fingerprint_exists(&self, transaction_hash: H256) -> Option<u64> {
-        self.pending_payable_fingerprint_exists_params
+    fn pending_payable_fingerprint_rowid(&self, transaction_hash: H256) -> Option<u64> {
+        self.pending_payable_fingerprint_rowid_params
             .lock()
             .unwrap()
             .push(transaction_hash);
-        self.pending_payable_fingerprint_exists_results
+        self.pending_payable_fingerprint_rowid_results
             .borrow_mut()
             .remove(0)
     }
 
-    fn return_all_pending_payable_fingerprints(&self) -> Vec<PaymentFingerprint> {
+    fn return_all_pending_payable_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
         self.return_all_pending_payable_fingerprints_params
             .lock()
             .unwrap()
@@ -767,15 +737,12 @@ impl PendingPayableDao for PendingPayableDaoMock {
             .remove(0)
     }
 
-    fn update_pending_payable_fingerprint_after_scan_cycle(
-        &self,
-        id: u64,
-    ) -> Result<(), PendingPayableDaoError> {
-        self.update_backup_after_scan_cycle_params
+    fn update_pending_payable_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
+        self.update_pending_payable_fingerprint_params
             .lock()
             .unwrap()
             .push(id);
-        self.update_backup_after_scan_cycle_results
+        self.update_pending_payable_fingerprint_results
             .borrow_mut()
             .remove(0)
     }
@@ -787,13 +754,16 @@ impl PendingPayableDao for PendingPayableDaoMock {
 }
 
 impl PendingPayableDaoMock {
-    pub fn pending_payable_fingerprint_exists_params(mut self, params: &Arc<Mutex<Vec<H256>>>) -> Self {
-        self.pending_payable_fingerprint_exists_params = params.clone();
+    pub fn pending_payable_fingerprint_rowid_params(
+        mut self,
+        params: &Arc<Mutex<Vec<H256>>>,
+    ) -> Self {
+        self.pending_payable_fingerprint_rowid_params = params.clone();
         self
     }
 
-    pub fn pending_payable_fingerprint_exists_result(self, result: Option<u64>) -> Self {
-        self.pending_payable_fingerprint_exists_results
+    pub fn pending_payable_fingerprint_rowid_result(self, result: Option<u64>) -> Self {
+        self.pending_payable_fingerprint_rowid_results
             .borrow_mut()
             .push(result);
         self
@@ -817,7 +787,10 @@ impl PendingPayableDaoMock {
         self
     }
 
-    pub fn delete_pending_payable_fingerprint_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
+    pub fn delete_pending_payable_fingerprint_params(
+        mut self,
+        params: &Arc<Mutex<Vec<u64>>>,
+    ) -> Self {
         self.delete_pending_payable_fingerprint_params = params.clone();
         self
     }
@@ -832,12 +805,18 @@ impl PendingPayableDaoMock {
         self
     }
 
-    pub fn return_all_pending_payable_fingerprints_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+    pub fn return_all_pending_payable_fingerprints_params(
+        mut self,
+        params: &Arc<Mutex<Vec<()>>>,
+    ) -> Self {
         self.return_all_pending_payable_fingerprints_params = params.clone();
         self
     }
 
-    pub fn return_all_pending_payable_fingerprints_result(self, result: Vec<PaymentFingerprint>) -> Self {
+    pub fn return_all_pending_payable_fingerprints_result(
+        self,
+        result: Vec<PendingPayableFingerprint>,
+    ) -> Self {
         self.return_all_pending_payable_fingerprints_results
             .borrow_mut()
             .push(result);
@@ -864,39 +843,42 @@ impl PendingPayableDaoMock {
         self
     }
 
-    pub fn update_backup_after_scan_cycle_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
-        self.update_backup_after_scan_cycle_params = params.clone();
+    pub fn update_pending_payable_fingerprint_params(
+        mut self,
+        params: &Arc<Mutex<Vec<u64>>>,
+    ) -> Self {
+        self.update_pending_payable_fingerprint_params = params.clone();
         self
     }
 
-    pub fn update_backup_after_scan_cycle_results(
+    pub fn update_pending_payable_fingerprint_results(
         self,
         result: Result<(), PendingPayableDaoError>,
     ) -> Self {
-        self.update_backup_after_scan_cycle_results
+        self.update_pending_payable_fingerprint_results
             .borrow_mut()
             .push(result);
         self
     }
 }
 
-pub struct PendingPaymentsDaoFactoryMock {
+pub struct PendingPayableDaoFactoryMock {
     called: Rc<RefCell<bool>>,
-    mock: RefCell<Option<PendingPayableDaoMock>>,
+    mock: RefCell<Vec<PendingPayableDaoMock>>,
 }
 
-impl PendingPayableDaoFactory for PendingPaymentsDaoFactoryMock {
+impl PendingPayableDaoFactory for PendingPayableDaoFactoryMock {
     fn make(&self) -> Box<dyn PendingPayableDao> {
         *self.called.borrow_mut() = true;
-        Box::new(self.mock.borrow_mut().take().unwrap())
+        Box::new(self.mock.borrow_mut().remove(0))
     }
 }
 
-impl PendingPaymentsDaoFactoryMock {
+impl PendingPayableDaoFactoryMock {
     pub fn new(mock: PendingPayableDaoMock) -> Self {
         Self {
             called: Rc::new(RefCell::new(false)),
-            mock: RefCell::new(Some(mock)),
+            mock: RefCell::new(vec![mock]),
         }
     }
 
@@ -906,8 +888,8 @@ impl PendingPaymentsDaoFactoryMock {
     }
 }
 
-pub fn make_pending_payable_fingerprint() -> PaymentFingerprint {
-    PaymentFingerprint {
+pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
+    PendingPayableFingerprint {
         rowid: 33,
         timestamp: from_time_t(222_222_222),
         hash: H256::from_uint(&U256::from(456)),

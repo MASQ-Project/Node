@@ -42,7 +42,6 @@ pub struct BlockchainBridge {
     blockchain_interface: Box<dyn BlockchainInterface>,
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
-    #[allow(dead_code)]
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     sent_payments_subs_opt: Option<Recipient<SentPayments>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
@@ -51,7 +50,7 @@ pub struct BlockchainBridge {
 }
 
 struct TransactionConfirmationTools {
-    transaction_backup_subs_opt: Option<Recipient<PaymentFingerprint>>,
+    transaction_backup_subs_opt: Option<Recipient<PendingPayableFingerprint>>,
     report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
 }
 
@@ -63,11 +62,10 @@ impl Handler<BindMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
-        //TODO is this dead code?
-        // self.set_consuming_wallet_subs_opt = Some(vec![
-        //     msg.peer_actors.neighborhood.set_consuming_wallet_sub,
-        //     msg.peer_actors.proxy_server.set_consuming_wallet_sub,
-        // ]);
+        self.set_consuming_wallet_subs_opt = Some(vec![
+            msg.peer_actors.neighborhood.set_consuming_wallet_sub,
+            msg.peer_actors.proxy_server.set_consuming_wallet_sub,
+        ]);
         self.payment_confirmation.transaction_backup_subs_opt =
             Some(msg.peer_actors.accountant.pending_payable_fingerprint);
         self.payment_confirmation
@@ -114,7 +112,7 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
 }
 
 #[derive(Debug, PartialEq, Message, Clone)]
-pub struct PaymentFingerprint {
+pub struct PendingPayableFingerprint {
     pub rowid: u64,
     pub timestamp: SystemTime,
     pub hash: H256,
@@ -658,7 +656,7 @@ mod tests {
         let pending_payable_fingerprint_1 = make_pending_payable_fingerprint();
         let hash_1 = pending_payable_fingerprint_1.hash;
         let hash_2 = H256::from_uint(&U256::from(78989));
-        let pending_payable_fingerprint_2 = PaymentFingerprint {
+        let pending_payable_fingerprint_2 = PendingPayableFingerprint {
             rowid: 456,
             timestamp: SystemTime::now(),
             hash: hash_2,
@@ -681,7 +679,10 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
         let msg = RequestTransactionReceipts {
-            pending_payable: vec![pending_payable_fingerprint_1.clone(), pending_payable_fingerprint_2.clone()],
+            pending_payable: vec![
+                pending_payable_fingerprint_1.clone(),
+                pending_payable_fingerprint_2.clone(),
+            ],
         };
 
         let _ = addr.try_send(msg).unwrap();
@@ -696,7 +697,10 @@ mod tests {
             received_message,
             &ReportTransactionReceipts {
                 pending_payable_fingerprints_with_receipts: vec![
-                    (Some(TransactionReceipt::default()), pending_payable_fingerprint_1),
+                    (
+                        Some(TransactionReceipt::default()),
+                        pending_payable_fingerprint_1
+                    ),
                     (None, pending_payable_fingerprint_2),
                 ]
             }
@@ -744,7 +748,7 @@ mod tests {
         let hash_3 = H256::from_uint(&U256::from(11111));
         let mut pending_payable_fingerprint_1 = make_pending_payable_fingerprint();
         pending_payable_fingerprint_1.hash = hash_1;
-        let pending_payable_fingerprint_2 = PaymentFingerprint {
+        let pending_payable_fingerprint_2 = PendingPayableFingerprint {
             rowid: 456,
             timestamp: SystemTime::now(),
             hash: hash_2,
@@ -752,7 +756,7 @@ mod tests {
             amount: 4565,
             process_error: None,
         };
-        let pending_payable_fingerprint_3 = PaymentFingerprint {
+        let pending_payable_fingerprint_3 = PendingPayableFingerprint {
             rowid: 450,
             timestamp: from_time_t(230_000_000),
             hash: hash_3,
