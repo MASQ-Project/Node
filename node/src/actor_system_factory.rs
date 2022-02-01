@@ -415,7 +415,7 @@ impl ActorFactory for ActorFactoryReal {
         let cloned_config = config.clone();
         let payable_dao_factory = Accountant::dao_factory(data_directory);
         let receivable_dao_factory = Accountant::dao_factory(data_directory);
-        let payment_recover_dao_factory = Accountant::dao_factory(data_directory);
+        let pending_payable_dao_factory = Accountant::dao_factory(data_directory);
         let banned_dao_factory = Accountant::dao_factory(data_directory);
         banned_cache_loader.load(connection_or_panic(
             db_initializer,
@@ -430,7 +430,7 @@ impl ActorFactory for ActorFactoryReal {
                 &cloned_config,
                 Box::new(payable_dao_factory),
                 Box::new(receivable_dao_factory),
-                Box::new(payment_recover_dao_factory),
+                Box::new(pending_payable_dao_factory),
                 Box::new(banned_dao_factory),
                 Box::new(config_dao_factory),
             )

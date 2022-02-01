@@ -2,14 +2,14 @@
 
 #![cfg(test)]
 
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
     Nonce, Receipt, SendTransactionInputs, Transaction, Transactions, REQUESTS_IN_PARALLEL,
 };
-use crate::blockchain::tool_wrappers::{
-    PaymentBackupRecipientWrapper, SendTransactionToolsWrapper,
-};
+use crate::blockchain::tool_wrappers::SendTransactionToolsWrapper;
 use crate::sub_lib::wallet::Wallet;
+use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::H256;
 use jsonrpc_core as rpc;
@@ -165,7 +165,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
     fn send_transaction_tools<'a>(
         &'a self,
-        _backup_recipient: &dyn PaymentBackupRecipientWrapper,
+        _fingerprint_request_recipient: &'a Recipient<PendingPayableFingerprint>,
     ) -> Box<dyn SendTransactionToolsWrapper + 'a> {
         self.send_transaction_tools_results.borrow_mut().remove(0)
     }

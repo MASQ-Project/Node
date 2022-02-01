@@ -1,12 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::PayableAccount;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::tool_wrappers::{
-    PaymentBackupRecipientWrapper, SendTransactionToolWrapperReal, SendTransactionToolsWrapper,
-    SendTransactionToolsWrapperNull,
+    SendTransactionToolWrapperReal, SendTransactionToolsWrapper, SendTransactionToolsWrapperNull,
 };
 use crate::sub_lib::wallet::Wallet;
-use actix::Message;
+use actix::{Message, Recipient};
 use futures::{future, Future};
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::constants::DEFAULT_CHAIN;
@@ -111,7 +111,7 @@ pub trait BlockchainInterface {
 
     fn send_transaction_tools<'a>(
         &'a self,
-        _backup_recipient: &'a dyn PaymentBackupRecipientWrapper,
+        _fingerprint_request_recipient: &'a Recipient<PendingPayableFingerprint>,
     ) -> Box<dyn SendTransactionToolsWrapper + 'a>;
 }
 
@@ -183,7 +183,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     //TODO if it turns out that we don't need this method for the clandestine interface, we can create a supplemental trait to be implemented just for the version that needs it
     fn send_transaction_tools<'a>(
         &'a self,
-        _backup_recipient: &'a dyn PaymentBackupRecipientWrapper,
+        _fingerprint_request_recipient: &'a Recipient<PendingPayableFingerprint>,
     ) -> Box<dyn SendTransactionToolsWrapper + 'a> {
         error!(
             self.logger,
@@ -285,7 +285,7 @@ where
         inputs: SendTransactionInputs,
         send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
-        self.logger.debug(|| self.log_debug_before_sending(&inputs));
+        self.logger.debug(|| self.before_sending_msg(&inputs));
         let signed_transaction =
             self.prepare_signed_transaction(&inputs, send_transaction_tools)?;
         let payment_timestamp = send_transaction_tools.request_new_pending_payable_fingerprint(
@@ -293,7 +293,7 @@ where
             inputs.amount,
         );
         self.logger
-            .info(|| self.log_sending(inputs.recipient, inputs.amount));
+            .info(|| self.close_to_sending_msg(inputs.recipient, inputs.amount));
         match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
             Ok(hash) => Ok((hash, payment_timestamp)),
             Err(e) => Err(BlockchainTransactionError::Sending(
@@ -342,11 +342,11 @@ where
 
     fn send_transaction_tools<'a>(
         &'a self,
-        backup_recipient: &'a dyn PaymentBackupRecipientWrapper,
+        fingerprint_request_recipient: &'a Recipient<PendingPayableFingerprint>,
     ) -> Box<dyn SendTransactionToolsWrapper + 'a> {
         Box::new(SendTransactionToolWrapperReal::new(
             &self.web3,
-            backup_recipient,
+            fingerprint_request_recipient,
         ))
     }
 }
@@ -416,7 +416,7 @@ where
         }
     }
 
-    fn log_debug_before_sending(&self, inputs: &SendTransactionInputs) -> String {
+    fn before_sending_msg(&self, inputs: &SendTransactionInputs) -> String {
         format!("Preparing transaction for {} Gwei to {} from {} (chain_id: {}, contract: {:#x}, gas price: {})", //TODO fix this later to Wei
         inputs.amount,
         inputs.recipient,
@@ -426,7 +426,7 @@ where
         inputs.gas_price)
     }
 
-    fn log_sending(&self, recipient: &Wallet, amount: u64) -> String {
+    fn close_to_sending_msg(&self, recipient: &Wallet, amount: u64) -> String {
         format!(
             "About to send transaction:\n\
         recipient: {},\n\
@@ -547,9 +547,6 @@ mod tests {
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle,
         SendTransactionToolsWrapperMock, TestTransport,
-    };
-    use crate::blockchain::tool_wrappers::{
-        PaymentBackupRecipientWrapperNull, PaymentBackupRecipientWrapperReal,
     };
     use crate::database::dao_utils::to_time_t;
     use crate::sub_lib::wallet::Wallet;
@@ -1001,12 +998,10 @@ mod tests {
         transport.add_response(json!(
             "0xe26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f"
         ));
-        let (recorder, _, recording_arc) = make_recorder();
-        let actor_addr = recorder.start();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let actor_addr = accountant.start();
         let recipient_of_pending_payable_fingerprint =
             recipient!(actor_addr, PendingPayableFingerprint);
-        let pending_payable_fingerprint_recipient_wrapper =
-            PaymentBackupRecipientWrapperReal::new(&recipient_of_pending_payable_fingerprint);
         let subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),
@@ -1028,7 +1023,7 @@ mod tests {
             .send_transaction(
                 inputs,
                 subject
-                    .send_transaction_tools(&pending_payable_fingerprint_recipient_wrapper)
+                    .send_transaction_tools(&recipient_of_pending_payable_fingerprint)
                     .as_ref(),
             )
             .unwrap();
@@ -1053,8 +1048,8 @@ mod tests {
             result_as_better_comparable_in_secs,
             comparable_now
         );
-        let recording = recording_arc.lock().unwrap();
-        let sent_backup = recording.get_record::<PendingPayableFingerprint>(0);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let sent_backup = accountant_recording.get_record::<PendingPayableFingerprint>(0);
         let expected_pending_payable_fingerprint = PendingPayableFingerprint {
             rowid: 0,
             timestamp,
@@ -1259,6 +1254,9 @@ mod tests {
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
         );
+        let (accountant, _, _) = make_recorder();
+        let account_addr = accountant.start();
+        let recipient = recipient!(account_addr, PendingPayableFingerprint);
         let account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
             make_wallet("blah123"),
             9000,
@@ -1267,18 +1265,15 @@ mod tests {
         let inputs =
             SendTransactionInputs::new(&account, &address_only_wallet, U256::from(1), 123).unwrap();
 
-        let result = subject.send_transaction(
-            inputs,
-            subject
-                .send_transaction_tools(&PaymentBackupRecipientWrapperNull)
-                .as_ref(),
-        );
+        let result =
+            subject.send_transaction(inputs, subject.send_transaction_tools(&recipient).as_ref());
 
         assert_eq!(result,
                    Err(BlockchainTransactionError::UnusableWallet(
                        "Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()
                    ))
         )
+        //actor system did not panic, we did not try to send the request for the fingerprint
     }
 
     #[test]
@@ -1374,11 +1369,16 @@ mod tests {
         nonce: u64,
         template: &[u8],
     ) {
+        let recipient = {
+            //the place where this recipient would've been really used cannot be found in this test; we just need to supply some
+            let (accountant, _, _) = make_recorder();
+            let account_addr = accountant.start();
+            recipient!(account_addr, PendingPayableFingerprint)
+        };
         let transport = TestTransport::default();
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
-        let send_transaction_tools =
-            subject.send_transaction_tools(&PaymentBackupRecipientWrapperNull);
+        let send_transaction_tools = subject.send_transaction_tools(&recipient);
         let consuming_wallet = test_consuming_wallet_with_secret();
         let recipient_wallet = test_recipient_wallet();
         let nonce_correct_type = U256::from(nonce);
@@ -1408,7 +1408,7 @@ mod tests {
         assert_eq!(&byte_set_to_compare, template)
     }
 
-    //with a real confirmation on a transaction sent with this data to the network
+    //with a real confirmation through a transaction sent with this data to the network
     #[test]
     fn non_clandestine_signing_a_transaction_works_for_polygon_mumbai() {
         let chain = Chain::PolyMumbai;
@@ -1419,7 +1419,7 @@ mod tests {
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
     }
 
-    //with a real confirmation on a transaction sent with this data to the network
+    //with a real confirmation through a transaction sent with this data to the network
     #[test]
     fn non_clandestine_signing_a_transaction_works_for_eth_ropsten() {
         let chain = Chain::EthRopsten;

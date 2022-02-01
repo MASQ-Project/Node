@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use actix::prelude::SendError;
 use actix::Recipient;
 use ethereum_types::H256;
 use std::fmt::Debug;
@@ -27,13 +26,13 @@ pub trait SendTransactionToolsWrapper {
 
 pub struct SendTransactionToolWrapperReal<'a, T: Transport + Debug> {
     web3: &'a Web3<T>,
-    pending_payable_fingerprint_sub: &'a dyn PaymentBackupRecipientWrapper,
+    pending_payable_fingerprint_sub: &'a Recipient<PendingPayableFingerprint>,
 }
 
 impl<'a, T: Transport + Debug> SendTransactionToolWrapperReal<'a, T> {
     pub fn new(
         web3: &'a Web3<T>,
-        pending_payable_fingerprint_sub: &'a dyn PaymentBackupRecipientWrapper,
+        pending_payable_fingerprint_sub: &'a Recipient<PendingPayableFingerprint>,
     ) -> Self {
         Self {
             web3,
@@ -102,51 +101,11 @@ impl SendTransactionToolsWrapper for SendTransactionToolsWrapperNull {
     }
 }
 
-pub trait PaymentBackupRecipientWrapper {
-    fn try_send(
-        &self,
-        msg: PendingPayableFingerprint,
-    ) -> Result<(), SendError<PendingPayableFingerprint>>;
-}
-
-pub struct PaymentBackupRecipientWrapperReal<'a> {
-    recipient: &'a Recipient<PendingPayableFingerprint>,
-}
-
-impl<'a> PaymentBackupRecipientWrapperReal<'a> {
-    pub fn new(recipient: &'a Recipient<PendingPayableFingerprint>) -> Self {
-        Self { recipient }
-    }
-}
-
-impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperReal<'_> {
-    fn try_send(
-        &self,
-        msg: PendingPayableFingerprint,
-    ) -> Result<(), SendError<PendingPayableFingerprint>> {
-        self.recipient.try_send(msg)
-    }
-}
-
-pub struct PaymentBackupRecipientWrapperNull;
-
-impl PaymentBackupRecipientWrapper for PaymentBackupRecipientWrapperNull {
-    fn try_send(
-        &self,
-        _msg: PendingPayableFingerprint,
-    ) -> Result<(), SendError<PendingPayableFingerprint>> {
-        panic!("try_send() for PaymentBackupRecipientWrapper should never be called on the null object")
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::blockchain::tool_wrappers::{
-        PaymentBackupRecipientWrapper, PaymentBackupRecipientWrapperNull,
         SendTransactionToolsWrapper, SendTransactionToolsWrapperNull,
     };
-    use std::time::SystemTime;
     use web3::types::{Bytes, TransactionParameters};
 
     #[test]
@@ -184,22 +143,5 @@ mod tests {
     fn null_request_new_pending_payable_fingerprint_stops_the_run() {
         let _ = SendTransactionToolsWrapperNull
             .request_new_pending_payable_fingerprint(Default::default(), 5);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "try_send() for PaymentBackupRecipientWrapper should never be called on the null object"
-    )]
-    fn null_try_send_stops_the_run() {
-        let msg = PendingPayableFingerprint {
-            rowid: 1,
-            timestamp: SystemTime::now(),
-            hash: Default::default(),
-            attempt: 0,
-            amount: 44,
-            process_error: None,
-        };
-
-        let _ = PaymentBackupRecipientWrapperNull.try_send(msg);
     }
 }

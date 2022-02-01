@@ -1005,22 +1005,25 @@ impl Accountant {
         &self,
         msg: ReportTransactionReceipts,
     ) -> Vec<PendingTransactionStatus> {
+        fn handle_none_receipt(
+            payment: PendingPayableFingerprint,
+            logger: &Logger,
+        ) -> PendingTransactionStatus {
+            debug!(logger,
+                "DEBUG: Accountant: Interpreting a receipt for transaction '{}' but none was given; attempt {}, {}ms since sending",
+                payment.hash, payment.attempt,elapsed_in_ms(payment.timestamp)
+            );
+            PendingTransactionStatus::StillPending(TransactionId {
+                hash: payment.hash,
+                rowid: payment.rowid,
+            })
+        }
         msg.pending_payable_fingerprints_with_receipts
             .into_iter()
-            .map(|(receipt_opt, payment)|
-                match receipt_opt {
-                    Some(receipt) =>
-                                    self.interpret_transaction_receipt(
-                                        receipt,
-                                        payment,
-                                        &self.logger,
-                                    ),
-                    None => {
-                        debug!(self.logger,"DEBUG: Accountant: Interpreting a receipt for transaction '{}' but none was given; attempt {}, {}ms since sending", payment.hash, payment.attempt,elapsed_in_ms(payment.timestamp));
-                        PendingTransactionStatus::StillPending(TransactionId{ hash: payment.hash, rowid: payment.rowid })
-                    }
-                }
-            )
+            .map(|(receipt_opt, payment)| match receipt_opt {
+                Some(receipt) => self.interpret_transaction_receipt(receipt, payment, &self.logger),
+                None => handle_none_receipt(payment, &self.logger),
+            })
             .collect()
     }
 
@@ -1042,9 +1045,8 @@ impl Accountant {
                 rowid: payment.rowid,
             };
             if pending_interval <= elapsed.as_secs() {
-                error!(logger,"Pending transaction '{}' has exceeded the maximum pending time ({}sec) \
-            and the confirmation process is going to be aborted now at the finished attempt {}; manual resolution is required from the \
-          user to complete the transaction.",payment.hash,pending_interval,payment.attempt);
+                error!(logger,"Pending transaction '{}' has exceeded the maximum pending time ({}sec) and the confirmation process is going to be aborted now at the finished attempt {}; \
+                 manual resolution is required from the user to complete the transaction.",payment.hash,pending_interval,payment.attempt);
                 PendingTransactionStatus::Failure(transaction_id)
             } else {
                 PendingTransactionStatus::StillPending(transaction_id)
@@ -1153,15 +1155,8 @@ impl Accountant {
     }
 }
 
-// At the time of this writing, Rust 1.44.0 was unpredictably producing
-// segfaults on the Mac when using u64::try_from (i64). This is an attempt to
-// work around that.
-pub fn jackass_unsigned_to_signed(unsigned: u64) -> Result<i64, u64> {
-    if unsigned <= (i64::MAX as u64) {
-        Ok(unsigned as i64)
-    } else {
-        Err(unsigned)
-    }
+pub fn unsigned_to_signed(unsigned: u64) -> Result<i64, u64> {
+    i64::try_from(unsigned).map_err(|_| unsigned)
 }
 
 fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
@@ -3215,16 +3210,14 @@ mod tests {
         init_test_logging();
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_pending_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao =
-            PayableDaoMock::default()
-                .transaction_confirmed_params(&transaction_confirmed_params_arc)
-                .transaction_confirmed_result(Ok(()));
-        let pending_payable_dao =
-            PendingPayableDaoMock::default()
-                .delete_pending_payable_fingerprint_params(
-                    &delete_pending_payable_fingerprint_params_arc,
-                )
-                .delete_pending_payable_fingerprint_result(Ok(()));
+        let payable_dao = PayableDaoMock::default()
+            .transaction_confirmed_params(&transaction_confirmed_params_arc)
+            .transaction_confirmed_result(Ok(()));
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .delete_pending_payable_fingerprint_params(
+                &delete_pending_payable_fingerprint_params_arc,
+            )
+            .delete_pending_payable_fingerprint_result(Ok(()));
         let subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao)
@@ -3303,9 +3296,7 @@ mod tests {
             ));
         let subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
-            .pending_payable_dao(
-                pending_payable_dao,
-            )
+            .pending_payable_dao(pending_payable_dao)
             .build();
         let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
         pending_payable_fingerprint.rowid = rowid;
@@ -3321,10 +3312,9 @@ mod tests {
     fn handle_cancel_pending_transaction_works() {
         init_test_logging();
         let mark_failure_params_arc = Arc::new(Mutex::new(vec![]));
-        let pending_payable_dao =
-            PendingPayableDaoMock::default()
-                .mark_failure_params(&mark_failure_params_arc)
-                .mark_failure_result(Ok(()));
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .mark_failure_params(&mark_failure_params_arc)
+            .mark_failure_result(Ok(()));
         let subject = AccountantBuilder::default()
             .pending_payable_dao(pending_payable_dao)
             .build();
@@ -3352,12 +3342,10 @@ mod tests {
         expected = "Unsuccessful attempt for transaction 0x051a…8c19 to mark fatal error at pending payment fingerprint for transaction due to UpdateFailed(\"no no no\")"
     )]
     fn handle_cancel_pending_transaction_panics_on_its_inability_to_mark_failure() {
-        let payable_dao =
-            PayableDaoMock::default().transaction_canceled_result(Ok(()));
-        let pending_payable_dao =
-            PendingPayableDaoMock::default().mark_failure_result(Err(
-                PendingPayableDaoError::UpdateFailed("no no no".to_string()),
-            ));
+        let payable_dao = PayableDaoMock::default().transaction_canceled_result(Ok(()));
+        let pending_payable_dao = PendingPayableDaoMock::default().mark_failure_result(Err(
+            PendingPayableDaoError::UpdateFailed("no no no".to_string()),
+        ));
         let subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao)
@@ -4009,12 +3997,11 @@ mod tests {
     fn accountant_handles_pending_payable_fingerprint() {
         init_test_logging();
         let insert_pending_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
-        let pending_payment_dao =
-            PendingPayableDaoMock::default()
-                .insert_pending_payable_fingerprint_params(
-                    &insert_pending_payable_fingerprint_params_arc,
-                )
-                .insert_pending_payable_fingerprint_result(Ok(()));
+        let pending_payment_dao = PendingPayableDaoMock::default()
+            .insert_pending_payable_fingerprint_params(
+                &insert_pending_payable_fingerprint_params_arc,
+            )
+            .insert_pending_payable_fingerprint_result(Ok(()));
         let subject = AccountantBuilder::default()
             .pending_payable_dao(pending_payment_dao)
             .build();
@@ -4058,14 +4045,13 @@ mod tests {
         //despite it doesn't happen here this event would cause a panic later
         init_test_logging();
         let insert_pending_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
-        let pending_payable_dao =
-            PendingPayableDaoMock::default()
-                .insert_pending_payable_fingerprint_params(
-                    &insert_pending_payable_fingerprint_params_arc,
-                )
-                .insert_pending_payable_fingerprint_result(Err(
-                    PendingPayableDaoError::InsertionFailed("Crashed".to_string()),
-                ));
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .insert_pending_payable_fingerprint_params(
+                &insert_pending_payable_fingerprint_params_arc,
+            )
+            .insert_pending_payable_fingerprint_result(Err(
+                PendingPayableDaoError::InsertionFailed("Crashed".to_string()),
+            ));
         let amount = 2345;
         let transaction_hash = H256::from_uint(&U256::from(456));
         let subject = AccountantBuilder::default()
@@ -4117,10 +4103,9 @@ mod tests {
         let update_after_cycle_params_arc = Arc::new(Mutex::new(vec![]));
         let hash = H256::from_uint(&U256::from(444888));
         let rowid = 3456;
-        let pending_payment_dao =
-            PendingPayableDaoMock::default()
-                .update_pending_payable_fingerprint_params(&update_after_cycle_params_arc)
-                .update_pending_payable_fingerprint_results(Ok(()));
+        let pending_payment_dao = PendingPayableDaoMock::default()
+            .update_pending_payable_fingerprint_params(&update_after_cycle_params_arc)
+            .update_pending_payable_fingerprint_results(Ok(()));
         let subject = AccountantBuilder::default()
             .pending_payable_dao(pending_payment_dao)
             .build();
@@ -4140,10 +4125,10 @@ mod tests {
     fn update_pending_payable_fingerprint_sad_path() {
         let hash = H256::from_uint(&U256::from(444888));
         let rowid = 3456;
-        let pending_payment_dao =
-            PendingPayableDaoMock::default().update_pending_payable_fingerprint_results(Err(
-                PendingPayableDaoError::UpdateFailed("yeah, bad".to_string()),
-            ));
+        let pending_payment_dao = PendingPayableDaoMock::default()
+            .update_pending_payable_fingerprint_results(Err(PendingPayableDaoError::UpdateFailed(
+                "yeah, bad".to_string(),
+            )));
         let subject = AccountantBuilder::default()
             .pending_payable_dao(pending_payment_dao)
             .build();
@@ -4154,14 +4139,14 @@ mod tests {
 
     #[test]
     fn jackass_unsigned_to_signed_handles_zero() {
-        let result = jackass_unsigned_to_signed(0u64);
+        let result = unsigned_to_signed(0u64);
 
         assert_eq!(result, Ok(0i64));
     }
 
     #[test]
     fn jackass_unsigned_to_signed_handles_max_allowable() {
-        let result = jackass_unsigned_to_signed(i64::MAX as u64);
+        let result = unsigned_to_signed(i64::MAX as u64);
 
         assert_eq!(result, Ok(i64::MAX));
     }
@@ -4169,7 +4154,7 @@ mod tests {
     #[test]
     fn jackass_unsigned_to_signed_handles_max_plus_one() {
         let attempt = (i64::MAX as u64) + 1;
-        let result = jackass_unsigned_to_signed((i64::MAX as u64) + 1);
+        let result = unsigned_to_signed((i64::MAX as u64) + 1);
 
         assert_eq!(result, Err(attempt));
     }

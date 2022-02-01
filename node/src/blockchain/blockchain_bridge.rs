@@ -7,7 +7,6 @@ use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
     BlockchainInterfaceNonClandestine, BlockchainResult, SendTransactionInputs,
 };
-use crate::blockchain::tool_wrappers::PaymentBackupRecipientWrapperReal;
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
 use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -316,12 +315,12 @@ impl BlockchainBridge {
         match self.blockchain_interface.send_transaction(
             SendTransactionInputs::new(payable, consuming_wallet, nonce, gas_price)?,
             self.blockchain_interface
-                .send_transaction_tools(&PaymentBackupRecipientWrapperReal::new(
+                .send_transaction_tools(
                     self.payment_confirmation
                         .transaction_backup_subs_opt
                         .as_ref()
                         .expect("Accountant is unbound"),
-                ))
+                )
                 .as_ref(),
         ) {
             Ok((hash, timestamp)) => Ok(Payment::new(

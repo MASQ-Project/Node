@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{
-    jackass_unsigned_to_signed, DebtRecordingError, PaymentError, PaymentErrorKind, TransactionId,
+    unsigned_to_signed, DebtRecordingError, PaymentError, PaymentErrorKind, TransactionId,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -86,7 +86,7 @@ pub struct PayableDaoReal {
 impl PayableDao for PayableDaoReal {
     fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), DebtRecordingError> {
         let signed_amount =
-            jackass_unsigned_to_signed(amount).map_err(DebtRecordingError::SignConversion)?;
+            unsigned_to_signed(amount).map_err(DebtRecordingError::SignConversion)?;
         match self.try_increase_balance(wallet, signed_amount) {
             Ok(_) => Ok(()),
             Err(e) => panic!("Database is corrupt: {}", e),
@@ -124,7 +124,7 @@ impl PayableDao for PayableDaoReal {
         &self,
         payment: &PendingPayableFingerprint,
     ) -> Result<(), PaymentError> {
-        let signed_amount = jackass_unsigned_to_signed(payment.amount).map_err(|err_num| {
+        let signed_amount = unsigned_to_signed(payment.amount).map_err(|err_num| {
             PaymentError(PaymentErrorKind::SignConversion(err_num), payment.into())
         })?;
         self.try_decrease_balance(payment.rowid, signed_amount, payment.timestamp)
@@ -209,8 +209,8 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
-        let min_amt = jackass_unsigned_to_signed(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
-        let max_age = jackass_unsigned_to_signed(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+        let min_amt = unsigned_to_signed(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+        let max_age = unsigned_to_signed(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
         let min_timestamp = dao_utils::now_time_t() - max_age;
         let mut stmt = self
             .conn
@@ -565,7 +565,7 @@ mod tests {
             &recipient_wallet,
             &amount,
             &to_time_t(timestamp),
-            &jackass_unsigned_to_signed(rowid).unwrap(),
+            &unsigned_to_signed(rowid).unwrap(),
         ];
         let row_changed = stm1.execute(params).unwrap();
         assert_eq!(row_changed, 1);
@@ -863,8 +863,8 @@ mod tests {
 
         insert("0x0000000000000000000000000000000000666f6f", 42, Some(15));
         insert("0x0000000000000000000000000000000000626172", 24, Some(16));
-        insert("0x0000000000000000000000000000666f6f626172", 44, None);
-        insert("0x0000000000000000000000000000626172666f6f", 22, None);
+        insert(&make_wallet("foobar").to_string(), 44, None);
+        insert(&make_wallet("barfoo").to_string(), 22, None);
 
         let result = subject.non_pending_payables();
 

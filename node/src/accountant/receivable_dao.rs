@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{jackass_unsigned_to_signed, DebtRecordingError, PaymentCurves};
+use crate::accountant::{unsigned_to_signed, DebtRecordingError, PaymentCurves};
 use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -84,7 +84,7 @@ impl ReceivableDao for ReceivableDaoReal {
         amount: u64,
     ) -> Result<(), DebtRecordingError> {
         let signed_amount =
-            jackass_unsigned_to_signed(amount).map_err(DebtRecordingError::SignConversion)?;
+            unsigned_to_signed(amount).map_err(DebtRecordingError::SignConversion)?;
         match self.try_update(wallet, signed_amount) {
             Ok(true) => Ok(()),
             Ok(false) => match self.try_insert(wallet, signed_amount) {
@@ -215,8 +215,8 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
-        let min_amt = jackass_unsigned_to_signed(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
-        let max_age = jackass_unsigned_to_signed(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+        let min_amt = unsigned_to_signed(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+        let max_age = unsigned_to_signed(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
         let min_timestamp = dao_utils::now_time_t() - max_age;
         let mut stmt = self
             .conn
@@ -346,7 +346,7 @@ impl ReceivableDaoReal {
                 .expect ("Internal SQL error");
             for transaction in payments {
                 let timestamp = dao_utils::now_time_t();
-                let gwei_amount = match jackass_unsigned_to_signed(transaction.gwei_amount) {
+                let gwei_amount = match unsigned_to_signed(transaction.gwei_amount) {
                     Ok(amount) => amount,
                     Err(e) => {
                         return Err(ReceivableDaoError::Other(format!(

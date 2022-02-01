@@ -432,7 +432,7 @@ impl DbInitializerReal {
         if found_schema.eq(&target_version) {
             Box::new(ConnectionWrapperReal::new(conn))
         } else {
-            panic!("DB migration failed, the resulting records are still incorrect; found {} but target {}", found_schema,target_version)
+            panic!("DB migration failed, the resulting records are still incorrect; found schema {} but expecting {}", found_schema,target_version)
         }
     }
 
@@ -809,7 +809,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "DB migration failed, the resulting records are still incorrect; found 0 but target 1"
+        expected = "DB migration failed, the resulting records are still incorrect; found schema 0 but expecting 1"
     )]
     fn panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_migration(
     ) {
