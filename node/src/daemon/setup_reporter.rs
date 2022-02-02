@@ -1020,7 +1020,7 @@ impl ValueRetriever for PaymentGraceBeforeBanSec {
 struct PendingPaymentScanInterval {}
 impl ValueRetriever for PendingPaymentScanInterval {
     fn value_name(&self) -> &'static str {
-        "pending-payment-scan-interval"
+        "pending-payable-scan-interval"
     }
 
     scan_interval_params_computed_default_and_is_required!(
@@ -1400,7 +1400,7 @@ mod tests {
                 Default,
             ),
             (
-                "pending-payment-scan-interval",
+                "pending-payable-scan-interval",
                 &DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL.to_string(),
                 Default,
             ),
@@ -1487,7 +1487,7 @@ mod tests {
             ("payable-scan-interval","150",Set),
             ("payment-grace-before-ban","1000",Set),
             ("payment-suggested-after","1000",Set),
-            ("pending-payment-scan-interval","150",Set),
+            ("pending-payable-scan-interval","150",Set),
             ("permanent-debt-allowed","20000",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
@@ -1525,7 +1525,7 @@ mod tests {
             ("payable-scan-interval","150",Set),
             ("payment-grace-before-ban","1000",Set),
             ("payment-suggested-after","1000",Set),
-            ("pending-payment-scan-interval","150",Set),
+            ("pending-payable-scan-interval","150",Set),
             ("permanent-debt-allowed","20000",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
@@ -1573,7 +1573,7 @@ mod tests {
             ("payable-scan-interval","150"),
             ("payment-grace-before-ban","1000"),
             ("payment-suggested-after","1000"),
-            ("pending-payment-scan-interval","150"),
+            ("pending-payable-scan-interval","150"),
             ("permanent-debt-allowed","20000"),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga"),
@@ -1615,7 +1615,7 @@ mod tests {
             ("payable-scan-interval","150",Set),
             ("payment-grace-before-ban","1000",Set),
             ("payment-suggested-after","1000",Set),
-            ("pending-payment-scan-interval","150",Set),
+            ("pending-payable-scan-interval","150",Set),
             ("permanent-debt-allowed","20000",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
@@ -1664,7 +1664,7 @@ mod tests {
             ("MASQ_PAYABLE_SCAN_INTERVAL", "150"),
             ("MASQ_PAYMENT_GRACE_BEFORE_BAN","1000"),
             ("MASQ_PAYMENT_SUGGESTED_AFTER","1000"),
-            ("MASQ_PENDING_PAYMENT_SCAN_INTERVAL","150"),
+            ("MASQ_PENDING_PAYABLE_SCAN_INTERVAL","150"),
             ("MASQ_PERMANENT_DEBT_ALLOWED","20000"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
@@ -1704,7 +1704,7 @@ mod tests {
             ("payable-scan-interval","150",Configured),
             ("payment-grace-before-ban","1000",Configured),
             ("payment-suggested-after","1000",Configured),
-            ("pending-payment-scan-interval","150",Configured),
+            ("pending-payable-scan-interval","150",Configured),
             ("permanent-debt-allowed","20000",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
@@ -1939,7 +1939,7 @@ mod tests {
                 Default,
             ),
             (
-                "pending-payment-scan-interval",
+                "pending-payable-scan-interval",
                 &DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL.to_string(),
                 Default,
             ),
@@ -2027,7 +2027,7 @@ mod tests {
             ("MASQ_PAYABLE_SCAN_INTERVAL", "150"),
             ("MASQ_PAYMENT_GRACE_BEFORE_BAN","1000"),
             ("MASQ_PAYMENT_SUGGESTED_AFTER","1000"),
-            ("MASQ_PENDING_PAYMENT_SCAN_INTERVAL","150"),
+            ("MASQ_PENDING_PAYABLE_SCAN_INTERVAL","150"),
             ("MASQ_PERMANENT_DEBT_ALLOWED","20000"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
@@ -2060,7 +2060,7 @@ mod tests {
             "payable-scan-interval",
             "payment-grace-before-ban",
             "payment-suggested-after",
-            "pending-payment-scan-interval",
+            "pending-payable-scan-interval",
             "permanent-debt-allowed",
             #[cfg(not(target_os = "windows"))]
             "real-user",
@@ -2106,7 +2106,7 @@ mod tests {
             ("payable-scan-interval", "111", Set),
             ("payment-grace-before-ban", "777", Set),
             ("payment-suggested-after", "987", Set),
-            ("pending-payment-scan-interval", "111", Set),
+            ("pending-payable-scan-interval", "111", Set),
             ("permanent-debt-allowed", "123456", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "6666:6666:agoob", Set),
@@ -2148,7 +2148,7 @@ mod tests {
             ("payable-scan-interval","150",Configured),
             ("payment-grace-before-ban","1000",Configured),
             ("payment-suggested-after","1000",Configured),
-            ("pending-payment-scan-interval","150",Configured),
+            ("pending-payable-scan-interval","150",Configured),
             ("permanent-debt-allowed","20000",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),

@@ -563,7 +563,7 @@ fn configure_accountant_config(
     };
     let pending_payment_interval = Duration::from_secs(configure_single_parameter(
         multi_config,
-        "pending-payment-scan-interval",
+        "pending-payable-scan-interval",
         persist_config,
         &|persist_config: &dyn PersistentConfiguration| {
             persist_config.pending_payment_scan_interval()
@@ -1843,7 +1843,7 @@ mod tests {
         let args = [
             "--ip",
             "1.2.3.4",
-            "--pending-payment-scan-interval",
+            "--pending-payable-scan-interval",
             "180",
             "--payable-scan-interval",
             "150",
@@ -1952,7 +1952,7 @@ mod tests {
         let args = [
             "--ip",
             "1.2.3.4",
-            "--pending-payment-scan-interval",
+            "--pending-payable-scan-interval",
             "180",
             "--payable-scan-interval",
             "150",

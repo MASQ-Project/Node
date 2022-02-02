@@ -367,11 +367,11 @@ mod tests {
         //(the message is composed out of those entries in the vector above)
         let broadcast_output = "Daemon setup has changed:
 
-NAME                   VALUE                                                            STATUS
-chain                  ropsten                                                          Configured
-ip                     4.4.4.4                                                          Set
-log-level              error                                                            Set
-neighborhood-mode      standard                                                         Default
+NAME                          VALUE                                                            STATUS
+chain                         ropsten                                                          Configured
+ip                            4.4.4.4                                                          Set
+log-level                     error                                                            Set
+neighborhood-mode             standard                                                         Default
 ";
 
         assertion_for_handle_broadcast(SetupCommand::handle_broadcast, setup_body, broadcast_output)

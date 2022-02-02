@@ -369,7 +369,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
     .arg(common_parameter_with_u64_values("payment-suggested-after"))
     .arg(common_parameter_with_u64_values("payment-grace-before-ban"))
     .arg(common_parameter_with_u64_values(
-        "pending-payment-scan-interval",
+        "pending-payable-scan-interval",
     ))
     .arg(common_parameter_with_u64_values("permanent-debt-allowed"))
     .arg(common_parameter_with_u64_values("receivable-scan-interval"))
