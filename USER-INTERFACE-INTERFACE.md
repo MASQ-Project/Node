@@ -385,7 +385,7 @@ database password. If you want to know whether the password you have is the corr
 * `earningWalletAddressOpt`: The wallet address for the earning wallet. This is not secret, so
   if you don't get this field, it's because it hasn't been set yet.
 
-* `gasPrice`: The Node will not pay more than this number of wei for gas to complete a transaction.
+* `gasPrice`: The Node will not pay more than this number of Gwei for gas to complete a transaction.
 
 * `neighborhoodMode`: The neighborhood mode being currently used, this parameter has nothing to do with descriptors which 
   may have been used in order to set the Node's nearest neighborhood. It is only informative, to know what mode is running at the moment. 
@@ -395,21 +395,25 @@ database password. If you want to know whether the password you have is the corr
   much too long. So instead, it scans starting from wherever it left off last time. This block number is where
   it left off last time.
 
-* `balanceDecreasesForSec`: A time period that describes in seconds the width of the section in the Payment Curves that is declining.
+* `balanceDecreasesForSec`: This interval begins after payment_suggested_after_sec for payables and after 
+  payment_suggested_after_sec + payment_grace_before_ban for receivables. During the interval, the amount of a payable that is allowed
+  to remain unpaid, or a receivable that doesn't cause a ban, decreases linearly from the balance_to_decrease_from to
+  permanent_debt_allowed_gwei or unban-when_balance_below_gwei.
 
-* `balanceToDecreaseFromGwei`: The highest point of the declining part of the Payment Curves, measured on the vertical axis,
-  in Gwei.
+* `balanceToDecreaseFromGwei`: Payables higher than this will be suggested for payment immediately upon passing
+  the payment_suggested_after_sec age. Payables lower than this can stay unpaid longer. Receivables higher than this will never
+  cause bans until they pass the payment_suggested_after + payment_grace_before_ban age. Receivables lower than this will survive longer
+  without banning.
 
-* `paymentSuggestedAfterSec`: A Payment Curve parameter from the time axis. This is how many initial seconds we overlook the debt
-  regardless the number of Gwei it takes. 
+* `paymentSuggestedAfterSec`: A really large payable can get this old before the Accountant's scanner suggests that it be paid. 
 
-* `paymentGraceBeforeBanSec`: finish me.
+* `paymentGraceBeforeBanSec`: A really large receivable can get as old as payment_suggested_after + payment_grace_before_ban before
+  the Node that owes it will be banned.
 
-* `permanentDebtAllowedGwei`: This parameter speaks about a maximum number of Gwei which is ever permitted, no matter how long this lasts. 
+* `permanentDebtAllowedGwei`: Receivables this small and smaller will not cause bans no matter how old they get.
 
-* `unbanWhenBalanceBelowGwei`: You can say by adjusting this parameter when you wish to unban a Node which you have banned but
-  the debt was partly or fully eliminated and so it got under this boundary, meaning the given Node is no longer banned from taking 
-  your services.
+* `unbanWhenBalanceBelowGwei`: When a delinquent Node has been banned, the receivables causing the ban must be paid below this level to
+  cause them to be unbanned. In most cases, you'll want this to be set the same as permanent_debt_allowed_gwei.
 
 * `pendingPayableScanInterval`: Amount of seconds between two sequential cycles of scanning for payments that are marked as currently
   pending; the payments were sent to pay our debts, the payable. The purpose of this process is to confirm that the payment was written
@@ -422,17 +426,17 @@ database password. If you want to know whether the password you have is the corr
 * `receivableScanInterval`: Amount of seconds between two sequential cycles of scanning for payments on the blockchain that have been sent
   by our creditors to us, they pay for our services this way.
 
-* `exitByteRate`: This parameter indicates the amount of MASQ demanded to process 1 byte of a routed payload while the Node figures as
+* `exitByteRate`: This parameter indicates the amount of MASQ demanded to process 1 byte of a routed payload while the Node acts as
   the exit Node.
 
 * `exitServiceRate`: This parameter indicates the amount of MASQ demanded to provide services, unpacking and repacking 1 CORES
-  package, while the Node figures as the exit Node.
+  package, while the Node acts as the exit Node.
 
 * `routingByteRate`: This parameter indicates the amount of MASQ demanded to process 1 byte of a routed payload while the Node
-  figures as an ordinary relay Node.
+  acts as an ordinary relay Node.
 
 * `routingServiceRate`: This parameter indicates the amount of MASQ demanded to provide services, unpacking and repacking 1 CORES
-  package, while the Node figures as an ordinary relay Node.
+  package, while the Node acts as an ordinary relay Node.
 
 * `pastNeighbors`: This is an array containing the Node descriptors of the neighbors the Node is planning to
   try to connect to when it starts up next time.  It's a secret, so if you don't supply the `dbPasswordOpt` in the

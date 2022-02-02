@@ -374,6 +374,7 @@ impl BootstrapperConfig {
         self.earning_wallet = unprivileged.earning_wallet;
         self.consuming_wallet_opt = unprivileged.consuming_wallet_opt;
         self.db_password_opt = unprivileged.db_password_opt;
+        self.accountant_config_opt = unprivileged.accountant_config_opt;
     }
 
     pub fn exit_service_rate(&self) -> u64 {
@@ -666,6 +667,7 @@ impl Bootstrapper {
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::io;
     use std::io::ErrorKind;
     use std::marker::Sync;
@@ -675,20 +677,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
-
-    use actix::Recipient;
-    use actix::System;
-    use crossbeam_channel::unbounded;
-    use futures::Future;
-    use lazy_static::lazy_static;
-    use log::LevelFilter;
-    use tokio;
-    use tokio::prelude::stream::FuturesUnordered;
-    use tokio::prelude::Async;
-
-    use masq_lib::test_utils::environment_guard::ClapGuard;
-    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 
     use crate::actor_system_factory::{ActorFactory, ActorSystemFactory};
     use crate::bootstrapper::{
@@ -711,7 +699,6 @@ mod tests {
     use crate::server_initializer::LoggerInitializerWrapper;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
-    use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -719,20 +706,34 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::unshared_test_utils::make_simplified_multi_config;
+    use crate::test_utils::unshared_test_utils::{
+        make_populated_accountant_config_with_defaults, make_simplified_multi_config,
+    };
     use crate::test_utils::{assert_contains, rate_pack};
+    use crate::test_utils::{main_cryptde, make_wallet};
+    use actix::Recipient;
+    use actix::System;
+    use crossbeam_channel::unbounded;
+    use futures::Future;
+    use lazy_static::lazy_static;
+    use log::LevelFilter;
+    use log::LevelFilter::Off;
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::constants::DEFAULT_GAS_PRICE;
     use masq_lib::logger::Logger;
+    use masq_lib::test_utils::environment_guard::ClapGuard;
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::find_free_port;
+    use tokio;
+    use tokio::prelude::stream::FuturesUnordered;
+    use tokio::prelude::Async;
 
     lazy_static! {
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
@@ -1143,44 +1144,74 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_service_url_from_the_unprivileged_config_is_merged_into_the_final_config() {
-        let _lock = INITIALIZATION.lock();
-        init_test_logging();
-        let data_dir = ensure_node_home_directory_exists(
-            "bootstrapper",
-            "blockchain_service_url_from_the_unprivileged_config_is_merged_into_the_final_config",
+    fn merging_unprivileged_config_picks_correct_items() {
+        let mut privileged_config = BootstrapperConfig::new();
+        let mut port_configuration = HashMap::new();
+        port_configuration.insert(
+            555,
+            PortConfiguration {
+                discriminator_factories: vec![],
+                is_clandestine: true,
+            },
         );
-        let mut config = BootstrapperConfig::new();
-        config.clandestine_port_opt = Some(1234);
-        config.data_directory = data_dir.clone();
-        let mut subject = BootstrapperBuilder::new()
-            .add_listener_handler(Box::new(
-                ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())),
-            ))
-            .config(config)
-            .build();
+        privileged_config.port_configurations = port_configuration;
+        privileged_config.log_level = Off;
+        privileged_config.dns_servers =
+            vec![SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1111)];
+        let mut unprivileged_config = BootstrapperConfig::new();
+        //values from unprivileged config
+        let gas_price = 123;
+        let blockchain_url_opt = Some("some.service@earth.abc".to_string());
+        let clandestine_port_opt = Some(44444);
+        let neighborhood_config = NeighborhoodConfig {
+            mode: NeighborhoodMode::OriginateOnly(vec![], rate_pack(9)),
+        };
+        let earning_wallet = make_wallet("earning wallet");
+        let consuming_wallet_opt = Some(make_wallet("consuming wallet"));
+        let db_password_opt = Some("password".to_string());
+        unprivileged_config.blockchain_bridge_config.gas_price = gas_price;
+        unprivileged_config
+            .blockchain_bridge_config
+            .blockchain_service_url_opt = blockchain_url_opt.clone();
+        unprivileged_config.clandestine_port_opt = clandestine_port_opt;
+        unprivileged_config.neighborhood_config = neighborhood_config.clone();
+        unprivileged_config.earning_wallet = earning_wallet.clone();
+        unprivileged_config.consuming_wallet_opt = consuming_wallet_opt.clone();
+        unprivileged_config.db_password_opt = db_password_opt.clone();
+        unprivileged_config.accountant_config_opt =
+            Some(make_populated_accountant_config_with_defaults());
 
-        subject
-            .initialize_as_unprivileged(
-                &make_simplified_multi_config([
-                    "--ip",
-                    "1.2.3.4",
-                    "--blockchain-service-url",
-                    "http://infura.io/ID",
-                ]),
-                &mut FakeStreamHolder::new().streams(),
-            )
-            .unwrap();
+        privileged_config.merge_unprivileged(unprivileged_config);
 
-        let config = subject.config;
+        //merged arguments
         assert_eq!(
-            config.blockchain_bridge_config,
-            BlockchainBridgeConfig {
-                blockchain_service_url_opt: Some("http://infura.io/ID".to_string()),
-                chain: TEST_DEFAULT_CHAIN,
-                gas_price: DEFAULT_GAS_PRICE
-            }
+            privileged_config.blockchain_bridge_config.gas_price,
+            gas_price
         );
+        assert_eq!(
+            privileged_config
+                .blockchain_bridge_config
+                .blockchain_service_url_opt,
+            blockchain_url_opt
+        );
+        assert_eq!(privileged_config.clandestine_port_opt, clandestine_port_opt);
+        assert_eq!(privileged_config.neighborhood_config, neighborhood_config);
+        assert_eq!(privileged_config.earning_wallet, earning_wallet);
+        assert_eq!(privileged_config.consuming_wallet_opt, consuming_wallet_opt);
+        assert_eq!(privileged_config.db_password_opt, db_password_opt);
+        assert_eq!(
+            privileged_config.accountant_config_opt,
+            Some(make_populated_accountant_config_with_defaults())
+        );
+        //some values from the privileged config
+        assert_eq!(privileged_config.log_level, Off);
+        assert_eq!(
+            privileged_config.dns_servers,
+            vec![SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1111)]
+        );
+        let port_config = privileged_config.port_configurations.get(&555).unwrap();
+        assert!(port_config.discriminator_factories.is_empty());
+        assert_eq!(port_config.is_clandestine, true)
     }
 
     #[test]
