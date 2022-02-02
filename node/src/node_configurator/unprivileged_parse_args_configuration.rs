@@ -13,7 +13,7 @@ use crate::sub_lib::wallet::Wallet;
 use clap::value_t;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_RATE_PACK, MASQ_URL_PREFIX};
+use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::MultiConfig;
@@ -777,7 +777,7 @@ mod tests {
         make_persistent_config_real_with_config_dao_null, make_simplified_multi_config,
     };
     use crate::test_utils::{main_cryptde, unshared_test_utils, ArgsBuilder};
-    use masq_lib::constants::DEFAULT_GAS_PRICE;
+    use masq_lib::constants::{DEFAULT_GAS_PRICE, DEFAULT_RATE_PACK};
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;

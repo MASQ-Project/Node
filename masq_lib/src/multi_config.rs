@@ -29,7 +29,7 @@ macro_rules! value_m {
 #[macro_export]
 macro_rules! value_user_specified_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        let user_specified = &$m.occurrences_of($v) > 0;
+        let user_specified = $m.occurrences_of($v) > 0;
         let matches = make_arg_matches_accesible(&$m);
         match value_t!(matches, $v, $t) {
             Ok(v) => (Some(v), user_specified),
@@ -843,7 +843,7 @@ pub mod tests {
         assert!(user_specified_numeric);
         assert_eq!(Some(88), missing_arg_result);
         assert!(!user_specified_missing);
-        assert!(subject.deref().is_present("missing-arg"));
+        assert!(subject.arg_matches.is_present("missing-arg"));
     }
 
     #[test]
@@ -860,11 +860,10 @@ pub mod tests {
                 "--nonvalued".to_string(),
             ])),
         ];
-        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
-        let result = subject.deref();
+        let result = MultiConfig::try_new(&schema, vcls).unwrap();
 
-        assert!(result.is_present("nonvalued"));
+        assert!(result.arg_matches.is_present("nonvalued"));
     }
 
     #[test]

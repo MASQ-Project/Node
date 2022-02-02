@@ -703,7 +703,7 @@ mod tests {
 
     #[test]
     fn validate_u64_happy_path() {
-        let result = common_validators::validate_u64("4567");
+        let result = common_validators::validate_u64("4567".to_string());
 
         assert_eq!(result, Ok(()))
     }
