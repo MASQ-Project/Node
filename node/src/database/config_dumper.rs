@@ -166,7 +166,7 @@ mod tests {
     use crate::test_utils::{main_cryptde, ArgsBuilder};
     use masq_lib::constants::{
         DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+        DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
     };
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
@@ -406,7 +406,7 @@ mod tests {
         );
         assert_value(
             "pendingPaymentScanInterval",
-            &format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL),
+            &format!("{}", DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL),
             map,
         );
         assert_value(

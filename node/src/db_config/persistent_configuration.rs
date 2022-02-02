@@ -1,6 +1,5 @@
-use std::any::Any;
-use std::fmt::Display;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -17,6 +16,9 @@ use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use rustc_hex::{FromHex, ToHex};
+#[cfg(test)]
+use std::any::Any;
+use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
@@ -609,8 +611,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(writer.commit()?)
     }
 
+    #[cfg(test)]
     fn as_any(&self) -> &dyn Any {
-        todo!()
+        intentionally_blank!()
     }
 }
 

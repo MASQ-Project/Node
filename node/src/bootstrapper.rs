@@ -614,7 +614,7 @@ impl Bootstrapper {
                     mode: NeighborhoodMode::Standard(
                         NodeAddr::new(&node_addr.ip_addr(), &[clandestine_port]),
                         neighbor_configs.clone(),
-                        rate_pack.clone(),
+                        *rate_pack,
                     ),
                 };
                 Some(clandestine_port)

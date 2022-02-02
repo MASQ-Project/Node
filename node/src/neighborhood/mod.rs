@@ -150,7 +150,7 @@ impl Handler<NodeQueryMessage> for Neighborhood {
             NodeQueryResponseMetadata::new(
                 node_record_ref.public_key().clone(),
                 node_record_ref.node_addr_opt(),
-                node_record_ref.rate_pack().clone(),
+                *node_record_ref.rate_pack(),
             )
         }))
     }
@@ -173,7 +173,7 @@ impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
             NodeQueryResponseMetadata::new(
                 node_record_ref.public_key().clone(),
                 node_record_ref.node_addr_opt(),
-                node_record_ref.rate_pack().clone(),
+                *node_record_ref.rate_pack(),
             )
         });
 
@@ -967,13 +967,13 @@ impl Neighborhood {
                             Ok(ExpectedService::Exit(
                                 route_segment_key.clone(),
                                 node.earning_wallet(),
-                                node.rate_pack().clone(),
+                                *node.rate_pack(),
                             ))
                         }
                         (Some(_), Some(_)) => Ok(ExpectedService::Routing(
                             route_segment_key.clone(),
                             node.earning_wallet(),
-                            node.rate_pack().clone(),
+                            *node.rate_pack(),
                         )),
                         _ => Err(
                             "cannot calculate expected service, no keys provided in route segment"

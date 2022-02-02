@@ -6,7 +6,7 @@ use crate::database::db_migrations::{
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-    DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+    DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
     HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
 use masq_lib::logger::Logger;
@@ -339,7 +339,7 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "pending_payment_scan_interval",
-            Some(&format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL)),
+            Some(&format!("{}", DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL)),
             false,
             "the next scan for pending payments will run after this interval",
         );
@@ -997,7 +997,7 @@ mod tests {
         verify(
             &mut config_vec,
             "pending_payment_scan_interval",
-            Some(&format!("{}", DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL)),
+            Some(&format!("{}", DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL)),
             false,
         );
         verify(

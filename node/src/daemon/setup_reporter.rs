@@ -28,7 +28,7 @@ use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain as BlockChain;
 use masq_lib::constants::{
     DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-    DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+    DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
 };
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
@@ -1025,7 +1025,7 @@ impl ValueRetriever for PendingPaymentScanInterval {
 
     scan_interval_params_computed_default_and_is_required!(
         "pending_payment_scan_interval",
-        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL
+        DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL
     );
 }
 struct PermanentDebtAllowedGwei {}
@@ -1194,8 +1194,8 @@ mod tests {
     use crate::test_utils::{assert_string_contains, rate_pack};
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::constants::{
-        DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+        DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK,
+        DEFAULT_RECEIVABLE_SCAN_INTERVAL,
     };
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::payment_curves_and_rate_pack::RatePack;
@@ -1401,7 +1401,7 @@ mod tests {
             ),
             (
                 "pending-payment-scan-interval",
-                &DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL.to_string(),
+                &DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL.to_string(),
                 Default,
             ),
             (
@@ -1940,7 +1940,7 @@ mod tests {
             ),
             (
                 "pending-payment-scan-interval",
-                &DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL.to_string(),
+                &DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL.to_string(),
                 Default,
             ),
             (
@@ -3560,7 +3560,7 @@ mod tests {
     fn pending_payment_scan_interval_computed_default_when_persistent_config_like_default() {
         assert_computed_default_when_persistent_config_like_default(
             &PendingPaymentScanInterval {},
-            DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
+            DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
         )
     }
 
@@ -3568,7 +3568,7 @@ mod tests {
     fn pending_payment_scan_interval_computed_default_persistent_config_unequal_to_default() {
         assert_computed_default_when_persistent_config_unequal_to_default(
             &PendingPaymentScanInterval {},
-            DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL + 567,
+            DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL + 567,
             &|p_c: PersistentConfigurationMock, value: u64| {
                 p_c.pending_payment_scan_interval_result(Ok(value))
             },

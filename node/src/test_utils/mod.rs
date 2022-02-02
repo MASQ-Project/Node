@@ -516,7 +516,7 @@ pub mod unshared_test_utils {
     use crossbeam_channel::{Receiver, Sender};
     use masq_lib::constants::{
         DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+        DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
     };
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
@@ -607,7 +607,7 @@ pub mod unshared_test_utils {
                 DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei,
             )
             .unwrap()))
-            .pending_payment_scan_interval_result(Ok(DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL))
+            .pending_payment_scan_interval_result(Ok(DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL))
             .payable_scan_interval_result(Ok(DEFAULT_PAYABLE_SCAN_INTERVAL))
             .receivable_scan_interval_result(Ok(DEFAULT_RECEIVABLE_SCAN_INTERVAL))
     }
@@ -629,7 +629,7 @@ pub mod unshared_test_utils {
     pub fn make_populated_accountant_config_with_defaults() -> AccountantConfig {
         AccountantConfig {
             pending_payment_scan_interval: Duration::from_secs(
-                DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
+                DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
             ),
             payable_scan_interval: Duration::from_secs(DEFAULT_PAYABLE_SCAN_INTERVAL),
             receivable_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLE_SCAN_INTERVAL),

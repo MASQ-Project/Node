@@ -613,7 +613,7 @@ impl Configurator {
             persistent_config.payment_suggested_after_sec(),
             "paymentSuggestedAfterSec",
         )?;
-        let pending_payment_scan_interval = Self::value_required(
+        let pending_payable_scan_interval = Self::value_required(
             persistent_config.pending_payment_scan_interval(),
             "pendingPaymentScanInterval",
         )?;
@@ -653,7 +653,7 @@ impl Configurator {
             payable_scan_interval,
             payment_suggested_after_sec,
             payment_grace_before_ban_sec,
-            pending_payment_scan_interval,
+            pending_payable_scan_interval,
             permanent_debt_allowed_gwei,
             receivable_scan_interval,
             routing_byte_rate,
@@ -2258,7 +2258,7 @@ mod tests {
                 payable_scan_interval: 120,
                 payment_suggested_after_sec: 1200,
                 payment_grace_before_ban_sec: 1000,
-                pending_payment_scan_interval: 120,
+                pending_payable_scan_interval: 120,
                 permanent_debt_allowed_gwei: 20_000,
                 receivable_scan_interval: 120,
                 routing_byte_rate: 6,
@@ -2370,7 +2370,7 @@ mod tests {
                 payable_scan_interval: 120,
                 payment_suggested_after_sec: 1200,
                 payment_grace_before_ban_sec: 1000,
-                pending_payment_scan_interval: 120,
+                pending_payable_scan_interval: 120,
                 permanent_debt_allowed_gwei: 20_000,
                 receivable_scan_interval: 120,
                 routing_byte_rate: 6,

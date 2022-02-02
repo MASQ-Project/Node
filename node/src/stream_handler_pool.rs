@@ -310,7 +310,7 @@ impl StreamHandlerPool {
                         result: Some(NodeQueryResponseMetadata::new(
                             PublicKey::new(&[]),
                             Some(NodeAddr::from(&socket_addr)),
-                            ZERO_RATE_PACK.clone(),
+                            ZERO_RATE_PACK,
                         )),
                         context: msg,
                     })

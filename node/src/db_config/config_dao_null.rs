@@ -7,7 +7,7 @@ use crate::db_config::config_dao::{
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
-    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
+    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
     DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL, ETH_MAINNET_CONTRACT_CREATION_BLOCK,
 };
 use rusqlite::Transaction;
@@ -191,7 +191,7 @@ impl Default for ConfigDaoNull {
         data.insert(
             "pending_payment_scan_interval".to_string(),
             (
-                Some(DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL.to_string()),
+                Some(DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL.to_string()),
                 false,
             ),
         );
@@ -244,8 +244,8 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoReal;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{
-        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK,
+        DEFAULT_RECEIVABLE_SCAN_INTERVAL,
     };
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
@@ -359,7 +359,7 @@ mod tests {
             subject.get("pending_payment_scan_interval").unwrap(),
             ConfigDaoRecord::new(
                 "pending_payment_scan_interval",
-                Some(&DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL.to_string()),
+                Some(&DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL.to_string()),
                 false
             )
         );

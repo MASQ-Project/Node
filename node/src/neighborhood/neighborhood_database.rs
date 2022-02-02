@@ -53,7 +53,7 @@ impl NeighborhoodDatabase {
         let mut node_record = NodeRecord::new(
             public_key,
             earning_wallet,
-            neighborhood_mode.rate_pack().clone(),
+            *neighborhood_mode.rate_pack(),
             neighborhood_mode.accepts_connections(),
             neighborhood_mode.routes_data(),
             0,

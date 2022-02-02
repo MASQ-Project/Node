@@ -92,7 +92,7 @@ pub fn neighborhood_from_nodes(
             mode: NeighborhoodMode::Standard(
                 root.node_addr_opt().unwrap(),
                 vec![NodeDescriptor::from((neighbor, Chain::EthRopsten, cryptde))],
-                root.rate_pack().clone(),
+                *root.rate_pack(),
             ),
         },
         None => NeighborhoodConfig {
@@ -114,9 +114,9 @@ impl From<&NodeRecord> for NeighborhoodMode {
             node.routes_data(),
         ) {
             (Some(node_addr), true, true) => {
-                NeighborhoodMode::Standard(node_addr, vec![], node.rate_pack().clone())
+                NeighborhoodMode::Standard(node_addr, vec![], *node.rate_pack())
             }
-            (_, false, true) => NeighborhoodMode::OriginateOnly(vec![], node.rate_pack().clone()),
+            (_, false, true) => NeighborhoodMode::OriginateOnly(vec![], *node.rate_pack()),
             (_, false, false) => NeighborhoodMode::ConsumeOnly(vec![]),
             (node_addr_opt, accepts_connections, routes_data) => panic!(
                 "Cannot determine NeighborhoodMode from triple: ({:?}, {}, {})",

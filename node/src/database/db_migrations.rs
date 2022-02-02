@@ -9,7 +9,7 @@ use crate::sub_lib::cryptde::PlainData;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
-    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL,
+    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
     DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
 };
 use masq_lib::logger::Logger;
@@ -405,7 +405,7 @@ impl DatabaseMigration for Migrate_5_to_6 {
             ),
             (
                 "pending_payment_scan_interval",
-                (DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL) as i64,
+                (DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL) as i64,
             ),
             (
                 "payable_scan_interval",
@@ -676,7 +676,7 @@ mod tests {
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
     use masq_lib::constants::{
         DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-        DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+        DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
     };
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
@@ -1758,7 +1758,7 @@ mod tests {
             retrieve_config_row(connection.as_ref(), "pending_payment_scan_interval");
         assert_eq!(
             pending_payment_scan_interval,
-            Some(DEFAULT_PENDING_PAYMENT_SCAN_INTERVAL.to_string())
+            Some(DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL.to_string())
         );
         assert_eq!(encrypted, false);
         let (payable_scan_interval, encrypted) =

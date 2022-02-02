@@ -30,6 +30,7 @@ macro_rules! value_m {
 macro_rules! value_user_specified_m {
     ($m:ident, $v:expr, $t:ty) => {{
         let user_specified = &$m.occurrences_of($v) > 0;
+        let matches = make_arg_matches_accesible(&$m);
         match value_t!(matches, $v, $t) {
             Ok(v) => (Some(v), user_specified),
             Err(_) => (None, user_specified),

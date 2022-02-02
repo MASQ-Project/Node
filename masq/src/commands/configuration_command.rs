@@ -222,7 +222,11 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::constants::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL, NODE_NOT_RUNNING_ERROR};
+    use masq_lib::constants::{
+        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
+        DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+        NODE_NOT_RUNNING_ERROR,
+    };
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
     use masq_lib::utils::AutomapProtocol;
     use std::sync::{Arc, Mutex};
