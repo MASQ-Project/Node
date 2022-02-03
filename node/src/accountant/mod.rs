@@ -8,9 +8,11 @@ pub mod tools;
 #[cfg(test)]
 pub mod test_utils;
 
-use crate::accountant::payable_dao::{PayableAccount, PayableDaoFactory, Payment};
+use crate::accountant::payable_dao::{PayableAccount, PayableDaoError, PayableDaoFactory, Payment};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
-use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDaoFactory};
+use crate::accountant::receivable_dao::{
+    ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
+};
 use crate::accountant::tools::accountant_tools::{Scanners, TransactionConfirmationTools};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -74,23 +76,6 @@ lazy_static! {
 }
 
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
-
-// TODO: Remove this error
-#[derive(Debug, PartialEq)]
-pub enum DebtRecordingError {
-    SignConversion(u64),
-    RusqliteError(String),
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub struct PayableError(PayableErrorKind, TransactionId);
-
-#[derive(PartialEq, Debug, Clone)]
-pub enum PayableErrorKind {
-    SignConversion(u64),
-    RusqliteError(String),
-    BlockchainError(String),
-}
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct PaymentCurves {
@@ -602,7 +587,7 @@ impl Accountant {
                 .as_ref()
                 .more_money_receivable(wallet, total_charge) {
                 Ok(_) => (),
-                Err(DebtRecordingError::SignConversion(_)) => error! (
+                Err(ReceivableDaoError::SignConversion(_)) => error! (
                     self.logger,
                     "Overflow error recording service provided for {}: service rate {}, byte rate {}, payload size {}. Skipping",
                     wallet,
@@ -634,7 +619,7 @@ impl Accountant {
                 .as_ref()
                 .more_money_payable(wallet, total_charge) {
                 Ok(_) => (),
-                Err(DebtRecordingError::SignConversion(_)) => error! (
+                Err(PayableDaoError::SignConversion(_)) => error! (
                     self.logger,
                     "Overflow error recording consumed services from {}: total charge {}, service rate {}, byte rate {}, payload size {}. Skipping",
                     wallet,
@@ -751,9 +736,13 @@ impl Accountant {
     }
 
     fn handle_received_payments(&mut self, msg: ReceivedPayments) {
-        self.receivable_dao
-            .as_mut()
-            .more_money_received(msg.payments);
+        if msg.payments.is_empty() {
+            warning!(self.logger, "Handling received payments we got zero payments but expected some, skipping database operations")
+        } else {
+            self.receivable_dao
+                .as_mut()
+                .more_money_received(msg.payments);
+        }
     }
 
     fn handle_sent_payments(&self, sent_payments: SentPayments) {
@@ -942,7 +931,7 @@ impl Accountant {
         {
             panic!(
                 "Was unable to uncheck pending payment '{}' after confirmation due to '{:?}'",
-                msg.pending_payable_fingerprint.hash, e.0
+                msg.pending_payable_fingerprint.hash, e
             )
         } else {
             debug!(
@@ -994,9 +983,9 @@ impl Accountant {
                     Some(rowid) => rowid,
                     None => panic!("Payment fingerprint for {} doesn't exist but should by now; system unreliable", payment.transaction)
                 };
-                match self.payable_dao.as_ref().mark_pending_payable_rowid(&payment.to, TransactionId { hash: payment.transaction, rowid }) {
+                match self.payable_dao.as_ref().mark_pending_payable_rowid(&payment.to, rowid ) {
                     Ok(()) => (),
-                    Err(e) => panic!("Was unable to create a mark in payables for a new pending payment '{}' due to '{:?}'", payment.transaction, e.0)
+                    Err(e) => panic!("Was unable to create a mark in payables for a new pending payment '{}' due to '{:?}'", payment.transaction,e)
                 }
                 debug!(self.logger, "Payment '{}' has been marked as pending in the payable table",payment.transaction)
             })
@@ -1198,6 +1187,7 @@ impl From<&PendingPayableFingerprint> for TransactionId {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::test_utils::{
@@ -1463,16 +1453,7 @@ mod tests {
         assert_eq!(*read_payment_record_params, vec![expected_hash]);
         let mark_pending_payment_params = mark_pending_payment_params_arc.lock().unwrap();
         let actual = mark_pending_payment_params.get(0).unwrap();
-        assert_eq!(
-            actual,
-            &(
-                expected_wallet,
-                TransactionId {
-                    hash: expected_hash,
-                    rowid: expected_rowid
-                }
-            )
-        );
+        assert_eq!(actual, &(expected_wallet, expected_rowid));
     }
 
     #[test]
@@ -1569,13 +1550,7 @@ mod tests {
         let mark_pending_payment_params = mark_pending_payment_params_arc.lock().unwrap();
         assert_eq!(
             *mark_pending_payment_params,
-            vec![(
-                wallet,
-                TransactionId {
-                    hash: hash_tx_1,
-                    rowid: good_transaction_rowid
-                }
-            )]
+            vec![(wallet, good_transaction_rowid)]
         );
         let delete_pending_payable_fingerprint_params =
             delete_pending_payable_fingerprint_params_arc
@@ -2865,6 +2840,17 @@ mod tests {
     }
 
     #[test]
+    fn handle_received_payments_aborts_if_no_payments_supplied() {
+        init_test_logging();
+        let mut subject = AccountantBuilder::default().build();
+        let msg = ReceivedPayments { payments: vec![] };
+
+        let _ = subject.handle_received_payments(msg);
+
+        TestLogHandler::new().exists_log_containing("WARN: Accountant: Handling received payments we got zero payments but expected some, skipping database operations");
+    }
+
+    #[test]
     fn report_exit_service_consumed_message_is_received() {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
@@ -3022,7 +3008,7 @@ mod tests {
         init_test_logging();
         let wallet = make_wallet("booga");
         let receivable_dao = ReceivableDaoMock::new().more_money_receivable_result(Err(
-            DebtRecordingError::RusqliteError(
+            ReceivableDaoError::RusqliteError(
                 "we cannot help ourselves; this is baaad".to_string(),
             ),
         ));
@@ -3038,7 +3024,7 @@ mod tests {
         init_test_logging();
         let wallet = make_wallet("booga");
         let receivable_dao = ReceivableDaoMock::new()
-            .more_money_receivable_result(Err(DebtRecordingError::SignConversion(1234)));
+            .more_money_receivable_result(Err(ReceivableDaoError::SignConversion(1234)));
         let subject = AccountantBuilder::default()
             .receivable_dao(receivable_dao)
             .build();
@@ -3057,7 +3043,7 @@ mod tests {
         init_test_logging();
         let wallet = make_wallet("booga");
         let payable_dao = PayableDaoMock::new()
-            .more_money_payable_result(Err(DebtRecordingError::SignConversion(1234)));
+            .more_money_payable_result(Err(PayableDaoError::SignConversion(1234)));
         let subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
             .build();
@@ -3076,13 +3062,13 @@ mod tests {
     #[test]
     #[should_panic(
         expected = "Recording services consumed from 0x000000000000000000000000000000626f6f6761 but \
-     has hit fatal database error: RusqliteError(\"we cannot help ourself; this is baaad\")"
+     has hit fatal database error: RusqliteError(\"we cannot help ourselves; this is baaad\")"
     )]
     fn record_service_consumed_panics_on_fatal_errors() {
         init_test_logging();
         let wallet = make_wallet("booga");
         let payable_dao = PayableDaoMock::new().more_money_payable_result(Err(
-            DebtRecordingError::RusqliteError("we cannot help ourself; this is baaad".to_string()),
+            PayableDaoError::RusqliteError("we cannot help ourselves; this is baaad".to_string()),
         ));
         let subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
@@ -3102,13 +3088,8 @@ mod tests {
             H256::from_uint(&U256::from(123)),
             SystemTime::now(),
         );
-        let payable_dao = PayableDaoMock::new().mark_pending_payment_result(Err(PayableError(
-            PayableErrorKind::SignConversion(9999999999999),
-            TransactionId {
-                hash: H256::from_uint(&U256::from(123)),
-                rowid: 7879,
-            },
-        )));
+        let payable_dao = PayableDaoMock::new()
+            .mark_pending_payment_result(Err(PayableDaoError::SignConversion(9999999999999)));
         let pending_payable_dao =
             PendingPayableDaoMock::default().pending_payable_fingerprint_rowid_result(Some(7879));
         let subject = AccountantBuilder::default()
@@ -3263,10 +3244,9 @@ mod tests {
         init_test_logging();
         let hash = H256::from_uint(&U256::from(789));
         let rowid = 3;
-        let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Err(PayableError(
-            PayableErrorKind::RusqliteError("record change not successful".to_string()),
-            TransactionId { hash, rowid },
-        )));
+        let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Err(
+            PayableDaoError::RusqliteError("record change not successful".to_string()),
+        ));
         let subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
             .build();
@@ -3663,13 +3643,7 @@ mod tests {
         let mut mark_pending_payment_parameters = mark_pending_payment_params_arc.lock().unwrap();
         let first_payment = mark_pending_payment_parameters.remove(0);
         assert_eq!(first_payment.0, wallet_account_1);
-        assert_eq!(
-            first_payment.1,
-            TransactionId {
-                hash: pending_tx_hash_1,
-                rowid: rowid_for_account_1
-            }
-        );
+        assert_eq!(first_payment.1, rowid_for_account_1);
         let second_payment = mark_pending_payment_parameters.remove(0);
         assert!(
             mark_pending_payment_parameters.is_empty(),
@@ -3677,13 +3651,7 @@ mod tests {
             mark_pending_payment_parameters
         );
         assert_eq!(second_payment.0, wallet_account_2);
-        assert_eq!(
-            second_payment.1,
-            TransactionId {
-                hash: pending_tx_hash_2,
-                rowid: rowid_for_account_2
-            }
-        );
+        assert_eq!(second_payment.1, rowid_for_account_2);
         let return_all_pending_payable_fingerprints_params =
             return_all_pending_payable_fingerprints_params_arc
                 .lock()

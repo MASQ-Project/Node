@@ -1,7 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{
-    unsigned_to_signed, DebtRecordingError, PayableError, PayableErrorKind, TransactionId,
-};
+use crate::accountant::{unsigned_to_signed, TransactionId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -12,6 +10,12 @@ use rusqlite::{Error, OptionalExtension};
 use std::fmt::Debug;
 use std::time::SystemTime;
 use web3::types::H256;
+
+#[derive(Debug, PartialEq)]
+pub enum PayableDaoError {
+    SignConversion(u64),
+    RusqliteError(String),
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PayableAccount {
@@ -43,21 +47,21 @@ impl Payment {
 }
 
 pub trait PayableDao: Debug + Send {
-    fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), DebtRecordingError>;
+    fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PayableDaoError>;
 
     fn mark_pending_payable_rowid(
         &self,
         wallet: &Wallet,
-        transaction_id: TransactionId,
-    ) -> Result<(), PayableError>;
+        pending_payable_rowid: u64,
+    ) -> Result<(), PayableDaoError>;
 
     fn transaction_confirmed(
         &self,
         payment: &PendingPayableFingerprint,
-    ) -> Result<(), PayableError>;
+    ) -> Result<(), PayableDaoError>;
 
     //TODO this method doesn't have a use now; what is its future?
-    fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PayableError>;
+    fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PayableDaoError>;
 
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount>;
 
@@ -84,9 +88,8 @@ pub struct PayableDaoReal {
 }
 
 impl PayableDao for PayableDaoReal {
-    fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), DebtRecordingError> {
-        let signed_amount =
-            unsigned_to_signed(amount).map_err(DebtRecordingError::SignConversion)?;
+    fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PayableDaoError> {
+        let signed_amount = unsigned_to_signed(amount).map_err(PayableDaoError::SignConversion)?;
         match self.try_increase_balance(wallet, signed_amount) {
             Ok(_) => Ok(()),
             Err(e) => panic!("Database is corrupt: {}", e),
@@ -96,14 +99,14 @@ impl PayableDao for PayableDaoReal {
     fn mark_pending_payable_rowid(
         &self,
         wallet: &Wallet,
-        transaction_id: TransactionId,
-    ) -> Result<(), PayableError> {
+        pending_payable_rowid: u64,
+    ) -> Result<(), PayableDaoError> {
         let mut stm = self
             .conn
             .prepare("update payable set pending_payable_rowid=? where wallet_address=?")
             .expect("Internal Error");
         let params: &[&dyn ToSql] = &[
-            &i64::try_from(transaction_id.rowid)
+            &i64::try_from(pending_payable_rowid)
                 .expect("SQLite counts up to i64::MAX; should never happen"),
             wallet,
         ];
@@ -113,25 +116,21 @@ impl PayableDao for PayableDaoReal {
                 "Marking pending payable rowid: affected {} rows but expected 1",
                 num
             ),
-            Err(e) => Err(PayableError(
-                PayableErrorKind::RusqliteError(e.to_string()),
-                transaction_id,
-            )),
+            Err(e) => Err(PayableDaoError::RusqliteError(e.to_string())),
         }
     }
 
     fn transaction_confirmed(
         &self,
         payment: &PendingPayableFingerprint,
-    ) -> Result<(), PayableError> {
-        let signed_amount = unsigned_to_signed(payment.amount).map_err(|err_num| {
-            PayableError(PayableErrorKind::SignConversion(err_num), payment.into())
-        })?;
+    ) -> Result<(), PayableDaoError> {
+        let signed_amount = unsigned_to_signed(payment.amount)
+            .map_err(|err_num| PayableDaoError::SignConversion(err_num))?;
         self.try_decrease_balance(payment.rowid, signed_amount, payment.timestamp)
-            .map_err(|e| PayableError(PayableErrorKind::RusqliteError(e), payment.into()))
+            .map_err(|e| PayableDaoError::RusqliteError(e))
     }
 
-    fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PayableError> {
+    fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PayableDaoError> {
         let formally_signed_rowid =
             i64::try_from(transaction_id.rowid).expect("SQLite counts up to i64::MAX");
         let mut stm = self
@@ -145,10 +144,7 @@ impl PayableDao for PayableDaoReal {
                 "Cancelling transaction: affected {} rows but expected 1",
                 num
             ),
-            Err(e) => Err(PayableError(
-                PayableErrorKind::RusqliteError(e.to_string()),
-                transaction_id,
-            )),
+            Err(e) => Err(PayableDaoError::RusqliteError(e.to_string())),
         }
     }
 
@@ -466,7 +462,7 @@ mod tests {
 
         let result = subject.more_money_payable(&wallet, u64::MAX);
 
-        assert_eq!(result, Err(DebtRecordingError::SignConversion(u64::MAX)));
+        assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)));
     }
 
     #[test]
@@ -496,13 +492,7 @@ mod tests {
         assert_eq!(before_account_status, before_expected_status.clone());
 
         subject
-            .mark_pending_payable_rowid(
-                &wallet,
-                TransactionId {
-                    hash: Default::default(),
-                    rowid: pending_payable_rowid,
-                },
-            )
+            .mark_pending_payable_rowid(&wallet, pending_payable_rowid)
             .unwrap();
 
         let after_account_status = subject.account_status(&wallet).unwrap();
@@ -519,14 +509,13 @@ mod tests {
             "mark_pending_payment_returned_different_row_count_than_expected",
         );
         let wallet = make_wallet("booga");
-        let hash = H256::from_uint(&U256::from(45678));
         let rowid = 656;
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let subject = PayableDaoReal::new(conn);
 
-        let _ = subject.mark_pending_payable_rowid(&wallet, TransactionId { hash, rowid });
+        let _ = subject.mark_pending_payable_rowid(&wallet, rowid);
     }
 
     #[test]
@@ -536,19 +525,17 @@ mod tests {
             "mark_pending_payment_handles_general_sql_error",
         );
         let wallet = make_wallet("booga");
-        let hash = H256::from_uint(&U256::from(45678));
         let rowid = 656;
         let conn = how_to_trick_rusqlite_for_an_error(&home_dir);
         let conn_wrapped = ConnectionWrapperReal::new(conn);
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
-        let result = subject.mark_pending_payable_rowid(&wallet, TransactionId { hash, rowid });
+        let result = subject.mark_pending_payable_rowid(&wallet, rowid);
 
         assert_eq!(
             result,
-            Err(PayableError(
-                PayableErrorKind::RusqliteError("attempt to write a readonly database".to_string()),
-                TransactionId { hash, rowid }
+            Err(PayableDaoError::RusqliteError(
+                "attempt to write a readonly database".to_string()
             ))
         )
     }
@@ -636,9 +623,8 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayableError(
-                PayableErrorKind::RusqliteError("attempt to write a readonly database".to_string()),
-                TransactionId { hash, rowid }
+            Err(PayableDaoError::RusqliteError(
+                "attempt to write a readonly database".to_string()
             ))
         )
     }
@@ -738,9 +724,8 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayableError(
-                PayableErrorKind::RusqliteError("attempt to write a readonly database".to_string()),
-                TransactionId { hash, rowid }
+            Err(PayableDaoError::RusqliteError(
+                "attempt to write a readonly database".to_string()
             ))
         )
     }
@@ -767,13 +752,7 @@ mod tests {
 
         let result = subject.transaction_confirmed(&pending_payable_fingerprint);
 
-        assert_eq!(
-            result,
-            Err(PayableError(
-                PayableErrorKind::SignConversion(u64::MAX),
-                TransactionId { hash, rowid }
-            ))
-        )
+        assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)))
     }
 
     fn how_to_trick_rusqlite_for_an_error(path: &Path) -> Connection {
@@ -901,7 +880,7 @@ mod tests {
 
         let result = subject.more_money_payable(&make_wallet("foobar"), u64::MAX);
 
-        assert_eq!(result, Err(DebtRecordingError::SignConversion(u64::MAX)))
+        assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)))
     }
 
     #[test]
