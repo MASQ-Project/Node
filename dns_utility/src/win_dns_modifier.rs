@@ -3,6 +3,7 @@
 use crate::dns_modifier::DnsModifier;
 use crate::ipconfig_wrapper::{IpconfigWrapper, IpconfigWrapperReal};
 use crate::netsh::{Netsh, NetshCommand, NetshError};
+use masq_lib::utils::plus;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::io;
