@@ -491,7 +491,7 @@ fn configure_accountant_config(
 ) -> Result<(), ConfiguratorError> {
     let payment_suggested_after_sec = configure_single_parameter_with_checking_overflow(
         multi_config,
-        "payment-suggested-after",
+        "payment-suggested-after-sec",
         persist_config,
         &|persist_config: &dyn PersistentConfiguration| {
             persist_config.payment_suggested_after_sec()
@@ -502,7 +502,7 @@ fn configure_accountant_config(
     )?;
     let payment_grace_before_ban_sec = configure_single_parameter_with_checking_overflow(
         multi_config,
-        "payment-grace-before-ban",
+        "payment-grace-before-ban-sec",
         persist_config,
         &|persist_config: &dyn PersistentConfiguration| {
             persist_config.payment_grace_before_ban_sec()
@@ -513,7 +513,7 @@ fn configure_accountant_config(
     )?;
     let permanent_debt_allowed_gwei = configure_single_parameter_with_checking_overflow(
         multi_config,
-        "permanent-debt-allowed",
+        "permanent-debt-allowed-gwei",
         persist_config,
         &|persist_config: &dyn PersistentConfiguration| {
             persist_config.permanent_debt_allowed_gwei()
@@ -524,7 +524,7 @@ fn configure_accountant_config(
     )?;
     let balance_to_decrease_from_gwei = configure_single_parameter_with_checking_overflow(
         multi_config,
-        "balance-to-decrease-from",
+        "balance-to-decrease-from-gwei",
         persist_config,
         &|persist_config: &dyn PersistentConfiguration| {
             persist_config.balance_to_decrease_from_gwei()
@@ -535,7 +535,7 @@ fn configure_accountant_config(
     )?;
     let balance_decreases_for_sec = configure_single_parameter_with_checking_overflow(
         multi_config,
-        "balance-decreases-for",
+        "balance-decreases-for-sec",
         persist_config,
         &|persist_config: &dyn PersistentConfiguration| persist_config.balance_decreases_for_sec(),
         &mut |interval, persist_config: &mut dyn PersistentConfiguration| {
@@ -544,7 +544,7 @@ fn configure_accountant_config(
     )?;
     let unban_when_balance_below_gwei = configure_single_parameter_with_checking_overflow(
         multi_config,
-        "unban-when-balance-below",
+        "unban-when-balance-below-gwei",
         persist_config,
         &|persist_config: &dyn PersistentConfiguration| {
             persist_config.unban_when_balance_below_gwei()
@@ -1849,17 +1849,17 @@ mod tests {
             "150",
             "--receivable-scan-interval",
             "130",
-            "--payment-grace-before-ban",
+            "--payment-grace-before-ban-sec",
             "1000",
-            "--payment-suggested-after",
+            "--payment-suggested-after-sec",
             "1000",
-            "--permanent-debt-allowed",
+            "--permanent-debt-allowed-gwei",
             "20000",
-            "--balance-to-decrease-from",
+            "--balance-to-decrease-from-gwei",
             "100000",
-            "--unban-when-balance-below",
+            "--unban-when-balance-below-gwei",
             "20000",
-            "--balance-decreases-for",
+            "--balance-decreases-for-sec",
             "1000",
         ];
         let mut config = BootstrapperConfig::new();
@@ -1958,17 +1958,17 @@ mod tests {
             "150",
             "--receivable-scan-interval",
             "130",
-            "--payment-grace-before-ban",
+            "--payment-grace-before-ban-sec",
             "1000",
-            "--payment-suggested-after",
+            "--payment-suggested-after-sec",
             "1000",
-            "--permanent-debt-allowed",
+            "--permanent-debt-allowed-gwei",
             "20000",
-            "--balance-to-decrease-from",
+            "--balance-to-decrease-from-gwei",
             "100000",
-            "--unban-when-balance-below",
+            "--unban-when-balance-below-gwei",
             "20000",
-            "--balance-decreases-for",
+            "--balance-decreases-for-sec",
             "1000",
         ];
         let mut config = BootstrapperConfig::new();

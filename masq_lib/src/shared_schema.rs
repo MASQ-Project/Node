@@ -361,21 +361,33 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(NEIGHBORS_HELP),
     )
     .arg(real_user_arg())
-    .arg(common_parameter_with_u64_values("balance-decreases-for"))
-    .arg(common_parameter_with_u64_values("balance-to-decrease-from"))
+    .arg(common_parameter_with_u64_values(
+        "balance-decreases-for-sec",
+    ))
+    .arg(common_parameter_with_u64_values(
+        "balance-to-decrease-from-gwei",
+    ))
     .arg(common_parameter_with_u64_values("exit-byte-rate"))
     .arg(common_parameter_with_u64_values("exit-service-rate"))
     .arg(common_parameter_with_u64_values("payable-scan-interval"))
-    .arg(common_parameter_with_u64_values("payment-suggested-after"))
-    .arg(common_parameter_with_u64_values("payment-grace-before-ban"))
+    .arg(common_parameter_with_u64_values(
+        "payment-suggested-after-sec",
+    ))
+    .arg(common_parameter_with_u64_values(
+        "payment-grace-before-ban-sec",
+    ))
     .arg(common_parameter_with_u64_values(
         "pending-payable-scan-interval",
     ))
-    .arg(common_parameter_with_u64_values("permanent-debt-allowed"))
+    .arg(common_parameter_with_u64_values(
+        "permanent-debt-allowed-gwei",
+    ))
     .arg(common_parameter_with_u64_values("receivable-scan-interval"))
     .arg(common_parameter_with_u64_values("routing-byte-rate"))
     .arg(common_parameter_with_u64_values("routing-service-rate"))
-    .arg(common_parameter_with_u64_values("unban-when-balance-below"))
+    .arg(common_parameter_with_u64_values(
+        "unban-when-balance-below-gwei",
+    ))
 }
 
 pub mod common_validators {
