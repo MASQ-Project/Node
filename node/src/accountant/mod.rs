@@ -75,6 +75,7 @@ lazy_static! {
 
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
+// TODO: Remove this error
 #[derive(Debug, PartialEq)]
 pub enum DebtRecordingError {
     SignConversion(u64),
@@ -82,10 +83,10 @@ pub enum DebtRecordingError {
 }
 
 #[derive(PartialEq, Debug, Clone)]
-pub struct PaymentError(PaymentErrorKind, TransactionId);
+pub struct PayableError(PayableErrorKind, TransactionId);
 
 #[derive(PartialEq, Debug, Clone)]
-pub enum PaymentErrorKind {
+pub enum PayableErrorKind {
     SignConversion(u64),
     RusqliteError(String),
     BlockchainError(String),
@@ -3101,8 +3102,8 @@ mod tests {
             H256::from_uint(&U256::from(123)),
             SystemTime::now(),
         );
-        let payable_dao = PayableDaoMock::new().mark_pending_payment_result(Err(PaymentError(
-            PaymentErrorKind::SignConversion(9999999999999),
+        let payable_dao = PayableDaoMock::new().mark_pending_payment_result(Err(PayableError(
+            PayableErrorKind::SignConversion(9999999999999),
             TransactionId {
                 hash: H256::from_uint(&U256::from(123)),
                 rowid: 7879,
@@ -3262,8 +3263,8 @@ mod tests {
         init_test_logging();
         let hash = H256::from_uint(&U256::from(789));
         let rowid = 3;
-        let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Err(PaymentError(
-            PaymentErrorKind::RusqliteError("record change not successful".to_string()),
+        let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Err(PayableError(
+            PayableErrorKind::RusqliteError("record change not successful".to_string()),
             TransactionId { hash, rowid },
         )));
         let subject = AccountantBuilder::default()

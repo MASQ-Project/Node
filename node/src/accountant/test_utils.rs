@@ -8,7 +8,7 @@ use crate::accountant::pending_payable_dao::{
 };
 use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoFactory};
 use crate::accountant::{
-    Accountant, DebtRecordingError, PaymentCurves, PaymentError, TransactionId,
+    Accountant, DebtRecordingError, PaymentCurves, PayableError, TransactionId,
 };
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
@@ -256,11 +256,11 @@ pub struct PayableDaoMock {
     non_pending_payables_params: Arc<Mutex<Vec<()>>>,
     non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
     mark_pending_payable_rowid_parameters: Arc<Mutex<Vec<(Wallet, TransactionId)>>>,
-    mark_pending_payable_rowid_results: RefCell<Vec<Result<(), PaymentError>>>,
+    mark_pending_payable_rowid_results: RefCell<Vec<Result<(), PayableError>>>,
     transaction_confirmed_params: Arc<Mutex<Vec<PendingPayableFingerprint>>>,
-    transaction_confirmed_results: RefCell<Vec<Result<(), PaymentError>>>,
+    transaction_confirmed_results: RefCell<Vec<Result<(), PayableError>>>,
     transaction_canceled_params: Arc<Mutex<Vec<TransactionId>>>,
-    transaction_canceled_results: RefCell<Vec<Result<(), PaymentError>>>,
+    transaction_canceled_results: RefCell<Vec<Result<(), PayableError>>>,
     top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
     top_records_results: RefCell<Vec<Vec<PayableAccount>>>,
     total_results: RefCell<Vec<u64>>,
@@ -280,7 +280,7 @@ impl PayableDao for PayableDaoMock {
         &self,
         wallet: &Wallet,
         transaction_id: TransactionId,
-    ) -> Result<(), PaymentError> {
+    ) -> Result<(), PayableError> {
         self.mark_pending_payable_rowid_parameters
             .lock()
             .unwrap()
@@ -293,7 +293,7 @@ impl PayableDao for PayableDaoMock {
     fn transaction_confirmed(
         &self,
         payment: &PendingPayableFingerprint,
-    ) -> Result<(), PaymentError> {
+    ) -> Result<(), PayableError> {
         self.transaction_confirmed_params
             .lock()
             .unwrap()
@@ -301,7 +301,7 @@ impl PayableDao for PayableDaoMock {
         self.transaction_confirmed_results.borrow_mut().remove(0)
     }
 
-    fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PaymentError> {
+    fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PayableError> {
         self.transaction_canceled_params
             .lock()
             .unwrap()
@@ -377,7 +377,7 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn mark_pending_payment_result(self, result: Result<(), PaymentError>) -> Self {
+    pub fn mark_pending_payment_result(self, result: Result<(), PayableError>) -> Self {
         self.mark_pending_payable_rowid_results
             .borrow_mut()
             .push(result);
@@ -392,7 +392,7 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn transaction_confirmed_result(self, result: Result<(), PaymentError>) -> Self {
+    pub fn transaction_confirmed_result(self, result: Result<(), PayableError>) -> Self {
         self.transaction_confirmed_results.borrow_mut().push(result);
         self
     }
@@ -402,7 +402,7 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn transaction_canceled_result(self, result: Result<(), PaymentError>) -> Self {
+    pub fn transaction_canceled_result(self, result: Result<(), PayableError>) -> Self {
         self.transaction_canceled_results.borrow_mut().push(result);
         self
     }
@@ -430,7 +430,7 @@ pub struct ReceivableDaoMock {
     more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
     more_money_receivable_results: RefCell<Vec<Result<(), DebtRecordingError>>>,
     more_money_received_parameters: Arc<Mutex<Vec<Vec<Transaction>>>>,
-    more_money_received_results: RefCell<Vec<Result<(), PaymentError>>>,
+    more_money_received_results: RefCell<Vec<Result<(), PayableError>>>,
     receivables_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentCurves)>>>,
     new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
@@ -540,7 +540,7 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn more_money_received_result(self, result: Result<(), PaymentError>) -> Self {
+    pub fn more_money_received_result(self, result: Result<(), PayableError>) -> Self {
         self.more_money_received_results.borrow_mut().push(result);
         self
     }
