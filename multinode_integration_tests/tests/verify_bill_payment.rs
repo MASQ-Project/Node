@@ -2,6 +2,7 @@
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::DEFAULT_PAYMENT_CURVES;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::command::Command;
@@ -77,9 +78,7 @@ fn verify_bill_payment() {
     let (serving_node_3_config, serving_node_3_wallet) =
         build_config(&blockchain_server, &seed, derivation_path(0, 3));
 
-    let amount = 10u64
-        * u64::try_from(node_lib::accountant::DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei)
-            .unwrap();
+    let amount = 10u64 * u64::try_from(DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei).unwrap();
 
     let project_root = MASQNodeUtils::find_project_root();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
