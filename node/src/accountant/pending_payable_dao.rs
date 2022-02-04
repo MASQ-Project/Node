@@ -30,6 +30,7 @@ pub trait PendingPayableDao {
         amount: u64,
         timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError>;
+    //TODO remove this method
     fn hash(&self, id: u64) -> Result<H256, PendingPayableDaoError>;
     fn delete_pending_payable_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;
     fn update_pending_payable_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;

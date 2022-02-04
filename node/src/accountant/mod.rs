@@ -8,7 +8,7 @@ pub mod tools;
 #[cfg(test)]
 pub mod test_utils;
 
-use crate::accountant::payable_dao::{PayableAccount, PayableDaoError, PayableDaoFactory, Payment};
+use crate::accountant::payable_dao::{PayableAccount, PayableDaoError, PayableDaoFactory, Payment, PendingPayable};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
@@ -56,6 +56,7 @@ use std::ops::Add;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use web3::types::{TransactionReceipt, H256};
+use masq_lib::utils::ExpectValue;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL: u64 = 3600;
@@ -865,13 +866,9 @@ impl Accountant {
                     .expect("Bad interval")
                     .as_secs(),
                 amount: account.balance as u64,
-                pending_transaction_hash: match account.pending_payable_rowid_opt {
-                    Some(rowid) => {
-                        let hash = self
-                            .pending_payable_dao
-                            .hash(rowid)
-                            .expect("database error: querying hash for pending payable");
-                        Some(format!("{:?}", hash))
+                pending_transaction_hash: match account.pending_payable_opt {
+                    Some(PendingPayable{ hash_opt,..}) => {
+                        Some(format!("{:?}", hash_opt.expectv("pending payable hash")))
                     }
                     None => None,
                 },
@@ -1187,7 +1184,7 @@ impl From<&PendingPayableFingerprint> for TransactionId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::payable_dao::PayableDaoError;
+    use crate::accountant::payable_dao::{PayableDaoError, PendingPayable};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::test_utils::{
@@ -1281,7 +1278,6 @@ mod tests {
     #[test]
     fn financials_request_produces_financials_response() {
         let payable_top_records_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let hash_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::new()
             .top_records_parameters(&payable_top_records_parameters_arc)
             .top_records_result(vec![
@@ -1289,20 +1285,17 @@ mod tests {
                     wallet: make_wallet("earning 1"),
                     balance: 12345678,
                     last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(10000)),
-                    pending_payable_rowid_opt: Some(789),
-                },
+                    pending_payable_opt: Some(PendingPayable{ rowid: 789, hash_opt: Some(H256::from_uint(&U256::from(3333333)))}),
+                    },
                 PayableAccount {
                     wallet: make_wallet("earning 2"),
                     balance: 12345679,
                     last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(10001)),
-                    pending_payable_rowid_opt: None,
+                    pending_payable_opt: None
                 },
-            ])
+                                              ])
             .total_result(23456789);
         let receivable_top_records_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .hash_params(&hash_params_arc)
-            .hash_result(Ok(H256::from_uint(&U256::from(456789))));
         let receivable_dao = ReceivableDaoMock::new()
             .top_records_parameters(&receivable_top_records_parameters_arc)
             .top_records_result(vec![
@@ -1331,7 +1324,6 @@ mod tests {
             ))
             .receivable_dao(receivable_dao)
             .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
             .build();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1354,8 +1346,6 @@ mod tests {
         assert_eq!(*payable_top_records_parameters, vec![(50001, 50002)]);
         let receivable_top_records_parameters =
             receivable_top_records_parameters_arc.lock().unwrap();
-        let hash_params = hash_params_arc.lock().unwrap();
-        assert_eq!(*hash_params, vec![789]);
         assert_eq!(*receivable_top_records_parameters, vec![(50003, 50004)]);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
@@ -1374,7 +1364,7 @@ mod tests {
                         age: 10000,
                         amount: 12345678,
                         pending_transaction_hash: Some(
-                            "0x000000000000000000000000000000000000000000000000000000000006f855"
+                            "0x000000000000000000000000000000000000000000000000000000000032dcd5"
                                 .to_string()
                         )
                     },
@@ -1576,7 +1566,7 @@ mod tests {
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now()) - PAYMENT_CURVES.payment_suggested_after_sec - 5,
                 ),
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             },
             PayableAccount {
                 wallet: make_wallet("foo"),
@@ -1584,7 +1574,7 @@ mod tests {
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now()) - PAYMENT_CURVES.payment_suggested_after_sec - 500,
                 ),
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             },
         ];
         let payable_dao = PayableDaoMock::new().non_pending_payables_result(accounts.clone());
@@ -2032,7 +2022,7 @@ mod tests {
             wallet: make_wallet("wallet"),
             balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 5,
             last_paid_timestamp: from_time_t(now - PAYMENT_CURVES.balance_decreases_for_sec - 10),
-            pending_payable_rowid_opt: None,
+            pending_payable_opt: None
         };
         let mut payable_dao = PayableDaoMock::new()
             .non_pending_payables_params(&non_pending_payables_params_arc)
@@ -2106,7 +2096,7 @@ mod tests {
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
                 ),
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             },
             // above balance intersection, to the left of minimum time (inside buffer zone)
             PayableAccount {
@@ -2115,7 +2105,7 @@ mod tests {
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.payment_suggested_after_sec + 10,
                 ),
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             },
             // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
             PayableAccount {
@@ -2124,7 +2114,7 @@ mod tests {
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.payment_suggested_after_sec - 1,
                 ),
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             },
         ];
         let payable_dao = PayableDaoMock::new()
@@ -2172,7 +2162,7 @@ mod tests {
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 10,
                 ),
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             },
             // slightly above the curve (balance intersection), to the right of minimum time
             PayableAccount {
@@ -2181,7 +2171,7 @@ mod tests {
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.payment_suggested_after_sec - 10,
                 ),
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             },
         ];
         let mut payable_dao = PayableDaoMock::default()
@@ -3363,27 +3353,27 @@ mod tests {
                 wallet: make_wallet("wallet0"),
                 balance: same_amount_significance,
                 last_paid_timestamp: from_time_t(now - 5000),
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             },
             //this debt is more significant because beside being high in amount it's also older, so should be prioritized and picked
             PayableAccount {
                 wallet: make_wallet("wallet1"),
                 balance: same_amount_significance,
                 last_paid_timestamp: from_time_t(now - 10000),
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             },
             //similarly these two wallets have debts equally old but the second has a bigger balance and should be chosen
             PayableAccount {
                 wallet: make_wallet("wallet3"),
                 balance: 100,
                 last_paid_timestamp: same_age_significance,
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             },
             PayableAccount {
                 wallet: make_wallet("wallet2"),
                 balance: 330,
                 last_paid_timestamp: same_age_significance,
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             },
         ];
 
@@ -3402,7 +3392,7 @@ mod tests {
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 1234,
                 ),
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             },
             PayableAccount {
                 wallet: make_wallet("wallet1"),
@@ -3410,7 +3400,7 @@ mod tests {
                 last_paid_timestamp: from_time_t(
                     now - PAYMENT_CURVES.balance_decreases_for_sec - 1,
                 ),
-                pending_payable_rowid_opt: None,
+                pending_payable_opt:None
             },
         ];
 
@@ -3496,14 +3486,14 @@ mod tests {
             wallet: wallet_account_1.clone(),
             balance: payable_account_balance_1,
             last_paid_timestamp: payment_timestamp_1,
-            pending_payable_rowid_opt: None,
+            pending_payable_opt: None
         };
         let wallet_account_2 = make_wallet("creditor2");
         let account_2 = PayableAccount {
             wallet: wallet_account_2.clone(),
             balance: payable_account_balance_2,
             last_paid_timestamp: payment_timestamp_2,
-            pending_payable_rowid_opt: None,
+            pending_payable_opt: None
         };
         let pending_payable_scan_interval = 200; //should be slightly less than 1/5 of the time until shutting the system
         let payable_dao = PayableDaoMock::new()

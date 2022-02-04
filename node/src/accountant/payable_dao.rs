@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::accountant::{unsigned_to_signed, TransactionId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -6,7 +7,7 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::sub_lib::wallet::Wallet;
 use rusqlite::types::{Null, ToSql, Type};
-use rusqlite::{Error, OptionalExtension};
+use rusqlite::{Error};
 use std::fmt::Debug;
 use std::time::SystemTime;
 use web3::types::H256;
@@ -22,7 +23,13 @@ pub struct PayableAccount {
     pub wallet: Wallet,
     pub balance: i64,
     pub last_paid_timestamp: SystemTime,
-    pub pending_payable_rowid_opt: Option<u64>,
+    pub pending_payable_opt: Option<PendingPayable>
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PendingPayable{
+    pub rowid: u64,
+    pub hash_opt: Option<H256>
 }
 
 //TODO we probably can cut back this struct below as we need very little from it
@@ -63,7 +70,7 @@ pub trait PayableDao: Debug + Send {
     //TODO this method doesn't have a use now; what is its future?
     fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PayableDaoError>;
 
-    fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount>;
+    //there used to be method 'accountant_status' but was turned into test utility since never used in the production code
 
     fn non_pending_payables(&self) -> Vec<PayableAccount>;
 
@@ -148,38 +155,6 @@ impl PayableDao for PayableDaoReal {
         }
     }
 
-    fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount> {
-        let mut stmt = self.conn
-            .prepare("select balance, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?")
-            .expect("Internal error");
-        match stmt
-            .query_row(&[&wallet], |row| {
-                let balance_result = row.get(0);
-                let last_paid_timestamp_result = row.get(1);
-                let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(2);
-                match (
-                    balance_result,
-                    last_paid_timestamp_result,
-                    pending_payable_rowid_result,
-                ) {
-                    (Ok(balance), Ok(last_paid_timestamp), Ok(rowid)) => Ok(PayableAccount {
-                        wallet: wallet.clone(),
-                        balance,
-                        last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                        pending_payable_rowid_opt: rowid.map(|num| {
-                            u64::try_from(num).expect("SQLite counts this just in positive numbers")
-                        }),
-                    }),
-                    _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
-                }
-            })
-            .optional()
-        {
-            Ok(value) => value,
-            Err(e) => panic!("Database is corrupt: {:?}", e),
-        }
-    }
-
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
         let mut stmt = self.conn
             .prepare("select wallet_address, balance, last_paid_timestamp from payable where pending_payable_rowid is null")
@@ -194,7 +169,7 @@ impl PayableDao for PayableDaoReal {
                     wallet,
                     balance,
                     last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    pending_payable_rowid_opt: None,
+                    pending_payable_opt: None
                 }),
                 _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
             }
@@ -216,9 +191,11 @@ impl PayableDao for PayableDaoReal {
                     balance,
                     last_paid_timestamp,
                     wallet_address,
-                    pending_payable_rowid
+                    pending_payable.transaction_hash
                 from
                     payable
+                left join pending_payable on
+                    pending_payable.rowid = payable.pending_payable_rowid
                 where
                     balance >= ? and
                     last_paid_timestamp >= ?
@@ -249,11 +226,12 @@ impl PayableDao for PayableDaoReal {
                     wallet,
                     balance,
                     last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    pending_payable_rowid_opt: pending_payable_rowid_opt.map(|num| {
-                        u64::try_from(num).expect(
-                            "SQLite counts this just in positive numbers; should never happened",
-                        )
-                    }),
+                    pending_payable_opt: todo!()
+                    // pending_payable_rowid_opt.map(|num| {
+                    //     u64::try_from(num).expect(
+                    //         "SQLite counts this just in positive numbers; should never happened",
+                    //     )
+                    // }),
                 }),
                 _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
             }
@@ -343,12 +321,12 @@ impl PayableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::test_utils::make_pending_payable_fingerprint;
+    use crate::accountant::test_utils::{account_status, make_pending_payable_fingerprint};
     use crate::accountant::TransactionId;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::database::db_initializer;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::database::db_initializer::{DATABASE_FILE, DbInitializer, DbInitializerReal};
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
@@ -382,14 +360,17 @@ mod tests {
         let before = dao_utils::to_time_t(SystemTime::now());
         let wallet = make_wallet("booga");
         let status = {
+            let boxed_conn = DbInitializerReal::default()
+                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .unwrap();
             let subject = PayableDaoReal::new(
-                DbInitializerReal::default()
-                    .initialize(&home_dir, true, MigratorConfig::test_default())
-                    .unwrap(),
+                boxed_conn
             );
+            let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
 
             subject.more_money_payable(&wallet, 1234).unwrap();
-            subject.account_status(&wallet).unwrap()
+
+            account_status(&secondary_conn,&wallet).unwrap()
         };
 
         let after = dao_utils::to_time_t(SystemTime::now());
@@ -417,11 +398,13 @@ mod tests {
             "more_money_payable_works_for_existing_address",
         );
         let wallet = make_wallet("booga");
+        let boxed_conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
         let subject = {
             let subject = PayableDaoReal::new(
-                DbInitializerReal::default()
-                    .initialize(&home_dir, true, MigratorConfig::test_default())
-                    .unwrap(),
+                boxed_conn
             );
             subject.more_money_payable(&wallet, 1234).unwrap();
             let mut flags = OpenFlags::empty();
@@ -439,7 +422,8 @@ mod tests {
 
         let status = {
             subject.more_money_payable(&wallet, 2345).unwrap();
-            subject.account_status(&wallet).unwrap()
+
+            account_status(&secondary_conn,&wallet).unwrap()
         };
 
         assert_eq!(status.wallet, wallet);
@@ -473,21 +457,22 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let pending_payable_rowid = 656;
-        let conn = DbInitializerReal::default()
+        let boxed_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
+        let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
         {
-            let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp) values (?,?,?)").unwrap();
+            let mut stm = boxed_conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp) values (?,?,?)").unwrap();
             let params: &[&dyn ToSql] = &[&wallet, &5000, &150_000_000];
             stm.execute(params).unwrap();
         }
-        let subject = PayableDaoReal::new(conn);
-        let before_account_status = subject.account_status(&wallet).unwrap();
+        let subject = PayableDaoReal::new(boxed_conn);
+        let before_account_status = account_status(&secondary_conn,&wallet).unwrap();
         let before_expected_status = PayableAccount {
             wallet: wallet.clone(),
             balance: 5000,
             last_paid_timestamp: from_time_t(150_000_000),
-            pending_payable_rowid_opt: None,
+            pending_payable_opt: None
         };
         assert_eq!(before_account_status, before_expected_status.clone());
 
@@ -495,9 +480,9 @@ mod tests {
             .mark_pending_payable_rowid(&wallet, pending_payable_rowid)
             .unwrap();
 
-        let after_account_status = subject.account_status(&wallet).unwrap();
+        let after_account_status = account_status(&secondary_conn,&wallet).unwrap();
         let mut after_expected_status = before_expected_status;
-        after_expected_status.pending_payable_rowid_opt = Some(pending_payable_rowid);
+        after_expected_status.pending_payable_opt = Some(PendingPayable{rowid: pending_payable_rowid,hash_opt: None});
         assert_eq!(after_account_status, after_expected_status)
     }
 
@@ -564,30 +549,31 @@ mod tests {
             ensure_node_home_directory_exists("payable_dao", "transaction_canceled_works");
         let hash = H256::from_uint(&U256::from(45678));
         let rowid = 656;
-        let conn = DbInitializerReal::default()
+        let boxed_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
+        let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
         let amount = 55555;
         let timestamp = from_time_t(190_000_000);
         let recipient_wallet = make_wallet("booga");
         {
             create_account_with_pending_payment(
-                conn.as_ref(),
+                boxed_conn.as_ref(),
                 &recipient_wallet,
                 amount,
                 timestamp,
                 rowid,
             )
         }
-        let subject = PayableDaoReal::new(conn);
-        let status_before = subject.account_status(&recipient_wallet);
+        let subject = PayableDaoReal::new(boxed_conn);
+        let status_before = account_status(&secondary_conn, &recipient_wallet);
         assert_eq!(
             status_before,
             Some(PayableAccount {
                 wallet: recipient_wallet.clone(),
                 balance: amount,
                 last_paid_timestamp: timestamp,
-                pending_payable_rowid_opt: Some(656)
+                pending_payable_opt: Some(PendingPayable{ rowid, hash_opt: None })
             })
         );
 
@@ -595,14 +581,14 @@ mod tests {
             .transaction_canceled(TransactionId { hash, rowid })
             .unwrap();
 
-        let status_after = subject.account_status(&recipient_wallet);
+        let status_after = account_status(&secondary_conn, &recipient_wallet);
         assert_eq!(
             status_after,
             Some(PayableAccount {
                 wallet: recipient_wallet,
                 balance: amount,
                 last_paid_timestamp: timestamp,
-                pending_payable_rowid_opt: None
+                pending_payable_opt: None
             })
         )
     }
@@ -650,9 +636,10 @@ mod tests {
     fn transaction_confirmed_works() {
         let home_dir =
             ensure_node_home_directory_exists("payable_dao", "transaction_confirmed_works");
-        let conn = DbInitializerReal::default()
+        let boxed_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
+        let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
         let previous_timestamp = from_time_t(190_000_000);
@@ -663,22 +650,22 @@ mod tests {
         let wallet = make_wallet("bobble");
         {
             create_account_with_pending_payment(
-                conn.as_ref(),
+                boxed_conn.as_ref(),
                 &wallet,
                 starting_amount,
                 previous_timestamp,
                 rowid,
             )
         }
-        let subject = PayableDaoReal::new(conn);
-        let status_before = subject.account_status(&wallet);
+        let subject = PayableDaoReal::new(boxed_conn);
+        let status_before = account_status(&secondary_conn,&wallet);
         assert_eq!(
             status_before,
             Some(PayableAccount {
                 wallet: wallet.clone(),
                 balance: starting_amount,
                 last_paid_timestamp: previous_timestamp,
-                pending_payable_rowid_opt: Some(rowid)
+                pending_payable_opt: Some(PendingPayable{ rowid, hash_opt: None })
             })
         );
         let pending_payable_fingerprint = PendingPayableFingerprint {
@@ -693,14 +680,14 @@ mod tests {
         let result = subject.transaction_confirmed(&pending_payable_fingerprint);
 
         assert_eq!(result, Ok(()));
-        let status_after = subject.account_status(&wallet);
+        let status_after = account_status(&secondary_conn,&wallet);
         assert_eq!(
             status_after,
             Some(PayableAccount {
                 wallet,
                 balance: starting_amount - payment,
                 last_paid_timestamp: payment_timestamp,
-                pending_payable_rowid_opt: None
+                pending_payable_opt: None
             })
         )
     }
@@ -779,24 +766,6 @@ mod tests {
     }
 
     #[test]
-    fn payable_account_status_works_when_account_doesnt_exist() {
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "payable_account_status_works_when_account_doesnt_exist",
-        );
-        let wallet = make_wallet("booga");
-        let subject = PayableDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
-                .unwrap(),
-        );
-
-        let result = subject.account_status(&wallet);
-
-        assert_eq!(result, None);
-    }
-
-    #[test]
     fn non_pending_payables_should_return_an_empty_vec_when_the_database_is_empty() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
@@ -818,13 +787,11 @@ mod tests {
             "payable_dao",
             "non_pending_payables_should_return_payables_with_no_pending_transaction",
         );
-
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
                 .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
-
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
         let conn =
@@ -839,7 +806,6 @@ mod tests {
                 .execute(params)
                 .unwrap();
         };
-
         insert("0x0000000000000000000000000000000000666f6f", 42, Some(15));
         insert("0x0000000000000000000000000000000000626172", 24, Some(16));
         insert(&make_wallet("foobar").to_string(), 44, None);
@@ -854,13 +820,13 @@ mod tests {
                     wallet: make_wallet("foobar"),
                     balance: 44,
                     last_paid_timestamp: from_time_t(0),
-                    pending_payable_rowid_opt: None
+                    pending_payable_opt: None
                 },
                 PayableAccount {
                     wallet: make_wallet("barfoo"),
                     balance: 22,
                     last_paid_timestamp: from_time_t(0),
-                    pending_payable_rowid_opt: None
+                    pending_payable_opt: None
                 },
             ]
         );
@@ -926,14 +892,19 @@ mod tests {
             "0x4444444444444444444444444444444444444444",
             1_000_000_001, // above minimum amount
             timestamp4,    // below maximum age
-            Some(4789),
+            Some(1),
         );
+        let params: &[&dyn ToSql] = &[&String::from("0xabc4546cce78230a2312e12f3acb78747340456fe5237896666100143assd223"),&40,&177777777,&1];
+        conn
+            .prepare("insert into pending_payable (transaction_hash,amount,payment_timestamp,attempt) values (?,?,?,?)")
+            .unwrap()
+            .execute(params)
+            .unwrap();
 
         let subject = PayableDaoReal::new(conn);
 
         let top_records = subject.top_records(1_000_000_000, 86400);
         let total = subject.total();
-
         assert_eq!(
             top_records,
             vec![
@@ -941,13 +912,13 @@ mod tests {
                     wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
                     balance: 1_000_000_001,
                     last_paid_timestamp: dao_utils::from_time_t(timestamp4),
-                    pending_payable_rowid_opt: Some(4789)
+                    pending_payable_opt: Some(PendingPayable{ rowid: 1, hash_opt: None })
                 },
                 PayableAccount {
                     wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
                     balance: 1_000_000_000,
                     last_paid_timestamp: dao_utils::from_time_t(timestamp3),
-                    pending_payable_rowid_opt: None
+                    pending_payable_opt: None
                 },
             ]
         );

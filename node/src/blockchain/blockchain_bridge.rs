@@ -344,7 +344,7 @@ struct PendingTxInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::payable_dao::PayableAccount;
+    use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::Payment;
@@ -469,7 +469,7 @@ mod tests {
                 wallet: make_wallet("blah"),
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
-                pending_payable_rowid_opt: Some(789),
+                pending_payable_opt: Some(PendingPayable{ rowid: 789, hash_opt: None })
             }],
         };
         let (accountant, _, _) = make_recorder();
@@ -504,7 +504,7 @@ mod tests {
                 wallet: make_wallet("blah"),
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
-                pending_payable_rowid_opt: Some(123),
+                pending_payable_opt: Some(PendingPayable{ rowid: 123, hash_opt: None })
             }],
         };
 
@@ -557,13 +557,13 @@ mod tests {
                         wallet: make_wallet("blah"),
                         balance: 420,
                         last_paid_timestamp: from_time_t(150_000_000),
-                        pending_payable_rowid_opt: None,
+                        pending_payable_opt: None
                     },
                     PayableAccount {
                         wallet: make_wallet("foo"),
                         balance: 210,
                         last_paid_timestamp: from_time_t(160_000_000),
-                        pending_payable_rowid_opt: None,
+                        pending_payable_opt: None
                     },
                 ],
             })
@@ -637,7 +637,7 @@ mod tests {
                 wallet: make_wallet("blah"),
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
-                pending_payable_rowid_opt: None,
+                pending_payable_opt: None
             }],
         };
 

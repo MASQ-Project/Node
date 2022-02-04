@@ -2,9 +2,7 @@
 
 #![cfg(test)]
 
-use crate::accountant::payable_dao::{
-    PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
-};
+use crate::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory, PendingPayable};
 use crate::accountant::pending_payable_dao::{
     PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory,
 };
@@ -29,6 +27,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use rusqlite::{Connection, Error, OptionalExtension};
+use crate::database::dao_utils;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -62,7 +62,7 @@ pub fn make_payable_account_with_recipient_and_balance_and_timestamp_opt(
         wallet: recipient,
         balance,
         last_paid_timestamp: timestamp_opt.unwrap_or(SystemTime::now()),
-        pending_payable_rowid_opt: None,
+        pending_payable_opt: None
     }
 }
 
@@ -251,8 +251,6 @@ impl ConfigDaoFactoryMock {
 
 #[derive(Debug, Default)]
 pub struct PayableDaoMock {
-    account_status_parameters: Arc<Mutex<Vec<Wallet>>>,
-    account_status_results: RefCell<Vec<Option<PayableAccount>>>,
     more_money_payable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
     more_money_payable_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     non_pending_payables_params: Arc<Mutex<Vec<()>>>,
@@ -309,14 +307,6 @@ impl PayableDao for PayableDaoMock {
             .unwrap()
             .push(transaction_id);
         self.transaction_canceled_results.borrow_mut().remove(0)
-    }
-
-    fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount> {
-        self.account_status_parameters
-            .lock()
-            .unwrap()
-            .push(wallet.clone());
-        self.account_status_results.borrow_mut().remove(0)
     }
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
@@ -898,5 +888,41 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
         attempt: 0,
         amount: 12345,
         process_error: None,
+    }
+}
+
+//warning: this test function will not tell you anything about the transaction record in the pending_payable table
+pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccount> {
+    let mut stmt = conn
+        .prepare("select balance, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?")
+        .expect("Internal error");
+    match stmt
+        .query_row(&[&wallet], |row| {
+            let balance_result = row.get(0);
+            let last_paid_timestamp_result = row.get(1);
+            let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(2);
+            match (
+                balance_result,
+                last_paid_timestamp_result,
+                pending_payable_rowid_result,
+            ) {
+                (Ok(balance), Ok(last_paid_timestamp), Ok(rowid)) => Ok(PayableAccount {
+                    wallet: wallet.clone(),
+                    balance,
+                    last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                    pending_payable_opt: match rowid{
+                        Some(rowid) => Some(PendingPayable{ rowid: u64::try_from(rowid).expect("SQLite counts this just in positive numbers"),
+                            hash_opt: None
+                        }),
+                        None => None
+                    }
+                }),
+                _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
+            }
+        })
+        .optional()
+    {
+        Ok(value) => value,
+        Err(e) => panic!("Database is corrupt: {:?}", e),
     }
 }
