@@ -301,15 +301,9 @@ impl DatabaseMigration for Migrate_4_to_5 {
                 "Migration from 4 to 5: no previous pending transactions found; continuing"
             )
         };
-        let statement_1 = "ALTER TABLE payable RENAME TO _payable_old";
-        let statement_2 = "CREATE TABLE payable (\
-                wallet_address text primary key, \
-                balance integer not null, \
-                last_paid_timestamp integer not null\
-        )";
-        let statement_3 = "ALTER TABLE payable ADD pending_payable_rowid integer null";
-        let statement_4 = "INSERT INTO payable (wallet_address, balance, last_paid_timestamp) SELECT wallet_address, balance, last_paid_timestamp FROM _payable_old";
-        let statement_5 = "CREATE TABLE pending_payable (\
+        let statement_1 = "ALTER TABLE payable DROP COLUMN pending_payment_transaction";
+        let statement_2 = "ALTER TABLE payable ADD pending_payable_rowid integer null";
+        let statement_3 = "CREATE TABLE pending_payable (\
                 rowid integer primary key, \
                 transaction_hash text not null, \
                 amount integer not null, \
@@ -317,11 +311,10 @@ impl DatabaseMigration for Migrate_4_to_5 {
                 attempt integer not null, \
                 process_error text null\
             )";
-        let statement_6 =
+        let statement_4 =
             "CREATE UNIQUE INDEX pending_payable_hash_idx ON pending_payable (transaction_hash)";
-        let statement_7 = "DROP TABLE _payable_old";
-        let statement_8 = "DROP INDEX idx_receivable_wallet_address";
-        let statement_9 = "DROP INDEX idx_banned_wallet_address";
+        let statement_5 = "DROP INDEX idx_receivable_wallet_address";
+        let statement_6 = "DROP INDEX idx_banned_wallet_address";
         declaration_utils.execute_upon_transaction(&[
             statement_1,
             statement_2,
@@ -329,9 +322,6 @@ impl DatabaseMigration for Migrate_4_to_5 {
             statement_4,
             statement_5,
             statement_6,
-            statement_7,
-            statement_8,
-            statement_9,
         ])
     }
 

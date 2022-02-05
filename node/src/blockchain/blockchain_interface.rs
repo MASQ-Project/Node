@@ -548,7 +548,6 @@ mod tests {
         make_default_signed_transaction, make_fake_event_loop_handle,
         SendTransactionToolsWrapperMock, TestTransport,
     };
-    use crate::database::dao_utils::to_time_t;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::pure_test_utils::decode_hex;
     use crate::test_utils::recorder::make_recorder;
@@ -1018,6 +1017,7 @@ mod tests {
         let inputs =
             SendTransactionInputs::new(&account, &consuming_wallet, U256::from(1), gas_price)
                 .unwrap();
+        let test_timestamp_before = SystemTime::now();
 
         let result = subject
             .send_transaction(
@@ -1028,6 +1028,7 @@ mod tests {
             )
             .unwrap();
 
+        let test_timestamp_after = SystemTime::now();
         let system = System::new("can transfer tokens test");
         System::current().stop();
         assert_eq!(system.run(), 0);
@@ -1039,15 +1040,7 @@ mod tests {
             H256::from_str("e26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f")
                 .unwrap()
         );
-        let comparable_now = to_time_t(SystemTime::now());
-        let result_as_better_comparable_in_secs = to_time_t(timestamp);
-        assert!(
-            (result_as_better_comparable_in_secs + 5) >= comparable_now
-                && comparable_now >= result_as_better_comparable_in_secs,
-            "{} is not smaller than {}",
-            result_as_better_comparable_in_secs,
-            comparable_now
-        );
+        assert!(test_timestamp_before < timestamp && timestamp < test_timestamp_after);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let sent_backup = accountant_recording.get_record::<PendingPayableFingerprint>(0);
         let expected_pending_payable_fingerprint = PendingPayableFingerprint {
@@ -1781,92 +1774,111 @@ mod tests {
 
     #[test]
     fn conversion_between_errors_work() {
-        assert_eq!(
-            BlockchainError::from(BlockchainTransactionError::UnusableWallet(
-                "wallet error".to_string()
-            )),
-            BlockchainError::TransactionFailed {
-                msg: "UnusableWallet: wallet error".to_string(),
-                hash_opt: None
-            }
-        );
-        assert_eq!(
-            BlockchainError::from(BlockchainTransactionError::Signing(
-                "signature error".to_string()
-            )),
-            BlockchainError::TransactionFailed {
-                msg: "Signing: signature error".to_string(),
-                hash_opt: None
-            }
-        );
         let hash = H256::from_uint(&U256::from(4555));
-        assert_eq!(
-            BlockchainError::from(BlockchainTransactionError::Sending(
-                "sending error".to_string(),
-                hash
-            )),
-            BlockchainError::TransactionFailed {
-                msg: "Sending: sending error".to_string(),
-                hash_opt: Some(hash)
-            }
-        )
-    }
+        let original_errors = [
+            BlockchainTransactionError::UnusableWallet("wallet error".to_string()),
+            BlockchainTransactionError::Signing("signature error".to_string()),
+            BlockchainTransactionError::Sending("sending error".to_string(), hash),
+        ];
 
-    #[test]
-    fn display_for_blockchain_transaction_error() {
-        assert_eq!(
-            BlockchainTransactionError::UnusableWallet("haha".to_string()).to_string(),
-            String::from("UnusableWallet: haha")
-        );
-        assert_eq!(
-            BlockchainTransactionError::Signing("hehe".to_string()).to_string(),
-            String::from("Signing: hehe")
-        );
-        assert_eq!(
-            BlockchainTransactionError::Sending(
-                "hihi".to_string(),
-                H256::from_uint(&U256::from(4545))
-            )
-            .to_string(),
-            String::from("Sending: hihi")
-        );
+        let check: Vec<_> = original_errors
+            .clone()
+            .into_iter()
+            .zip(original_errors.into_iter())
+            .map(|(to_resolve, to_assert)| match to_resolve {
+                BlockchainTransactionError::UnusableWallet(..) => {
+                    assert_eq!(
+                        BlockchainError::from(to_assert),
+                        BlockchainError::TransactionFailed {
+                            msg: "UnusableWallet: wallet error".to_string(),
+                            hash_opt: None
+                        }
+                    );
+                    11
+                }
+                BlockchainTransactionError::Signing(..) => {
+                    assert_eq!(
+                        BlockchainError::from(to_assert),
+                        BlockchainError::TransactionFailed {
+                            msg: "Signing: signature error".to_string(),
+                            hash_opt: None
+                        }
+                    );
+                    22
+                }
+                BlockchainTransactionError::Sending(..) => {
+                    assert_eq!(
+                        BlockchainError::from(to_assert),
+                        BlockchainError::TransactionFailed {
+                            msg: "Sending: sending error".to_string(),
+                            hash_opt: Some(hash)
+                        }
+                    );
+                    33
+                }
+            })
+            .collect();
+
+        assert_eq!(check, vec![11, 22, 33])
     }
 
     #[test]
     fn carries_transaction_hash_works() {
-        assert_eq!(BlockchainError::InvalidUrl.carries_transaction_hash(), None);
-        assert_eq!(
-            BlockchainError::QueryFailed("blah".to_string()).carries_transaction_hash(),
-            None
-        );
-        assert_eq!(
-            BlockchainError::SignedValueConversion(66).carries_transaction_hash(),
-            None
-        );
-        assert_eq!(
-            BlockchainError::InvalidAddress.carries_transaction_hash(),
-            None
-        );
-        assert_eq!(
-            BlockchainError::InvalidResponse.carries_transaction_hash(),
-            None
-        );
-        assert_eq!(
-            BlockchainError::TransactionFailed {
-                msg: "blah".to_string(),
-                hash_opt: None
-            }
-            .carries_transaction_hash(),
-            None
-        );
         let hash = H256::from_uint(&U256::from(999));
-        assert_eq!(
+        let original_errors = [
+            BlockchainError::InvalidUrl,
+            BlockchainError::InvalidAddress,
+            BlockchainError::InvalidResponse,
+            BlockchainError::QueryFailed("blah".to_string()),
+            BlockchainError::SignedValueConversion(33333333333333),
             BlockchainError::TransactionFailed {
-                msg: "blah".to_string(),
-                hash_opt: Some(hash)
-            }
-            .carries_transaction_hash(),
-            Some(hash)
-        )
+                msg: "Voila".to_string(),
+                hash_opt: None,
+            },
+            BlockchainError::TransactionFailed {
+                msg: "Hola".to_string(),
+                hash_opt: Some(hash),
+            },
+        ];
+
+        let check: Vec<_> = original_errors
+            .clone()
+            .into_iter()
+            .zip(original_errors.into_iter())
+            .map(|(to_resolve, to_assert)| match to_resolve {
+                BlockchainError::InvalidUrl => {
+                    assert_eq!(to_assert.carries_transaction_hash(), None);
+                    11
+                }
+                BlockchainError::InvalidAddress => {
+                    assert_eq!(to_assert.carries_transaction_hash(), None);
+                    22
+                }
+                BlockchainError::InvalidResponse => {
+                    assert_eq!(to_assert.carries_transaction_hash(), None);
+                    33
+                }
+                BlockchainError::QueryFailed(..) => {
+                    assert_eq!(to_assert.carries_transaction_hash(), None);
+                    44
+                }
+                BlockchainError::SignedValueConversion(..) => {
+                    assert_eq!(to_assert.carries_transaction_hash(), None);
+                    55
+                }
+                BlockchainError::TransactionFailed { hash_opt: None, .. } => {
+                    assert_eq!(to_assert.carries_transaction_hash(), None);
+                    66
+                }
+                BlockchainError::TransactionFailed {
+                    hash_opt: Some(_), ..
+                } => {
+                    assert_eq!(to_assert.carries_transaction_hash(), Some(hash));
+                    77
+                }
+            })
+            .collect();
+
+        assert_eq!(check, vec![11, 22, 33, 44, 55, 66, 77])
     }
 }
