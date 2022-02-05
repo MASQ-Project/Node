@@ -2027,6 +2027,7 @@ dependencies = [
  "ethsign-crypto",
  "futures",
  "itertools 0.10.3",
+ "lazy_static",
  "masq_lib",
  "native-tls",
  "node",
