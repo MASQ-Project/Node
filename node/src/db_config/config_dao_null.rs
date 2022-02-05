@@ -8,7 +8,7 @@ use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
-    DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL, ETH_MAINNET_CONTRACT_CREATION_BLOCK,
+    DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
 };
 use rusqlite::Transaction;
 use std::any::Any;
@@ -120,7 +120,10 @@ impl Default for ConfigDaoNull {
         data.insert("gas_price".to_string(), (Some("1".to_string()), false));
         data.insert(
             "start_block".to_string(),
-            (Some(ETH_MAINNET_CONTRACT_CREATION_BLOCK.to_string()), false),
+            (
+                Some(Chain::default().rec().contract_creation_block.to_string()),
+                false,
+            ),
         );
         data.insert("consuming_wallet_private_key".to_string(), (None, true));
         data.insert("example_encrypted".to_string(), (None, true));
@@ -245,7 +248,7 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{
         DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK,
-        DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+        DEFAULT_RECEIVABLE_SCAN_INTERVAL, ETH_MAINNET_CONTRACT_CREATION_BLOCK,
     };
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;

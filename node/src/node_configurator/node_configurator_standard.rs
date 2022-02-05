@@ -20,7 +20,7 @@ use crate::database::db_migrations::{ExternalData, MigratorConfig};
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::node_configurator::unprivileged_parse_args_configuration::{
-    ParseArgsConfiguration, ParseArgsConfigurationDaoNull,
+    ParseArgsConfiguration, ParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path,
@@ -87,7 +87,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             MigratorConfig::create_or_migrate(self.wrap_up_db_externals(multi_config)),
         );
         let mut unprivileged_config = BootstrapperConfig::new();
-        let pars_args_configurator = ParseArgsConfigurationDaoNull {};
+        let pars_args_configurator = ParseArgsConfigurationDaoReal {};
         pars_args_configurator.unprivileged_parse_args(
             multi_config,
             &mut unprivileged_config,
@@ -272,6 +272,7 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+    use crate::node_configurator::unprivileged_parse_args_configuration::ParseArgsConfigurationDaoNull;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
@@ -296,6 +297,57 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::vec;
+
+    #[test]
+    fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real",
+        );
+        let neighbor = vec![NodeDescriptor::try_from((
+            main_cryptde(),
+            "masq://eth-mainnet:MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234",
+        ))
+        .unwrap()];
+        {
+            let conn = DbInitializerReal::default()
+                .initialize(home_dir.as_path(), true, MigratorConfig::test_default())
+                .unwrap();
+            let mut persistent_config = PersistentConfigurationReal::from(conn);
+            persistent_config.change_password(None, "password").unwrap();
+            persistent_config
+                .set_past_neighbors(Some(neighbor.clone()), "password")
+                .unwrap();
+        }
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-mainnet",
+            "--db-password",
+            "password",
+            "--neighborhood-mode",
+            "originate-only",
+        ]);
+        let mut privileged_config = BootstrapperConfig::default();
+        privileged_config.data_directory = home_dir;
+        let subject = NodeConfiguratorStandardUnprivileged {
+            privileged_config,
+            logger: Logger::new("test"),
+        };
+
+        let result = subject.configure(&multi_config).unwrap();
+
+        let set_neighbors = if let NeighborhoodMode::OriginateOnly(neighbors, _) =
+            result.neighborhood_config.mode
+        {
+            neighbors
+        } else {
+            panic!(
+                "we expected originate only mode but got: {:?}",
+                result.neighborhood_config.mode
+            )
+        };
+        assert_eq!(set_neighbors, neighbor)
+    }
 
     #[test]
     fn configure_database_handles_error_during_setting_clandestine_port() {

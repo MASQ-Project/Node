@@ -2435,10 +2435,10 @@ mod tests {
     }
 
     #[test]
-    fn run_configuration_without_existing_database_with_config_dao_null_to_use() {
+    fn run_configuration_without_existing_database_implies_config_dao_null_to_use() {
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
-            "run_configuration_without_existing_database_with_config_dao_null_to_use",
+            "run_configuration_without_existing_database_implies_config_dao_null_to_use",
         );
         let conn =
             bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
@@ -2467,11 +2467,10 @@ mod tests {
     }
 
     #[test]
-    fn run_configuration_suppresses_db_migration_that_is_why_it_offers_just_config_dao_null_to_use()
-    {
+    fn run_configuration_suppresses_db_migration_implies_just_config_dao_null_to_use() {
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
-            "run_configuration_suppresses_db_migration_that_is_why_it_offers_just_config_dao_null_to_use",
+            "run_configuration_suppresses_db_migration_implies_just_config_dao_null_to_use",
         );
         let conn =
             bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
