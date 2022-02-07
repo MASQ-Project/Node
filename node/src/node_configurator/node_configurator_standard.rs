@@ -211,6 +211,9 @@ pub fn privileged_parse_args(
     privileged_config.crash_point =
         value_m!(multi_config, "crash-point", CrashPoint).unwrap_or(CrashPoint::None);
 
+    privileged_config.accountant_config.suppress_initial_scans =
+        value_m!(multi_config, "scans", String).expect("scans not defaulted properly") == "off".to_string();
+
     if let Some(public_key_str) = value_m!(multi_config, "fake-public-key", String) {
         let (main_public_key, alias_public_key) = match base64::decode(&public_key_str) {
             Ok(mut key) => {
@@ -2433,6 +2436,70 @@ mod tests {
         assert_eq!(
             bootstrapper_config.blockchain_bridge_config.chain,
             TEST_DEFAULT_CHAIN
+        );
+    }
+
+    #[test]
+    fn privileged_configuration_handles_scans_off() {
+        running_test();
+        let subject = NodeConfiguratorStandardPrivileged::new();
+        let args = [
+            "program",
+            "--ip",
+            "1.2.3.4",
+            "--scans",
+            "off",
+        ];
+
+        let bootstrapper_config = subject
+            .configure(&make_simplified_multi_config(args))
+            .unwrap();
+
+        assert_eq!(
+            bootstrapper_config.accountant_config.suppress_initial_scans,
+            true
+        );
+    }
+
+    #[test]
+    fn privileged_configuration_handles_scans_on() {
+        running_test();
+        let subject = NodeConfiguratorStandardPrivileged::new();
+        let args = [
+            "program",
+            "--ip",
+            "1.2.3.4",
+            "--scans",
+            "on",
+        ];
+
+        let bootstrapper_config = subject
+            .configure(&make_simplified_multi_config(args))
+            .unwrap();
+
+        assert_eq!(
+            bootstrapper_config.accountant_config.suppress_initial_scans,
+            false
+        );
+    }
+
+    #[test]
+    fn privileged_configuration_defaults_scans() {
+        running_test();
+        let subject = NodeConfiguratorStandardPrivileged::new();
+        let args = [
+            "program",
+            "--ip",
+            "1.2.3.4",
+        ];
+
+        let bootstrapper_config = subject
+            .configure(&make_simplified_multi_config(args))
+            .unwrap();
+
+        assert_eq!(
+            bootstrapper_config.accountant_config.suppress_initial_scans,
+            false
         );
     }
 

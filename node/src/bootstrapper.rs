@@ -339,6 +339,7 @@ impl BootstrapperConfig {
             accountant_config: AccountantConfig {
                 payables_scan_interval: Duration::from_secs(DEFAULT_PAYABLES_SCAN_INTERVAL),
                 receivables_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLES_SCAN_INTERVAL),
+                suppress_initial_scans: false,
             },
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],

@@ -1076,6 +1076,7 @@ mod tests {
             accountant_config: AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1150,6 +1151,7 @@ mod tests {
             accountant_config: AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1333,6 +1335,7 @@ mod tests {
             accountant_config: AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
@@ -1499,6 +1502,7 @@ mod tests {
             accountant_config: AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },

@@ -15,7 +15,6 @@ pub mod recorder;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
-
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::sub_lib::cryptde::CryptDE;
@@ -520,7 +519,7 @@ pub mod pure_test_utils {
     use crate::daemon::ChannelFactory;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use actix::Message;
+    use actix::{AsyncContext, Message};
     use actix::{Actor, Addr, Context, Handler, System};
     use crossbeam_channel::{Receiver, Sender};
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
@@ -657,6 +656,33 @@ pub mod pure_test_utils {
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
             .collect()
+    }
+
+    pub struct SystemKillerActor {
+        after: Duration
+    }
+
+    impl Actor for SystemKillerActor {
+        type Context = Context<Self>;
+
+        fn started(&mut self, ctx: &mut Self::Context) {
+            ctx.notify_later (CleanUpMessage{sleep_ms: 0}, self.after.clone());
+        }
+    }
+
+    // Note: the sleep_ms field of the CleanUpMessage is unused; all we need is a time strobe.
+    impl Handler<CleanUpMessage> for SystemKillerActor {
+        type Result = ();
+
+        fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
+            System::current().stop();
+        }
+    }
+
+    impl SystemKillerActor {
+        pub fn new (after: Duration) -> Self {
+            Self {after}
+        }
     }
 }
 

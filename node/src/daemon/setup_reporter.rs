@@ -910,6 +910,26 @@ impl RealUser {
     }
 }
 
+struct Scans {}
+impl ValueRetriever for Scans {
+    fn value_name(&self) -> &'static str {
+        "scans"
+    }
+
+    fn computed_default(
+        &self,
+        _bootstrapper_config: &BootstrapperConfig,
+        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _db_password_opt: &Option<String>,
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        Some (("on".to_string(), Default))
+    }
+
+    fn is_required(&self, _params: &SetupCluster) -> bool {
+        false
+    }
+}
+
 fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetriever>> {
     vec![
         Box::new(BlockchainServiceUrl {}),
@@ -930,6 +950,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(Neighbors {}),
         #[cfg(not(target_os = "windows"))]
         Box::new(RealUser::new(dirs_wrapper)),
+        Box::new(Scans {}),
     ]
 }
 
@@ -1135,6 +1156,7 @@ mod tests {
                     .to_string(),
                 Default,
             ),
+            ("scans", "on", Default),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1176,6 +1198,7 @@ mod tests {
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
+            ("scans", "off", Set),
         ]);
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
@@ -1201,6 +1224,7 @@ mod tests {
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
+            ("scans", "off", Set),
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1236,6 +1260,7 @@ mod tests {
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga"),
+            ("scans", "off"),
         ].into_iter()
             .map (|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
@@ -1265,6 +1290,7 @@ mod tests {
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
+            ("scans", "off", Set),
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1301,6 +1327,7 @@ mod tests {
             ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_SCANS", "off"),
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
         let dirs_wrapper = Box::new(DirsWrapperReal);
@@ -1328,6 +1355,7 @@ mod tests {
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
+            ("scans", "off", Configured),
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1378,6 +1406,9 @@ mod tests {
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
+            config_file
+                .write_all(b"scans = \"off\"\n")
+                .unwrap();
         }
         let ropsten_dir = data_root
             .join("MASQ")
@@ -1408,6 +1439,9 @@ mod tests {
                 .unwrap();
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"scans = \"off\"\n")
                 .unwrap();
         }
         let subject = SetupReporterReal::new(Box::new(
@@ -1469,6 +1503,7 @@ mod tests {
                     .to_string(),
                 Default,
             ),
+            ("scans", "off", Configured),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1510,6 +1545,7 @@ mod tests {
             ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_SCANS", "off"),
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
         let params = vec![
@@ -1530,6 +1566,7 @@ mod tests {
             "neighbors",
             #[cfg(not(target_os = "windows"))]
             "real-user",
+            "scans",
         ]
         .into_iter()
         .map(|name| UiSetupRequestValue::clear(name))
@@ -1563,6 +1600,7 @@ mod tests {
             ),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "6666:6666:agoob", Set),
+            ("scans", "off", Set),
         ]);
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
@@ -1592,6 +1630,7 @@ mod tests {
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
+            ("scans", "off", Configured),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1697,6 +1736,7 @@ mod tests {
                     .to_string(),
                 Default,
             ),
+            ("scans", "", Blank),
         ]);
         let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)]
             .into_iter()
@@ -1768,6 +1808,7 @@ mod tests {
                     .to_string(),
                 Default,
             ),
+            ("scans", "on", Default),
         ]);
         let incoming_setup = vec![UiSetupRequestValue::clear("chain")];
         let base_data_dir = base_dir.join("data_dir");
@@ -2693,6 +2734,15 @@ mod tests {
         assert_eq!(result, None);
     }
 
+    #[test]
+    fn scans_computed_default() {
+        let subject = Scans {};
+
+        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+
+        assert_eq! (result, Some (("on".to_string(), Default)));
+    }
+
     fn verify_requirements(
         subject: &dyn ValueRetriever,
         param_name: &str,
@@ -2798,6 +2848,7 @@ mod tests {
             crate::daemon::setup_reporter::RealUser::default().is_required(&params),
             false
         );
+        assert_eq!(Scans{}.is_required(&params), false);
     }
 
     #[test]
@@ -2824,5 +2875,6 @@ mod tests {
             crate::daemon::setup_reporter::RealUser::default().value_name(),
             "real-user"
         );
+        assert_eq!(Scans {}.value_name(), "scans");
     }
 }

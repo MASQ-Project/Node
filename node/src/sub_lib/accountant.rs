@@ -20,6 +20,7 @@ lazy_static! {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct AccountantConfig {
+    pub suppress_initial_scans: bool,
     pub payables_scan_interval: Duration,
     pub receivables_scan_interval: Duration,
 }

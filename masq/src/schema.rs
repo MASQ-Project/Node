@@ -17,6 +17,7 @@ use crate::commands::wallet_addresses_command::wallet_addresses_subcommand;
 use clap::{App, AppSettings, Arg};
 use lazy_static::lazy_static;
 use masq_lib::constants::{DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
+use crate::commands::scan_command::scan_subcommand;
 
 lazy_static! {
     static ref UI_PORT_HELP: String = format!(
@@ -59,6 +60,7 @@ pub fn app() -> App<'static, 'static> {
         .subcommand(descriptor_subcommand())
         .subcommand(generate_wallets_subcommand())
         .subcommand(recover_wallets_subcommand())
+        .subcommand(scan_subcommand())
         .subcommand(set_configuration_subcommand())
         .subcommand(set_password_subcommand())
         .subcommand(setup_subcommand())

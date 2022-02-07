@@ -629,6 +629,16 @@ pub struct UiRecoverWalletsResponse {}
 conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiScanRequest {
+    pub name: String
+}
+conversation_message!(UiScanRequest, "scan");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiScanResponse {}
+conversation_message!(UiScanResponse, "scan");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiSetConfigurationRequest {
     pub name: String,
     pub value: String,

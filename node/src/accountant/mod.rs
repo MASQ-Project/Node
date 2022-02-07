@@ -14,10 +14,6 @@ use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
-// use crate::db_config::config_dao::ConfigDaoFactory;
-// use crate::db_config::persistent_configuration::{
-//     PersistentConfiguration, PersistentConfigurationReal,
-// };
 use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
@@ -99,7 +95,6 @@ pub struct Accountant {
     receivable_dao: Box<dyn ReceivableDao>,
     banned_dao: Box<dyn BannedDao>,
     crashable: bool,
-    // persistent_configuration: Box<dyn PersistentConfiguration>,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
@@ -123,10 +118,10 @@ pub struct SentPayments {
 }
 
 #[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
-pub struct ScanForPayables;
+pub struct ScanForPayables {repeat: bool}
 
 #[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
-pub struct ScanForReceivables;
+pub struct ScanForReceivables {repeat: bool}
 
 impl Handler<BindMessage> for Accountant {
     type Result = ();
@@ -141,8 +136,13 @@ impl Handler<StartMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
-        ctx.notify(ScanForPayables);
-        ctx.notify(ScanForReceivables);
+        if self.config.suppress_initial_scans {
+            info!(&self.logger, "Started with --scans off; declining to begin database and blockchain scans");
+        }
+        else {
+            ctx.notify(ScanForPayables {repeat: true});
+            ctx.notify(ScanForReceivables {repeat: true});
+        }
     }
 }
 
@@ -167,7 +167,9 @@ impl Handler<ScanForPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_scan_for_payables();
-        ctx.notify_later(msg, self.config.payables_scan_interval);
+        if msg.repeat {
+            ctx.notify_later(msg, self.config.payables_scan_interval);
+        }
     }
 }
 
@@ -176,7 +178,9 @@ impl Handler<ScanForReceivables> for Accountant {
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_scan_for_receivables();
-        ctx.notify_later(msg, self.config.receivables_scan_interval);
+        if msg.repeat {
+            ctx.notify_later(msg, self.config.receivables_scan_interval);
+        }
     }
 }
 
@@ -247,7 +251,6 @@ impl Accountant {
         payable_dao_factory: Box<dyn PayableDaoFactory>,
         receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
         banned_dao_factory: Box<dyn BannedDaoFactory>,
-        // config_dao_factory: Box<dyn ConfigDaoFactory>,
     ) -> Accountant {
         Accountant {
             config: config.accountant_config.clone(),
@@ -257,9 +260,6 @@ impl Accountant {
             receivable_dao: receivable_dao_factory.make(),
             banned_dao: banned_dao_factory.make(),
             crashable: config.crash_point == CrashPoint::Message,
-            // persistent_configuration: Box::new(PersistentConfigurationReal::new(
-            //     config_dao_factory.make(),
-            // )),
             report_accounts_payable_sub: None,
             retrieve_transactions_sub: None,
             report_new_payments_sub: None,
@@ -358,10 +358,6 @@ impl Accountant {
             });
     }
 
-    // TODO FIXME EMERGENCY: This method must advance the start block to the current end of the
-    // blockchain; otherwise each incoming payment will be credited every time this method is
-    // executed. Extra credit: to protect against mid-scan panics, advance the start block
-    // every time a payment is credited.
     fn scan_for_received_payments(&mut self) {
         debug!(
             self.logger,
@@ -768,14 +764,14 @@ pub mod tests {
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
+    use crate::test_utils::pure_test_utils::{prove_that_crash_request_handler_is_hooked_up, SystemKillerActor};
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
-    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::{init_test_logging};
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
@@ -1282,6 +1278,7 @@ pub mod tests {
                 AccountantConfig {
                     payables_scan_interval: Duration::from_millis(10_000),
                     receivables_scan_interval: Duration::from_millis(10_000),
+                    suppress_initial_scans: false,
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1371,6 +1368,7 @@ pub mod tests {
                 AccountantConfig {
                     payables_scan_interval: Duration::from_millis(100),
                     receivables_scan_interval: Duration::from_secs(10_000),
+                    suppress_initial_scans: false,
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1413,6 +1411,7 @@ pub mod tests {
                 AccountantConfig {
                     payables_scan_interval: Duration::from_millis(100),
                     receivables_scan_interval: Duration::from_secs(10_000),
+                    suppress_initial_scans: false,
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1468,6 +1467,7 @@ pub mod tests {
                 AccountantConfig {
                     payables_scan_interval: Duration::from_secs(100_000),
                     receivables_scan_interval: Duration::from_secs(100_000),
+                    suppress_initial_scans: false,
                 },
                 make_wallet("some_wallet_address"),
             )),
@@ -1514,6 +1514,7 @@ pub mod tests {
                 AccountantConfig {
                     payables_scan_interval: Duration::from_secs(100_000),
                     receivables_scan_interval: Duration::from_secs(100_000),
+                    suppress_initial_scans: false,
                 },
                 earning_wallet.clone(),
             )),
@@ -1556,6 +1557,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_millis(100),
+                suppress_initial_scans: false,
             },
             earning_wallet.clone(),
         );
@@ -1640,6 +1642,7 @@ pub mod tests {
                 AccountantConfig {
                     payables_scan_interval: Duration::from_secs(10_000),
                     receivables_scan_interval: Duration::from_secs(10_000),
+                    suppress_initial_scans: false,
                 },
                 earning_wallet.clone(),
             )),
@@ -1673,7 +1676,6 @@ pub mod tests {
     #[test]
     fn accountant_payable_scan_timer_triggers_periodical_scanning_for_payables() {
         //in the very first round we scan without waiting but we cannot find any payables
-        init_test_logging();
         let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let receivable_dao = ReceivableDaoMock::new()
@@ -1685,6 +1687,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_millis(100),
                 receivables_scan_interval: Duration::from_secs(50_000), //deliberately big to refrain from starting off this scanning
+                suppress_initial_scans: false,
             },
             make_wallet("hi"),
         );
@@ -1710,7 +1713,7 @@ pub mod tests {
 
         send_start_message!(subject_subs);
 
-        system.run(); //this doesn't block because payable.dao_pending_payments() calls System::current.stop() when it's queue becomes empty
+        system.run(); //this doesn't block because payable.dao_pending_payments() calls System::current.stop() when its queue becomes empty
         let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
         assert_eq!(*non_pending_payables_params, vec![(), (), ()]); //the third attempt is the one where the queue is empty and System::current.stop() ends the cycle
         let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
@@ -1730,6 +1733,37 @@ pub mod tests {
     }
 
     #[test]
+    fn start_message_triggers_no_scans_in_suppress_mode() {
+        init_test_logging();
+        let system =
+            System::new("start_message_triggers_no_scans_in_suppress_mode");
+        let config = bc_from_ac_plus_earning_wallet(
+            AccountantConfig {
+                payables_scan_interval: Duration::from_millis(1),
+                receivables_scan_interval: Duration::from_secs(1),
+                suppress_initial_scans: true,
+            },
+            make_wallet("hi"),
+        );
+        let now = to_time_t(SystemTime::now());
+        let payable_dao = PayableDaoMock::new(); // No payables: demanding one would cause a panic
+        let receivable_dao = ReceivableDaoMock::new(); // No delinquencies: demanding one would cause a panic
+        let peer_actors = peer_actors_builder()
+            .build();
+        let subject = make_subject(Some(config), Some(payable_dao), Some(receivable_dao), None);
+        let subject_addr = subject.start();
+        let subject_subs = Accountant::make_subs_from(&subject_addr);
+        send_bind_message!(subject_subs, peer_actors);
+
+        send_start_message!(subject_subs);
+
+        System::current().stop();
+        system.run();
+        // no panics because of recalcitrant DAOs; therefore DAOs were not called; therefore test passes
+        TestLogHandler::new().exists_log_containing("Started with --scans off; declining to begin database and blockchain scans");
+    }
+
+    #[test]
     fn accountant_scans_after_startup() {
         init_test_logging();
         let (blockchain_bridge, _, _) = make_recorder();
@@ -1738,6 +1772,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(1000),
                 receivables_scan_interval: Duration::from_secs(1000),
+                suppress_initial_scans: false,
             },
             make_wallet("buy"),
             make_wallet("hi"),
@@ -1771,6 +1806,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(1000),
+                suppress_initial_scans: false,
             },
             make_wallet("mine"),
         );
@@ -1832,6 +1868,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_millis(100),
                 receivables_scan_interval: Duration::from_millis(1_000),
+                suppress_initial_scans: false,
             },
             make_wallet("mine"),
         );
@@ -1882,12 +1919,57 @@ pub mod tests {
     }
 
     #[test]
+    fn non_repeating_scan_for_payables_does_not_repeat() {
+        init_test_logging();
+        let config = bc_from_ac_plus_earning_wallet(
+            AccountantConfig {
+                payables_scan_interval: Duration::from_millis(1),
+                receivables_scan_interval: Duration::from_millis(1),
+                suppress_initial_scans: false,
+            },
+            make_wallet("mine"),
+        );
+        let non_pending_payables_params_arc = Arc::new (Mutex::new (vec![]));
+        let payable_dao = PayableDaoMock::default()
+            .non_pending_payables_params(&non_pending_payables_params_arc)
+            .non_pending_payables_result(vec![]);
+        let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
+        let system =
+            System::new("non_repeating_scan_for_payables_does_not_repeat");
+        let peer_actors = peer_actors_builder()
+            .blockchain_bridge(blockchain_bridge)
+            .build();
+        let subject = make_subject(Some(config), Some(payable_dao), None, None);
+        let earning_wallet = subject.earning_wallet.clone();
+        let subject_addr = subject.start();
+        let accountant_subs = Accountant::make_subs_from(&subject_addr);
+        send_bind_message!(accountant_subs, peer_actors);
+        let payables_sub = subject_addr.clone().recipient::<ScanForPayables>();
+        let receivables_sub = subject_addr.clone().recipient::<ScanForReceivables>();
+
+        let _ = payables_sub.try_send (ScanForPayables {repeat: false}).unwrap();
+        let _ = receivables_sub.try_send (ScanForReceivables {repeat: false}).unwrap();
+
+        let _killer = SystemKillerActor::new (Duration::from_millis (500)).start();
+        system.run(); // will be stopped after 500ms by _killer
+        let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
+        assert_eq!(
+            blockchain_bridge_recordings.get_record::<RetrieveTransactions>(0),
+            &RetrieveTransactions { recipient: earning_wallet }
+        );
+        assert_eq!(blockchain_bridge_recordings.len(), 1); // Sent exactly one, no more
+        let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
+        assert_eq!(*non_pending_payables_params, vec![()]); // Exactly once, no more
+    }
+
+    #[test]
     fn scan_for_delinquencies_triggers_bans_and_unbans() {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(1000),
+                suppress_initial_scans: false,
             },
             make_wallet("mine"),
         );
@@ -1946,6 +2028,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             make_wallet("hi"),
         );
@@ -1999,6 +2082,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             consuming_wallet.clone(),
             make_wallet("our earning wallet"),
@@ -2051,6 +2135,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             earning_wallet.clone(),
         );
@@ -2101,6 +2186,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             make_wallet("hi"),
         );
@@ -2148,6 +2234,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             consuming_wallet.clone(),
             make_wallet("the earning wallet"),
@@ -2192,6 +2279,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             earning_wallet.clone(),
         );
@@ -2234,6 +2322,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             make_wallet("hi"),
         );
@@ -2287,6 +2376,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             consuming_wallet.clone(),
             make_wallet("my earning wallet"),
@@ -2339,6 +2429,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             earning_wallet.clone(),
         );
@@ -2389,6 +2480,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             make_wallet("hi"),
         );
@@ -2437,6 +2529,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             consuming_wallet.clone(),
             make_wallet("own earning wallet"),
@@ -2481,6 +2574,7 @@ pub mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(100),
+                suppress_initial_scans: false,
             },
             earning_wallet.clone(),
         );

@@ -110,6 +110,12 @@ pub const REAL_USER_HELP: &str =
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
      you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
      like <uid>:<gid>:<home directory>.";
+pub const SCANS_HELP: &str =
+    "The Node, when running, performs various periodic scans, including scanning for payables that need to be paid, \
+    for incoming receivables that need to be recorded, and for delinquent Node that need to be banned. If you don't \
+    specify this parameter, or if you give it the value 'on', these scans will proceed normally. But if you give \
+    the value 'off', the scans won't be started when the Node starts, and will have to be started manually later \
+    with the MASQNode-UIv2 'scan' command. This parameter is most useful for testing.";
 
 lazy_static! {
     pub static ref DEFAULT_UI_PORT_VALUE: String = DEFAULT_UI_PORT.to_string();
@@ -223,6 +229,16 @@ pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
         .takes_value(true)
         .validator(common_validators::validate_real_user)
         .hidden(true)
+}
+
+pub fn scans_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name ("scans")
+        .long("scans")
+        .value_name("SCANS")
+        .takes_value(true)
+        .possible_values(&["on", "off"])
+        .default_value("on")
+        .help(SCANS_HELP)
 }
 
 pub fn ui_port_arg(help: &str) -> Arg {
@@ -354,6 +370,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(NEIGHBORS_HELP),
     )
     .arg(real_user_arg())
+    .arg(scans_arg())
 }
 
 pub mod common_validators {
