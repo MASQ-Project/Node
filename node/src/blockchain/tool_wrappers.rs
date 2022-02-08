@@ -3,14 +3,14 @@
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use actix::Recipient;
 use ethereum_types::H256;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::time::SystemTime;
 use web3::futures::Future;
 use web3::types::{Bytes, SignedTransaction, TransactionParameters};
 use web3::Error as Web3Error;
 use web3::{Transport, Web3};
 
-pub trait SendTransactionToolsWrapper {
+pub trait SendTransactionToolsWrapper: Debug {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
@@ -27,6 +27,12 @@ pub trait SendTransactionToolsWrapper {
 pub struct SendTransactionToolWrapperReal<'a, T: Transport + Debug> {
     web3: &'a Web3<T>,
     pending_payable_fingerprint_sub: &'a Recipient<PendingPayableFingerprint>,
+}
+
+impl<'a, T: Transport + Debug> Debug for SendTransactionToolWrapperReal<'a, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SendTransactionToolWrapperReal {{ web3: {:?}, pending_payable_fingerprint_sub: _OMITTED_ }}",self.web3)
+    }
 }
 
 impl<'a, T: Transport + Debug> SendTransactionToolWrapperReal<'a, T> {
@@ -60,10 +66,10 @@ impl<'a, T: Transport + Debug> SendTransactionToolsWrapper
         self.pending_payable_fingerprint_sub
             .try_send(PendingPayableFingerprint {
                 amount,
-                rowid: 0, //disregarded in this context
+                rowid_opt: None,
                 timestamp: now,
                 hash,
-                attempt: 0, //DB will know where to start: 1
+                attempt_opt: None,
                 process_error: None,
             })
             .expect("Accountant is dead");
@@ -75,6 +81,7 @@ impl<'a, T: Transport + Debug> SendTransactionToolsWrapper
     }
 }
 
+#[derive(Debug)]
 pub struct SendTransactionToolsWrapperNull;
 
 impl SendTransactionToolsWrapper for SendTransactionToolsWrapperNull {
@@ -103,10 +110,16 @@ impl SendTransactionToolsWrapper for SendTransactionToolsWrapperNull {
 
 #[cfg(test)]
 mod tests {
+    use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+    use crate::blockchain::test_utils::TestTransport;
     use crate::blockchain::tool_wrappers::{
-        SendTransactionToolsWrapper, SendTransactionToolsWrapperNull,
+        SendTransactionToolWrapperReal, SendTransactionToolsWrapper,
+        SendTransactionToolsWrapperNull,
     };
+    use crate::test_utils::recorder::make_recorder;
+    use actix::{Actor, Recipient};
     use web3::types::{Bytes, TransactionParameters};
+    use web3::Web3;
 
     #[test]
     #[should_panic(expected = "sign_transaction() should never be called on the null object")]
@@ -143,5 +156,21 @@ mod tests {
     fn null_request_new_pending_payable_fingerprint_stops_the_run() {
         let _ = SendTransactionToolsWrapperNull
             .request_new_pending_payable_fingerprint(Default::default(), 5);
+    }
+
+    #[test]
+    fn custom_debug_for_send_transaction_tool_wrapper_real() {
+        let transport = TestTransport::default();
+        let web3 = Web3::new(transport);
+        let (random_actor, _, _) = make_recorder();
+        let recipient: Recipient<PendingPayableFingerprint> = random_actor.start().recipient();
+
+        let result = format!(
+            "{:?}",
+            SendTransactionToolWrapperReal::new(&web3, &recipient)
+        );
+
+        assert_eq!(result,"SendTransactionToolWrapperReal { web3: Web3 { transport: TestTransport { asserted: 0, \
+         requests: RefCell { value: [] }, responses: RefCell { value: [] } } }, pending_payable_fingerprint_sub: _OMITTED_ }")
     }
 }

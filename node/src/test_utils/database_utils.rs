@@ -4,6 +4,7 @@
 
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_migrations::DbMigrator;
+use itertools::Itertools;
 use masq_lib::logger::Logger;
 use rusqlite::Connection;
 use std::cell::RefCell;
@@ -13,7 +14,6 @@ use std::fs::{remove_file, File};
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use itertools::Itertools;
 
 pub fn bring_db_0_back_to_life_and_return_connection(db_path: &PathBuf) -> Connection {
     match remove_file(db_path) {
@@ -127,17 +127,23 @@ pub fn assert_index_statement_is_coupled_with_right_parameter(
     conn: &dyn ConnectionWrapper,
     index_name: &str,
     expected_sql_chopped: &[&[&str]],
-){
+) {
     assert_sql_statements_contain_important_parts(
         parse_sql_to_pieces(&fetch_index_sql(conn, index_name)),
         expected_sql_chopped,
     )
 }
 
-pub fn assert_no_index_exists_for_table(conn:&dyn ConnectionWrapper,table_name:&str){
+pub fn assert_no_index_exists_for_table(conn: &dyn ConnectionWrapper, table_name: &str) {
     let found_indexes = query_specific_schema_information(conn, "index");
-    let isolated_table_name = format!(" {} ",table_name);
-    found_indexes.iter().for_each(|index_stm|assert!(!index_stm.contains(&isolated_table_name),"unexpected index on this table: {}",index_stm))
+    let isolated_table_name = format!(" {} ", table_name);
+    found_indexes.iter().for_each(|index_stm| {
+        assert!(
+            !index_stm.contains(&isolated_table_name),
+            "unexpected index on this table: {}",
+            index_stm
+        )
+    })
 }
 
 fn assert_sql_statements_contain_important_parts(
@@ -148,12 +154,17 @@ fn assert_sql_statements_contain_important_parts(
         HashSet::from_iter(slice_of_strs.into_iter().map(|str| str.to_string()))
     });
     actual.into_iter().for_each(|hash_set| {
-        assert!(prepared_expected
-                    .find(|hash_set_expected| hash_set
-                        .symmetric_difference(&hash_set_expected)
-                        .collect_vec()
-                        .is_empty())
-                    .is_some(),"part of the fetched statement (one line) that cannot be found in the template: {:?}",hash_set)
+        assert!(
+            prepared_expected
+                .find(|hash_set_expected| hash_set
+                    .symmetric_difference(&hash_set_expected)
+                    .collect_vec()
+                    .is_empty())
+                .is_some(),
+            "part of the fetched statement (one line) that cannot \
+                     be found in the template (key words unsorted): {:?}",
+            hash_set
+        )
     })
 }
 
@@ -179,17 +190,17 @@ fn parse_sql_to_pieces(sql: &str) -> Vec<HashSet<String>> {
 
 fn fetch_table_sql(conn: &dyn ConnectionWrapper, specific_table: &str) -> String {
     let found_table_sqls = query_specific_schema_information(conn, "table");
-    let specific_table_isolated = format!(" {} ",specific_table);
-    select_desired_sql_element(found_table_sqls,&specific_table_isolated)
+    let specific_table_isolated = format!(" {} ", specific_table);
+    select_desired_sql_element(found_table_sqls, &specific_table_isolated)
 }
 
-fn fetch_index_sql(conn:&dyn ConnectionWrapper,index_name:&str)->String{
+fn fetch_index_sql(conn: &dyn ConnectionWrapper, index_name: &str) -> String {
     let found_indexes = query_specific_schema_information(conn, "index");
-    let index_name_isolated = format!(" {} ",index_name);
-    select_desired_sql_element(found_indexes,&index_name_isolated)
+    let index_name_isolated = format!(" {} ", index_name);
+    select_desired_sql_element(found_indexes, &index_name_isolated)
 }
 
-fn select_desired_sql_element(found_elements: Vec<String>, searched_element_name:&str) -> String {
+fn select_desired_sql_element(found_elements: Vec<String>, searched_element_name: &str) -> String {
     let mut wanted_element_lowercase: Vec<String> = found_elements
         .into_iter()
         .flat_map(|element| {

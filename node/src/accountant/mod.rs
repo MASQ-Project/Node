@@ -51,7 +51,7 @@ use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::{ExpectValue, plus};
+use masq_lib::utils::{plus, ExpectValue};
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::default::Default;
@@ -290,8 +290,7 @@ pub struct RequestTransactionReceipts {
 
 #[derive(Debug, PartialEq, Message, Clone)]
 pub struct ReportTransactionReceipts {
-    pub fingerprints_with_receipts:
-        Vec<(Option<TransactionReceipt>, PendingPayableFingerprint)>,
+    pub fingerprints_with_receipts: Vec<(Option<TransactionReceipt>, PendingPayableFingerprint)>,
 }
 
 impl Handler<ReportTransactionReceipts> for Accountant {
@@ -860,12 +859,11 @@ impl Accountant {
                     .expect("Bad interval")
                     .as_secs(),
                 amount: account.balance as u64,
-                pending_transaction_hash: match account.pending_payable_opt {
-                    Some(PendingPayable { hash_opt, .. }) => {
-                        Some(format!("{:?}", hash_opt.expectv("pending payable hash")))
-                    }
-                    None => None,
-                },
+                pending_transaction_hash: account.pending_payable_opt.as_ref().map(
+                    |PendingPayable { hash_opt, .. }| {
+                        format!("{:?}", hash_opt.expectv("pending payable hash"))
+                    },
+                ),
             })
             .collect_vec();
         let total_payable = self.payable_dao.total();
@@ -930,10 +928,11 @@ impl Accountant {
                 "Confirmation of transaction {}; record for payable was modified",
                 msg.pending_payable_fingerprint.hash
             );
-            if let Err(e) = self
-                .pending_payable_dao
-                .delete_fingerprint(msg.pending_payable_fingerprint.rowid)
-            {
+            if let Err(e) = self.pending_payable_dao.delete_fingerprint(
+                msg.pending_payable_fingerprint
+                    .rowid_opt
+                    .expectv("initialized rowid"),
+            ) {
                 panic!("Was unable to delete payment fingerprint '{}' after successful transaction due to '{:?}'",msg.pending_payable_fingerprint.hash,e)
             } else {
                 info!(
@@ -970,15 +969,15 @@ impl Accountant {
         sent_payments
             .into_iter()
             .for_each(|payment| {
-                let rowid = match self.pending_payable_dao.fingerprint_rowid(payment.transaction) {
+                let rowid = match self.pending_payable_dao.fingerprint_rowid(payment.tx_hash) {
                     Some(rowid) => rowid,
-                    None => panic!("Payment fingerprint for {} doesn't exist but should by now; system unreliable", payment.transaction)
+                    None => panic!("Payment fingerprint for {} doesn't exist but should by now; system unreliable", payment.tx_hash)
                 };
                 match self.payable_dao.as_ref().mark_pending_payable_rowid(&payment.to, rowid ) {
                     Ok(()) => (),
-                    Err(e) => panic!("Was unable to create a mark in payables for a new pending payment '{}' due to '{:?}'", payment.transaction,e)
+                    Err(e) => panic!("Was unable to create a mark in payables for a new pending payment '{}' due to '{:?}'", payment.tx_hash, e)
                 }
-                debug!(self.logger, "Payment '{}' has been marked as pending in the payable table",payment.transaction)
+                debug!(self.logger, "Payment '{}' has been marked as pending in the payable table",payment.tx_hash)
             })
     }
 
@@ -992,11 +991,11 @@ impl Accountant {
         ) -> PendingTransactionStatus {
             debug!(logger,
                 "DEBUG: Accountant: Interpreting a receipt for transaction '{}' but none was given; attempt {}, {}ms since sending",
-                payment.hash, payment.attempt,elapsed_in_ms(payment.timestamp)
+                payment.hash, payment.attempt_opt.expectv("initialized attempt"),elapsed_in_ms(payment.timestamp)
             );
             PendingTransactionStatus::StillPending(TransactionId {
                 hash: payment.hash,
-                rowid: payment.rowid,
+                rowid: payment.rowid_opt.expectv("initialized rowid"),
             })
         }
         msg.fingerprints_with_receipts
@@ -1019,15 +1018,15 @@ impl Accountant {
             pending_interval: u64,
             logger: &Logger,
         ) -> PendingTransactionStatus {
-            info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",payment.hash, payment.attempt, elapsed_in_ms(payment.timestamp));
+            info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",payment.hash, payment.attempt_opt.expectv("initialized attempt"), elapsed_in_ms(payment.timestamp));
             let elapsed = payment.timestamp.elapsed().expect("we should be older now");
             let transaction_id = TransactionId {
                 hash: payment.hash,
-                rowid: payment.rowid,
+                rowid: payment.rowid_opt.expectv("initialized rowid"),
             };
             if pending_interval <= elapsed.as_secs() {
                 error!(logger,"Pending transaction '{}' has exceeded the maximum pending time ({}sec) and the confirmation process is going to be aborted now at the finished attempt {}; \
-                 manual resolution is required from the user to complete the transaction.",payment.hash,pending_interval,payment.attempt);
+                 manual resolution is required from the user to complete the transaction.",payment.hash,pending_interval,payment.attempt_opt.expectv("initialized attempt"));
                 PendingTransactionStatus::Failure(transaction_id)
             } else {
                 PendingTransactionStatus::StillPending(transaction_id)
@@ -1041,7 +1040,7 @@ impl Accountant {
                 logger,
                 "Transaction '{}' has been added to the blockchain; detected locally at attempt {} at {}ms after its sending",
                 payment.hash,
-                payment.attempt,
+                payment.attempt_opt.expectv("initialized attempt"),
                 elapsed_in_ms(payment.timestamp)
             );
             PendingTransactionStatus::Confirmed(payment)
@@ -1050,7 +1049,7 @@ impl Accountant {
             payment: &PendingPayableFingerprint,
             logger: &Logger,
         ) -> PendingTransactionStatus {
-            error!(logger,"Pending transaction '{}' announced as a failure, interpreting attempt {} after {}ms from the sending",payment.hash,payment.attempt,elapsed_in_ms(payment.timestamp));
+            error!(logger,"Pending transaction '{}' announced as a failure, interpreting attempt {} after {}ms from the sending",payment.hash,payment.attempt_opt.expectv("initialized attempt"),elapsed_in_ms(payment.timestamp));
             PendingTransactionStatus::Failure(payment.into())
         }
         match receipt.status{
@@ -1154,12 +1153,6 @@ enum PendingTransactionStatus {
     Confirmed(PendingPayableFingerprint), //tx was fully processed and successful
 }
 
-impl PendingTransactionStatus {
-    fn is_non_pending(&self) -> bool {
-        !matches!(self, Self::StillPending { .. })
-    }
-}
-
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct TransactionId {
     pub hash: H256,
@@ -1170,7 +1163,9 @@ impl From<&PendingPayableFingerprint> for TransactionId {
     fn from(pending_payable_fingerprint: &PendingPayableFingerprint) -> Self {
         Self {
             hash: pending_payable_fingerprint.hash,
-            rowid: pending_payable_fingerprint.rowid,
+            rowid: pending_payable_fingerprint
+                .rowid_opt
+                .expectv("initialized rowid"),
         }
     }
 }
@@ -1509,7 +1504,7 @@ mod tests {
                     to: wallet.clone(),
                     amount: 5656,
                     timestamp: SystemTime::now(),
-                    transaction: hash_tx_1,
+                    tx_hash: hash_tx_1,
                 }),
                 Err(BlockchainError::TransactionFailed {
                     msg: "Payment attempt failed".to_string(),
@@ -1922,10 +1917,10 @@ mod tests {
         );
         // slightly above minimum balance, to the right of the curve (time intersection)
         let pending_payable_fingerprint_record = PendingPayableFingerprint {
-            rowid: 45454,
+            rowid_opt: Some(45454),
             timestamp: SystemTime::now(),
             hash: H256::from_uint(&U256::from(565)),
-            attempt: 1,
+            attempt_opt: Some(1),
             amount: 4589,
             process_error: None,
         };
@@ -2289,18 +2284,18 @@ mod tests {
         init_test_logging();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let pending_pending_payable_fingerprint_1 = PendingPayableFingerprint {
-            rowid: 555,
+            rowid_opt: Some(555),
             timestamp: from_time_t(210_000_000),
             hash: H256::from_uint(&U256::from(45678)),
-            attempt: 0,
+            attempt_opt: Some(0),
             amount: 4444,
             process_error: None,
         };
         let pending_pending_payable_fingerprint_2 = PendingPayableFingerprint {
-            rowid: 550,
+            rowid_opt: Some(550),
             timestamp: from_time_t(210_000_100),
             hash: H256::from_uint(&U256::from(112233)),
-            attempt: 0,
+            attempt_opt: Some(0),
             amount: 7999,
             process_error: None,
         };
@@ -3182,10 +3177,10 @@ mod tests {
         let timestamp_from_time_of_payment = from_time_t(200_000_000);
         let rowid = 2;
         let pending_payable_fingerprint = PendingPayableFingerprint {
-            rowid,
+            rowid_opt: Some(rowid),
             timestamp: timestamp_from_time_of_payment,
             hash: tx_hash,
-            attempt: 1,
+            attempt_opt: Some(1),
             amount,
             process_error: None,
         };
@@ -3224,7 +3219,7 @@ mod tests {
             .payable_dao(payable_dao)
             .build();
         let mut payment = make_pending_payable_fingerprint();
-        payment.rowid = rowid;
+        payment.rowid_opt = Some(rowid);
         payment.hash = hash;
         let msg = ConfirmPendingTransaction {
             pending_payable_fingerprint: payment.clone(),
@@ -3252,7 +3247,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
-        pending_payable_fingerprint.rowid = rowid;
+        pending_payable_fingerprint.rowid_opt = Some(rowid);
         pending_payable_fingerprint.hash = hash;
         let msg = ConfirmPendingTransaction {
             pending_payable_fingerprint: pending_payable_fingerprint.clone(),
@@ -3497,39 +3492,39 @@ mod tests {
             make_wallet("some_wallet_address"),
         );
         let payment_1_backup_first_round = PendingPayableFingerprint {
-            rowid: rowid_for_account_1,
+            rowid_opt: Some(rowid_for_account_1),
             timestamp: payment_timestamp_1,
             hash: pending_tx_hash_1,
-            attempt: 1,
+            attempt_opt: Some(1),
             amount: payable_account_balance_1 as u64,
             process_error: None,
         };
         let payment_2_backup_first_round = PendingPayableFingerprint {
-            rowid: rowid_for_account_2,
+            rowid_opt: Some(rowid_for_account_2),
             timestamp: payment_timestamp_2,
             hash: pending_tx_hash_2,
-            attempt: 1,
+            attempt_opt: Some(1),
             amount: payable_account_balance_2 as u64,
             process_error: None,
         };
         let payment_1_backup_second_round = PendingPayableFingerprint {
-            attempt: 2,
+            attempt_opt: Some(2),
             ..payment_1_backup_first_round.clone()
         };
         let payment_2_backup_second_round = PendingPayableFingerprint {
-            attempt: 2,
+            attempt_opt: Some(2),
             ..payment_2_backup_first_round.clone()
         };
         let payment_1_backup_third_round = PendingPayableFingerprint {
-            attempt: 3,
+            attempt_opt: Some(3),
             ..payment_1_backup_first_round.clone()
         };
         let payment_2_backup_third_round = PendingPayableFingerprint {
-            attempt: 3,
+            attempt_opt: Some(3),
             ..payment_2_backup_first_round.clone()
         };
         let payment_2_backup_fourth_round = PendingPayableFingerprint {
-            attempt: 4,
+            attempt_opt: Some(4),
             ..payment_2_backup_first_round.clone()
         };
         let pending_payable_dao = PendingPayableDaoMock::default()
@@ -3548,7 +3543,7 @@ mod tests {
                 payment_2_backup_third_round,
             ])
             .return_all_fingerprints_result(vec![payment_2_backup_fourth_round.clone()])
-            .return_all_fingerprints_result(vec![]) //TODO in case we are too fast at some machine; we will be able to make this maximally efficient with GH-485
+            .return_all_fingerprints_result(vec![]) //TODO in case we are too fast at some machine
             .insert_fingerprint_params(&insert_record_params_arc)
             .insert_fingerprint_result(Ok(()))
             .insert_fingerprint_result(Ok(()))
@@ -3676,7 +3671,7 @@ mod tests {
                 expected_scan_pending_payable_msg_and_interval.clone(),
                 expected_scan_pending_payable_msg_and_interval.clone(),
                 expected_scan_pending_payable_msg_and_interval.clone(),
-                expected_scan_pending_payable_msg_and_interval //TODO this is an extra one, GH-485 should eliminate this one
+                expected_scan_pending_payable_msg_and_interval //TODO this is an extra one for unreliability in Actions
             ]
         );
         let mut notify_confirm_transaction_params =
@@ -3704,10 +3699,10 @@ mod tests {
         let rowid = 455;
         let hash = H256::from_uint(&U256::from(2323));
         let pending_payable_fingerprint_record = PendingPayableFingerprint {
-            rowid,
+            rowid_opt: Some(rowid),
             timestamp: SystemTime::now().sub(Duration::from_millis(10000)),
             hash,
-            attempt: 3,
+            attempt_opt: Some(3),
             amount: 111,
             process_error: None,
         };
@@ -3742,10 +3737,10 @@ mod tests {
         transaction_receipt_1.transaction_hash = transaction_hash_1;
         transaction_receipt_1.status = Some(U64::from(1)); //success
         let pending_payable_fingerprint_1 = PendingPayableFingerprint {
-            rowid: 5,
+            rowid_opt: Some(5),
             timestamp: from_time_t(200_000_000),
             hash: transaction_hash_1,
-            attempt: 2,
+            attempt_opt: Some(2),
             amount: 444,
             process_error: None,
         };
@@ -3754,10 +3749,10 @@ mod tests {
         transaction_receipt_2.transaction_hash = transaction_hash_2;
         transaction_receipt_2.status = Some(U64::from(1)); //success
         let pending_payable_fingerprint_2 = PendingPayableFingerprint {
-            rowid: 10,
+            rowid_opt: Some(10),
             timestamp: from_time_t(199_780_000),
             hash: Default::default(),
-            attempt: 15,
+            attempt_opt: Some(15),
             amount: 1212,
             process_error: None,
         };
@@ -3801,10 +3796,10 @@ mod tests {
         tx_receipt.status = Some(U64::from(0)); //failure
         let hash = H256::from_uint(&U256::from(4567));
         let pending_pending_payable_fingerprint = PendingPayableFingerprint {
-            rowid: 777777,
+            rowid_opt: Some(777777),
             timestamp: SystemTime::now().sub(Duration::from_millis(150000)),
             hash,
-            attempt: 5,
+            attempt_opt: Some(5),
             amount: 2222,
             process_error: None,
         };
@@ -3835,10 +3830,10 @@ mod tests {
         let when_sent = SystemTime::now().sub(Duration::from_millis(100));
         let subject = AccountantBuilder::default().build();
         let pending_payable_fingerprint = PendingPayableFingerprint {
-            rowid,
+            rowid_opt: Some(rowid),
             timestamp: when_sent,
             hash,
-            attempt: 1,
+            attempt_opt: Some(1),
             amount: 123,
             process_error: None,
         };
@@ -3870,10 +3865,10 @@ mod tests {
             SystemTime::now().sub(Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC + 5)); //old transaction
         let subject = AccountantBuilder::default().build();
         let pending_payable_fingerprint = PendingPayableFingerprint {
-            rowid,
+            rowid_opt: Some(rowid),
             timestamp: when_sent,
             hash,
-            attempt: 10,
+            attempt_opt: Some(10),
             amount: 123,
             process_error: None,
         };
@@ -3914,23 +3909,6 @@ mod tests {
     }
 
     #[test]
-    fn is_non_pending_is_properly_set() {
-        assert_eq!(
-            PendingTransactionStatus::Failure(make_transaction_id()).is_non_pending(),
-            true
-        );
-        assert_eq!(
-            PendingTransactionStatus::Confirmed(make_pending_payable_fingerprint())
-                .is_non_pending(),
-            true
-        );
-        assert_eq!(
-            PendingTransactionStatus::StillPending(make_transaction_id()).is_non_pending(),
-            false
-        )
-    }
-
-    #[test]
     fn accountant_handles_pending_payable_fingerprint() {
         init_test_logging();
         let insert_pending_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3946,10 +3924,10 @@ mod tests {
         let amount = 4055;
         let timestamp = SystemTime::now();
         let backup_message = PendingPayableFingerprint {
-            rowid: 0,
+            rowid_opt: None,
             timestamp,
             hash: tx_hash,
-            attempt: 0,
+            attempt_opt: None,
             amount,
             process_error: None,
         };
@@ -3992,10 +3970,10 @@ mod tests {
             .build();
         let timestamp_secs = 150_000_000;
         let backup_message = PendingPayableFingerprint {
-            rowid: 0,
+            rowid_opt: None,
             timestamp: from_time_t(timestamp_secs),
             hash: transaction_hash,
-            attempt: 0,
+            attempt_opt: None,
             amount,
             process_error: None,
         };
@@ -4018,7 +3996,7 @@ mod tests {
             to: make_wallet("blah"),
             amount: 5555,
             timestamp: SystemTime::now(),
-            transaction: Default::default(),
+            tx_hash: Default::default(),
         };
         let error = BlockchainError::SignedValueConversion(666);
         let sent_payments = SentPayments {
@@ -4090,12 +4068,5 @@ mod tests {
         let result = unsigned_to_signed((i64::MAX as u64) + 1);
 
         assert_eq!(result, Err(attempt));
-    }
-
-    fn make_transaction_id() -> TransactionId {
-        TransactionId {
-            hash: H256::from_uint(&U256::from(789)),
-            rowid: 1,
-        }
     }
 }

@@ -303,14 +303,6 @@ impl PayableDao for PayableDaoMock {
         self.transaction_confirmed_results.borrow_mut().remove(0)
     }
 
-    fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PayableDaoError> {
-        self.transaction_canceled_params
-            .lock()
-            .unwrap()
-            .push(transaction_id);
-        self.transaction_canceled_results.borrow_mut().remove(0)
-    }
-
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
         self.non_pending_payables_params.lock().unwrap().push(());
         if self.have_non_pending_payables_shut_down_the_system
@@ -819,10 +811,10 @@ impl PendingPayableDaoFactoryMock {
 
 pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
     PendingPayableFingerprint {
-        rowid: 33,
+        rowid_opt: Some(33),
         timestamp: from_time_t(222_222_222),
         hash: H256::from_uint(&U256::from(456)),
-        attempt: 0,
+        attempt_opt: Some(0),
         amount: 12345,
         process_error: None,
     }

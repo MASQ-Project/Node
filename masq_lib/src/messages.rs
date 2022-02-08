@@ -737,7 +737,7 @@ mod tests {
                 wallet: "wallet".to_string(),
                 age: 3456,
                 amount: 4567,
-                pending_transaction_hash: Some(5678),
+                pending_transaction_hash: Some("Oxab45c6e2c3d1f6c231".to_string()),
             }],
             total_payable: 1234,
             receivables: vec![UiReceivableAccount {
@@ -850,7 +850,7 @@ mod tests {
                     "wallet": "wallet",
                     "age": 3456,
                     "amount": 4567,
-                    "pendingTransactionRowid": 444
+                    "pendingTransactionHash": "Oxab45c6e2c3d1f6c231"
                 }],
                 "totalPayable": 1234,
                 "receivables": [{
@@ -879,7 +879,7 @@ mod tests {
                         wallet: "wallet".to_string(),
                         age: 3456,
                         amount: 4567,
-                        pending_transaction_hash: Some(444)
+                        pending_transaction_hash: Some("Oxab45c6e2c3d1f6c231".to_string())
                     }],
                     total_payable: 1234,
                     receivables: vec![UiReceivableAccount {

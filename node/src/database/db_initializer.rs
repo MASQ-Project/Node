@@ -163,7 +163,7 @@ impl DbInitializerReal {
 
     fn create_config_table(&self, conn: &Connection) {
         conn.execute(
-           "create table if not exists config (
+            "create table if not exists config (
                     name text primary key,
                     value text,
                     encrypted integer not null
@@ -268,12 +268,12 @@ impl DbInitializerReal {
             )",
             [],
         )
-            .expect("Can't create pending_payable table");
+        .expect("Can't create pending_payable table");
         conn.execute(
             "CREATE UNIQUE INDEX pending_payable_hash_idx ON pending_payable (transaction_hash)",
             [],
         )
-            .expect("Can't create transaction hash index in pending payments");
+        .expect("Can't create transaction hash index in pending payments");
     }
 
     fn create_payable_table(&self, conn: &Connection) {
@@ -587,7 +587,11 @@ pub mod test_utils {
 mod tests {
     use super::*;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
-    use crate::test_utils::database_utils::{bring_db_0_back_to_life_and_return_connection, retrieve_config_row, DbMigratorMock, assert_create_table_statement_contains_all_important_parts, assert_no_index_exists_for_table, assert_index_statement_is_coupled_with_right_parameter};
+    use crate::test_utils::database_utils::{
+        assert_create_table_statement_contains_all_important_parts,
+        assert_index_statement_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
+        bring_db_0_back_to_life_and_return_connection, retrieve_config_row, DbMigratorMock,
+    };
     use itertools::Itertools;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -655,7 +659,9 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
-        let mut stmt = conn.prepare("select name, value, encrypted from config").unwrap();
+        let mut stmt = conn
+            .prepare("select name, value, encrypted from config")
+            .unwrap();
         let _ = stmt.query_map([], |_| Ok(42)).unwrap();
         let expected_key_words = [
             ["name", "text", "primary", "key"].as_slice(),
@@ -667,7 +673,7 @@ mod tests {
             "config",
             expected_key_words.as_slice(),
         );
-        assert_no_index_exists_for_table(conn.as_ref(),"config")
+        assert_no_index_exists_for_table(conn.as_ref(), "config")
     }
 
     #[test]
@@ -698,13 +704,11 @@ mod tests {
             "pending_payable",
             expected_key_words.as_slice(),
         );
-        let expected_key_words = [
-            ["transaction_hash"].as_slice(),
-        ];
+        let expected_key_words = [["transaction_hash"].as_slice()];
         assert_index_statement_is_coupled_with_right_parameter(
             conn.as_ref(),
             "pending_payable_hash_idx",
-                expected_key_words.as_slice()
+            expected_key_words.as_slice(),
         )
     }
 
@@ -734,7 +738,7 @@ mod tests {
             "payable",
             expected_key_words.as_slice(),
         );
-        assert_no_index_exists_for_table(conn.as_ref(),"payable")
+        assert_no_index_exists_for_table(conn.as_ref(), "payable")
     }
 
     #[test]
@@ -764,7 +768,7 @@ mod tests {
             "receivable",
             expected_key_words.as_slice(),
         );
-        assert_no_index_exists_for_table(conn.as_ref(),"receivable")
+        assert_no_index_exists_for_table(conn.as_ref(), "receivable")
     }
 
     #[test]
@@ -783,15 +787,13 @@ mod tests {
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
         let mut banned_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(banned_contents.next().is_none());
-        let expected_key_words = [
-            ["wallet_address", "text", "primary", "key"].as_slice(),
-        ];
+        let expected_key_words = [["wallet_address", "text", "primary", "key"].as_slice()];
         assert_create_table_statement_contains_all_important_parts(
             conn.as_ref(),
             "banned",
             expected_key_words.as_slice(),
         );
-        assert_no_index_exists_for_table(conn.as_ref(),"banned")
+        assert_no_index_exists_for_table(conn.as_ref(), "banned")
     }
 
     #[test]
@@ -1007,9 +1009,11 @@ mod tests {
             .initialize(
                 &updated_db_path_dir,
                 true,
-                MigratorConfig::create_or_migrate(ExternalData::new(Chain::EthRopsten,NeighborhoodModeLight::Standard,Some("password".to_string())
-                            )
-                )
+                MigratorConfig::create_or_migrate(ExternalData::new(
+                    Chain::EthRopsten,
+                    NeighborhoodModeLight::Standard,
+                    Some("password".to_string()),
+                )),
             )
             .unwrap();
         let _ = subject

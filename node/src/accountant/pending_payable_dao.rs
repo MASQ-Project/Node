@@ -60,10 +60,10 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             let timestamp: i64 = Self::get_with_expect(row, 3);
             let attempt: u16 = Self::get_with_expect(row, 4);
             Ok(PendingPayableFingerprint {
-                rowid,
+                rowid_opt: Some(rowid),
                 timestamp: from_time_t(timestamp),
                 hash: H256::from_str(&transaction_hash[2..]).expectv("string hash"),
-                attempt,
+                attempt_opt: Some(attempt),
                 amount,
                 process_error: None,
             })
@@ -215,10 +215,10 @@ mod tests {
         assert_eq!(
             records,
             vec![PendingPayableFingerprint {
-                rowid: 1,
+                rowid_opt: Some(1),
                 timestamp,
                 hash,
-                attempt: 1,
+                attempt_opt: Some(1),
                 amount,
                 process_error: None
             }]
@@ -337,18 +337,18 @@ mod tests {
             result,
             vec![
                 PendingPayableFingerprint {
-                    rowid: 1,
+                    rowid_opt: Some(1),
                     timestamp: timestamp_1,
                     hash: hash_1,
-                    attempt: 1,
+                    attempt_opt: Some(1),
                     amount: amount_1,
                     process_error: None
                 },
                 PendingPayableFingerprint {
-                    rowid: 2,
+                    rowid_opt: Some(2),
                     timestamp: timestamp_2,
                     hash: hash_2,
-                    attempt: 1,
+                    attempt_opt: Some(1),
                     amount: amount_2,
                     process_error: None
                 }
@@ -389,10 +389,10 @@ mod tests {
         assert_eq!(
             result,
             vec![PendingPayableFingerprint {
-                rowid: 2,
+                rowid_opt: Some(2),
                 timestamp,
                 hash,
-                attempt: 1,
+                attempt_opt: Some(1),
                 amount,
                 process_error: None
             }]
@@ -482,8 +482,8 @@ mod tests {
         assert_eq!(all_records_before.len(), 1);
         let mut record_before = all_records_before.remove(0);
         assert_eq!(record_before.hash, hash);
-        assert_eq!(record_before.rowid, 1);
-        assert_eq!(record_before.attempt, 1);
+        assert_eq!(record_before.rowid_opt.unwrap(), 1);
+        assert_eq!(record_before.attempt_opt.unwrap(), 1);
         assert_eq!(record_before.process_error, None);
         assert_eq!(record_before.timestamp, timestamp);
 
@@ -493,7 +493,7 @@ mod tests {
         let mut all_records_after = subject.return_all_fingerprints();
         assert_eq!(all_records_after.len(), 1);
         let backup_after = all_records_after.remove(0);
-        record_before.attempt = 2;
+        record_before.attempt_opt = Some(2);
         assert_eq!(record_before, backup_after)
     }
 
@@ -556,10 +556,10 @@ mod tests {
                     let attempt: u16 = row.get(4).unwrap();
                     let process_error: Option<String> = row.get(5).unwrap();
                     Ok(PendingPayableFingerprint {
-                        rowid,
+                        rowid_opt: Some(rowid),
                         timestamp: from_time_t(timestamp),
                         hash: H256::from_str(&transaction_hash[2..]).unwrap(),
-                        attempt,
+                        attempt_opt: Some(attempt),
                         amount,
                         process_error,
                     })
@@ -568,8 +568,8 @@ mod tests {
         };
         let assertion_before = assert_closure();
         assert_eq!(assertion_before.hash, hash);
-        assert_eq!(assertion_before.rowid, 1);
-        assert_eq!(assertion_before.attempt, 1);
+        assert_eq!(assertion_before.rowid_opt.unwrap(), 1);
+        assert_eq!(assertion_before.attempt_opt.unwrap(), 1);
         assert_eq!(assertion_before.process_error, None);
         assert_eq!(assertion_before.timestamp, timestamp);
 
@@ -578,8 +578,8 @@ mod tests {
         assert_eq!(result, Ok(()));
         let assertion_after = assert_closure();
         assert_eq!(assertion_after.hash, hash);
-        assert_eq!(assertion_after.rowid, 1);
-        assert_eq!(assertion_after.attempt, 1);
+        assert_eq!(assertion_after.rowid_opt.unwrap(), 1);
+        assert_eq!(assertion_after.attempt_opt.unwrap(), 1);
         assert_eq!(assertion_after.process_error, Some("ERROR".to_string()));
         assert_eq!(assertion_after.timestamp, timestamp);
     }

@@ -146,7 +146,6 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     fn send_transaction<'b>(
         &self,
         inputs: SendTransactionInputs,
-        _send_transaction_tools: &'b dyn SendTransactionToolsWrapper,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         self.send_transaction_parameters
             .lock()

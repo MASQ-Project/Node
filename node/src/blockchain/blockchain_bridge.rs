@@ -17,7 +17,7 @@ use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
-use crate::sub_lib::utils::{handle_ui_crash_request};
+use crate::sub_lib::utils::handle_ui_crash_request;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Context;
@@ -28,12 +28,12 @@ use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::plus;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::Http;
 use web3::types::{TransactionReceipt, H256};
-use masq_lib::utils::plus;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -113,10 +113,10 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
 
 #[derive(Debug, PartialEq, Message, Clone)]
 pub struct PendingPayableFingerprint {
-    pub rowid: u64,
+    pub rowid_opt: Option<u64>, //None when initialized
     pub timestamp: SystemTime,
     pub hash: H256,
-    pub attempt: u16,
+    pub attempt_opt: Option<u16>, //None when initialized
     pub amount: u64,
     pub process_error: Option<String>,
 }
@@ -264,35 +264,37 @@ impl BlockchainBridge {
     }
 
     fn handle_request_transaction_receipts(&self, msg: RequestTransactionReceipts) {
-        let short_circuit_result: (Vec<Option<TransactionReceipt>>,Option<BlockchainError>) = msg
+        let short_circuit_result: (Vec<Option<TransactionReceipt>>, Option<BlockchainError>) = msg
             .pending_payable
             .iter()
-            .fold((vec![],None),|so_far, current_fingerprint|
-                match so_far{
-                    (_,None)=>
-                        match self.blockchain_interface
-                        .get_transaction_receipt(current_fingerprint.hash){
-                        Ok(receipt_opt) => (plus(so_far.0,receipt_opt),None),
-                        Err(e) => (so_far.0,Some(e))
-
-                    },
-                    _ => so_far
-                }
-            );
+            .fold((vec![], None), |so_far, current_fingerprint| match so_far {
+                (_, None) => match self
+                    .blockchain_interface
+                    .get_transaction_receipt(current_fingerprint.hash)
+                {
+                    Ok(receipt_opt) => (plus(so_far.0, receipt_opt), None),
+                    Err(e) => (so_far.0, Some(e)),
+                },
+                _ => so_far,
+            });
         let (vector_of_results, error_opt) = short_circuit_result;
-        if !vector_of_results.is_empty(){
-                let pairs = vector_of_results.into_iter().zip(msg.pending_payable.into_iter())
-                    .collect_vec();
-                self.payment_confirmation
-                    .report_transaction_receipts_sub_opt
-                    .as_ref()
-                    .expect("Accountant is unbound")
-                    .try_send(ReportTransactionReceipts {
-                        fingerprints_with_receipts: pairs,
-                    })
-                    .expect("Accountant is dead");
+        if !vector_of_results.is_empty() {
+            let pairs = vector_of_results
+                .into_iter()
+                .zip(msg.pending_payable.into_iter())
+                .collect_vec();
+            self.payment_confirmation
+                .report_transaction_receipts_sub_opt
+                .as_ref()
+                .expect("Accountant is unbound")
+                .try_send(ReportTransactionReceipts {
+                    fingerprints_with_receipts: pairs,
+                })
+                .expect("Accountant is dead");
         }
-        if let Some(e) = error_opt {warning!(self.logger,"WARN: BlockchainBridge: Aborting scanning; request of a transaction receipt failed due to '{:?}'",e)}
+        if let Some(e) = error_opt {
+            warning!(self.logger,"WARN: BlockchainBridge: Aborting scanning; request of a transaction receipt failed due to '{:?}'",e)
+        }
     }
 
     fn process_payments(
@@ -318,18 +320,22 @@ impl BlockchainBridge {
             .blockchain_interface
             .get_transaction_count(consuming_wallet)?;
         let unsigned_amount = u64::try_from(payable.balance)
-            .expect("negative balance accounts should never be seen here");
-        match self.blockchain_interface.send_transaction(
-            SendTransactionInputs::new(payable, consuming_wallet, nonce, gas_price)?,
-            self.blockchain_interface
-                .send_transaction_tools(
-                    self.payment_confirmation
-                        .transaction_backup_subs_opt
-                        .as_ref()
-                        .expect("Accountant is unbound"),
-                )
-                .as_ref(),
-        ) {
+            .expect("negative balance for qualified payable is nonsense");
+        let send_tools = self.blockchain_interface.send_transaction_tools(
+            self.payment_confirmation
+                .transaction_backup_subs_opt
+                .as_ref()
+                .expect("Accountant is unbound"),
+        );
+        match self
+            .blockchain_interface
+            .send_transaction(SendTransactionInputs::new(
+                payable,
+                consuming_wallet,
+                nonce,
+                gas_price,
+                send_tools.as_ref(),
+            )?) {
             Ok((hash, timestamp)) => Ok(Payment::new(
                 payable.wallet.clone(),
                 unsigned_amount,
@@ -337,7 +343,8 @@ impl BlockchainBridge {
                 timestamp,
             )),
             Err(e) => Err(e.into()),
-            //if you have more code here that can fail too don't forget about the need to provide the transaction hash with your error
+            //if you're adding more code here that can fail don't forget to provide
+            //the transaction hash together with the error
         }
     }
 }
@@ -378,7 +385,7 @@ mod tests {
     use rustc_hex::FromHex;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
-    use web3::types::{TransactionReceipt, H256, U256, H160};
+    use web3::types::{TransactionReceipt, H160, H256, U256};
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -619,13 +626,13 @@ mod tests {
                     to: make_wallet("blah"),
                     amount: 420,
                     timestamp: from_time_t(150_000_000),
-                    transaction: H256::from("sometransactionhash".keccak256())
+                    tx_hash: H256::from("sometransactionhash".keccak256())
                 }),
                 Ok(Payment {
                     to: make_wallet("foo"),
                     amount: 210,
                     timestamp: from_time_t(160_000_000),
-                    transaction: H256::from("someothertransactionhash".keccak256())
+                    tx_hash: H256::from("someothertransactionhash".keccak256())
                 })
             ]
         );
@@ -669,10 +676,10 @@ mod tests {
         let hash_1 = pending_payable_fingerprint_1.hash;
         let hash_2 = H256::from_uint(&U256::from(78989));
         let pending_payable_fingerprint_2 = PendingPayableFingerprint {
-            rowid: 456,
+            rowid_opt: Some(456),
             timestamp: SystemTime::now(),
             hash: hash_2,
-            attempt: 3,
+            attempt_opt: Some(3),
             amount: 4565,
             process_error: None,
         };
@@ -762,26 +769,26 @@ mod tests {
         let mut fingerprint_1 = make_pending_payable_fingerprint();
         fingerprint_1.hash = hash_1;
         let fingerprint_2 = PendingPayableFingerprint {
-            rowid: 454,
+            rowid_opt: Some(454),
             timestamp: SystemTime::now(),
             hash: hash_2,
-            attempt: 3,
+            attempt_opt: Some(3),
             amount: 3333,
             process_error: None,
         };
         let fingerprint_3 = PendingPayableFingerprint {
-            rowid: 456,
+            rowid_opt: Some(456),
             timestamp: SystemTime::now(),
             hash: hash_3,
-            attempt: 3,
+            attempt_opt: Some(3),
             amount: 4565,
             process_error: None,
         };
         let fingerprint_4 = PendingPayableFingerprint {
-            rowid: 450,
+            rowid_opt: Some(450),
             timestamp: from_time_t(230_000_000),
             hash: hash_4,
-            attempt: 1,
+            attempt_opt: Some(1),
             amount: 7879,
             process_error: None,
         };
@@ -810,20 +817,29 @@ mod tests {
                 fingerprint_1.clone(),
                 fingerprint_2.clone(),
                 fingerprint_3,
-                fingerprint_4
+                fingerprint_4,
             ],
         };
 
         let _ = subject.handle_request_transaction_receipts(msg);
 
         System::current().stop();
-        assert_eq!(system.run(),0);
+        assert_eq!(system.run(), 0);
         let get_transaction_receipts_params = get_transaction_receipt_params_arc.lock().unwrap();
-        assert_eq!(*get_transaction_receipts_params, vec![hash_1, hash_2, hash_3]);
+        assert_eq!(
+            *get_transaction_receipts_params,
+            vec![hash_1, hash_2, hash_3]
+        );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.len(),1);
+        assert_eq!(accountant_recording.len(), 1);
         let report_receipts_msg = accountant_recording.get_record::<ReportTransactionReceipts>(0);
-        assert_eq!(report_receipts_msg.fingerprints_with_receipts,vec![(None,fingerprint_1),(Some(transaction_receipt),fingerprint_2)]);
+        assert_eq!(
+            report_receipts_msg.fingerprints_with_receipts,
+            vec![
+                (None, fingerprint_1),
+                (Some(transaction_receipt), fingerprint_2)
+            ]
+        );
         TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; request of a transaction receipt failed due to 'QueryFailed(\"bad bad bad\")'");
     }
 
@@ -834,26 +850,24 @@ mod tests {
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let hash_1 = H256::from_uint(&U256::from(111334));
         let fingerprint_1 = PendingPayableFingerprint {
-            rowid: 454,
+            rowid_opt: Some(454),
             timestamp: SystemTime::now(),
             hash: hash_1,
-            attempt: 3,
+            attempt_opt: Some(3),
             amount: 3333,
             process_error: None,
         };
         let fingerprint_2 = PendingPayableFingerprint {
-            rowid: 456,
+            rowid_opt: Some(456),
             timestamp: SystemTime::now(),
             hash: H256::from_uint(&U256::from(222444)),
-            attempt: 3,
+            attempt_opt: Some(3),
             amount: 4565,
             process_error: None,
         };
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
-            .get_transaction_receipt_result(Err(BlockchainError::QueryFailed(
-                "booga".to_string(),
-            )));
+            .get_transaction_receipt_result(Err(BlockchainError::QueryFailed("booga".to_string())));
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(PersistentConfigurationMock::default()),
@@ -865,10 +879,7 @@ mod tests {
             //due to this None we would've panicked if we tried to send a msg
             .report_transaction_receipts_sub_opt = None;
         let msg = RequestTransactionReceipts {
-            pending_payable: vec![
-                fingerprint_1,
-                fingerprint_2,
-            ],
+            pending_payable: vec![fingerprint_1, fingerprint_2],
         };
 
         let _ = subject.handle_request_transaction_receipts(msg);

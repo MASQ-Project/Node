@@ -88,10 +88,9 @@ pub trait BlockchainInterface {
 
     fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions;
 
-    fn send_transaction<'a>(
+    fn send_transaction(
         &self,
         inputs: SendTransactionInputs,
-        send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError>;
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
@@ -150,7 +149,6 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn send_transaction<'a>(
         &self,
         _inputs: SendTransactionInputs,
-        _send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         let msg = "Can't send transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
@@ -283,18 +281,19 @@ where
     fn send_transaction<'a>(
         &self,
         inputs: SendTransactionInputs,
-        send_transaction_tools: &'a dyn SendTransactionToolsWrapper,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         self.logger.debug(|| self.before_sending_msg(&inputs));
-        let signed_transaction =
-            self.prepare_signed_transaction(&inputs, send_transaction_tools)?;
-        let payment_timestamp = send_transaction_tools.request_new_pending_payable_fingerprint(
+        let signed_transaction = self.prepare_signed_transaction(&inputs, inputs.tools)?;
+        let payment_timestamp = inputs.tools.request_new_pending_payable_fingerprint(
             signed_transaction.transaction_hash,
             inputs.amount,
         );
         self.logger
             .info(|| self.close_to_sending_msg(inputs.recipient, inputs.amount));
-        match send_transaction_tools.send_raw_transaction(signed_transaction.raw_transaction) {
+        match inputs
+            .tools
+            .send_raw_transaction(signed_transaction.raw_transaction)
+        {
             Ok(hash) => Ok((hash, payment_timestamp)),
             Err(e) => Err(BlockchainTransactionError::Sending(
                 e.to_string(),
@@ -453,8 +452,9 @@ where
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub struct SendTransactionInputs<'a> {
+    tools: &'a dyn SendTransactionToolsWrapper,
     recipient: &'a Wallet,
     consuming_wallet: &'a Wallet,
     amount: u64,
@@ -468,8 +468,10 @@ impl<'a> SendTransactionInputs<'a> {
         consuming_wallet: &'a Wallet,
         nonce: U256,
         gas_price: u64,
+        tools: &'a dyn SendTransactionToolsWrapper,
     ) -> Result<Self, BlockchainError> {
         Ok(Self {
+            tools,
             recipient: &account.wallet,
             consuming_wallet,
             amount: u64::try_from(account.balance)
@@ -1014,19 +1016,18 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(b"gdasgsa");
-        let inputs =
-            SendTransactionInputs::new(&account, &consuming_wallet, U256::from(1), gas_price)
-                .unwrap();
+        let tools = subject.send_transaction_tools(&recipient_of_pending_payable_fingerprint);
+        let inputs = SendTransactionInputs::new(
+            &account,
+            &consuming_wallet,
+            U256::from(1),
+            gas_price,
+            tools.as_ref(),
+        )
+        .unwrap();
         let test_timestamp_before = SystemTime::now();
 
-        let result = subject
-            .send_transaction(
-                inputs,
-                subject
-                    .send_transaction_tools(&recipient_of_pending_payable_fingerprint)
-                    .as_ref(),
-            )
-            .unwrap();
+        let result = subject.send_transaction(inputs).unwrap();
 
         let test_timestamp_after = SystemTime::now();
         let system = System::new("can transfer tokens test");
@@ -1044,10 +1045,10 @@ mod tests {
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let sent_backup = accountant_recording.get_record::<PendingPayableFingerprint>(0);
         let expected_pending_payable_fingerprint = PendingPayableFingerprint {
-            rowid: 0,
+            rowid_opt: None,
             timestamp,
             hash,
-            attempt: 0,
+            attempt_opt: None,
             amount: amount as u64,
             process_error: None,
         };
@@ -1115,9 +1116,16 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let inputs = SendTransactionInputs::new(&account, &consuming_wallet, nonce, 123).unwrap();
+        let inputs = SendTransactionInputs::new(
+            &account,
+            &consuming_wallet,
+            nonce,
+            123,
+            send_transaction_tools,
+        )
+        .unwrap();
 
-        let result = subject.send_transaction(inputs, send_transaction_tools);
+        let result = subject.send_transaction(inputs);
 
         assert_eq!(result, Ok((hash, payment_timestamp)));
         let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
@@ -1218,11 +1226,16 @@ mod tests {
             .sign_transaction_result(Err(Web3Error::Internal));
         let payable_account = make_payable_account(1);
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let inputs =
-            SendTransactionInputs::new(&payable_account, &consuming_wallet, U256::from(5), 123)
-                .unwrap();
+        let inputs = SendTransactionInputs::new(
+            &payable_account,
+            &consuming_wallet,
+            U256::from(5),
+            123,
+            send_transaction_tools,
+        )
+        .unwrap();
 
-        let _ = subject.send_transaction(inputs, send_transaction_tools);
+        let _ = subject.send_transaction(inputs);
 
         let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
         let (transaction_params, secret) = sign_transaction_params.remove(0);
@@ -1255,11 +1268,17 @@ mod tests {
             9000,
             None,
         );
-        let inputs =
-            SendTransactionInputs::new(&account, &address_only_wallet, U256::from(1), 123).unwrap();
+        let tools = subject.send_transaction_tools(&recipient);
+        let inputs = SendTransactionInputs::new(
+            &account,
+            &address_only_wallet,
+            U256::from(1),
+            123,
+            tools.as_ref(),
+        )
+        .unwrap();
 
-        let result =
-            subject.send_transaction(inputs, subject.send_transaction_tools(&recipient).as_ref());
+        let result = subject.send_transaction(inputs);
 
         assert_eq!(result,
                    Err(BlockchainTransactionError::UnusableWallet(
@@ -1288,10 +1307,16 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let inputs =
-            SendTransactionInputs::new(&account, &consuming_wallet, U256::from(1), 123).unwrap();
+        let inputs = SendTransactionInputs::new(
+            &account,
+            &consuming_wallet,
+            U256::from(1),
+            123,
+            send_transaction_tools,
+        )
+        .unwrap();
 
-        let result = subject.send_transaction(inputs, send_transaction_tools);
+        let result = subject.send_transaction(inputs);
 
         assert_eq!(
             result,
@@ -1323,10 +1348,16 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let inputs =
-            SendTransactionInputs::new(&account, &consuming_wallet, U256::from(1), 123).unwrap();
+        let inputs = SendTransactionInputs::new(
+            &account,
+            &consuming_wallet,
+            U256::from(1),
+            123,
+            send_transaction_tools,
+        )
+        .unwrap();
 
-        let result = subject.send_transaction(inputs, send_transaction_tools);
+        let result = subject.send_transaction(inputs);
 
         assert_eq!(
             result,
@@ -1390,6 +1421,7 @@ mod tests {
             &consuming_wallet,
             nonce_correct_type,
             gas_price,
+            send_transaction_tools.as_ref(),
         )
         .unwrap();
 
@@ -1765,11 +1797,18 @@ mod tests {
         let mut payable_account = make_payable_account(5);
         payable_account.balance = -100;
         let consuming_wallet = make_wallet("blah");
+        let send_transaction_tools = SendTransactionToolsWrapperNull;
 
-        let result =
-            SendTransactionInputs::new(&payable_account, &consuming_wallet, U256::from(4545), 130);
+        let error = SendTransactionInputs::new(
+            &payable_account,
+            &consuming_wallet,
+            U256::from(4545),
+            130,
+            &send_transaction_tools,
+        )
+        .unwrap_err();
 
-        assert_eq!(result, Err(BlockchainError::SignedValueConversion(-100)))
+        assert_eq!(error, BlockchainError::SignedValueConversion(-100))
     }
 
     #[test]

@@ -366,7 +366,7 @@ impl DatabaseMigration for Migrate_4_to_5 {
     ) -> rusqlite::Result<()> {
         let mut select_statement = declaration_utils
             .transaction()
-            .prepare("SELECT pending_payment_transaction FROM payable WHERE pending_payment_transaction IS NOT NULL")?;
+            .prepare("select pending_payment_transaction from payable where pending_payment_transaction is not null")?;
         let unresolved_pending_transactions: Vec<String> = select_statement
             .query_map([], |row| {
                 Ok(row
@@ -385,9 +385,9 @@ impl DatabaseMigration for Migrate_4_to_5 {
                 "Migration from 4 to 5: no previous pending transactions found; continuing"
             )
         };
-        let statement_1 = "ALTER TABLE payable DROP COLUMN pending_payment_transaction";
-        let statement_2 = "ALTER TABLE payable ADD pending_payable_rowid integer null";
-        let statement_3 = "CREATE TABLE pending_payable (\
+        let statement_1 = "alter table payable drop column pending_payment_transaction";
+        let statement_2 = "alter table payable add pending_payable_rowid integer null";
+        let statement_3 = "create table pending_payable (\
                 rowid integer primary key, \
                 transaction_hash text not null, \
                 amount integer not null, \
@@ -396,10 +396,18 @@ impl DatabaseMigration for Migrate_4_to_5 {
                 process_error text null\
             )";
         let statement_4 =
-            "CREATE UNIQUE INDEX pending_payable_hash_idx ON pending_payable (transaction_hash)";
-        let statement_5 = "DROP INDEX idx_receivable_wallet_address";
-        let statement_6 = "DROP INDEX idx_banned_wallet_address";
-        let statement_7 = "DROP INDEX idx_payable_wallet_address";
+            "create unique index pending_payable_hash_idx ON pending_payable (transaction_hash)";
+        let statement_5 = "drop index idx_receivable_wallet_address";
+        let statement_6 = "drop index idx_banned_wallet_address";
+        let statement_7 = "drop index idx_payable_wallet_address";
+        let statement_8 = "alter table config rename to _config_old";
+        let statement_9 = "create table config (\
+                name text primary key,\
+                value text,\
+                encrypted integer not null\
+             )";
+        let statement_10 = "insert into config (name, value, encrypted) select name, value, encrypted from _config_old";
+        let statement_11 = "drop table _config_old";
         declaration_utils.execute_upon_transaction(&[
             statement_1,
             statement_2,
@@ -407,7 +415,11 @@ impl DatabaseMigration for Migrate_4_to_5 {
             statement_4,
             statement_5,
             statement_6,
-            statement_7
+            statement_7,
+            statement_8,
+            statement_9,
+            statement_10,
+            statement_11,
         ])
     }
 
@@ -662,18 +674,24 @@ mod tests {
     use crate::db_config::db_encryption_layer::DbEncryptionLayer;
     use crate::db_config::typed_config_layer::encode_bytes;
     use crate::sub_lib::cryptde::PlainData;
-    use crate::test_utils::database_utils::{retrieve_config_row};
-    use bip39::{Language, Mnemonic, MnemonicType, Seed};
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::database_utils::{assert_create_table_statement_contains_all_important_parts, assert_index_statement_is_coupled_with_right_parameter, assert_no_index_exists_for_table, bring_db_0_back_to_life_and_return_connection};
+    use crate::test_utils::database_utils::retrieve_config_row;
+    use crate::test_utils::database_utils::{
+        assert_create_table_statement_contains_all_important_parts,
+        assert_index_statement_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
+        bring_db_0_back_to_life_and_return_connection,
+    };
     use crate::test_utils::make_wallet;
+    use bip39::{Language, Mnemonic, MnemonicType, Seed};
     use ethereum_types::BigEndianHash;
+    use itertools::Itertools;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
     use rand::Rng;
+    use rusqlite::types::Value::Null;
     use rusqlite::{Connection, Error, OptionalExtension, ToSql, Transaction};
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -682,9 +700,8 @@ mod tests {
     use std::iter::once;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
-    use tiny_hderive::bip32::ExtendedPrivKey;
     use std::time::SystemTime;
-    use itertools::Itertools;
+    use tiny_hderive::bip32::ExtendedPrivKey;
     use web3::types::{H256, U256};
 
     #[derive(Default)]
@@ -1107,7 +1124,7 @@ mod tests {
         let mut external_parameters = make_external_migration_parameters();
         external_parameters.db_password_opt = Some("booga".to_string());
         let logger = Logger::new("test_logger");
-        let subject = utils.make_mig_declaration_utils(&external_parameters,&logger);
+        let subject = utils.make_mig_declaration_utils(&external_parameters, &logger);
 
         let result = subject.db_password();
 
@@ -1130,7 +1147,7 @@ mod tests {
         .unwrap();
         let external_parameters = make_external_migration_parameters();
         let logger = Logger::new("test_logger");
-        let subject = utils.make_mig_declaration_utils(&external_parameters,&logger);
+        let subject = utils.make_mig_declaration_utils(&external_parameters, &logger);
 
         let result = subject.transaction();
 
@@ -1733,13 +1750,13 @@ mod tests {
                 MigratorConfig::create_or_migrate(ExternalData::new(
                     TEST_DEFAULT_CHAIN,
                     NeighborhoodModeLight::ConsumeOnly,
-                    Some("password".to_string())
+                    Some("password".to_string()),
                 )),
             )
             .unwrap();
 
         let config_table_after = fetch_all_from_config_table(conn.as_ref());
-        assert_eq!(config_table_before,config_table_after);
+        assert_eq!(config_table_before, config_table_after);
         assert_on_schema_5_was_adopted(conn.as_ref());
         TestLogHandler::new().exists_log_containing("DEBUG: DbMigrator: Migration from 4 to 5: no previous pending transactions found; continuing");
     }
@@ -1751,12 +1768,19 @@ mod tests {
         amount: i64,
         timestamp: SystemTime,
     ) {
+        let hash_str = transaction_hash_opt
+            .map(|hash| format!("{:?}", hash))
+            .unwrap_or(String::new());
         let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?,?,?,?)").unwrap();
         let params: &[&dyn ToSql] = &[
             &wallet,
             &amount,
             &to_time_t(timestamp),
-            &if let Some(hash) = transaction_hash_opt{format!("{:?}", hash)} else {String::new()},
+            if !hash_str.is_empty() {
+                &hash_str
+            } else {
+                &Null
+            },
         ];
         let row_count = stm.execute(params).unwrap();
         assert_eq!(row_count, 1);
@@ -1812,13 +1836,13 @@ mod tests {
                 MigratorConfig::create_or_migrate(ExternalData::new(
                     TEST_DEFAULT_CHAIN,
                     NeighborhoodModeLight::ConsumeOnly,
-                    Some("password".to_string())
+                    Some("password".to_string()),
                 )),
             )
             .unwrap();
 
         let config_table_after = fetch_all_from_config_table(&conn);
-        assert_eq!(config_table_before,config_table_after);
+        assert_eq!(config_table_before, config_table_after);
         assert_on_schema_5_was_adopted(conn_schema5.as_ref());
         TestLogHandler::new().exists_log_containing("WARN: DbMigrator: Migration from 4 to 5: database belonging to the chain 'eth-ropsten'; \
          we discovered possibly abandoned transactions that are said yet to be pending, these are: \
@@ -1840,13 +1864,11 @@ mod tests {
             "pending_payable",
             expected_key_words.as_slice(),
         );
-        let expected_key_words = [
-            ["transaction_hash"].as_slice(),
-        ];
+        let expected_key_words = [["transaction_hash"].as_slice()];
         assert_index_statement_is_coupled_with_right_parameter(
             conn_schema5,
             "pending_payable_hash_idx",
-            expected_key_words.as_slice()
+            expected_key_words.as_slice(),
         );
         let expected_key_words = [
             ["wallet_address", "text", "primary", "key"].as_slice(),
@@ -1869,26 +1891,44 @@ mod tests {
             "config",
             expected_key_words.as_slice(),
         );
-        assert_no_index_exists_for_table(conn_schema5,"config");
-        assert_no_index_exists_for_table(conn_schema5,"payable");
-        assert_no_index_exists_for_table(conn_schema5,"receivable");
-        assert_no_index_exists_for_table(conn_schema5,"banned");
+        assert_no_index_exists_for_table(conn_schema5, "config");
+        assert_no_index_exists_for_table(conn_schema5, "payable");
+        assert_no_index_exists_for_table(conn_schema5, "receivable");
+        assert_no_index_exists_for_table(conn_schema5, "banned");
+        let error_stm = conn_schema5
+            .prepare("select * from _config_old")
+            .unwrap_err();
+        let error_msg = match error_stm {
+            rusqlite::Error::SqliteFailure(_, Some(msg)) => msg,
+            x => panic!("we expected SqliteFailure but we got: {:?}", x),
+        };
+        assert_eq!(error_msg, "no such table: _config_old".to_string())
     }
 
-    fn fetch_all_from_config_table(conn: &dyn ConnectionWrapper)->Vec<(String, (Option<String>, bool))>{
+    fn fetch_all_from_config_table(
+        conn: &dyn ConnectionWrapper,
+    ) -> Vec<(String, (Option<String>, bool))> {
         let mut stmt = conn
             .prepare("select name, value, encrypted from config")
             .unwrap();
-        let mut hash_map_of_values = stmt.query_map([], |row| {
-            Ok((
-                row.get::<usize,String>(0).unwrap(),
-                (row.get::<usize,Option<String>>(1).unwrap(),
-                row.get::<usize,i64>(2).map(|encrypted: i64| encrypted > 0).unwrap()),
-            ))
-        }).unwrap().flatten().collect::<HashMap<String, (Option<String>, bool)>>();
+        let mut hash_map_of_values = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<usize, String>(0).unwrap(),
+                    (
+                        row.get::<usize, Option<String>>(1).unwrap(),
+                        row.get::<usize, i64>(2)
+                            .map(|encrypted: i64| encrypted > 0)
+                            .unwrap(),
+                    ),
+                ))
+            })
+            .unwrap()
+            .flatten()
+            .collect::<HashMap<String, (Option<String>, bool)>>();
         hash_map_of_values.remove("schema_version").unwrap();
         let mut vec_of_values = hash_map_of_values.into_iter().collect_vec();
-        vec_of_values.sort_by_key(|(name,_)|name.clone());
+        vec_of_values.sort_by_key(|(name, _)| name.clone());
         vec_of_values
     }
 }

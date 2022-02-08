@@ -1,13 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::{unsigned_to_signed, TransactionId};
+use crate::accountant::unsigned_to_signed;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::utils::ExpectValue;
-use rusqlite::types::{Null, ToSql, Type};
+use rusqlite::types::{ToSql, Type};
 use rusqlite::Error;
 use std::fmt::Debug;
 use std::str::FromStr;
@@ -34,14 +34,12 @@ pub struct PendingPayable {
     pub hash_opt: Option<H256>,
 }
 
-//TODO we probably can cut back this struct below as we need very little from it
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Payment {
     pub to: Wallet,
     pub amount: u64,
     pub timestamp: SystemTime,
-    pub transaction: H256,
+    pub tx_hash: H256,
 }
 
 impl Payment {
@@ -50,7 +48,7 @@ impl Payment {
             to,
             amount,
             timestamp,
-            transaction: txn,
+            tx_hash: txn,
         }
     }
 }
@@ -68,9 +66,6 @@ pub trait PayableDao: Debug + Send {
         &self,
         payment: &PendingPayableFingerprint,
     ) -> Result<(), PayableDaoError>;
-
-    //TODO this method doesn't have a use now; what is its future?
-    fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PayableDaoError>;
 
     //there used to be method 'accountant_status' but was turned into test utility since never used in the production code
 
@@ -133,28 +128,14 @@ impl PayableDao for PayableDaoReal {
         &self,
         payment: &PendingPayableFingerprint,
     ) -> Result<(), PayableDaoError> {
-        let signed_amount = unsigned_to_signed(payment.amount)
-            .map_err(|err_num| PayableDaoError::SignConversion(err_num))?;
-        self.try_decrease_balance(payment.rowid, signed_amount, payment.timestamp)
-            .map_err(|e| PayableDaoError::RusqliteError(e))
-    }
-
-    fn transaction_canceled(&self, transaction_id: TransactionId) -> Result<(), PayableDaoError> {
-        let formally_signed_rowid =
-            i64::try_from(transaction_id.rowid).expect("SQLite counts up to i64::MAX");
-        let mut stm = self
-            .conn
-            .prepare("update payable set pending_payable_rowid = ? where pending_payable_rowid = ?")
-            .expect("Internal error");
-        let params: &[&dyn ToSql] = &[&Null, &formally_signed_rowid];
-        match stm.execute(params) {
-            Ok(1) => Ok(()),
-            Ok(num) => panic!(
-                "Cancelling transaction: affected {} rows but expected 1",
-                num
-            ),
-            Err(e) => Err(PayableDaoError::RusqliteError(e.to_string())),
-        }
+        let signed_amount =
+            unsigned_to_signed(payment.amount).map_err(PayableDaoError::SignConversion)?;
+        self.try_decrease_balance(
+            payment.rowid_opt.expectv("initialized rowid"),
+            signed_amount,
+            payment.timestamp,
+        )
+        .map_err(PayableDaoError::RusqliteError)
     }
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
@@ -330,7 +311,6 @@ impl PayableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::test_utils::{account_status, make_pending_payable_fingerprint};
-    use crate::accountant::TransactionId;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::database::db_initializer;
@@ -539,7 +519,12 @@ mod tests {
         timestamp: SystemTime,
         rowid: u64,
     ) {
-        let mut stm1 = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?,?,?,?)").unwrap();
+        let mut stm1 = conn
+            .prepare(
+                "insert into payable (wallet_address, balance, \
+         last_paid_timestamp, pending_payable_rowid) values (?,?,?,?)",
+            )
+            .unwrap();
         let params: &[&dyn ToSql] = &[
             &recipient_wallet,
             &amount,
@@ -548,98 +533,6 @@ mod tests {
         ];
         let row_changed = stm1.execute(params).unwrap();
         assert_eq!(row_changed, 1);
-    }
-
-    #[test]
-    fn transaction_canceled_works() {
-        let home_dir =
-            ensure_node_home_directory_exists("payable_dao", "transaction_canceled_works");
-        let hash = H256::from_uint(&U256::from(45678));
-        let rowid = 656;
-        let boxed_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
-            .unwrap();
-        let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
-        let amount = 55555;
-        let timestamp = from_time_t(190_000_000);
-        let recipient_wallet = make_wallet("booga");
-        {
-            create_account_with_pending_payment(
-                boxed_conn.as_ref(),
-                &recipient_wallet,
-                amount,
-                timestamp,
-                rowid,
-            )
-        }
-        let subject = PayableDaoReal::new(boxed_conn);
-        let status_before = account_status(&secondary_conn, &recipient_wallet);
-        assert_eq!(
-            status_before,
-            Some(PayableAccount {
-                wallet: recipient_wallet.clone(),
-                balance: amount,
-                last_paid_timestamp: timestamp,
-                pending_payable_opt: Some(PendingPayable {
-                    rowid,
-                    hash_opt: None
-                })
-            })
-        );
-
-        let _ = subject
-            .transaction_canceled(TransactionId { hash, rowid })
-            .unwrap();
-
-        let status_after = account_status(&secondary_conn, &recipient_wallet);
-        assert_eq!(
-            status_after,
-            Some(PayableAccount {
-                wallet: recipient_wallet,
-                balance: amount,
-                last_paid_timestamp: timestamp,
-                pending_payable_opt: None
-            })
-        )
-    }
-
-    #[test]
-    fn transaction_canceled_works_for_generic_sql_error() {
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "transaction_canceled_works_for_generic_sql_error",
-        );
-        let conn = how_to_trick_rusqlite_for_an_error(&home_dir);
-        let conn_wrapped = ConnectionWrapperReal::new(conn);
-        let subject = PayableDaoReal::new(Box::new(conn_wrapped));
-        let hash = H256::from_uint(&U256::from(12345));
-        let rowid = 789;
-
-        let result = subject.transaction_canceled(TransactionId { hash, rowid });
-
-        assert_eq!(
-            result,
-            Err(PayableDaoError::RusqliteError(
-                "attempt to write a readonly database".to_string()
-            ))
-        )
-    }
-
-    #[test]
-    #[should_panic(expected = "Cancelling transaction: affected 0 rows but expected 1")]
-    fn transaction_canceled_returned_different_row_count_than_expected() {
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "transaction_canceled_returned_different_row_count_than_expected",
-        );
-        let hash = H256::from_uint(&U256::from(45678));
-        let rowid = 656;
-        let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
-            .unwrap();
-        let subject = PayableDaoReal::new(conn);
-
-        let _ = subject.transaction_canceled(TransactionId { hash, rowid });
     }
 
     #[test]
@@ -682,10 +575,10 @@ mod tests {
             })
         );
         let pending_payable_fingerprint = PendingPayableFingerprint {
-            rowid,
+            rowid_opt: Some(rowid),
             timestamp: payment_timestamp,
             hash,
-            attempt,
+            attempt_opt: Some(attempt),
             amount: payment as u64,
             process_error: None,
         };
@@ -717,7 +610,7 @@ mod tests {
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
         pending_payable_fingerprint.hash = hash;
-        pending_payable_fingerprint.rowid = rowid;
+        pending_payable_fingerprint.rowid_opt = Some(rowid);
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
         let result = subject.transaction_confirmed(&pending_payable_fingerprint);
@@ -746,7 +639,7 @@ mod tests {
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
         pending_payable_fingerprint.hash = hash;
-        pending_payable_fingerprint.rowid = rowid;
+        pending_payable_fingerprint.rowid_opt = Some(rowid);
         pending_payable_fingerprint.amount = u64::MAX;
         //The overflow occurs before we start modifying the payable account so I decided not to create an example in the database
 
@@ -762,10 +655,10 @@ mod tests {
             let mut stm = conn
                 .prepare(
                     "\
-                    create table payable (\
-                    wallet_address real primary key,
-                    balance text not null,
-                    last_paid_timestamp real not null,
+                create table payable (\
+                    wallet_address text primary key,
+                    balance integer not null,
+                    last_paid_timestamp integer not null,
                     pending_payable_rowid integer null)\
                     ",
                 )
