@@ -560,10 +560,7 @@ mod tests {
     };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::database_utils::{
-        assurance_query_for_config_table, bring_db_0_back_to_life_and_return_connection,
-        query_specific_schema_information,
-    };
+    use crate::test_utils::database_utils::{assert_create_table_statement_contains_all_important_parts, assert_index_statement_is_coupled_with_right_parameter, assert_no_index_exists_for_table, assurance_query_for_config_table, bring_db_0_back_to_life_and_return_connection, query_specific_schema_information};
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
     use masq_lib::constants::DEFAULT_CHAIN;
@@ -579,6 +576,7 @@ mod tests {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
+    use rusqlite::types::Value::Null;
     use web3::types::{H256, U256};
 
     #[derive(Default)]
@@ -1432,6 +1430,20 @@ mod tests {
         assert_eq!(cs_encrypted, 0);
     }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     #[test]
     fn migration_from_4_to_5_without_pending_transactions() {
         init_test_logging();
@@ -1453,6 +1465,14 @@ mod tests {
                 )
                 .unwrap();
         }
+        let wallet_1 = make_wallet("james_bond");
+        prepare_old_fashioned_account_with_pending_transaction_opt(
+            &conn,
+            None,
+            &wallet_1,
+            23456,
+            from_time_t(250_000_000),
+        );
 
         let conn_schema5 = subject
             .initialize_to_version(
@@ -1468,6 +1488,24 @@ mod tests {
 
         assert_on_schema_5_was_adopted(conn_schema5.as_ref());
         TestLogHandler::new().exists_log_containing("DEBUG: DbMigrator: Migration from 4 to 5: no previous pending transactions found; continuing");
+    }
+
+    fn prepare_old_fashioned_account_with_pending_transaction_opt(
+        conn: &Connection,
+        transaction_hash_opt: Option<H256>,
+        wallet: &Wallet,
+        amount: i64,
+        timestamp: SystemTime,
+    ) {
+        let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?,?,?,?)").unwrap();
+        let params: &[&dyn ToSql] = &[
+            &wallet,
+            &amount,
+            &to_time_t(timestamp),
+            if let Some(hash) = transaction_hash_opt{&format!("{:?}", hash)} else {&Null},
+        ];
+        let row_count = stm.execute(params).unwrap();
+        assert_eq!(row_count, 1);
     }
 
     #[test]
@@ -1495,37 +1533,21 @@ mod tests {
                 )
                 .unwrap();
         }
-        fn prepare_account_with_pending_transaction(
-            conn: &Connection,
-            transaction_hash: H256,
-            wallet: &Wallet,
-            amount: i64,
-            timestamp: SystemTime,
-        ) {
-            let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?,?,?,?)").unwrap();
-            let params: &[&dyn ToSql] = &[
-                &wallet,
-                &amount,
-                &to_time_t(timestamp),
-                &format!("{:?}", transaction_hash),
-            ];
-            let row_count = stm.execute(params).unwrap();
-            assert_eq!(row_count, 1);
-        }
-        prepare_account_with_pending_transaction(
+        prepare_old_fashioned_account_with_pending_transaction_opt(
             &conn,
-            transaction_hash_1,
+            Some(transaction_hash_1),
             &wallet_1,
             555555,
             SystemTime::now(),
         );
-        prepare_account_with_pending_transaction(
+        prepare_old_fashioned_account_with_pending_transaction_opt(
             &conn,
-            transaction_hash_2,
+            Some(transaction_hash_2),
             &wallet_2,
             1111111,
             from_time_t(200_000_000),
         );
+
         let conn_schema5 = subject
             .initialize_to_version(
                 &dir_path,
@@ -1545,49 +1567,40 @@ mod tests {
 
     fn assert_on_schema_5_was_adopted(conn_schema5: &dyn ConnectionWrapper) {
         let tables_schema5 = query_specific_schema_information(conn_schema5, "table");
-        assert!(
-            tables_schema5.contains(
-                &"\
-        CREATE TABLE pending_payable (\
-            rowid integer primary key, \
-            transaction_hash text not null, \
-            amount integer not null, \
-            payment_timestamp integer not null, \
-            attempt integer not null, \
-            process_error text null)"
-                    .to_string()
-            ),
-            "{:?}",
-            tables_schema5
+        let expected_key_words = [
+            ["rowid", "integer", "primary", "key"].as_slice(),
+            ["transaction_hash", "text", "not", "null"].as_slice(),
+            ["amount", "integer", "not", "null"].as_slice(),
+            ["payment_timestamp", "integer", "not", "null"].as_slice(),
+            ["attempt", "integer", "not", "null"].as_slice(),
+            ["process_error", "text", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn_schema5,
+            "pending_payable",
+            expected_key_words.as_slice(),
         );
-        assert!(
-            tables_schema5.contains(
-                &"\
-        CREATE TABLE payable (wallet_address text primary key, \
-         balance integer not null, \
-         last_paid_timestamp integer not null, \
-         pending_payable_rowid integer null)"
-                    .to_string()
-            ),
-            "{:?}",
-            tables_schema5
+        let expected_key_words = [
+            ["transaction_hash"].as_slice(),
+        ];
+        assert_index_statement_is_coupled_with_right_parameter(
+            conn_schema5,
+            "pending_payable_hash_idx",
+            expected_key_words.as_slice()
         );
-        assert!(
-            !tables_schema5.contains(&"_payable_old".to_string()),
-            "{:?}",
-            tables_schema5
+        let expected_key_words = [
+            ["wallet_address", "text", "primary", "key"].as_slice(),
+            ["balance", "integer", "not", "null"].as_slice(),
+            ["last_paid_timestamp", "integer", "not", "null"].as_slice(),
+            ["pending_payable_rowid", "integer", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn_schema5,
+            "payable",
+            expected_key_words.as_slice(),
         );
-        let indexes_schema5 = query_specific_schema_information(conn_schema5, "index");
-        assert!(!indexes_schema5.contains(
-            &"CREATE UNIQUE INDEX idx_receivable_wallet_address on receivable (wallet_address)"
-                .to_string()
-        ));
-        assert!(!indexes_schema5.contains(
-            &"CREATE UNIQUE INDEX idx_banned_wallet_address on banned (wallet_address)".to_string()
-        ));
-        assert!(indexes_schema5.contains(
-            &"CREATE UNIQUE INDEX pending_payable_hash_idx ON pending_payable (transaction_hash)"
-                .to_string()
-        ));
+        assert_no_index_exists_for_table(conn_schema5,"payable");
+        assert_no_index_exists_for_table(conn_schema5,"receivable");
+        assert_no_index_exists_for_table(conn_schema5,"banned");
     }
 }

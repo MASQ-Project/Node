@@ -4,7 +4,6 @@ use crate::database::db_migrations::{
     DbMigrator, DbMigratorReal, ExternalData, MigratorConfig, Suppression,
 };
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
-use indoc::indoc;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -165,19 +164,14 @@ impl DbInitializerReal {
 
     fn create_config_table(&self, conn: &Connection) {
         conn.execute(
-            "create table if not exists config (
-                name text not null,
-                value text,
-                encrypted integer not null
-            )",
+           "create table if not exists config (
+                    name text primary key,
+                    value text,
+                    encrypted integer not null
+           )",
             [],
         )
         .expect("Can't create config table");
-        conn.execute(
-            "create unique index if not exists idx_config_name on config (name)",
-            [],
-        )
-        .expect("Can't create config name index");
     }
 
     fn initialize_config(&self, conn: &Connection, external_params: ExternalData) {
@@ -272,66 +266,49 @@ impl DbInitializerReal {
         );
     }
 
-    fn create_payable_table(&self, conn: &Connection) {
-        conn.execute(
-            indoc!(
-                "create table if not exists payable (
-                wallet_address text primary key,
-                balance integer not null,
-                last_paid_timestamp integer not null,
-                pending_payable_rowid integer null
-            )"
-            ),
-            [],
-        )
-        .expect("Can't create payable table");
-        conn.execute(
-            "create unique index if not exists idx_payable_wallet_address on payable (wallet_address)",
-            [],
-        )
-        .expect("Can't create payable wallet_address index");
-    }
-
     fn create_pending_payable_table(&self, conn: &Connection) {
         conn.execute(
-            indoc!(
-                "
-            create table if not exists pending_payable (
-                rowid integer primary key,
-                transaction_hash text not null,
-                amount integer not null,
-                payment_timestamp integer not null,
-                attempt integer not null,
-                process_error text null
-            )"
-            ),
+            "create table if not exists pending_payable (
+                    rowid integer primary key,
+                    transaction_hash text not null,
+                    amount integer not null,
+                    payment_timestamp integer not null,
+                    attempt integer not null,
+                    process_error text null
+            )",
             [],
         )
-        .expect("Can't create pending_payable table");
+            .expect("Can't create pending_payable table");
         conn.execute(
             "CREATE UNIQUE INDEX pending_payable_hash_idx ON pending_payable (transaction_hash)",
             [],
         )
-        .expect("Can't create transaction hash index in pending payments");
+            .expect("Can't create transaction hash index in pending payments");
+    }
+
+    fn create_payable_table(&self, conn: &Connection) {
+        conn.execute(
+            "create table if not exists payable (
+                    wallet_address text primary key,
+                    balance integer not null,
+                    last_paid_timestamp integer not null,
+                    pending_payable_rowid integer null
+            )",
+            [],
+        )
+        .expect("Can't create payable table");
     }
 
     fn create_receivable_table(&self, conn: &Connection) {
         conn.execute(
-            indoc!(
-                "create table if not exists receivable (
-                wallet_address text primary key,
-                balance integer not null,
-                last_received_timestamp integer not null
-            )"
-            ),
+            "create table if not exists receivable (
+                    wallet_address text primary key,
+                    balance integer not null,
+                    last_received_timestamp integer not null
+            )",
             [],
         )
         .expect("Can't create receivable table");
-        conn.execute(
-            "create unique index if not exists idx_receivable_wallet_address on receivable (wallet_address)",
-            [],
-        )
-        .expect("Can't create receivable wallet_address index");
     }
 
     fn create_banned_table(&self, conn: &Connection) {
@@ -340,11 +317,6 @@ impl DbInitializerReal {
             [],
         )
         .expect("Can't create banned table");
-        conn.execute(
-            "create unique index idx_banned_wallet_address on banned (wallet_address)",
-            [],
-        )
-        .expect("Can't create banned wallet_address index");
     }
 
     fn extract_configurations(&self, conn: &Connection) -> HashMap<String, Option<String>> {
@@ -610,10 +582,7 @@ pub mod test_utils {
 mod tests {
     use super::*;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
-    use crate::test_utils::database_utils::{
-        assurance_query_for_config_table, bring_db_0_back_to_life_and_return_connection,
-        query_specific_schema_information, DbMigratorMock,
-    };
+    use crate::test_utils::database_utils::{assurance_query_for_config_table, bring_db_0_back_to_life_and_return_connection, query_specific_schema_information, DbMigratorMock, assert_create_table_statement_contains_all_important_parts, assert_no_index_exists_for_table, assert_index_statement_is_coupled_with_right_parameter};
     use itertools::Itertools;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -624,6 +593,7 @@ mod tests {
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::types::Type::Null;
     use rusqlite::{Error, OpenFlags};
+    use std::collections::HashSet;
     use std::fs::File;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -671,6 +641,33 @@ mod tests {
     }
 
     #[test]
+    fn db_initialize_creates_config_table() {
+        let home_dir = ensure_node_home_directory_does_not_exist(
+            "db_initializer",
+            "db_initialize_creates_config_table",
+        );
+        let subject = DbInitializerReal::default();
+
+        let conn = subject
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+
+        let mut stmt = conn.prepare("select name, value, encrypted from config").unwrap();
+        let _ = stmt.query_map([], |_| Ok(42)).unwrap();
+        let expected_key_words = [
+            ["name", "text", "primary", "key"].as_slice(),
+            ["value", "text"].as_slice(),
+            ["encrypted", "integer", "not", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn.as_ref(),
+            "config",
+            expected_key_words.as_slice(),
+        );
+        assert_no_index_exists_for_table(conn.as_ref(),"config")
+    }
+
+    #[test]
     fn db_initialize_creates_pending_payable_table() {
         let home_dir = ensure_node_home_directory_does_not_exist(
             "db_initializer",
@@ -682,22 +679,30 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
-        let mut stmt = conn.prepare("select rowid, transaction_hash, amount, payment_timestamp, attempt, process_error from pending_payable").unwrap ();
+        let mut stmt = conn.prepare("select rowid, transaction_hash, amount, payment_timestamp, attempt, process_error from pending_payable").unwrap();
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
-        //caution: the words 'if not exists' are left out in the schema's data
-        let expected_sql_used_to_create_this_table = indoc!(
-            "
-            create table pending_payable (
-                rowid integer primary key,
-                transaction_hash text not null,
-                amount integer not null,
-                payment_timestamp integer not null,
-                attempt integer not null,
-                process_error text null
-            )"
+        let expected_key_words = [
+            ["rowid", "integer", "primary", "key"].as_slice(),
+            ["transaction_hash", "text", "not", "null"].as_slice(),
+            ["amount", "integer", "not", "null"].as_slice(),
+            ["payment_timestamp", "integer", "not", "null"].as_slice(),
+            ["attempt", "integer", "not", "null"].as_slice(),
+            ["process_error", "text", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn.as_ref(),
+            "pending_payable",
+            expected_key_words.as_slice(),
         );
-        assert_on_part_of_the_schema(conn.as_ref(), expected_sql_used_to_create_this_table);
+        let expected_key_words = [
+            ["transaction_hash"].as_slice(),
+        ];
+        assert_index_statement_is_coupled_with_right_parameter(
+            conn.as_ref(),
+            "pending_payable_hash_idx",
+                expected_key_words.as_slice()
+        )
     }
 
     #[test]
@@ -715,16 +720,18 @@ mod tests {
         let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payable_rowid from payable").unwrap ();
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
-        //caution: the words 'if not exists' are left out in the schema's data
-        let expected_sql_used_to_create_this_table = indoc!(
-            "create table payable (
-                wallet_address text primary key,
-                balance integer not null,
-                last_paid_timestamp integer not null,
-                pending_payable_rowid integer null
-            )"
+        let expected_key_words = [
+            ["wallet_address", "text", "primary", "key"].as_slice(),
+            ["balance", "integer", "not", "null"].as_slice(),
+            ["last_paid_timestamp", "integer", "not", "null"].as_slice(),
+            ["pending_payable_rowid", "integer", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn.as_ref(),
+            "payable",
+            expected_key_words.as_slice(),
         );
-        assert_on_part_of_the_schema(conn.as_ref(), expected_sql_used_to_create_this_table);
+        assert_no_index_exists_for_table(conn.as_ref(),"payable")
     }
 
     #[test]
@@ -744,15 +751,17 @@ mod tests {
             .unwrap();
         let mut receivable_contents = stmt.query_map([], |_| Ok(())).unwrap();
         assert!(receivable_contents.next().is_none());
-        //caution: the words 'if not exists' are left out in the schema's data
-        let expected_sql_used_to_create_this_table = indoc!(
-            "create table receivable (
-                wallet_address text primary key,
-                balance integer not null,
-                last_received_timestamp integer not null
-            )"
+        let expected_key_words = [
+            ["wallet_address", "text", "primary", "key"].as_slice(),
+            ["balance", "integer", "not", "null"].as_slice(),
+            ["last_received_timestamp", "integer", "not", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn.as_ref(),
+            "receivable",
+            expected_key_words.as_slice(),
         );
-        assert_on_part_of_the_schema(conn.as_ref(), expected_sql_used_to_create_this_table);
+        assert_no_index_exists_for_table(conn.as_ref(),"receivable")
     }
 
     #[test]
@@ -771,22 +780,15 @@ mod tests {
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
         let mut banned_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(banned_contents.next().is_none());
-        let expected_sql_used_to_create_the_table =
-            "create table banned ( wallet_address text primary key )";
-        assert_on_part_of_the_schema(conn.as_ref(), expected_sql_used_to_create_the_table);
-    }
-
-    fn assert_on_part_of_the_schema(conn: &dyn ConnectionWrapper, searched_sql: &str) {
-        let found_table_sqls = query_specific_schema_information(conn, "table");
-        let findings_all_lowercase = found_table_sqls
-            .into_iter()
-            .map(|element| element.to_lowercase())
-            .collect_vec();
-        assert!(
-            findings_all_lowercase.contains(&searched_sql.to_string()),
-            "we got this wrong data: {:?}",
-            findings_all_lowercase
-        )
+        let expected_key_words = [
+            ["wallet_address", "text", "primary", "key"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn.as_ref(),
+            "banned",
+            expected_key_words.as_slice(),
+        );
+        assert_no_index_exists_for_table(conn.as_ref(),"banned")
     }
 
     #[test]

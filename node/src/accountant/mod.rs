@@ -34,7 +34,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::utils::{handle_ui_crash_request, plus, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Addr;
@@ -51,7 +51,7 @@ use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::ExpectValue;
+use masq_lib::utils::{ExpectValue, plus};
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::default::Default;
@@ -290,7 +290,7 @@ pub struct RequestTransactionReceipts {
 
 #[derive(Debug, PartialEq, Message, Clone)]
 pub struct ReportTransactionReceipts {
-    pub pending_payable_fingerprints_with_receipts:
+    pub fingerprints_with_receipts:
         Vec<(Option<TransactionReceipt>, PendingPayableFingerprint)>,
 }
 
@@ -301,7 +301,7 @@ impl Handler<ReportTransactionReceipts> for Accountant {
         debug!(
             self.logger,
             "Processing receipts for {} transactions",
-            msg.pending_payable_fingerprints_with_receipts.len()
+            msg.fingerprints_with_receipts.len()
         );
         let statuses = self.handle_pending_transaction_with_its_receipt(msg);
         self.process_transaction_by_status(statuses, ctx)
@@ -999,7 +999,7 @@ impl Accountant {
                 rowid: payment.rowid,
             })
         }
-        msg.pending_payable_fingerprints_with_receipts
+        msg.fingerprints_with_receipts
             .into_iter()
             .map(|(receipt_opt, payment)| match receipt_opt {
                 Some(receipt) => self.interpret_transaction_receipt(receipt, payment, &self.logger),
@@ -3712,7 +3712,7 @@ mod tests {
             process_error: None,
         };
         let msg = ReportTransactionReceipts {
-            pending_payable_fingerprints_with_receipts: vec![(
+            fingerprints_with_receipts: vec![(
                 tx_receipt_opt,
                 pending_payable_fingerprint_record.clone(),
             )],
@@ -3762,7 +3762,7 @@ mod tests {
             process_error: None,
         };
         let msg = ReportTransactionReceipts {
-            pending_payable_fingerprints_with_receipts: vec![
+            fingerprints_with_receipts: vec![
                 (
                     Some(transaction_receipt_1),
                     pending_payable_fingerprint_1.clone(),

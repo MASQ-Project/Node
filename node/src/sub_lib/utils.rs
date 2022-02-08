@@ -87,13 +87,6 @@ pub fn to_string_s(data: &[u8]) -> String {
     }
 }
 
-pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
-    let mut result = vec![];
-    result.append(&mut source);
-    result.push(item);
-    result
-}
-
 pub fn make_new_multi_config<'a>(
     schema: &App<'a, 'a>,
     vcls: Vec<Box<dyn VirtualCommandLine>>,
