@@ -1,14 +1,17 @@
-use std::str::FromStr;
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
+use ethabi;
 use futures::Future;
+use masq_lib::blockchains::chains::Chain;
 use web3;
 use web3::contract::Options;
-use ethabi;
-use ethabi::Address;
-use masq_lib::blockchains::chains::Chain;
-use node_lib::sub_lib::wallet::Wallet;
 
-
-fn assert_contract(blockchain_url: &str, chain: &Chain, expected_token_name: &str, expected_decimals:u32) {
+fn assert_contract(
+    blockchain_url: &str,
+    chain: &Chain,
+    expected_token_name: &str,
+    expected_decimals: u32,
+) {
     let (_event_loop, transport) = web3::transports::Http::new(blockchain_url).unwrap();
     let web3 = web3::Web3::new(transport);
     let address = chain.rec().contract;
@@ -58,7 +61,7 @@ fn assert_contract(blockchain_url: &str, chain: &Chain, expected_token_name: &st
 }
 
 #[test]
-fn exists_on_polygon_mumbai_integration() {
+fn masq_erc20_contract_exists_on_polygon_mumbai_integration() {
     let blockchain_url = "https://rpc-mumbai.matic.today/";
     let chain = Chain::PolyMumbai;
 
@@ -66,7 +69,7 @@ fn exists_on_polygon_mumbai_integration() {
 }
 
 #[test]
-fn exists_on_polygon_mainnet_integration() {
+fn masq_erc20_contract_exists_on_polygon_mainnet_integration() {
     let blockchain_url = "https://polygon-rpc.com/";
     let chain = Chain::PolyMainnet;
 
@@ -74,7 +77,7 @@ fn exists_on_polygon_mainnet_integration() {
 }
 
 #[test]
-fn exists_on_ethereum_mainnet_integration() {
+fn masq_erc20_contract_exists_on_ethereum_mainnet_integration() {
     let blockchain_url = "https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026";
     let chain = Chain::EthMainnet;
 
@@ -82,7 +85,7 @@ fn exists_on_ethereum_mainnet_integration() {
 }
 
 #[test]
-fn exists_on_ethereum_ropsten_integration() {
+fn masq_erc20_contract_exists_on_ethereum_ropsten_integration() {
     let blockchain_url = "https://ropsten.infura.io/v3/0ead23143b174f6983c76f69ddcf4026";
     let chain = Chain::EthRopsten;
 
