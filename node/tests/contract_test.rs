@@ -58,9 +58,33 @@ fn assert_contract(blockchain_url: &str, chain: &Chain, expected_token_name: &st
 }
 
 #[test]
-fn exists_on_polygon_mumbai() {
-    let blockchain_url = "https://polygon-mumbai.g.alchemy.com/v2/wFOdk2UWjB8SqeZvzsiwmYX3iBEOq3UC";
+fn exists_on_polygon_mumbai_integration() {
+    let blockchain_url = "https://rpc-mumbai.matic.today/";
     let chain = Chain::PolyMumbai;
 
     assert_contract(blockchain_url, &chain, "tMASQ", 18)
+}
+
+#[test]
+fn exists_on_polygon_mainnet_integration() {
+    let blockchain_url = "https://polygon-rpc.com/";
+    let chain = Chain::PolyMainnet;
+
+    assert_contract(blockchain_url, &chain, "MASQ (PoS)", 18)
+}
+
+#[test]
+fn exists_on_ethereum_mainnet_integration() {
+    let blockchain_url = "https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026";
+    let chain = Chain::EthMainnet;
+
+    assert_contract(blockchain_url, &chain, "MASQ", 18)
+}
+
+#[test]
+fn exists_on_ethereum_ropsten_integration() {
+    let blockchain_url = "https://ropsten.infura.io/v3/0ead23143b174f6983c76f69ddcf4026";
+    let chain = Chain::EthRopsten;
+
+    assert_contract(blockchain_url, &chain, "Shroud", 18)
 }
