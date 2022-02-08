@@ -1592,6 +1592,15 @@ checksum = "68f2d64f2edebec4ce84ad108148e67e1064789bee435edc5b60ad398714a3a9"
 
 [[package]]
 name = "itertools"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f56a2d0bc861f9165be4eb3442afd3c236d8a98afd426f65d92324ae1091a484"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a9a9d19fa1e79b6215ff29b9d6880b706147f16e9b1dbb1e4e5947b5b02bc5e3"
@@ -1823,6 +1832,7 @@ dependencies = [
  "clap",
  "crossbeam-channel 0.5.1",
  "ctrlc",
+ "itertools 0.8.2",
  "lazy_static",
  "linefeed",
  "masq_lib",
@@ -1841,7 +1851,7 @@ dependencies = [
  "const_format",
  "crossbeam-channel 0.5.1",
  "ethereum-types",
- "itertools",
+ "itertools 0.10.3",
  "lazy_static",
  "log 0.4.14",
  "nix 0.23.1",
@@ -2016,7 +2026,7 @@ dependencies = [
  "ethereum-types",
  "ethsign-crypto",
  "futures",
- "itertools",
+ "itertools 0.10.3",
  "masq_lib",
  "native-tls",
  "node",
@@ -2123,7 +2133,7 @@ dependencies = [
  "http 0.2.5",
  "indoc",
  "ipconfig 0.2.2",
- "itertools",
+ "itertools 0.10.3",
  "jsonrpc-core",
  "lazy_static",
  "libc",

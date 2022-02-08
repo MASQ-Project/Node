@@ -77,16 +77,21 @@ impl DbMigrator for DbMigratorMock {
     }
 }
 
-pub fn assurance_query_for_config_table(
-    conn: &dyn ConnectionWrapper,
-    stm: &str,
-) -> (String, Option<String>, u16) {
-    let mut statement = conn.prepare(stm).unwrap();
+pub fn retrieve_config_row(conn: &dyn ConnectionWrapper, name: &str) -> (Option<String>, bool) {
+    let sql = "select value, encrypted from config where name = ?";
+    let mut statement = conn.prepare(sql).unwrap();
     statement
-        .query_row([], |r| {
-            Ok((r.get(0).unwrap(), r.get(1).unwrap(), r.get(2).unwrap()))
+        .query_row([name], |r| {
+            let value_opt: Option<String> = r.get(0).unwrap();
+            let encrypted_num: u64 = r.get(1).unwrap();
+            let encrypted_flag = match encrypted_num {
+                0 => false,
+                1 => true,
+                x => panic!("Encrypted flag must be 0 or 1, not {}", x),
+            };
+            Ok((value_opt, encrypted_flag))
         })
-        .unwrap_or_else(|e| panic!("panicked at {} for statement: {}", e, stm))
+        .unwrap_or_else(|e| panic!("panicked at {} for statement: {}", e, sql))
 }
 
 pub fn query_specific_schema_information(
@@ -148,7 +153,7 @@ fn assert_sql_statements_contain_important_parts(
                         .symmetric_difference(&hash_set_expected)
                         .collect_vec()
                         .is_empty())
-                    .is_some(),"partial statement not to be found in the template: {:?}",hash_set)
+                    .is_some(),"part of the fetched statement (one line) that cannot be found in the template: {:?}",hash_set)
     })
 }
 

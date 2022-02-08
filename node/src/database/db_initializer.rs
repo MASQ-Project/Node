@@ -21,7 +21,6 @@ use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: usize = 5;
-pub const ENCRYPTED_ROWS: &[&str] = &[EXAMPLE_ENCRYPTED, "seed", "past_neighbors"];
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -173,7 +172,6 @@ impl DbInitializerReal {
         )
         .expect("Can't create config table");
     }
-
     fn initialize_config(&self, conn: &Connection, external_params: ExternalData) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
@@ -199,17 +197,10 @@ impl DbInitializerReal {
         );
         Self::set_config_value(
             conn,
-            "consuming_wallet_derivation_path",
+            "consuming_wallet_private_key",
             None,
-            false,
-            "consuming wallet derivation path",
-        );
-        Self::set_config_value(
-            conn,
-            "consuming_wallet_public_key",
-            None,
-            false,
-            "public key for the consuming wallet private key",
+            true,
+            "consuming wallet private key",
         );
         Self::set_config_value(
             conn,
@@ -232,7 +223,6 @@ impl DbInitializerReal {
             false,
             "database version",
         );
-        Self::set_config_value(conn, "seed", None, true, "mnemonic seed");
         Self::set_config_value(
             conn,
             "start_block",
@@ -319,34 +309,44 @@ impl DbInitializerReal {
         .expect("Can't create banned table");
     }
 
-    fn extract_configurations(&self, conn: &Connection) -> HashMap<String, Option<String>> {
-        let mut stmt = conn.prepare("select name, value from config").unwrap();
-        let query_result = stmt.query_map([], |row| Ok((row.get(0), row.get(1))));
+    fn extract_configurations(&self, conn: &Connection) -> HashMap<String, (Option<String>, bool)> {
+        let mut stmt = conn
+            .prepare("select name, value, encrypted from config")
+            .unwrap();
+        let query_result = stmt.query_map([], |row| {
+            Ok((
+                row.get(0),
+                row.get(1),
+                row.get(2).map(|encrypted: i64| encrypted > 0),
+            ))
+        });
         match query_result {
             Ok(rows) => rows,
             Err(e) => panic!("Error retrieving configuration: {}", e),
         }
         .map(|row| match row {
-            Ok((Ok(name), Ok(value))) => (name, Some(value)),
-            Ok((Ok(name), Err(InvalidColumnType(1, _, _)))) => (name, None),
+            Ok((Ok(name), Ok(value), Ok(encrypted))) => (name, (Some(value), encrypted)),
+            Ok((Ok(name), Err(InvalidColumnType(1, _, _)), Ok(encrypted))) => {
+                (name, (None, encrypted))
+            }
             e => panic!("Error retrieving configuration: {:?}", e),
         })
-        .collect::<HashMap<String, Option<String>>>()
+        .collect::<HashMap<String, (Option<String>, bool)>>()
     }
 
     fn is_migration_required(
-        version_found: Option<&Option<String>>,
+        version_found: Option<&(Option<String>, bool)>,
     ) -> Result<Option<usize>, InitializationError> {
         match version_found {
             None => Err(InitializationError::UndetectableVersion(format!(
                 "Need {}, found nothing",
                 CURRENT_SCHEMA_VERSION
             ))),
-            Some(None) => Err(InitializationError::UndetectableVersion(format!(
+            Some((None, _)) => Err(InitializationError::UndetectableVersion(format!(
                 "Need {}, found nothing",
                 CURRENT_SCHEMA_VERSION
             ))),
-            Some(Some(v_from_db)) => {
+            Some((Some(v_from_db), _)) => {
                 let v_from_db = Self::validate_schema_version(v_from_db);
                 if v_from_db == CURRENT_SCHEMA_VERSION {
                     Ok(None)
@@ -398,6 +398,7 @@ impl DbInitializerReal {
         let found_schema = Self::validate_schema_version(
             schema_version_entry
                 .expect("Db migration failed; cannot find a row with the schema version")
+                .0
                 .as_ref()
                 .expect("Db migration failed; the value for the schema version is missing"),
         );
@@ -493,6 +494,10 @@ pub mod test_utils {
     unsafe impl<'a: 'b, 'b> Send for ConnectionWrapperMock<'a, 'b> {}
 
     impl<'a: 'b, 'b> ConnectionWrapperMock<'a, 'b> {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
         pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
             self.prepare_results.borrow_mut().push(result);
             self
@@ -582,7 +587,7 @@ pub mod test_utils {
 mod tests {
     use super::*;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
-    use crate::test_utils::database_utils::{assurance_query_for_config_table, bring_db_0_back_to_life_and_return_connection, query_specific_schema_information, DbMigratorMock, assert_create_table_statement_contains_all_important_parts, assert_no_index_exists_for_table, assert_index_statement_is_coupled_with_right_parameter};
+    use crate::test_utils::database_utils::{bring_db_0_back_to_life_and_return_connection, retrieve_config_row, DbMigratorMock, assert_create_table_statement_contains_all_important_parts, assert_no_index_exists_for_table, assert_index_statement_is_coupled_with_right_parameter};
     use itertools::Itertools;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -591,9 +596,7 @@ mod tests {
         TEST_DEFAULT_CHAIN,
     };
     use masq_lib::utils::NeighborhoodModeLight;
-    use rusqlite::types::Type::Null;
     use rusqlite::{Error, OpenFlags};
-    use std::collections::HashSet;
     use std::fs::File;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -837,7 +840,7 @@ mod tests {
     fn existing_database_with_correct_version_is_accepted_without_changes() {
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
-            "existing_database_with_version_is_accepted",
+            "existing_database_with_correct_version_is_accepted_without_changes",
         );
         let subject = DbInitializerReal::default();
         {
@@ -864,47 +867,60 @@ mod tests {
         flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
         let config_map = subject.extract_configurations(&conn);
-        let mut config_vec: Vec<(String, Option<String>)> = config_map.into_iter().collect();
+        let mut config_vec: Vec<(String, (Option<String>, bool))> =
+            config_map.into_iter().collect();
         config_vec.sort_by_key(|(name, _)| name.clone());
-        let verify = |cv: &mut Vec<(String, Option<String>)>, name: &str, value: Option<&str>| {
+        let verify = |cv: &mut Vec<(String, (Option<String>, bool))>,
+                      name: &str,
+                      value: Option<&str>,
+                      encrypted: bool| {
             let actual = cv.remove(0);
-            let expected = (name.to_string(), value.map(|v| v.to_string()));
+            let expected = (name.to_string(), (value.map(|v| v.to_string()), encrypted));
             assert_eq!(actual, expected)
         };
-        let verify_name = |cv: &mut Vec<(String, Option<String>)>, expected_name: &str| {
-            let (actual_name, value) = cv.remove(0);
+        let verify_but_value = |cv: &mut Vec<(String, (Option<String>, bool))>,
+                                expected_name: &str,
+                                expected_encrypted: bool| {
+            let (actual_name, (value, actual_encrypted)) = cv.remove(0);
             assert_eq!(actual_name, expected_name);
+            assert_eq!(actual_encrypted, expected_encrypted);
             value
         };
-        verify(&mut config_vec, "blockchain_service_url", None);
+        verify(&mut config_vec, "blockchain_service_url", None, false);
         verify(
             &mut config_vec,
             "chain_name",
             Some(TEST_DEFAULT_CHAIN.rec().literal_identifier),
+            false,
         );
-        let clandestine_port_str_opt = verify_name(&mut config_vec, "clandestine_port");
+        let clandestine_port_str_opt = verify_but_value(&mut config_vec, "clandestine_port", false);
         let clandestine_port: u16 = clandestine_port_str_opt.unwrap().parse().unwrap();
         assert!(clandestine_port >= 1025);
         assert!(clandestine_port < 10000);
-        verify(&mut config_vec, "consuming_wallet_derivation_path", None);
-        verify(&mut config_vec, "consuming_wallet_public_key", None);
-        verify(&mut config_vec, "earning_wallet_address", None);
-        verify(&mut config_vec, EXAMPLE_ENCRYPTED, None);
+        verify(&mut config_vec, "consuming_wallet_private_key", None, true);
+        verify(&mut config_vec, "earning_wallet_address", None, false);
+        verify(&mut config_vec, EXAMPLE_ENCRYPTED, None, true);
         verify(
             &mut config_vec,
             "gas_price",
             Some(&DEFAULT_GAS_PRICE.to_string()),
+            false,
         );
-        verify(&mut config_vec, "mapping_protocol", None);
-        verify(&mut config_vec, "neighborhood_mode", Some("standard"));
-        verify(&mut config_vec, "past_neighbors", None);
-        verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database
+        verify(&mut config_vec, "mapping_protocol", None, false);
+        verify(
+            &mut config_vec,
+            "neighborhood_mode",
+            Some("standard"),
+            false,
+        );
+        verify(&mut config_vec, "past_neighbors", None, true);
+        verify(&mut config_vec, "preexisting", Some("yes"), false); // makes sure we just created this database
         verify(
             &mut config_vec,
             "schema_version",
             Some(&CURRENT_SCHEMA_VERSION.to_string()),
+            false,
         );
-        verify(&mut config_vec, "seed", None);
         verify(
             &mut config_vec,
             "start_block",
@@ -912,6 +928,7 @@ mod tests {
                 "{}",
                 &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string()
             )),
+            false,
         );
         assert_eq!(config_vec, vec![]);
     }
@@ -990,10 +1007,9 @@ mod tests {
             .initialize(
                 &updated_db_path_dir,
                 true,
-                MigratorConfig::create_or_migrate(ExternalData {
-                    chain: Chain::EthRopsten,
-                    neighborhood_mode: NeighborhoodModeLight::Standard,
-                }),
+                MigratorConfig::create_or_migrate(ExternalData::new(Chain::EthRopsten,NeighborhoodModeLight::Standard,Some("password".to_string())
+                            )
+                )
             )
             .unwrap();
         let _ = subject
@@ -1004,6 +1020,9 @@ mod tests {
             )
             .unwrap();
 
+        // db_password_opt: Some("password".to_string()),
+        // chain: Chain::EthRopsten,
+        // neighborhood_mode: NeighborhoodModeLight::Standard,
         let conn_updated = Connection::open_with_flags(
             &updated_db_path_dir.join(DATABASE_FILE),
             OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -1100,10 +1119,8 @@ mod tests {
         let result = subject.initialize(&data_dir, false, MigratorConfig::migration_suppressed());
 
         let wrapped_connection = result.unwrap();
-        let (_, schema_version_after, _) = assurance_query_for_config_table(
-            wrapped_connection.as_ref(),
-            "select name, value, encrypted from config where name = 'schema_version'",
-        );
+        let (schema_version_after, _) =
+            retrieve_config_row(wrapped_connection.as_ref(), "schema_version");
         assert_eq!(schema_version_after.unwrap(), schema_version_before)
     }
 
@@ -1186,35 +1203,6 @@ mod tests {
             "clandestine_port_value should have been < 10000, but was {}",
             clandestine_port_value
         );
-    }
-
-    #[test]
-    fn initialize_config_with_seed() {
-        let home_dir =
-            ensure_node_home_directory_exists("db_initializer", "initialize_config_with_seed");
-
-        DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
-            .unwrap();
-
-        let mut flags = OpenFlags::empty();
-        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
-        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-        let mut stmt = conn
-            .prepare("select name, value from config where name=?")
-            .unwrap();
-        let mut config_contents = stmt
-            .query_map(&["seed"], |row| Ok((row.get(0), row.get(1))))
-            .unwrap();
-
-        let (name, value) = config_contents.next().unwrap().unwrap()
-            as (Result<String, Error>, Result<String, Error>);
-        assert_eq!(name, Ok(String::from("seed")));
-        assert_eq!(
-            value,
-            Err(Error::InvalidColumnType(1, String::from("value"), Null))
-        );
-        assert!(config_contents.next().is_none());
     }
 
     #[test]

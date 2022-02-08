@@ -207,10 +207,10 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
 
 pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
     PersistentConfigurationMock::new()
-        .earning_wallet_from_address_result(Ok(None))
-        .consuming_wallet_derivation_path_result(Ok(None))
-        .mnemonic_seed_result(Ok(None))
-        .mnemonic_seed_exists_result(Ok(false))
+        .earning_wallet_address_result(Ok(None))
+        .earning_wallet_result(Ok(None))
+        .consuming_wallet_private_key_result(Ok(None))
+        .consuming_wallet_result(Ok(None))
         .past_neighbors_result(Ok(None))
         .gas_price_result(Ok(1))
         .mapping_protocol_result(Ok(None))
@@ -543,12 +543,12 @@ pub mod pure_test_utils {
 
     pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
         PersistentConfigurationMock::new()
-            .earning_wallet_from_address_result(Ok(None))
-            .consuming_wallet_derivation_path_result(Ok(None))
-            .mnemonic_seed_result(Ok(None))
-            .mnemonic_seed_exists_result(Ok(false))
+            .earning_wallet_address_result(Ok(None))
+            .earning_wallet_result(Ok(None))
+            .consuming_wallet_private_key_result(Ok(None))
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
+            .mapping_protocol_result(Ok(None))
             .blockchain_service_url_result(Ok(None))
     }
 
