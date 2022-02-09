@@ -3543,7 +3543,8 @@ mod tests {
                 payment_2_backup_third_round,
             ])
             .return_all_fingerprints_result(vec![payment_2_backup_fourth_round.clone()])
-            .return_all_fingerprints_result(vec![]) //TODO in case we are too fast at some machine
+            //extra one, for a case when we are too fast at some machine
+            .return_all_fingerprints_result(vec![])
             .insert_fingerprint_params(&insert_record_params_arc)
             .insert_fingerprint_result(Ok(()))
             .insert_fingerprint_result(Ok(()))
@@ -3660,18 +3661,21 @@ mod tests {
             ScanForPendingPayable {},
             Duration::from_millis(pending_payable_scan_interval),
         );
-        let notify_later_check_for_confirmation = notify_later_scan_for_pending_payable_params_arc
-            .lock()
-            .unwrap();
+        let mut notify_later_check_for_confirmation =
+            notify_later_scan_for_pending_payable_params_arc
+                .lock()
+                .unwrap();
+        let vector_of_first_five_cycles = notify_later_check_for_confirmation
+            .drain(0..=4)
+            .collect_vec();
         assert_eq!(
-            *notify_later_check_for_confirmation,
+            vector_of_first_five_cycles,
             vec![
                 expected_scan_pending_payable_msg_and_interval.clone(),
                 expected_scan_pending_payable_msg_and_interval.clone(),
                 expected_scan_pending_payable_msg_and_interval.clone(),
                 expected_scan_pending_payable_msg_and_interval.clone(),
-                expected_scan_pending_payable_msg_and_interval.clone(),
-                expected_scan_pending_payable_msg_and_interval //TODO this is an extra one for unreliability in Actions
+                expected_scan_pending_payable_msg_and_interval,
             ]
         );
         let mut notify_confirm_transaction_params =
