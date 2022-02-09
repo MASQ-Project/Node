@@ -630,7 +630,7 @@ conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiScanRequest {
-    pub name: String
+    pub name: String,
 }
 conversation_message!(UiScanRequest, "scan");
 

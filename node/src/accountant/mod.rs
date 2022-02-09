@@ -118,10 +118,14 @@ pub struct SentPayments {
 }
 
 #[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
-pub struct ScanForPayables {repeat: bool}
+pub struct ScanForPayables {
+    repeat: bool,
+}
 
 #[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
-pub struct ScanForReceivables {repeat: bool}
+pub struct ScanForReceivables {
+    repeat: bool,
+}
 
 impl Handler<BindMessage> for Accountant {
     type Result = ();
@@ -137,11 +141,13 @@ impl Handler<StartMessage> for Accountant {
 
     fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
         if self.config.suppress_initial_scans {
-            info!(&self.logger, "Started with --scans off; declining to begin database and blockchain scans");
-        }
-        else {
-            ctx.notify(ScanForPayables {repeat: true});
-            ctx.notify(ScanForReceivables {repeat: true});
+            info!(
+                &self.logger,
+                "Started with --scans off; declining to begin database and blockchain scans"
+            );
+        } else {
+            ctx.notify(ScanForPayables { repeat: true });
+            ctx.notify(ScanForReceivables { repeat: true });
         }
     }
 }
@@ -764,14 +770,16 @@ pub mod tests {
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::pure_test_utils::{prove_that_crash_request_handler_is_hooked_up, SystemKillerActor};
+    use crate::test_utils::pure_test_utils::{
+        prove_that_crash_request_handler_is_hooked_up, SystemKillerActor,
+    };
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
-    use masq_lib::test_utils::logging::{init_test_logging};
+    use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
@@ -1735,8 +1743,7 @@ pub mod tests {
     #[test]
     fn start_message_triggers_no_scans_in_suppress_mode() {
         init_test_logging();
-        let system =
-            System::new("start_message_triggers_no_scans_in_suppress_mode");
+        let system = System::new("start_message_triggers_no_scans_in_suppress_mode");
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
                 payables_scan_interval: Duration::from_millis(1),
@@ -1745,11 +1752,9 @@ pub mod tests {
             },
             make_wallet("hi"),
         );
-        let now = to_time_t(SystemTime::now());
         let payable_dao = PayableDaoMock::new(); // No payables: demanding one would cause a panic
         let receivable_dao = ReceivableDaoMock::new(); // No delinquencies: demanding one would cause a panic
-        let peer_actors = peer_actors_builder()
-            .build();
+        let peer_actors = peer_actors_builder().build();
         let subject = make_subject(Some(config), Some(payable_dao), Some(receivable_dao), None);
         let subject_addr = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
@@ -1760,7 +1765,9 @@ pub mod tests {
         System::current().stop();
         system.run();
         // no panics because of recalcitrant DAOs; therefore DAOs were not called; therefore test passes
-        TestLogHandler::new().exists_log_containing("Started with --scans off; declining to begin database and blockchain scans");
+        TestLogHandler::new().exists_log_containing(
+            "Started with --scans off; declining to begin database and blockchain scans",
+        );
     }
 
     #[test]
@@ -1929,13 +1936,12 @@ pub mod tests {
             },
             make_wallet("mine"),
         );
-        let non_pending_payables_params_arc = Arc::new (Mutex::new (vec![]));
+        let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::default()
             .non_pending_payables_params(&non_pending_payables_params_arc)
             .non_pending_payables_result(vec![]);
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
-        let system =
-            System::new("non_repeating_scan_for_payables_does_not_repeat");
+        let system = System::new("non_repeating_scan_for_payables_does_not_repeat");
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();
@@ -1947,15 +1953,21 @@ pub mod tests {
         let payables_sub = subject_addr.clone().recipient::<ScanForPayables>();
         let receivables_sub = subject_addr.clone().recipient::<ScanForReceivables>();
 
-        let _ = payables_sub.try_send (ScanForPayables {repeat: false}).unwrap();
-        let _ = receivables_sub.try_send (ScanForReceivables {repeat: false}).unwrap();
+        let _ = payables_sub
+            .try_send(ScanForPayables { repeat: false })
+            .unwrap();
+        let _ = receivables_sub
+            .try_send(ScanForReceivables { repeat: false })
+            .unwrap();
 
-        let _killer = SystemKillerActor::new (Duration::from_millis (500)).start();
+        let _killer = SystemKillerActor::new(Duration::from_millis(500)).start();
         system.run(); // will be stopped after 500ms by _killer
         let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
         assert_eq!(
             blockchain_bridge_recordings.get_record::<RetrieveTransactions>(0),
-            &RetrieveTransactions { recipient: earning_wallet }
+            &RetrieveTransactions {
+                recipient: earning_wallet
+            }
         );
         assert_eq!(blockchain_bridge_recordings.len(), 1); // Sent exactly one, no more
         let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();

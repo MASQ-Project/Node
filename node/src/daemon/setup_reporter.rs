@@ -922,7 +922,7 @@ impl ValueRetriever for Scans {
         _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        Some (("on".to_string(), Default))
+        Some(("on".to_string(), Default))
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -1406,9 +1406,7 @@ mod tests {
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
-            config_file
-                .write_all(b"scans = \"off\"\n")
-                .unwrap();
+            config_file.write_all(b"scans = \"off\"\n").unwrap();
         }
         let ropsten_dir = data_root
             .join("MASQ")
@@ -1440,9 +1438,7 @@ mod tests {
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
-            config_file
-                .write_all(b"scans = \"off\"\n")
-                .unwrap();
+            config_file.write_all(b"scans = \"off\"\n").unwrap();
         }
         let subject = SetupReporterReal::new(Box::new(
             DirsWrapperMock::new()
@@ -2740,7 +2736,7 @@ mod tests {
 
         let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
 
-        assert_eq! (result, Some (("on".to_string(), Default)));
+        assert_eq!(result, Some(("on".to_string(), Default)));
     }
 
     fn verify_requirements(
@@ -2848,7 +2844,7 @@ mod tests {
             crate::daemon::setup_reporter::RealUser::default().is_required(&params),
             false
         );
-        assert_eq!(Scans{}.is_required(&params), false);
+        assert_eq!(Scans {}.is_required(&params), false);
     }
 
     #[test]

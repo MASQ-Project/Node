@@ -231,16 +231,6 @@ pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
         .hidden(true)
 }
 
-pub fn scans_arg<'a>() -> Arg<'a, 'a> {
-    Arg::with_name ("scans")
-        .long("scans")
-        .value_name("SCANS")
-        .takes_value(true)
-        .possible_values(&["on", "off"])
-        .default_value("on")
-        .help(SCANS_HELP)
-}
-
 pub fn ui_port_arg(help: &str) -> Arg {
     Arg::with_name("ui-port")
         .long("ui-port")
@@ -370,7 +360,14 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(NEIGHBORS_HELP),
     )
     .arg(real_user_arg())
-    .arg(scans_arg())
+    .arg(
+        Arg::with_name("scans")
+            .long("scans")
+            .value_name("SCANS")
+            .takes_value(true)
+            .possible_values(&["on", "off"])
+            .default_value("on")
+            .help(SCANS_HELP))
 }
 
 pub mod common_validators {

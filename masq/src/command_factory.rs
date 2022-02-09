@@ -57,10 +57,10 @@ impl CommandFactory for CommandFactoryReal {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
-            "scan" => match ScanCommand::new (pieces) {
-                Ok(command) => Box::new (command),
+            "scan" => match ScanCommand::new(pieces) {
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
-            }
+            },
             "set-configuration" => match SetConfigurationCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),

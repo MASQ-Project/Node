@@ -519,8 +519,8 @@ pub mod pure_test_utils {
     use crate::daemon::ChannelFactory;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use actix::{AsyncContext, Message};
     use actix::{Actor, Addr, Context, Handler, System};
+    use actix::{AsyncContext, Message};
     use crossbeam_channel::{Receiver, Sender};
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
@@ -659,14 +659,14 @@ pub mod pure_test_utils {
     }
 
     pub struct SystemKillerActor {
-        after: Duration
+        after: Duration,
     }
 
     impl Actor for SystemKillerActor {
         type Context = Context<Self>;
 
         fn started(&mut self, ctx: &mut Self::Context) {
-            ctx.notify_later (CleanUpMessage{sleep_ms: 0}, self.after.clone());
+            ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after.clone());
         }
     }
 
@@ -680,8 +680,8 @@ pub mod pure_test_utils {
     }
 
     impl SystemKillerActor {
-        pub fn new (after: Duration) -> Self {
-            Self {after}
+        pub fn new(after: Duration) -> Self {
+            Self { after }
         }
     }
 }

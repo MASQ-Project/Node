@@ -1,6 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::masq_node::{MASQNode, MASQNodeUtils};
+use crate::masq_real_node::MASQRealNode;
+use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
+use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
+use node_lib::database::connection_wrapper::ConnectionWrapper;
+use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
+use node_lib::database::db_migrations::MigratorConfig;
+use node_lib::db_config::config_dao::{ConfigDao, ConfigDaoReal};
 use node_lib::neighborhood::node_record::NodeRecordInner_0v1;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptData, PlainData};
@@ -9,13 +16,6 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 use std::{io, thread};
-use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
-use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
-use node_lib::database::connection_wrapper::ConnectionWrapper;
-use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
-use node_lib::database::db_migrations::MigratorConfig;
-use node_lib::db_config::config_dao::{ConfigDao, ConfigDaoReal};
-use crate::masq_real_node::MASQRealNode;
 
 pub fn send_chunk(stream: &mut TcpStream, chunk: &[u8]) {
     stream
@@ -74,15 +74,15 @@ pub fn database_conn(node: &MASQRealNode) -> Box<dyn ConnectionWrapper> {
 }
 
 pub fn config_dao(node: &MASQRealNode) -> Box<dyn ConfigDao> {
-    Box::new (ConfigDaoReal::new (database_conn(node)))
+    Box::new(ConfigDaoReal::new(database_conn(node)))
 }
 
 pub fn payable_dao(node: &MASQRealNode) -> Box<dyn PayableDao> {
-    Box::new (PayableDaoReal::new(database_conn(node)))
+    Box::new(PayableDaoReal::new(database_conn(node)))
 }
 
 pub fn receivable_dao(node: &MASQRealNode) -> Box<dyn ReceivableDao> {
-    Box::new (ReceivableDaoReal::new (database_conn(node)))
+    Box::new(ReceivableDaoReal::new(database_conn(node)))
 }
 
 pub fn wait_for_shutdown(stream: &mut TcpStream, timeout: &Duration) -> Result<(), io::Error> {

@@ -3,7 +3,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{send, Command, CommandError};
 use clap::{App, Arg, SubCommand};
-use masq_lib::messages::{UiCrashRequest, UiScanRequest};
+use masq_lib::messages::{UiScanRequest};
 use std::fmt::Debug;
 
 #[derive(Debug)]
@@ -14,15 +14,13 @@ pub struct ScanCommand {
 pub fn scan_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("scan")
         .about("Orders the Node to perform an immediate scan of the indicated type")
-        .arg(Arg::with_name ("name")
-            .help ("Type of the scan that should be triggered")
-            .index (1)
-            .possible_values(&[
-                "payables",
-                "receivables",
-            ])
-            .required(true)
-            .case_insensitive(true)
+        .arg(
+            Arg::with_name("name")
+                .help("Type of the scan that should be triggered")
+                .index(1)
+                .possible_values(&["payables", "receivables"])
+                .required(true)
+                .case_insensitive(true),
         )
 }
 
@@ -68,10 +66,7 @@ mod tests {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().send_result(Ok(()));
         let subject = factory
-            .make(&[
-                "scan".to_string(),
-                "payables".to_string(),
-            ])
+            .make(&["scan".to_string(), "payables".to_string()])
             .unwrap();
 
         let result = subject.execute(&mut context);
@@ -94,10 +89,7 @@ mod tests {
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
         let subject = factory
-            .make(&[
-                "scan".to_string(),
-                name.to_string(),
-            ])
+            .make(&["scan".to_string(), name.to_string()])
             .unwrap();
 
         let result = subject.execute(&mut context);
@@ -111,7 +103,7 @@ mod tests {
             vec![UiScanRequest {
                 name: name.to_string(),
             }
-                .tmb(0)]
+            .tmb(0)]
         )
     }
 
@@ -119,11 +111,7 @@ mod tests {
     fn scan_command_handles_send_failure() {
         let mut context = CommandContextMock::new()
             .send_result(Err(ContextError::ConnectionDropped("blah".to_string())));
-        let subject = ScanCommand::new(&[
-            "scan".to_string(),
-            "payables".to_string(),
-        ])
-        .unwrap();
+        let subject = ScanCommand::new(&["scan".to_string(), "payables".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
 

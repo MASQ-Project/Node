@@ -21,7 +21,7 @@ fn debtors_are_credited_once_but_not_twice() {
     // Kill the real Node
     // Use the receivable DAO to verify that the receivable's balance has been adjusted
     // Use the config DAO to verify that the start block has been advanced to 2001
-    todo! ("Complete me");
+    todo!("Complete me");
 }
 
 #[test]
