@@ -529,7 +529,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn payment_curves_result(self, result: Result<String, PersistentConfigError>) -> Self {
+    pub fn payment_curves_result(self, result: Result<PaymentCurves, PersistentConfigError>) -> Self {
         self.payment_curves_results.borrow_mut().push(result);
         self
     }
@@ -544,7 +544,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn rate_pack_result(self, result: Result<String, PersistentConfigError>) -> Self {
+    pub fn rate_pack_result(self, result: Result<RatePack, PersistentConfigError>) -> Self {
         self.rate_pack_results.borrow_mut().push(result);
         self
     }
@@ -559,7 +559,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn scan_intervals_result(self, result: Result<String, PersistentConfigError>) -> Self {
+    pub fn scan_intervals_result(self, result: Result<ScanIntervals, PersistentConfigError>) -> Self {
         self.scan_intervals_results.borrow_mut().push(result);
         self
     }

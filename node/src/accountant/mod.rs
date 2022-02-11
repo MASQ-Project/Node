@@ -134,7 +134,7 @@ impl Handler<ScanForPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_scan_for_payables();
-        ctx.notify_later(msg, self.config.payable_scan_interval);
+        ctx.notify_later(msg, self.config.scan_intervals.payable_scan_interval);
     }
 }
 
@@ -143,7 +143,7 @@ impl Handler<ScanForReceivables> for Accountant {
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_scan_for_receivables();
-        ctx.notify_later(msg, self.config.receivable_scan_interval);
+        ctx.notify_later(msg, self.config.scan_intervals.receivable_scan_interval);
     }
 }
 
@@ -799,7 +799,7 @@ pub mod tests {
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
-    use masq_lib::constants::DEFAULT_PAYMENT_CURVES;
+    use masq_lib::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_SCAN_INTERVALS};
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::ui_gateway::MessagePath::Conversation;
@@ -813,6 +813,7 @@ pub mod tests {
     use std::time::SystemTime;
     use web3::types::H256;
     use web3::types::U256;
+    use masq_lib::coupled_parameters::ScanIntervals;
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
@@ -1624,10 +1625,8 @@ pub mod tests {
         let subject = make_subject(
             Some(bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
-                    pending_payment_scan_interval: Duration::from_secs(1000),
-                    payable_scan_interval: Duration::from_secs(1000),
-                    receivable_scan_interval: Duration::from_secs(1000),
-                    payment_curves: DEFAULT_PAYMENT_CURVES.clone(),
+                    scan_intervals: *DEFAULT_SCAN_INTERVALS,
+                    payment_curves: *DEFAULT_PAYMENT_CURVES,
                 },
                 earning_wallet.clone(),
             )),
@@ -1670,10 +1669,12 @@ pub mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                pending_payment_scan_interval: Duration::from_secs(1000),
-                payable_scan_interval: Duration::from_secs(1000),
-                receivable_scan_interval: Duration::from_millis(100),
-                payment_curves: DEFAULT_PAYMENT_CURVES.clone(),
+                scan_intervals:ScanIntervals {
+                    pending_payable_scan_interval: Duration::from_secs(1000),
+                    payable_scan_interval: Duration::from_secs(1000),
+                    receivable_scan_interval: Duration::from_millis(100),
+                },
+                payment_curves: *DEFAULT_PAYMENT_CURVES,
             },
             earning_wallet.clone(),
         );
@@ -1805,9 +1806,11 @@ pub mod tests {
             System::new("accountant_payable_scan_timer_triggers_periodical_scanning_for_payables");
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                pending_payment_scan_interval: Duration::from_secs(50_000),
-                payable_scan_interval: Duration::from_millis(100),
-                receivable_scan_interval: Duration::from_secs(50_000), //deliberately big to refrain from starting off this scanning
+                scan_intervals: ScanIntervals {
+                    pending_payable_scan_interval: Duration::from_secs(50_000),
+                    payable_scan_interval: Duration::from_millis(100),
+                    receivable_scan_interval: Duration::from_secs(50_000),
+                },
                 payment_curves: DEFAULT_PAYMENT_CURVES.clone(),
             },
             make_wallet("hi"),
@@ -1956,9 +1959,11 @@ pub mod tests {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                pending_payment_scan_interval: Duration::from_secs(1_000),
-                payable_scan_interval: Duration::from_millis(100),
-                receivable_scan_interval: Duration::from_secs(1_000),
+                scan_intervals: ScanIntervals {
+                    pending_payable_scan_interval: Duration::from_secs(50_000),
+                    payable_scan_interval: Duration::from_millis(100),
+                    receivable_scan_interval: Duration::from_secs(50_000),
+                },
                 payment_curves: DEFAULT_PAYMENT_CURVES.clone(),
             },
             make_wallet("mine"),
@@ -2811,9 +2816,7 @@ pub mod tests {
         };
         let mut bootstrapper_config = BootstrapperConfig::default();
         bootstrapper_config.accountant_config_opt = Some(AccountantConfig {
-            pending_payment_scan_interval: Default::default(),
-            payable_scan_interval: Default::default(),
-            receivable_scan_interval: Default::default(),
+            scan_intervals: Default::default(),
             payment_curves: custom_payment_curves,
         });
         let payable_thresholds_tools = PayableThresholdToolsMock::default()

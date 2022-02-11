@@ -5,7 +5,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use lazy_static::lazy_static;
-use masq_lib::coupled_parameters::PaymentCurves;
+use masq_lib::coupled_parameters::{PaymentCurves, ScanIntervals};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
@@ -21,9 +21,7 @@ lazy_static! {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct AccountantConfig {
-    pub pending_payment_scan_interval: Duration,
-    pub payable_scan_interval: Duration,
-    pub receivable_scan_interval: Duration,
+    pub scan_intervals: ScanIntervals,
     pub payment_curves: PaymentCurves,
 }
 

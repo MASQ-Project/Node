@@ -13,7 +13,7 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
-use masq_lib::coupled_parameters::{PaymentCurves, RatePack, ScanIntervals};
+use masq_lib::coupled_parameters::{CoupledParams, PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
@@ -34,6 +34,7 @@ pub enum PersistentConfigError {
     BadPortNumber(String),
     BadNumberFormat(String),
     BadHexFormat(String),
+    BadCoupledParamsFormat(String),
     BadMnemonicSeed(PlainData),
     BadDerivationPathFormat(String),
     BadAddressFormat(String),
@@ -49,6 +50,8 @@ impl From<TypedConfigLayerError> for PersistentConfigError {
             TypedConfigLayerError::BadNumberFormat(msg) => {
                 PersistentConfigError::BadNumberFormat(msg)
             }
+            TypedConfigLayerError::BadCoupledParamsFormat(msg)=>PersistentConfigError::BadCoupledParamsFormat(msg)
+
         }
     }
 }
@@ -442,7 +445,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn payment_curves(&self) -> Result<PaymentCurves, PersistentConfigError> {
-        self.simple_get_method(decode_coupled_params, "payment_curves")
+        self.coupled_params_get_method(CoupledParams::parse_payment_curves, "payment_curves")
     }
 
     fn set_payment_curves(&mut self, curves: String) -> Result<(), PersistentConfigError> {
@@ -450,7 +453,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn rate_pack(&self) -> Result<RatePack, PersistentConfigError> {
-        self.simple_get_method(decode_coupled_params, "rate_pack")
+        self.coupled_params_get_method(CoupledParams::parse_rate_pack, "rate_pack")
     }
 
     fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError> {
@@ -458,7 +461,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError> {
-        self.simple_get_method(decode_coupled_params, "scan_intervals")
+        self.coupled_params_get_method(CoupledParams::parse_scan_intervals, "scan_intervals")
     }
 
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError> {
@@ -543,6 +546,17 @@ impl PersistentConfigurationReal {
         }
     }
 
+    fn coupled_params_get_method<T>(
+        &self,
+        values_parser: fn(&str) -> Result<T, String>,
+        parameter: &str,
+    ) -> Result<T, PersistentConfigError> {
+        match decode_coupled_params(values_parser,self.get(parameter)?)? {
+            None => Self::missing_value_panic(parameter),
+            Some(rate) => Ok(rate),
+        }
+    }
+
     fn missing_value_panic(parameter_name: &str) -> ! {
         panic!(
             "ever-supplied value missing: {}; database is corrupt!",
@@ -570,6 +584,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
     use tiny_hderive::bip32::ExtendedPrivKey;
+    use std::time::Duration;
 
     lazy_static! {
         static ref CONFIG_TABLE_PARAMETERS: Vec<String> = list_of_config_parameters();
@@ -630,6 +645,10 @@ mod tests {
                 TypedConfigLayerError::BadNumberFormat("booga".to_string()),
                 PersistentConfigError::BadNumberFormat("booga".to_string()),
             ),
+            (
+                TypedConfigLayerError::BadCoupledParamsFormat("booga".to_string()),
+                PersistentConfigError::BadCoupledParamsFormat("booga".to_string()),
+            )
         ]
         .into_iter()
         .for_each(|(tcle, pce)| assert_eq!(PersistentConfigError::from(tcle), pce))
@@ -1753,36 +1772,6 @@ mod tests {
         );
     }
 
-    macro_rules! persistent_config_plain_data_assertions_for_simple_get_method_string {
-        ($parameter_name: literal,$expected_value: literal) => {
-            paste! {
-                let get_params_arc = Arc::new(Mutex::new(vec![]));
-                let config_dao = ConfigDaoMock::new()
-                    .get_params(&get_params_arc)
-                    .get_result(Ok(ConfigDaoRecord::new(
-                        $parameter_name,
-                        Some($expected_value),
-                        false,
-                    )));
-                let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-
-                let result = subject.[<$parameter_name>]().unwrap();
-
-                assert_eq!(result, $expected_value.to_string());
-                let get_params = get_params_arc.lock().unwrap();
-                assert_eq!(*get_params, vec![$parameter_name.to_string()]);
-            }
-            assert_eq!(
-                CONFIG_TABLE_PARAMETERS
-                    .iter()
-                    .filter(|parameter_name| parameter_name.as_str() == $parameter_name)
-                    .count(),
-                1,
-                "This parameter is missing in the table"
-            )
-        };
-    }
-
     macro_rules! persistent_config_plain_data_assertions_for_simple_get_method {
         ($parameter_name: literal,$expected_value: expr) => {
             paste! {
@@ -1791,7 +1780,7 @@ mod tests {
                     .get_params(&get_params_arc)
                     .get_result(Ok(ConfigDaoRecord::new(
                         $parameter_name,
-                        Some($expected_value.to_string().as_str()),
+                        Some($expected_value),
                         false,
                     )));
                 let subject = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1807,7 +1796,39 @@ mod tests {
                     .iter()
                     .filter(|parameter_name| parameter_name.as_str() == $parameter_name)
                     .count(),
-                1
+                1,
+                "This parameter is missing in the table"
+            )
+        };
+    }
+
+    macro_rules! persistent_config_plain_data_assertions_for_simple_get_method {
+        ($parameter_name: literal,$expected_in_database: literal, $expected_result: expr) => {
+            paste! {
+                let get_params_arc = Arc::new(Mutex::new(vec![]));
+                let config_dao = ConfigDaoMock::new()
+                    .get_params(&get_params_arc)
+                    .get_result(Ok(ConfigDaoRecord::new(
+                        $parameter_name,
+                        Some($expected_in_database),
+                        false,
+                    )));
+                let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+                let result = subject.[<$parameter_name>]().unwrap();
+
+                assert_eq!(result, $expected_result);
+                let get_params = get_params_arc.lock().unwrap();
+                assert_eq!(*get_params, vec![$parameter_name.to_string()]);
+            }
+            assert_eq!(
+                CONFIG_TABLE_PARAMETERS
+                    .iter()
+                    .filter(|parameter_name| parameter_name.as_str() == $parameter_name)
+                    .count(),
+                1,
+                "this parameter '{}' is not in the config table",
+                $parameter_name
             )
         };
     }
@@ -1857,9 +1878,15 @@ mod tests {
 
     #[test]
     fn rate_pack_get_method_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method_string!(
+        persistent_config_plain_data_assertions_for_simple_get_method!(
             "rate_pack",
-            "7|11|15|20"
+            "7|11|15|20",
+            RatePack{
+                routing_byte_rate: 7,
+                routing_service_rate: 11,
+                exit_byte_rate: 15,
+                exit_service_rate: 20,
+            }
         );
     }
 
@@ -1879,9 +1906,14 @@ mod tests {
 
     #[test]
     fn scan_intervals_get_method_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method_string!(
+        persistent_config_plain_data_assertions_for_simple_get_method!(
             "scan_intervals",
-            "100|100|100"
+            "40|60|50",
+            ScanIntervals{
+                pending_payable_scan_interval: Duration::from_secs(40),
+                payable_scan_interval: Duration::from_secs(60),
+                receivable_scan_interval: Duration::from_secs(50),
+            }
         );
     }
 
@@ -1901,9 +1933,17 @@ mod tests {
 
     #[test]
     fn payment_curves_get_method_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method_string!(
+        persistent_config_plain_data_assertions_for_simple_get_method!(
             "payment_curves",
-            "1000|100000|1000|1000|20000|20000"
+            "1000|100000|1000|1000|20000|20000",
+            PaymentCurves{
+                balance_decreases_for_sec: 1000,
+                balance_to_decrease_from_gwei: 100000,
+                payment_grace_before_ban_sec: 1000,
+                payment_suggested_after_sec: 1000,
+                permanent_debt_allowed_gwei: 20000,
+                unban_when_balance_below_gwei: 20000,
+            }
         );
     }
 

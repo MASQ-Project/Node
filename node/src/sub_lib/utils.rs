@@ -6,11 +6,9 @@ use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::{type_name_of, ExpectValue};
-use std::any::Any;
+use masq_lib::utils::{type_name_of};
 use std::collections::HashMap;
 use std::io::ErrorKind;
-use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
@@ -157,7 +155,6 @@ pub fn make_new_test_multi_config<'a>(
 mod tests {
     use super::*;
     use crate::apps::app_node;
-    use itertools::Itertools;
     use log::Level;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::multi_config::CommandLineVcl;

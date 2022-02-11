@@ -514,11 +514,7 @@ pub mod unshared_test_utils {
     use actix::Message;
     use actix::{Actor, Addr, Context, Handler, System};
     use crossbeam_channel::{Receiver, Sender};
-    use masq_lib::constants::{
-        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PAYMENT_CURVES_STR,
-        DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_STR,
-        DEFAULT_RECEIVABLE_SCAN_INTERVAL, DEFAULT_SCAN_INTERVALS_STR,
-    };
+    use masq_lib::constants::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PAYMENT_CURVES_STR, DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_STR, DEFAULT_RECEIVABLE_SCAN_INTERVAL, DEFAULT_SCAN_INTERVALS, DEFAULT_SCAN_INTERVALS_STR};
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -560,7 +556,7 @@ pub mod unshared_test_utils {
             config
         };
         let config = if (bit_flag & RATE_PACK) == RATE_PACK {
-            config.rate_pack_result(Ok(DEFAULT_RATE_PACK_STR.to_string()))
+            config.rate_pack_result(Ok(DEFAULT_RATE_PACK))
         } else {
             config
         };
@@ -584,8 +580,8 @@ pub mod unshared_test_utils {
         persistent_config_mock: PersistentConfigurationMock,
     ) -> PersistentConfigurationMock {
         persistent_config_mock
-            .payment_curves_result(Ok(DEFAULT_PAYMENT_CURVES_STR.clone()))
-            .scan_intervals_result(Ok(DEFAULT_SCAN_INTERVALS_STR.to_string()))
+            .payment_curves_result(Ok(*DEFAULT_PAYMENT_CURVES))
+            .scan_intervals_result(Ok(*DEFAULT_SCAN_INTERVALS))
     }
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {
@@ -594,20 +590,14 @@ pub mod unshared_test_utils {
 
     pub fn make_populated_accountant_config_with_defaults() -> AccountantConfig {
         AccountantConfig {
-            pending_payment_scan_interval: Duration::from_secs(
-                DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
-            ),
-            payable_scan_interval: Duration::from_secs(DEFAULT_PAYABLE_SCAN_INTERVAL),
-            receivable_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLE_SCAN_INTERVAL),
-            payment_curves: DEFAULT_PAYMENT_CURVES.clone(),
+            scan_intervals: *DEFAULT_SCAN_INTERVALS,
+            payment_curves: *DEFAULT_PAYMENT_CURVES,
         }
     }
 
     pub fn make_accountant_config_null() -> AccountantConfig {
         AccountantConfig {
-            pending_payment_scan_interval: Default::default(),
-            payable_scan_interval: Default::default(),
-            receivable_scan_interval: Default::default(),
+            scan_intervals: Default::default(),
             payment_curves: Default::default(),
         }
     }
