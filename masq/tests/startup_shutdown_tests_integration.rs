@@ -123,7 +123,6 @@ fn handles_startup_and_shutdown_integration() {
         stdout
     );
     assert_eq!(exit_code.unwrap(), 0);
-
     let masq_handle =
         MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "start"]);
 
@@ -139,18 +138,27 @@ fn handles_startup_and_shutdown_integration() {
     assert_eq!(exit_code.unwrap(), 0);
 
     let masq_handle =
-        MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "shutdown"]);
-
+        MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "descriptor"]);
     let (stdout, stderr, exit_code) = masq_handle.stop();
-
-    assert_eq!(&stderr, "", "shutdown phase: {}", stderr);
-    assert_eq!(
-        stdout.contains("MASQNode was instructed to shut down and has broken its connection"),
-        true,
-        "{}",
-        stdout
-    );
     assert_eq!(exit_code.unwrap(), 0);
 
-    daemon_handle.kill();
+    let (stdout, stderr, _) = daemon_handle.kill();
+    assert_eq!(&stderr, "boogety", "Daemon stderr: {}", stderr);
+    assert_eq!(&stdout, "boogety", "Daemon stdout: {}", stdout);
+
+    // let masq_handle =
+    //     MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "shutdown"]);
+    //
+    // let (stdout, stderr, exit_code) = masq_handle.stop();
+    //
+    // assert_eq!(&stderr, "", "shutdown phase: {}", stderr);
+    // assert_eq!(
+    //     stdout.contains("MASQNode was instructed to shut down and has broken its connection"),
+    //     true,
+    //     "{}",
+    //     stdout
+    // );
+    // assert_eq!(exit_code.unwrap(), 0);
+    //
+    // let (stdout, stderr, exit_code) = daemon_handle.kill();
 }

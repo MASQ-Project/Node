@@ -12,7 +12,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macOS-latest, ubuntu-latest, windows-latest]
+        os: [windows-latest]
     steps:
       - uses: actions/checkout@v2
       - name: Cache sccache results
@@ -38,9 +38,9 @@ jobs:
           rustup check
           rustup component add rustfmt
           rustup component add clippy
-          ./ci/all.sh
-          ./ci/multinode_integration_test.sh
-          ./ci/collect_results.sh
+          ./node/ci/build.sh
+          ./masq/ci/build.sh
+          ./masq/ci/integration_tests.sh
         shell: bash
       - name: Publish ${{ matrix.os }}
         uses: actions/upload-artifact@v1
