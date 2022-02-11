@@ -5,7 +5,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use lazy_static::lazy_static;
-use masq_lib::payment_curves_and_rate_pack::PaymentCurves;
+use masq_lib::coupled_parameters::PaymentCurves;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};

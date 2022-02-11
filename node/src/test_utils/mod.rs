@@ -39,7 +39,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
-use masq_lib::payment_curves_and_rate_pack::RatePack;
+use masq_lib::coupled_parameters::RatePack;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use regex::Regex;
 use rustc_hex::ToHex;
@@ -515,8 +515,9 @@ pub mod unshared_test_utils {
     use actix::{Actor, Addr, Context, Handler, System};
     use crossbeam_channel::{Receiver, Sender};
     use masq_lib::constants::{
-        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-        DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PAYMENT_CURVES_STR,
+        DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_STR,
+        DEFAULT_RECEIVABLE_SCAN_INTERVAL, DEFAULT_SCAN_INTERVALS_STR,
     };
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
@@ -559,7 +560,7 @@ pub mod unshared_test_utils {
             config
         };
         let config = if (bit_flag & RATE_PACK) == RATE_PACK {
-            default_persistent_config_just_rate_pack(config)
+            config.rate_pack_result(Ok(DEFAULT_RATE_PACK_STR.to_string()))
         } else {
             config
         };
@@ -583,43 +584,8 @@ pub mod unshared_test_utils {
         persistent_config_mock: PersistentConfigurationMock,
     ) -> PersistentConfigurationMock {
         persistent_config_mock
-            .payment_suggested_after_sec_result(Ok(u64::try_from(
-                DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec,
-            )
-            .unwrap()))
-            .payment_grace_before_ban_sec_result(Ok(u64::try_from(
-                DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec,
-            )
-            .unwrap()))
-            .permanent_debt_allowed_gwei_result(Ok(u64::try_from(
-                DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei,
-            )
-            .unwrap()))
-            .balance_to_decrease_from_gwei_result(Ok(u64::try_from(
-                DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei,
-            )
-            .unwrap()))
-            .balance_decreases_for_sec_result(Ok(u64::try_from(
-                DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec,
-            )
-            .unwrap()))
-            .unban_when_balance_below_gwei_result(Ok(u64::try_from(
-                DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei,
-            )
-            .unwrap()))
-            .pending_payment_scan_interval_result(Ok(DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL))
-            .payable_scan_interval_result(Ok(DEFAULT_PAYABLE_SCAN_INTERVAL))
-            .receivable_scan_interval_result(Ok(DEFAULT_RECEIVABLE_SCAN_INTERVAL))
-    }
-
-    pub fn default_persistent_config_just_rate_pack(
-        persistent_config_mock: PersistentConfigurationMock,
-    ) -> PersistentConfigurationMock {
-        persistent_config_mock
-            .routing_byte_rate_result(Ok(DEFAULT_RATE_PACK.routing_byte_rate))
-            .routing_service_rate_result(Ok(DEFAULT_RATE_PACK.routing_service_rate))
-            .exit_byte_rate_result(Ok(DEFAULT_RATE_PACK.exit_byte_rate))
-            .exit_service_rate_result(Ok(DEFAULT_RATE_PACK.exit_service_rate))
+            .payment_curves_result(Ok(DEFAULT_PAYMENT_CURVES_STR.clone()))
+            .scan_intervals_result(Ok(DEFAULT_SCAN_INTERVALS_STR.to_string()))
     }
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {

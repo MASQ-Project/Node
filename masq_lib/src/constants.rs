@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchains::chains::Chain;
-use crate::payment_curves_and_rate_pack::{PaymentCurves, RatePack};
+use crate::coupled_parameters::{PaymentCurves, RatePack};
 use const_format::concatcp;
 use lazy_static::lazy_static;
 
@@ -30,13 +30,25 @@ const SECONDS_PER_DAY: i64 = 86_400;
 
 lazy_static! {
     pub static ref DEFAULT_PAYMENT_CURVES: PaymentCurves = PaymentCurves {
-        payment_suggested_after_sec: SECONDS_PER_DAY,
-        payment_grace_before_ban_sec: SECONDS_PER_DAY,
-        permanent_debt_allowed_gwei: 10_000_000,
-        balance_to_decrease_from_gwei: 1_000_000_000,
         balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
+        balance_to_decrease_from_gwei: 1_000_000_000,
+        payment_grace_before_ban_sec: SECONDS_PER_DAY,
+        payment_suggested_after_sec: SECONDS_PER_DAY,
+        permanent_debt_allowed_gwei: 10_000_000,
         unban_when_balance_below_gwei: 10_000_000,
     };
+}
+
+lazy_static! {
+    pub static ref DEFAULT_PAYMENT_CURVES_STR: String = format!(
+        "{}|{}|{}|{}|{}|{}",
+        30 * SECONDS_PER_DAY,
+        1_000_000_000,
+        SECONDS_PER_DAY,
+        SECONDS_PER_DAY,
+        10_000_000,
+        10_000_000
+    );
 }
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
@@ -45,6 +57,8 @@ pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     exit_byte_rate: 101,
     exit_service_rate: 10001,
 };
+
+pub const DEFAULT_RATE_PACK_STR: &str = "100|10000|101|10001";
 
 pub const ZERO_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 0,
@@ -56,6 +70,8 @@ pub const ZERO_RATE_PACK: RatePack = RatePack {
 pub const DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL: u64 = 3600;
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_RECEIVABLE_SCAN_INTERVAL: u64 = 3600; // one hour
+
+pub const DEFAULT_SCAN_INTERVALS_STR: &str = "3600|3600|3600";
 
 //error codes
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -87,6 +103,8 @@ pub const SETUP_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 5;
 pub const TIMEOUT_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 6;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const COUPLED_PARAMETERS_DELIMITER: char = '|';
 
 //descriptor
 pub const CENTRAL_DELIMITER: char = '@';

@@ -235,13 +235,22 @@ pub fn ui_port_arg(help: &str) -> Arg {
         .help(help)
 }
 
-fn common_parameter_with_u64_values(name: &str) -> Arg {
+fn common_parameter_with_separate_u64_values(name: &str) -> Arg {
     Arg::with_name(name)
         .long(name)
         .value_name(Box::leak(name.to_uppercase().into_boxed_str()))
         .min_values(0)
         .max_values(1)
-        .validator(common_validators::validate_u64)
+        .validator(common_validators::validate_separate_u64_values)
+}
+
+//TODO remove this
+fn wrong_common_parameter_u64_values(name: &str) -> Arg {
+    Arg::with_name(name)
+        .long(name)
+        .value_name(Box::leak(name.to_uppercase().into_boxed_str()))
+        .min_values(0)
+        .max_values(1)
 }
 
 pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
@@ -361,33 +370,27 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(NEIGHBORS_HELP),
     )
     .arg(real_user_arg())
-    .arg(common_parameter_with_u64_values(
+    .arg(wrong_common_parameter_u64_values(
         "balance-decreases-for-sec",
     ))
-    .arg(common_parameter_with_u64_values(
+    .arg(wrong_common_parameter_u64_values(
         "balance-to-decrease-from-gwei",
     ))
-    .arg(common_parameter_with_u64_values("exit-byte-rate"))
-    .arg(common_parameter_with_u64_values("exit-service-rate"))
-    .arg(common_parameter_with_u64_values("payable-scan-interval"))
-    .arg(common_parameter_with_u64_values(
+    .arg(wrong_common_parameter_u64_values(
         "payment-suggested-after-sec",
     ))
-    .arg(common_parameter_with_u64_values(
+    .arg(wrong_common_parameter_u64_values(
         "payment-grace-before-ban-sec",
     ))
-    .arg(common_parameter_with_u64_values(
-        "pending-payable-scan-interval",
-    ))
-    .arg(common_parameter_with_u64_values(
+    .arg(wrong_common_parameter_u64_values(
         "permanent-debt-allowed-gwei",
     ))
-    .arg(common_parameter_with_u64_values("receivable-scan-interval"))
-    .arg(common_parameter_with_u64_values("routing-byte-rate"))
-    .arg(common_parameter_with_u64_values("routing-service-rate"))
-    .arg(common_parameter_with_u64_values(
+    .arg(wrong_common_parameter_u64_values(
         "unban-when-balance-below-gwei",
     ))
+    .arg(common_parameter_with_separate_u64_values("scan-intervals"))
+    .arg(common_parameter_with_separate_u64_values("rate-pack"))
+    .arg(common_parameter_with_separate_u64_values("payment-curves"))
 }
 
 pub mod common_validators {
@@ -507,11 +510,16 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_u64(number: String) -> Result<(), String> {
-        number
-            .parse::<u64>()
-            .map_err(|e| e.to_string())
-            .map(|_ok| ())
+    pub fn validate_separate_u64_values(values_with_delimiters: String) -> Result<(), String> {
+        values_with_delimiters.split('|').try_for_each(|segment| {
+            segment
+                .parse::<u64>()
+                .map_err(|_| {
+                    "Wrong format, supply numeric values separated by | like 111|222|333"
+                        .to_string()
+                })
+                .map(|_| ())
+        })
     }
 }
 
@@ -714,10 +722,46 @@ mod tests {
     }
 
     #[test]
-    fn validate_u64_happy_path() {
-        let result = common_validators::validate_u64("4567".to_string());
+    fn validate_separate_u64_values_happy_path() {
+        let result = common_validators::validate_separate_u64_values("4567|1111|444".to_string());
 
         assert_eq!(result, Ok(()))
+    }
+
+    #[test]
+    fn validate_separate_u64_values_sad_path_with_non_numeric_values() {
+        let result = common_validators::validate_separate_u64_values("4567|foooo|444".to_string());
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Wrong format, supply numeric values separated by | like 111|222|333"
+            ))
+        )
+    }
+
+    #[test]
+    fn validate_separate_u64_values_sad_path_bad_delimiters_in_general() {
+        let result = common_validators::validate_separate_u64_values("4567|foooo|444".to_string());
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Wrong format, supply numeric values separated by | like 111|222|333"
+            ))
+        )
+    }
+
+    #[test]
+    fn validate_separate_u64_values_sad_path_bad_delimiters_at_the_end() {
+        let result = common_validators::validate_separate_u64_values("|4567|5555|444".to_string());
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Wrong format, supply numeric values separated by | like 111|222|333"
+            ))
+        )
     }
 
     #[test]

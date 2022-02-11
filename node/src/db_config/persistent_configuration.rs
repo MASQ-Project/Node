@@ -6,12 +6,14 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::db_config::typed_config_layer::{
-    decode_bytes, decode_u64, encode_bytes, encode_u64, TypedConfigLayerError,
+    decode_bytes, decode_coupled_params, decode_u64, encode_bytes, encode_u64,
+    TypedConfigLayerError,
 };
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
+use masq_lib::coupled_parameters::{PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
@@ -77,14 +79,6 @@ impl PersistentConfigError {
 }
 
 pub trait PersistentConfiguration {
-    fn balance_decreases_for_sec(&self) -> Result<u64, PersistentConfigError>;
-    fn set_balance_decreases_for_sec(&mut self, interval: u64)
-        -> Result<(), PersistentConfigError>;
-    fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError>;
-    fn set_balance_to_decrease_from_gwei(
-        &mut self,
-        level: u64,
-    ) -> Result<(), PersistentConfigError>;
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError>;
     fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError>;
     fn current_schema_version(&self) -> String;
@@ -111,10 +105,6 @@ pub trait PersistentConfiguration {
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
-    fn exit_byte_rate(&self) -> Result<u64, PersistentConfigError>;
-    fn set_exit_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError>;
-    fn exit_service_rate(&self) -> Result<u64, PersistentConfigError>;
-    fn set_exit_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError>;
     fn gas_price(&self) -> Result<u64, PersistentConfigError>;
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
@@ -136,49 +126,20 @@ pub trait PersistentConfiguration {
         node_descriptors_opt: Option<Vec<NodeDescriptor>>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
-    fn payable_scan_interval(&self) -> Result<u64, PersistentConfigError>;
-    fn set_payable_scan_interval(&mut self, interval_sec: u64)
-        -> Result<(), PersistentConfigError>;
-    fn payment_grace_before_ban_sec(&self) -> Result<u64, PersistentConfigError>;
-    fn set_payment_grace_before_ban_sec(
-        &mut self,
-        period_sec: u64,
-    ) -> Result<(), PersistentConfigError>;
-    fn payment_suggested_after_sec(&self) -> Result<u64, PersistentConfigError>;
-    fn set_payment_suggested_after_sec(&mut self, period: u64)
-        -> Result<(), PersistentConfigError>;
-    fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError>;
-    fn set_pending_payment_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError>;
-    fn permanent_debt_allowed_gwei(&self) -> Result<u64, PersistentConfigError>;
-    fn set_permanent_debt_allowed_gwei(
-        &mut self,
-        debt_amount: u64,
-    ) -> Result<(), PersistentConfigError>;
-    fn receivable_scan_interval(&self) -> Result<u64, PersistentConfigError>;
-    fn set_receivable_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError>;
-    fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError>;
-    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError>;
-    fn routing_service_rate(&self) -> Result<u64, PersistentConfigError>;
-    fn set_routing_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
-    fn unban_when_balance_below_gwei(&self) -> Result<u64, PersistentConfigError>;
-    fn set_unban_when_balance_below_gwei(
-        &mut self,
-        level: u64,
-    ) -> Result<(), PersistentConfigError>;
     fn set_wallet_info(
         &mut self,
         consuming_wallet_private_key: &str,
         earning_wallet_address: &str,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
+    fn payment_curves(&self) -> Result<PaymentCurves, PersistentConfigError>;
+    fn set_payment_curves(&mut self, curves: String) -> Result<(), PersistentConfigError>;
+    fn rate_pack(&self) -> Result<RatePack, PersistentConfigError>;
+    fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError>;
+    fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError>;
+    fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError>;
     as_any_dcl!();
 }
 
@@ -188,28 +149,6 @@ pub struct PersistentConfigurationReal {
 }
 
 impl PersistentConfiguration for PersistentConfigurationReal {
-    fn balance_decreases_for_sec(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "balance_decreases_for_sec")
-    }
-
-    fn set_balance_decreases_for_sec(
-        &mut self,
-        interval: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("balance_decreases_for_sec", interval)
-    }
-
-    fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "balance_to_decrease_from_gwei")
-    }
-
-    fn set_balance_to_decrease_from_gwei(
-        &mut self,
-        level: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("balance_to_decrease_from_gwei", level)
-    }
-
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
         match self.get("blockchain_service_url")? {
             None => Ok(None),
@@ -356,22 +295,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(self.get("earning_wallet_address")?)
     }
 
-    fn exit_byte_rate(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "exit_byte_rate")
-    }
-
-    fn set_exit_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("exit_byte_rate", rate)
-    }
-
-    fn exit_service_rate(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "exit_service_rate")
-    }
-
-    fn set_exit_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("exit_service_rate", rate)
-    }
-
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.get("gas_price")?) {
             Ok(val) => {
@@ -460,105 +383,12 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(writer.commit()?)
     }
 
-    fn payable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "payable_scan_interval")
-    }
-
-    fn set_payable_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("payable_scan_interval", interval_sec)
-    }
-
-    fn payment_grace_before_ban_sec(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "payment_grace_before_ban_sec")
-    }
-
-    fn set_payment_grace_before_ban_sec(
-        &mut self,
-        interval: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("payment_grace_before_ban_sec", interval)
-    }
-
-    fn payment_suggested_after_sec(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "payment_suggested_after_sec")
-    }
-
-    fn set_payment_suggested_after_sec(
-        &mut self,
-        interval: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("payment_suggested_after_sec", interval)
-    }
-
-    fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "pending_payment_scan_interval")
-    }
-
-    fn set_pending_payment_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("pending_payment_scan_interval", interval_sec)
-    }
-
-    fn permanent_debt_allowed_gwei(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "permanent_debt_allowed_gwei")
-    }
-
-    fn set_permanent_debt_allowed_gwei(
-        &mut self,
-        amount: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("permanent_debt_allowed_gwei", amount)
-    }
-
-    fn receivable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "receivable_scan_interval")
-    }
-
-    fn set_receivable_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("receivable_scan_interval", interval_sec)
-    }
-
-    fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "routing_byte_rate")
-    }
-
-    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("routing_byte_rate", rate)
-    }
-
-    fn routing_service_rate(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "routing_service_rate")
-    }
-
-    fn set_routing_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("routing_service_rate", rate)
-    }
-
     fn start_block(&self) -> Result<u64, PersistentConfigError> {
         self.simple_get_method(decode_u64, "start_block")
     }
 
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         self.simple_set_method("start_block", value)
-    }
-
-    fn unban_when_balance_below_gwei(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "unban_when_balance_below_gwei")
-    }
-
-    fn set_unban_when_balance_below_gwei(
-        &mut self,
-        level: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("unban_when_balance_below_gwei", level)
     }
 
     fn set_wallet_info(
@@ -609,6 +439,30 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             Some(earning_wallet_address.to_string()),
         )?;
         Ok(writer.commit()?)
+    }
+
+    fn payment_curves(&self) -> Result<PaymentCurves, PersistentConfigError> {
+        self.simple_get_method(decode_coupled_params, "payment_curves")
+    }
+
+    fn set_payment_curves(&mut self, curves: String) -> Result<(), PersistentConfigError> {
+        self.simple_set_method("payment_curves", curves)
+    }
+
+    fn rate_pack(&self) -> Result<RatePack, PersistentConfigError> {
+        self.simple_get_method(decode_coupled_params, "rate_pack")
+    }
+
+    fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError> {
+        self.simple_set_method("rate_pack", rate_pack)
+    }
+
+    fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError> {
+        self.simple_get_method(decode_coupled_params, "scan_intervals")
+    }
+
+    fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError> {
+        self.simple_set_method("scan_intervals", intervals)
     }
 
     #[cfg(test)]
@@ -1899,6 +1753,36 @@ mod tests {
         );
     }
 
+    macro_rules! persistent_config_plain_data_assertions_for_simple_get_method_string {
+        ($parameter_name: literal,$expected_value: literal) => {
+            paste! {
+                let get_params_arc = Arc::new(Mutex::new(vec![]));
+                let config_dao = ConfigDaoMock::new()
+                    .get_params(&get_params_arc)
+                    .get_result(Ok(ConfigDaoRecord::new(
+                        $parameter_name,
+                        Some($expected_value),
+                        false,
+                    )));
+                let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+                let result = subject.[<$parameter_name>]().unwrap();
+
+                assert_eq!(result, $expected_value.to_string());
+                let get_params = get_params_arc.lock().unwrap();
+                assert_eq!(*get_params, vec![$parameter_name.to_string()]);
+            }
+            assert_eq!(
+                CONFIG_TABLE_PARAMETERS
+                    .iter()
+                    .filter(|parameter_name| parameter_name.as_str() == $parameter_name)
+                    .count(),
+                1,
+                "This parameter is missing in the table"
+            )
+        };
+    }
+
     macro_rules! persistent_config_plain_data_assertions_for_simple_get_method {
         ($parameter_name: literal,$expected_value: expr) => {
             paste! {
@@ -1972,295 +1856,69 @@ mod tests {
     }
 
     #[test]
-    fn routing_byte_rate_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!("routing_byte_rate", 1234);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "ever-supplied value missing: routing_byte_rate; database is corrupt!"
-    )]
-    fn routing_byte_rate_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("routing_byte_rate");
-    }
-
-    #[test]
-    fn set_routing_byte_rate_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!("routing_byte_rate", 4321);
-    }
-
-    #[test]
-    fn routing_service_rate_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
-            "routing_service_rate",
-            1212
+    fn rate_pack_get_method_works() {
+        persistent_config_plain_data_assertions_for_simple_get_method_string!(
+            "rate_pack",
+            "7|11|15|20"
         );
     }
 
     #[test]
-    #[should_panic(
-        expected = "ever-supplied value missing: routing_service_rate; database is corrupt!"
-    )]
-    fn routing_service_rate_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("routing_service_rate");
-    }
-
-    #[test]
-    fn set_routing_service_rate_works() {
+    fn rate_pack_set_method_works() {
         persistent_config_plain_data_assertions_for_simple_set_method!(
-            "routing_service_rate",
-            4444
+            "rate_pack",
+            "7|11|15|20".to_string()
         );
     }
 
     #[test]
-    fn exit_byte_rate_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!("exit_byte_rate", 5);
+    #[should_panic(expected = "ever-supplied value missing: rate_pack; database is corrupt!")]
+    fn rate_pack_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("rate_pack");
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied value missing: exit_byte_rate; database is corrupt!")]
-    fn exit_byte_rate_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("exit_byte_rate");
-    }
-
-    #[test]
-    fn set_exit_byte_rate_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!("exit_byte_rate", 6);
-    }
-
-    #[test]
-    fn exit_service_rate_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!("exit_service_rate", 9);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "ever-supplied value missing: exit_service_rate; database is corrupt!"
-    )]
-    fn exit_service_rate_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("exit_service_rate");
-    }
-
-    #[test]
-    fn set_exit_service_rate_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!("exit_service_rate", 8);
-    }
-
-    #[test]
-    fn balance_decreases_for_sec_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
-            "balance_decreases_for_sec",
-            1234
+    fn scan_intervals_get_method_works() {
+        persistent_config_plain_data_assertions_for_simple_get_method_string!(
+            "scan_intervals",
+            "100|100|100"
         );
     }
 
     #[test]
-    #[should_panic(
-        expected = "ever-supplied value missing: balance_decreases_for_sec; database is corrupt!"
-    )]
-    fn balance_decreases_for_sec_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("balance_decreases_for_sec");
-    }
-
-    #[test]
-    fn set_balance_decreases_for_sec_works() {
+    fn scan_interval_set_method_works() {
         persistent_config_plain_data_assertions_for_simple_set_method!(
-            "balance_decreases_for_sec",
-            3333
+            "scan_intervals",
+            "111|123|110".to_string()
         );
     }
 
     #[test]
-    fn balance_to_decrease_from_gwei_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
-            "balance_to_decrease_from_gwei",
-            1234
+    #[should_panic(expected = "ever-supplied value missing: scan_intervals; database is corrupt!")]
+    fn scan_intervals_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("scan_intervals");
+    }
+
+    #[test]
+    fn payment_curves_get_method_works() {
+        persistent_config_plain_data_assertions_for_simple_get_method_string!(
+            "payment_curves",
+            "1000|100000|1000|1000|20000|20000"
         );
     }
 
     #[test]
-    #[should_panic(
-        expected = "ever-supplied value missing: balance_to_decrease_from_gwei; database is corrupt!"
-    )]
-    fn balance_to_decrease_from_gwei_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("balance_to_decrease_from_gwei");
-    }
-
-    #[test]
-    fn set_balance_to_decrease_from_gwei_works() {
+    fn payment_curves_set_method_works() {
         persistent_config_plain_data_assertions_for_simple_set_method!(
-            "balance_to_decrease_from_gwei",
-            2222
+            "payment_curves",
+            "1050|100050|1050|1050|20040|20040".to_string()
         );
     }
 
     #[test]
-    fn payable_scan_interval_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
-            "payable_scan_interval",
-            3600
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "ever-supplied value missing: payable_scan_interval; database is corrupt!"
-    )]
-    fn payable_scan_interval_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("payable_scan_interval");
-    }
-
-    #[test]
-    fn set_payable_scan_interval_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!(
-            "payable_scan_interval",
-            2255
-        );
-    }
-
-    #[test]
-    fn pending_payment_scan_interval_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
-            "pending_payment_scan_interval",
-            3600
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "ever-supplied value missing: pending_payment_scan_interval; database is corrupt!"
-    )]
-    fn pending_payment_scan_interval_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("pending_payment_scan_interval");
-    }
-
-    #[test]
-    fn set_pending_payment_scan_interval_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!(
-            "pending_payment_scan_interval",
-            1133
-        );
-    }
-
-    #[test]
-    fn receivable_scan_interval_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
-            "receivable_scan_interval",
-            3600
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "ever-supplied value missing: receivable_scan_interval; database is corrupt!"
-    )]
-    fn receivable_scan_interval_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("receivable_scan_interval");
-    }
-
-    #[test]
-    fn set_receivable_scan_interval_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!(
-            "receivable_scan_interval",
-            2222
-        );
-    }
-
-    #[test]
-    fn payment_grace_before_ban_sec_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
-            "payment_grace_before_ban_sec",
-            10000
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "ever-supplied value missing: payment_grace_before_ban_sec; database is corrupt!"
-    )]
-    fn payment_grace_before_ban_sec_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("payment_grace_before_ban_sec");
-    }
-
-    #[test]
-    fn set_payment_grace_before_ban_sec_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!(
-            "payment_grace_before_ban_sec",
-            3444
-        );
-    }
-
-    #[test]
-    fn permanent_debt_allowed_gwei_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
-            "permanent_debt_allowed_gwei",
-            100000
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "ever-supplied value missing: permanent_debt_allowed_gwei; database is corrupt!"
-    )]
-    fn permanent_debt_allowed_gwei_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("permanent_debt_allowed_gwei");
-    }
-
-    #[test]
-    fn set_permanent_debt_allowed_gwei_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!(
-            "permanent_debt_allowed_gwei",
-            3333
-        );
-    }
-
-    #[test]
-    fn unban_when_balance_below_gwei_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
-            "unban_when_balance_below_gwei",
-            100000
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "ever-supplied value missing: unban_when_balance_below_gwei; database is corrupt!"
-    )]
-    fn unban_when_balance_below_gwei_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("unban_when_balance_below_gwei");
-    }
-
-    #[test]
-    fn set_unban_when_balance_below_gwei_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!(
-            "unban_when_balance_below_gwei",
-            111111
-        );
-    }
-
-    #[test]
-    fn payment_suggested_after_sec_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
-            "payment_suggested_after_sec",
-            7200
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "ever-supplied value missing: payment_suggested_after_sec; database is corrupt!"
-    )]
-    fn payment_suggested_after_sec_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("payment_suggested_after_sec");
-    }
-
-    #[test]
-    fn set_payment_suggested_after_sec_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!(
-            "payment_suggested_after_sec",
-            8000
-        );
+    #[should_panic(expected = "ever-supplied value missing: payment_curves; database is corrupt!")]
+    fn payment_curves_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("payment_curves");
     }
 
     fn list_of_config_parameters() -> Vec<String> {

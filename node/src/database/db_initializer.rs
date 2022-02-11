@@ -6,8 +6,8 @@ use crate::database::db_migrations::{
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-    DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
-    HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
+    DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_STR,
+    DEFAULT_RECEIVABLE_SCAN_INTERVAL, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
 use masq_lib::logger::Logger;
 use rand::prelude::*;
@@ -371,6 +371,13 @@ impl DbInitializerReal {
             None,
             false,
             "last successful protocol for port mapping on the router",
+        );
+        Self::set_config_value(
+            conn,
+            "rate_pack",
+            Some(DEFAULT_RATE_PACK_STR),
+            false,
+            "rate pack",
         );
     }
 
@@ -944,18 +951,6 @@ mod tests {
         verify(&mut config_vec, EXAMPLE_ENCRYPTED, None, true);
         verify(
             &mut config_vec,
-            "exit_byte_rate",
-            Some(&DEFAULT_RATE_PACK.exit_byte_rate.to_string()),
-            false,
-        );
-        verify(
-            &mut config_vec,
-            "exit_service_rate",
-            Some(&DEFAULT_RATE_PACK.exit_service_rate.to_string()),
-            false,
-        );
-        verify(
-            &mut config_vec,
             "gas_price",
             Some(&DEFAULT_GAS_PRICE.to_string()),
             false,
@@ -1019,18 +1014,6 @@ mod tests {
         );
         verify(
             &mut config_vec,
-            "routing_byte_rate",
-            Some(&DEFAULT_RATE_PACK.routing_byte_rate.to_string()),
-            false,
-        );
-        verify(
-            &mut config_vec,
-            "routing_service_rate",
-            Some(&DEFAULT_RATE_PACK.routing_service_rate.to_string()),
-            false,
-        );
-        verify(
-            &mut config_vec,
             "schema_version",
             Some(&CURRENT_SCHEMA_VERSION.to_string()),
             false,
@@ -1052,6 +1035,12 @@ mod tests {
                     .unban_when_balance_below_gwei
                     .to_string(),
             ),
+            false,
+        );
+        verify(
+            &mut config_vec,
+            "rate_pack",
+            Some(DEFAULT_RATE_PACK_STR),
             false,
         );
         assert_eq!(config_vec, vec![]);

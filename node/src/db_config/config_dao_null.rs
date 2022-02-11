@@ -8,7 +8,7 @@ use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
-    DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+    DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_STR, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
 };
 use rusqlite::Transaction;
 use std::any::Any;
@@ -235,6 +235,10 @@ impl Default for ConfigDaoNull {
                 false,
             ),
         );
+        data.insert(
+            "rate_pack".to_string(),
+            (Some(DEFAULT_RATE_PACK_STR.to_string()), false),
+        );
         Self { data }
     }
 }
@@ -248,7 +252,8 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{
         DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK,
-        DEFAULT_RECEIVABLE_SCAN_INTERVAL, ETH_MAINNET_CONTRACT_CREATION_BLOCK,
+        DEFAULT_RATE_PACK_STR, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+        ETH_MAINNET_CONTRACT_CREATION_BLOCK,
     };
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
@@ -413,6 +418,10 @@ mod tests {
                 ),
                 false
             )
+        );
+        assert_eq!(
+            subject.get("rate_pack").unwrap(),
+            ConfigDaoRecord::new("rate_pack", Some(DEFAULT_RATE_PACK_STR), false)
         )
     }
 

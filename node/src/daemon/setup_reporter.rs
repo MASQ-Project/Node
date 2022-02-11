@@ -956,123 +956,44 @@ macro_rules! rate_pack_params_computed_default_and_is_required {
     };
 }
 
-struct BalanceDecreasesForSec {}
-impl ValueRetriever for BalanceDecreasesForSec {
+struct PaymentCurves {}
+impl ValueRetriever for PaymentCurves {
     fn value_name(&self) -> &'static str {
-        "balance-decreases-for-sec"
+        "payment-curves"
     }
 
-    payment_curve_params_computed_default_and_is_required!("balance_decreases_for_sec");
+    fn is_required(&self, params: &SetupCluster) -> bool {
+        true
+    }
+    // payment_curve_params_computed_default_and_is_required!("unban_when_balance_below_gwei");
 }
 
-struct BalanceToDecreaseFromGwei {}
-impl ValueRetriever for BalanceToDecreaseFromGwei {
+struct RatePack {}
+impl ValueRetriever for RatePack {
     fn value_name(&self) -> &'static str {
-        "balance-to-decrease-from-gwei"
+        "rate-pack"
     }
 
-    payment_curve_params_computed_default_and_is_required!("balance_to_decrease_from_gwei");
+    fn is_required(&self, params: &SetupCluster) -> bool {
+        match params.get("neighborhood-mode") {
+            Some(nhm) if &nhm.value == "standard" => true,
+            Some(nhm) if &nhm.value == "originate-only" => true,
+            _ => false,
+        }
+    }
+    // payment_curve_params_computed_default_and_is_required!("unban_when_balance_below_gwei");
 }
 
-struct ExitByteRate {}
-impl ValueRetriever for ExitByteRate {
+struct ScanIntervals {}
+impl ValueRetriever for ScanIntervals {
     fn value_name(&self) -> &'static str {
-        "exit-byte-rate"
+        "scan-intervals"
     }
 
-    rate_pack_params_computed_default_and_is_required!("exit_byte_rate");
-}
-struct ExitServiceRate {}
-impl ValueRetriever for ExitServiceRate {
-    fn value_name(&self) -> &'static str {
-        "exit-service-rate"
+    fn is_required(&self, _params: &SetupCluster) -> bool {
+        true
     }
-
-    rate_pack_params_computed_default_and_is_required!("exit_service_rate");
-}
-struct PayableScanInterval {}
-impl ValueRetriever for PayableScanInterval {
-    fn value_name(&self) -> &'static str {
-        "payable-scan-interval"
-    }
-
-    scan_interval_params_computed_default_and_is_required!(
-        "payable_scan_interval",
-        DEFAULT_PAYABLE_SCAN_INTERVAL
-    );
-}
-struct PaymentSuggestedAfterSec {}
-impl ValueRetriever for PaymentSuggestedAfterSec {
-    fn value_name(&self) -> &'static str {
-        "payment-suggested-after-sec"
-    }
-
-    payment_curve_params_computed_default_and_is_required!("payment_suggested_after_sec");
-}
-struct PaymentGraceBeforeBanSec {}
-impl ValueRetriever for PaymentGraceBeforeBanSec {
-    fn value_name(&self) -> &'static str {
-        "payment-grace-before-ban-sec"
-    }
-
-    payment_curve_params_computed_default_and_is_required!("payment_grace_before_ban_sec");
-}
-struct PendingPaymentScanInterval {}
-impl ValueRetriever for PendingPaymentScanInterval {
-    fn value_name(&self) -> &'static str {
-        "pending-payable-scan-interval"
-    }
-
-    scan_interval_params_computed_default_and_is_required!(
-        "pending_payment_scan_interval",
-        DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL
-    );
-}
-struct PermanentDebtAllowedGwei {}
-impl ValueRetriever for PermanentDebtAllowedGwei {
-    fn value_name(&self) -> &'static str {
-        "permanent-debt-allowed-gwei"
-    }
-
-    payment_curve_params_computed_default_and_is_required!("permanent_debt_allowed_gwei");
-}
-
-struct ReceivableScanInterval {}
-impl ValueRetriever for ReceivableScanInterval {
-    fn value_name(&self) -> &'static str {
-        "receivable-scan-interval"
-    }
-
-    scan_interval_params_computed_default_and_is_required!(
-        "receivable_scan_interval",
-        DEFAULT_RECEIVABLE_SCAN_INTERVAL
-    );
-}
-
-struct RoutingByteRate {}
-impl ValueRetriever for RoutingByteRate {
-    fn value_name(&self) -> &'static str {
-        "routing-byte-rate"
-    }
-
-    rate_pack_params_computed_default_and_is_required!("routing_byte_rate");
-}
-
-struct RoutingServiceRate {}
-impl ValueRetriever for RoutingServiceRate {
-    fn value_name(&self) -> &'static str {
-        "routing-service-rate"
-    }
-
-    rate_pack_params_computed_default_and_is_required!("routing_service_rate");
-}
-
-struct UnbanWhenBalanceBelowGwei {}
-impl ValueRetriever for UnbanWhenBalanceBelowGwei {
-    fn value_name(&self) -> &'static str {
-        "unban-when-balance-below-gwei"
-    }
-    payment_curve_params_computed_default_and_is_required!("unban_when_balance_below_gwei");
+    // payment_curve_params_computed_default_and_is_required!("unban_when_balance_below_gwei");
 }
 
 fn payment_curves_rate_pack_and_scan_intervals<T>(
@@ -1150,21 +1071,11 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(MappingProtocol {}),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
-        Box::new(BalanceDecreasesForSec {}),
-        Box::new(BalanceToDecreaseFromGwei {}),
-        Box::new(ExitByteRate {}),
-        Box::new(ExitServiceRate {}),
-        Box::new(PayableScanInterval {}),
-        Box::new(PaymentSuggestedAfterSec {}),
-        Box::new(PaymentGraceBeforeBanSec {}),
-        Box::new(PendingPaymentScanInterval {}),
-        Box::new(PermanentDebtAllowedGwei {}),
-        Box::new(ReceivableScanInterval {}),
+        Box::new(PaymentCurves {}),
+        Box::new(RatePack {}),
+        Box::new(ScanIntervals {}),
         #[cfg(not(target_os = "windows"))]
         Box::new(RealUser::new(dirs_wrapper)),
-        Box::new(RoutingByteRate {}),
-        Box::new(RoutingServiceRate {}),
-        Box::new(UnbanWhenBalanceBelowGwei {}),
     ]
 }
 
@@ -1174,6 +1085,7 @@ mod tests {
     use crate::bootstrapper::RealUser;
     use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
     use crate::daemon::dns_inspector::DnsInspectionError;
+    use crate::daemon::setup_reporter;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
@@ -1195,10 +1107,9 @@ mod tests {
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::constants::{
         DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK,
-        DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+        DEFAULT_RATE_PACK_STR, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
     };
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
-    use masq_lib::payment_curves_and_rate_pack::RatePack;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
@@ -1749,16 +1660,6 @@ mod tests {
             config_file.write_all(b"consuming-private-key = \"00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF\"\n").unwrap();
             config_file.write_all(b"crash-point = \"None\"\n").unwrap();
             config_file
-                .write_all(b"routing-byte-rate = \"1\"\n")
-                .unwrap();
-            config_file
-                .write_all(b"routing-service-rate = \"3\"\n")
-                .unwrap();
-            config_file.write_all(b"exit-byte-rate = \"3\"\n").unwrap();
-            config_file
-                .write_all(b"exit-service-rate = \"7\"\n")
-                .unwrap();
-            config_file
                 .write_all(b"dns-servers = \"5.6.7.8\"\n")
                 .unwrap();
             config_file
@@ -1772,6 +1673,7 @@ mod tests {
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
+            config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();
         }
         let ropsten_dir = data_root
             .join("MASQ")
@@ -1792,42 +1694,6 @@ mod tests {
                 .write_all(b"db-password = \"ropstenPassword\"\n")
                 .unwrap();
             config_file
-                .write_all(
-                    format!(
-                        "routing-byte-rate = \"{}\"\n",
-                        DEFAULT_RATE_PACK.routing_byte_rate
-                    )
-                    .as_bytes(),
-                )
-                .unwrap();
-            config_file
-                .write_all(
-                    format!(
-                        "routing-service-rate = \"{}\"\n",
-                        DEFAULT_RATE_PACK.routing_service_rate
-                    )
-                    .as_bytes(),
-                )
-                .unwrap();
-            config_file
-                .write_all(
-                    format!(
-                        "exit-byte-rate = \"{}\"\n",
-                        DEFAULT_RATE_PACK.exit_byte_rate
-                    )
-                    .as_bytes(),
-                )
-                .unwrap();
-            config_file
-                .write_all(
-                    format!(
-                        "exit-service-rate = \"{}\"\n",
-                        DEFAULT_RATE_PACK.exit_service_rate
-                    )
-                    .as_bytes(),
-                )
-                .unwrap();
-            config_file
                 .write_all(b"dns-servers = \"8.7.6.5\"\n")
                 .unwrap();
             // NOTE: You can't really change consuming-private-key without starting a new database
@@ -1841,6 +1707,9 @@ mod tests {
                 .unwrap();
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
+                .unwrap();
+            config_file
+                .write_all(format!("rate-pack = \"{}\"\n", DEFAULT_RATE_PACK_STR).as_bytes())
                 .unwrap();
         }
         let subject = SetupReporterReal::new(Box::new(
@@ -1903,16 +1772,6 @@ mod tests {
                 "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 Configured,
             ),
-            (
-                "exit-byte-rate",
-                &DEFAULT_RATE_PACK.exit_byte_rate.to_string(),
-                Configured,
-            ),
-            (
-                "exit-service-rate",
-                &DEFAULT_RATE_PACK.exit_service_rate.to_string(),
-                Configured,
-            ),
             ("gas-price", "88", Configured),
             ("ip", "", Blank),
             ("log-level", "debug", Configured),
@@ -1950,6 +1809,7 @@ mod tests {
                     .to_string(),
                 Default,
             ),
+            ("rate-pack", DEFAULT_RATE_PACK_STR, Configured),
             #[cfg(not(target_os = "windows"))]
             (
                 "real-user",
@@ -1962,16 +1822,6 @@ mod tests {
                 "receivable-scan-interval",
                 &DEFAULT_RECEIVABLE_SCAN_INTERVAL.to_string(),
                 Default,
-            ),
-            (
-                "routing-byte-rate",
-                &DEFAULT_RATE_PACK.routing_byte_rate.to_string(),
-                Configured,
-            ),
-            (
-                "routing-service-rate",
-                &DEFAULT_RATE_PACK.routing_service_rate.to_string(),
-                Configured,
             ),
             (
                 "unban-when-balance-below-gwei",
@@ -2016,8 +1866,6 @@ mod tests {
             ("MASQ_DB_PASSWORD", "password"),
             ("MASQ_DNS_SERVERS", "8.8.8.8"),
             ("MASQ_EARNING_WALLET", "0x0123456789012345678901234567890123456789"),
-            ("MASQ_EXIT_BYTE_RATE","3"),
-            ("MASQ_EXIT_SERVICE_RATE","8"),
             ("MASQ_GAS_PRICE", "50"),
             ("MASQ_IP", "4.3.2.1"),
             ("MASQ_LOG_LEVEL", "error"),
@@ -2029,11 +1877,10 @@ mod tests {
             ("MASQ_PAYMENT_SUGGESTED_AFTER_SEC","1000"),
             ("MASQ_PENDING_PAYABLE_SCAN_INTERVAL","150"),
             ("MASQ_PERMANENT_DEBT_ALLOWED_GWEI","20000"),
+            ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
             ("MASQ_RECEIVABLE_SCAN_INTERVAL","150"),
-            ("MASQ_ROUTING_BYTE_RATE","1"),
-            ("MASQ_ROUTING_SERVICE_RATE","3"),
             ("MASQ_UNBAN_WHEN_BALANCE_BELOW_GWEI","20000")
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
@@ -2049,8 +1896,6 @@ mod tests {
             "db-password",
             "dns-servers",
             "earning-wallet",
-            "exit-byte-rate",
-            "exit-service-rate",
             "gas-price",
             "ip",
             "log-level",
@@ -2062,11 +1907,10 @@ mod tests {
             "payment-suggested-after-sec",
             "pending-payable-scan-interval",
             "permanent-debt-allowed-gwei",
+            "rate-pack",
             #[cfg(not(target_os = "windows"))]
             "real-user",
             "receivable-scan-interval",
-            "routing-byte-rate",
-            "routing-service-rate",
             "unban-when-balance-below-gwei",
         ]
         .into_iter()
@@ -2091,8 +1935,6 @@ mod tests {
                 "0x9876543210987654321098765432109876543210",
                 Set,
             ),
-            ("exit-byte-rate", "13", Set),
-            ("exit-service-rate", "28", Set),
             ("gas-price", "5", Set),
             ("ip", "1.2.3.4", Set),
             ("log-level", "error", Set),
@@ -2108,11 +1950,10 @@ mod tests {
             ("payment-suggested-after-sec", "987", Set),
             ("pending-payable-scan-interval", "111", Set),
             ("permanent-debt-allowed-gwei", "123456", Set),
+            ("rate-pack", "10|30|13|28", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "6666:6666:agoob", Set),
             ("receivable-scan-interval", "111", Set),
-            ("routing-byte-rate", "10", Set),
-            ("routing-service-rate", "30", Set),
             ("unban-when-balance-below-gwei", "123456", Set),
         ]);
         let dirs_wrapper = Box::new(DirsWrapperReal);
@@ -2137,8 +1978,6 @@ mod tests {
                 "0x0123456789012345678901234567890123456789",
                 Configured,
             ),
-            ("exit-byte-rate","3",Configured),
-            ("exit-service-rate","8",Configured),
             ("gas-price", "50", Configured),
             ("ip", "4.3.2.1", Configured),
             ("log-level", "error", Configured),
@@ -2150,11 +1989,10 @@ mod tests {
             ("payment-suggested-after-sec","1000",Configured),
             ("pending-payable-scan-interval","150",Configured),
             ("permanent-debt-allowed-gwei","20000",Configured),
+            ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
             ("receivable-scan-interval","150",Configured),
-            ("routing-byte-rate","1",Configured),
-            ("routing-service-rate","3",Configured),
             ("unban-when-balance-below-gwei","20000",Configured)
         ]
         .into_iter()
@@ -3372,358 +3210,95 @@ mod tests {
     }
 
     #[test]
-    fn routing_byte_rate_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &RoutingByteRate {},
-            DEFAULT_RATE_PACK.routing_byte_rate,
-        )
+    fn rate_pack_computed_default_when_persistent_config_like_default() {
+        todo!()
+        // assert_computed_default_when_persistent_config_like_default(
+        //     &RoutingByteRate {},
+        //     DEFAULT_RATE_PACK.routing_byte_rate,
+        // )
     }
 
     #[test]
-    fn routing_byte_rate_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &RoutingByteRate {},
-            DEFAULT_RATE_PACK.routing_byte_rate + 444,
-            &|p_c: PersistentConfigurationMock, value: u64| p_c.routing_byte_rate_result(Ok(value)),
-        )
+    fn rate_pack_computed_default_persistent_config_unequal_to_default() {
+        todo!()
+        // assert_computed_default_when_persistent_config_unequal_to_default(
+        //     &RoutingByteRate {},
+        //     DEFAULT_RATE_PACK.routing_byte_rate + 444,
+        //     &|p_c: PersistentConfigurationMock, value: u64| p_c.routing_byte_rate_result(Ok(value)),
+        // )
     }
 
     #[test]
-    fn routing_byte_rate_computed_default_neighborhood_mode_diff_from_standard_or_originate_only_returns_none(
+    fn rate_pack_computed_default_neighborhood_mode_diff_from_standard_or_originate_only_returns_none(
     ) {
-        assert_rate_pack_computed_default_when_not_standard_or_originate_only(&RoutingByteRate {})
+        todo!()
+        //assert_rate_pack_computed_default_when_not_standard_or_originate_only(&RoutingByteRate {})
     }
 
     #[test]
-    fn routing_byte_rate_standard_mode_goes_on_with_further_evaluation() {
-        assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation!(
-            RoutingByteRate,
-            routing_byte_rate,
-            |rate_pack: RatePack| NeighborhoodModeEnum::Standard(
-                NodeAddr::new(&IpAddr::from_str("4.5.6.7").unwrap(), &[44444]),
-                vec![],
-                rate_pack
-            )
-        );
+    fn rate_pack_standard_mode_goes_on_with_further_evaluation() {
+        todo!()
+        // assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation!(
+        //     RoutingByteRate,
+        //     routing_byte_rate,
+        //     |rate_pack: RatePack| NeighborhoodModeEnum::Standard(
+        //         NodeAddr::new(&IpAddr::from_str("4.5.6.7").unwrap(), &[44444]),
+        //         vec![],
+        //         rate_pack
+        //     )
+        // );
     }
 
     #[test]
-    fn routing_byte_rate_originate_only_mode_goes_on_with_further_evaluation() {
-        assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation!(
-            RoutingByteRate,
-            routing_byte_rate,
-            |rate_pack: RatePack| NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack)
-        );
+    fn rate_pack_originate_only_mode_goes_on_with_further_evaluation() {
+        todo!()
+        // assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation!(
+        //     RoutingByteRate,
+        //     routing_byte_rate,
+        //     |rate_pack: RatePack| NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack)
+        // );
     }
 
     #[test]
-    fn routing_service_rate_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &RoutingServiceRate {},
-            DEFAULT_RATE_PACK.routing_service_rate,
-        )
+    fn scan_intervals_computed_default_when_persistent_config_like_default() {
+        todo!()
+        // assert_computed_default_when_persistent_config_like_default(
+        //     &PendingPaymentScanInterval {},
+        //     DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
+        // )
     }
 
     #[test]
-    fn routing_service_rate_pack_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &RoutingServiceRate {},
-            DEFAULT_RATE_PACK.routing_service_rate + 333,
-            &|p_c: PersistentConfigurationMock, value: u64| {
-                p_c.routing_service_rate_result(Ok(value))
-            },
-        )
+    fn scan_intervals_computed_default_persistent_config_unequal_to_default() {
+        todo!()
+        // assert_computed_default_when_persistent_config_unequal_to_default(
+        //     &PendingPaymentScanInterval {},
+        //     DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL + 567,
+        //     &|p_c: PersistentConfigurationMock, value: u64| {
+        //         p_c.pending_payment_scan_interval_result(Ok(value))
+        //     },
+        // )
     }
 
     #[test]
-    fn routing_service_rate_computed_default_neighborhood_mode_diff_from_standard_or_originate_only_returns_none(
-    ) {
-        assert_rate_pack_computed_default_when_not_standard_or_originate_only(
-            &RoutingServiceRate {},
-        )
+    fn payment_curves_computed_default_when_persistent_config_like_default() {
+        todo!()
+        // assert_computed_default_when_persistent_config_like_default(
+        //     &UnbanWhenBalanceBelowGwei {},
+        //     DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei,
+        // )
     }
 
     #[test]
-    fn routing_service_rate_standard_mode_goes_on_with_further_evaluation() {
-        assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation!(
-            RoutingServiceRate,
-            routing_service_rate,
-            |rate_pack: RatePack| NeighborhoodModeEnum::Standard(
-                NodeAddr::new(&IpAddr::from_str("4.5.6.7").unwrap(), &[44444]),
-                vec![],
-                rate_pack
-            )
-        );
-    }
-
-    #[test]
-    fn routing_service_rate_originate_only_mode_goes_on_with_further_evaluation() {
-        assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation!(
-            RoutingServiceRate,
-            routing_service_rate,
-            |rate_pack: RatePack| NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack)
-        );
-    }
-
-    #[test]
-    fn exit_byte_rate_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &ExitByteRate {},
-            DEFAULT_RATE_PACK.exit_byte_rate,
-        )
-    }
-
-    #[test]
-    fn exit_byte_rate_pack_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &ExitByteRate {},
-            DEFAULT_RATE_PACK.exit_byte_rate + 222,
-            &|p_c: PersistentConfigurationMock, value: u64| p_c.exit_byte_rate_result(Ok(value)),
-        )
-    }
-
-    #[test]
-    fn exit_byte_rate_computed_default_neighborhood_mode_diff_from_standard_or_originate_only_returns_none(
-    ) {
-        assert_rate_pack_computed_default_when_not_standard_or_originate_only(&ExitByteRate {})
-    }
-
-    #[test]
-    fn exit_byte_rate_standard_mode_goes_on_with_further_evaluation() {
-        assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation!(
-            ExitByteRate,
-            exit_byte_rate,
-            |rate_pack: RatePack| NeighborhoodModeEnum::Standard(
-                NodeAddr::new(&IpAddr::from_str("4.5.6.7").unwrap(), &[44444]),
-                vec![],
-                rate_pack
-            )
-        );
-    }
-
-    #[test]
-    fn exit_byte_rate_originate_only_mode_goes_on_with_further_evaluation() {
-        assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation!(
-            ExitByteRate,
-            exit_byte_rate,
-            |rate_pack: RatePack| NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack)
-        );
-    }
-
-    #[test]
-    fn exit_service_rate_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &ExitServiceRate {},
-            DEFAULT_RATE_PACK.exit_service_rate,
-        )
-    }
-
-    #[test]
-    fn exit_service_rate_pack_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &ExitServiceRate {},
-            DEFAULT_RATE_PACK.exit_service_rate + 111,
-            &|p_c: PersistentConfigurationMock, value: u64| p_c.exit_service_rate_result(Ok(value)),
-        )
-    }
-
-    #[test]
-    fn exit_service_rate_computed_default_neighborhood_mode_diff_from_standard_or_originate_only_returns_none(
-    ) {
-        assert_rate_pack_computed_default_when_not_standard_or_originate_only(&ExitServiceRate {})
-    }
-
-    #[test]
-    fn exit_service_rate_standard_mode_goes_on_with_further_evaluation() {
-        assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation!(
-            ExitServiceRate,
-            exit_service_rate,
-            |rate_pack: RatePack| NeighborhoodModeEnum::Standard(
-                NodeAddr::new(&IpAddr::from_str("4.5.6.7").unwrap(), &[44444]),
-                vec![],
-                rate_pack
-            )
-        );
-    }
-
-    #[test]
-    fn exit_service_rate_originate_only_mode_goes_on_with_further_evaluation() {
-        assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation!(
-            ExitServiceRate,
-            exit_service_rate,
-            |rate_pack: RatePack| NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack)
-        );
-    }
-
-    #[test]
-    fn pending_payment_scan_interval_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &PendingPaymentScanInterval {},
-            DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
-        )
-    }
-
-    #[test]
-    fn pending_payment_scan_interval_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &PendingPaymentScanInterval {},
-            DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL + 567,
-            &|p_c: PersistentConfigurationMock, value: u64| {
-                p_c.pending_payment_scan_interval_result(Ok(value))
-            },
-        )
-    }
-
-    #[test]
-    fn payable_scan_interval_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &PayableScanInterval {},
-            DEFAULT_PAYABLE_SCAN_INTERVAL,
-        )
-    }
-
-    #[test]
-    fn payable_scan_interval_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &PayableScanInterval {},
-            DEFAULT_PAYABLE_SCAN_INTERVAL + 765,
-            &|p_c: PersistentConfigurationMock, value: u64| {
-                p_c.payable_scan_interval_result(Ok(value))
-            },
-        )
-    }
-
-    #[test]
-    fn receivable_scan_interval_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &ReceivableScanInterval {},
-            DEFAULT_RECEIVABLE_SCAN_INTERVAL,
-        )
-    }
-
-    #[test]
-    fn receivable_scan_interval_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &ReceivableScanInterval {},
-            DEFAULT_RECEIVABLE_SCAN_INTERVAL + 777,
-            &|p_c: PersistentConfigurationMock, value: u64| {
-                p_c.receivable_scan_interval_result(Ok(value))
-            },
-        )
-    }
-
-    #[test]
-    fn balance_decreases_for_sec_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &BalanceDecreasesForSec {},
-            DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec,
-        )
-    }
-
-    #[test]
-    fn balance_decreases_for_sec_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &BalanceDecreasesForSec {},
-            (DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec + 888) as u64,
-            &|p_c: PersistentConfigurationMock, value: u64| {
-                p_c.balance_decreases_for_sec_result(Ok(value))
-            },
-        )
-    }
-
-    #[test]
-    fn balance_to_decrease_from_gwei_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &BalanceToDecreaseFromGwei {},
-            DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei,
-        )
-    }
-
-    #[test]
-    fn balance_to_decrease_from_gwei_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &BalanceToDecreaseFromGwei {},
-            (DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 888) as u64,
-            &|p_c: PersistentConfigurationMock, value: u64| {
-                p_c.balance_to_decrease_from_gwei_result(Ok(value))
-            },
-        )
-    }
-
-    #[test]
-    fn payment_suggested_after_sec_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &PaymentSuggestedAfterSec {},
-            DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec,
-        )
-    }
-
-    #[test]
-    fn payment_suggested_after_sec_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &PaymentSuggestedAfterSec {},
-            (DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec + 7766) as u64,
-            &|p_c: PersistentConfigurationMock, value: u64| {
-                p_c.payment_suggested_after_sec_result(Ok(value))
-            },
-        )
-    }
-
-    #[test]
-    fn payment_grace_before_ban_sec_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &PaymentGraceBeforeBanSec {},
-            DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec,
-        )
-    }
-
-    #[test]
-    fn payment_grace_before_ban_sec_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &PaymentGraceBeforeBanSec {},
-            (DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec + 1234) as u64,
-            &|p_c: PersistentConfigurationMock, value: u64| {
-                p_c.payment_grace_before_ban_sec_result(Ok(value))
-            },
-        )
-    }
-
-    #[test]
-    fn permanent_debt_allowed_gwei_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &PermanentDebtAllowedGwei {},
-            DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei,
-        )
-    }
-
-    #[test]
-    fn permanent_debt_allowed_gwei_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &PermanentDebtAllowedGwei {},
-            (DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei + 2213) as u64,
-            &|p_c: PersistentConfigurationMock, value: u64| {
-                p_c.permanent_debt_allowed_gwei_result(Ok(value))
-            },
-        )
-    }
-
-    #[test]
-    fn unban_when_balance_below_gwei_computed_default_when_persistent_config_like_default() {
-        assert_computed_default_when_persistent_config_like_default(
-            &UnbanWhenBalanceBelowGwei {},
-            DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei,
-        )
-    }
-
-    #[test]
-    fn unban_when_balance_below_gwei_computed_default_persistent_config_unequal_to_default() {
-        assert_computed_default_when_persistent_config_unequal_to_default(
-            &UnbanWhenBalanceBelowGwei {},
-            (DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei + 1111) as u64,
-            &|p_c: PersistentConfigurationMock, value: u64| {
-                p_c.unban_when_balance_below_gwei_result(Ok(value))
-            },
-        )
+    fn payment_curves_computed_default_persistent_config_unequal_to_default() {
+        todo!()
+        // assert_computed_default_when_persistent_config_unequal_to_default(
+        //     &UnbanWhenBalanceBelowGwei {},
+        //     (DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei + 1111) as u64,
+        //     &|p_c: PersistentConfigurationMock, value: u64| {
+        //         p_c.unban_when_balance_below_gwei_result(Ok(value))
+        //     },
+        // )
     }
 
     fn assert_computed_default_when_persistent_config_like_default<T>(
@@ -3875,7 +3450,7 @@ mod tests {
     #[test]
     fn routing_byte_rate_requirements() {
         verify_requirements(
-            &RoutingByteRate {},
+            &setup_reporter::RatePack {},
             "neighborhood-mode",
             vec![
                 ("standard", true),
@@ -3886,54 +3461,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn routing_service_rate_requirements() {
-        verify_requirements(
-            &RoutingServiceRate {},
-            "neighborhood-mode",
-            vec![
-                ("standard", true),
-                ("zero-hop", false),
-                ("originate-only", true),
-                ("consume-only", false),
-            ],
-        );
-    }
-
-    #[test]
-    fn exit_byte_rate_requirements() {
-        verify_requirements(
-            &ExitByteRate {},
-            "neighborhood-mode",
-            vec![
-                ("standard", true),
-                ("zero-hop", false),
-                ("originate-only", true),
-                ("consume-only", false),
-            ],
-        );
-    }
-
-    #[test]
-    fn exit_service_rate_requirements() {
-        verify_requirements(
-            &ExitServiceRate {},
-            "neighborhood-mode",
-            vec![
-                ("standard", true),
-                ("zero-hop", false),
-                ("originate-only", true),
-                ("consume-only", false),
-            ],
-        );
-    }
-
-    //those marked with asterisk are factually irrelevant because values for them are always present
-    //in the database and can be reset to defaults only (sort of factory settings)
     #[test]
     fn dumb_requirements() {
         let params = HashMap::new();
-        assert_eq!(BalanceToDecreaseFromGwei {}.is_required(&params), true); //*
         assert_eq!(BlockchainServiceUrl {}.is_required(&params), true);
         assert_eq!(Chain {}.is_required(&params), true);
         assert_eq!(ClandestinePort {}.is_required(&params), true);
@@ -3949,16 +3479,12 @@ mod tests {
         assert_eq!(MappingProtocol {}.is_required(&params), false);
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
-        assert_eq!(PayableScanInterval {}.is_required(&params), true); //*
-        assert_eq!(PaymentSuggestedAfterSec {}.is_required(&params), true); //*
-        assert_eq!(PendingPaymentScanInterval {}.is_required(&params), true); //*
-        assert_eq!(PermanentDebtAllowedGwei {}.is_required(&params), true); //*
-        assert_eq!(ReceivableScanInterval {}.is_required(&params), true); //*
+        assert_eq!(setup_reporter::PaymentCurves {}.is_required(&params), true);
+        assert_eq!(ScanIntervals {}.is_required(&params), true);
         assert_eq!(
             crate::daemon::setup_reporter::RealUser::default().is_required(&params),
             false
         );
-        assert_eq!(UnbanWhenBalanceBelowGwei {}.is_required(&params), true) //*
     }
 
     #[test]
@@ -3981,6 +3507,12 @@ mod tests {
         assert_eq!(MappingProtocol {}.value_name(), "mapping-protocol");
         assert_eq!(NeighborhoodMode {}.value_name(), "neighborhood-mode");
         assert_eq!(Neighbors {}.value_name(), "neighbors");
+        assert_eq!(
+            setup_reporter::PaymentCurves {}.value_name(),
+            "payment-curves"
+        );
+        assert_eq!(setup_reporter::RatePack {}.value_name(), "rate-pack");
+        assert_eq!(ScanIntervals {}.value_name(), "scan-intervals");
         assert_eq!(
             crate::daemon::setup_reporter::RealUser::default().value_name(),
             "real-user"

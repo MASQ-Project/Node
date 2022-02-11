@@ -24,7 +24,7 @@ use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
 use masq_lib::constants::{
     CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX, ZERO_RATE_PACK,
 };
-use masq_lib::payment_curves_and_rate_pack::RatePack;
+use masq_lib::coupled_parameters::RatePack;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};

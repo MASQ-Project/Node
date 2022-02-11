@@ -5,6 +5,7 @@
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
+use masq_lib::coupled_parameters::{PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::any::Any;
@@ -53,86 +54,18 @@ pub struct PersistentConfigurationMock {
     start_block_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
     set_start_block_params: Arc<Mutex<Vec<u64>>>,
     set_start_block_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    balance_decreases_for_sec_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_balance_decreases_for_sec_params: Arc<Mutex<Vec<u64>>>,
-    set_balance_decreases_for_sec_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    balance_to_decrease_from_gwei_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_balance_to_decrease_from_gwei_params: Arc<Mutex<Vec<u64>>>,
-    set_balance_to_decrease_from_gwei_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    exit_byte_rate_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_exit_byte_rate_params: Arc<Mutex<Vec<u64>>>,
-    set_exit_byte_rate_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    exit_service_rate_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_exit_service_rate_params: Arc<Mutex<Vec<u64>>>,
-    set_exit_service_rate_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    payable_scan_interval_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_payable_scan_interval_params: Arc<Mutex<Vec<u64>>>,
-    set_payable_scan_interval_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    payment_suggested_after_sec_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_payment_suggested_after_sec_params: Arc<Mutex<Vec<u64>>>,
-    set_payment_suggested_after_sec_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    payment_grace_before_ban_sec_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_payment_grace_before_ban_sec_params: Arc<Mutex<Vec<u64>>>,
-    set_payment_grace_before_ban_sec_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    pending_payment_scan_interval_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_pending_payment_scan_interval_params: Arc<Mutex<Vec<u64>>>,
-    set_pending_payment_scan_interval_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    permanent_debt_allowed_gwei_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_permanent_debt_allowed_gwei_params: Arc<Mutex<Vec<u64>>>,
-    set_permanent_debt_allowed_gwei_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    receivable_scan_interval_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_receivable_scan_interval_params: Arc<Mutex<Vec<u64>>>,
-    set_receivable_scan_interval_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    routing_byte_rate_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_routing_byte_rate_params: Arc<Mutex<Vec<u64>>>,
-    set_routing_byte_rate_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    routing_services_rate_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_routing_service_rate_params: Arc<Mutex<Vec<u64>>>,
-    set_routing_service_rate_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    unban_when_balance_below_gwei_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_unban_when_balance_below_gwei_params: Arc<Mutex<Vec<u64>>>,
-    set_unban_when_balance_below_gwei_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    payment_curves_results: RefCell<Vec<Result<PaymentCurves, PersistentConfigError>>>,
+    set_payment_curves_params: Arc<Mutex<Vec<String>>>,
+    set_payment_curves_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    rate_pack_results: RefCell<Vec<Result<RatePack, PersistentConfigError>>>,
+    set_rate_pack_params: Arc<Mutex<Vec<String>>>,
+    set_rate_pack_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    scan_intervals_results: RefCell<Vec<Result<ScanIntervals, PersistentConfigError>>>,
+    set_scan_intervals_params: Arc<Mutex<Vec<String>>>,
+    set_scan_intervals_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
 }
 
 impl PersistentConfiguration for PersistentConfigurationMock {
-    fn balance_decreases_for_sec(&self) -> Result<u64, PersistentConfigError> {
-        self.balance_decreases_for_sec_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn set_balance_decreases_for_sec(
-        &mut self,
-        interval: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_balance_decreases_for_sec_params
-            .lock()
-            .unwrap()
-            .push(interval);
-        self.set_balance_decreases_for_sec_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn balance_to_decrease_from_gwei(&self) -> Result<u64, PersistentConfigError> {
-        self.balance_to_decrease_from_gwei_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn set_balance_to_decrease_from_gwei(
-        &mut self,
-        level: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_balance_to_decrease_from_gwei_params
-            .lock()
-            .unwrap()
-            .push(level);
-        self.set_balance_to_decrease_from_gwei_results
-            .borrow_mut()
-            .remove(0)
-    }
-
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
         self.blockchain_service_url_results.borrow_mut().remove(0)
     }
@@ -215,24 +148,6 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.earning_wallet_address_results)
     }
 
-    fn exit_byte_rate(&self) -> Result<u64, PersistentConfigError> {
-        self.exit_byte_rate_results.borrow_mut().remove(0)
-    }
-
-    fn set_exit_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        self.set_exit_byte_rate_params.lock().unwrap().push(rate);
-        self.set_exit_byte_rate_results.borrow_mut().remove(0)
-    }
-
-    fn exit_service_rate(&self) -> Result<u64, PersistentConfigError> {
-        self.exit_service_rate_results.borrow_mut().remove(0)
-    }
-
-    fn set_exit_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        self.set_exit_service_rate_params.lock().unwrap().push(rate);
-        self.set_exit_service_rate_results.borrow_mut().remove(0)
-    }
-
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {
         Self::result_from(&self.gas_price_results)
     }
@@ -292,137 +207,6 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_past_neighbors_results.borrow_mut().remove(0)
     }
 
-    fn payable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        self.payable_scan_interval_results.borrow_mut().remove(0)
-    }
-
-    fn set_payable_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_payable_scan_interval_params
-            .lock()
-            .unwrap()
-            .push(interval_sec);
-        self.set_payable_scan_interval_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn payment_grace_before_ban_sec(&self) -> Result<u64, PersistentConfigError> {
-        self.payment_grace_before_ban_sec_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn set_payment_grace_before_ban_sec(
-        &mut self,
-        period_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_payment_grace_before_ban_sec_params
-            .lock()
-            .unwrap()
-            .push(period_sec);
-        self.set_payment_grace_before_ban_sec_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn payment_suggested_after_sec(&self) -> Result<u64, PersistentConfigError> {
-        self.payment_suggested_after_sec_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn set_payment_suggested_after_sec(
-        &mut self,
-        period: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_payment_suggested_after_sec_params
-            .lock()
-            .unwrap()
-            .push(period);
-        self.set_payment_suggested_after_sec_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn pending_payment_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        self.pending_payment_scan_interval_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn set_pending_payment_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_pending_payment_scan_interval_params
-            .lock()
-            .unwrap()
-            .push(interval_sec);
-        self.set_pending_payment_scan_interval_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn permanent_debt_allowed_gwei(&self) -> Result<u64, PersistentConfigError> {
-        self.permanent_debt_allowed_gwei_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn set_permanent_debt_allowed_gwei(
-        &mut self,
-        debt_amount: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_permanent_debt_allowed_gwei_params
-            .lock()
-            .unwrap()
-            .push(debt_amount);
-        self.set_permanent_debt_allowed_gwei_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn receivable_scan_interval(&self) -> Result<u64, PersistentConfigError> {
-        self.receivable_scan_interval_results.borrow_mut().remove(0)
-    }
-
-    fn set_receivable_scan_interval(
-        &mut self,
-        interval_sec: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_receivable_scan_interval_params
-            .lock()
-            .unwrap()
-            .push(interval_sec);
-        self.set_receivable_scan_interval_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn routing_byte_rate(&self) -> Result<u64, PersistentConfigError> {
-        self.routing_byte_rate_results.borrow_mut().remove(0)
-    }
-
-    fn set_routing_byte_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        self.set_routing_byte_rate_params.lock().unwrap().push(rate);
-        self.set_routing_byte_rate_results.borrow_mut().remove(0)
-    }
-
-    fn routing_service_rate(&self) -> Result<u64, PersistentConfigError> {
-        self.routing_services_rate_results.borrow_mut().remove(0)
-    }
-
-    fn set_routing_service_rate(&mut self, rate: u64) -> Result<(), PersistentConfigError> {
-        self.set_routing_service_rate_params
-            .lock()
-            .unwrap()
-            .push(rate);
-        self.set_routing_service_rate_results.borrow_mut().remove(0)
-    }
-
     fn start_block(&self) -> Result<u64, PersistentConfigError> {
         if self.start_block_results.borrow().is_empty() {
             return Ok(0);
@@ -433,25 +217,6 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         self.set_start_block_params.lock().unwrap().push(value);
         Self::result_from(&self.set_start_block_results)
-    }
-
-    fn unban_when_balance_below_gwei(&self) -> Result<u64, PersistentConfigError> {
-        self.unban_when_balance_below_gwei_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn set_unban_when_balance_below_gwei(
-        &mut self,
-        level: u64,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_unban_when_balance_below_gwei_params
-            .lock()
-            .unwrap()
-            .push(level);
-        self.set_unban_when_balance_below_gwei_results
-            .borrow_mut()
-            .remove(0)
     }
 
     fn set_wallet_info(
@@ -466,6 +231,36 @@ impl PersistentConfiguration for PersistentConfigurationMock {
             db_password.to_string(),
         ));
         self.set_wallet_info_results.borrow_mut().remove(0)
+    }
+
+    fn payment_curves(&self) -> Result<PaymentCurves, PersistentConfigError> {
+        self.payment_curves_results.borrow_mut().remove(0)
+    }
+
+    fn set_payment_curves(&mut self, curves: String) -> Result<(), PersistentConfigError> {
+        self.set_payment_curves_params.lock().unwrap().push(curves);
+        self.set_payment_curves_results.borrow_mut().remove(0)
+    }
+
+    fn rate_pack(&self) -> Result<RatePack, PersistentConfigError> {
+        self.rate_pack_results.borrow_mut().remove(0)
+    }
+
+    fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError> {
+        self.set_rate_pack_params.lock().unwrap().push(rate_pack);
+        self.set_rate_pack_results.borrow_mut().remove(0)
+    }
+
+    fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError> {
+        self.scan_intervals_results.borrow_mut().remove(0)
+    }
+
+    fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError> {
+        self.set_scan_intervals_params
+            .lock()
+            .unwrap()
+            .push(intervals);
+        self.set_scan_intervals_results.borrow_mut().remove(0)
     }
 
     as_any_impl!();
@@ -734,300 +529,48 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn balance_decreases_for_sec_result(
-        self,
-        result: Result<u64, PersistentConfigError>,
-    ) -> Self {
-        self.balance_decreases_for_sec_results
-            .borrow_mut()
-            .push(result);
+    pub fn payment_curves_result(self, result: Result<String, PersistentConfigError>) -> Self {
+        self.payment_curves_results.borrow_mut().push(result);
         self
     }
 
-    pub fn set_balance_decreases_for_sec_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
-        self.set_balance_decreases_for_sec_params = params.clone();
+    pub fn set_payment_curves_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.set_payment_curves_params = params.clone();
         self
     }
 
-    pub fn set_balance_decreases_for_sec_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> Self {
-        self.set_balance_decreases_for_sec_results
-            .borrow_mut()
-            .push(result);
+    pub fn set_payment_curves_result(self, result: Result<(), PersistentConfigError>) -> Self {
+        self.set_payment_curves_results.borrow_mut().push(result);
         self
     }
 
-    pub fn balance_to_decrease_from_gwei_result(
-        self,
-        result: Result<u64, PersistentConfigError>,
-    ) -> Self {
-        self.balance_to_decrease_from_gwei_results
-            .borrow_mut()
-            .push(result);
+    pub fn rate_pack_result(self, result: Result<String, PersistentConfigError>) -> Self {
+        self.rate_pack_results.borrow_mut().push(result);
         self
     }
 
-    pub fn set_balance_to_decrease_from_gwei_params(
-        mut self,
-        params: &Arc<Mutex<Vec<u64>>>,
-    ) -> Self {
-        self.set_balance_to_decrease_from_gwei_params = params.clone();
+    pub fn set_rate_pack_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.set_rate_pack_params = params.clone();
         self
     }
 
-    pub fn set_balance_to_decrease_from_gwei_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> Self {
-        self.set_balance_to_decrease_from_gwei_results
-            .borrow_mut()
-            .push(result);
+    pub fn set_rate_pack_result(self, result: Result<(), PersistentConfigError>) -> Self {
+        self.set_rate_pack_results.borrow_mut().push(result);
         self
     }
 
-    pub fn exit_byte_rate_result(self, result: Result<u64, PersistentConfigError>) -> Self {
-        self.exit_byte_rate_results.borrow_mut().push(result);
+    pub fn scan_intervals_result(self, result: Result<String, PersistentConfigError>) -> Self {
+        self.scan_intervals_results.borrow_mut().push(result);
         self
     }
 
-    pub fn set_exit_byte_rate_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
-        self.set_exit_byte_rate_params = params.clone();
+    pub fn set_scan_intervals_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.set_scan_intervals_params = params.clone();
         self
     }
 
-    pub fn set_exit_byte_rate_result(self, result: Result<(), PersistentConfigError>) -> Self {
-        self.set_exit_byte_rate_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn exit_service_rate_result(self, result: Result<u64, PersistentConfigError>) -> Self {
-        self.exit_service_rate_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn set_exit_service_rate_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
-        self.set_exit_service_rate_params = params.clone();
-        self
-    }
-
-    pub fn set_exit_service_rate_result(self, result: Result<(), PersistentConfigError>) -> Self {
-        self.set_exit_service_rate_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn payable_scan_interval_result(self, result: Result<u64, PersistentConfigError>) -> Self {
-        self.payable_scan_interval_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn set_payable_scan_interval_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
-        self.set_payable_scan_interval_params = params.clone();
-        self
-    }
-
-    pub fn set_payable_scan_interval_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> Self {
-        self.set_payable_scan_interval_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn payment_suggested_after_sec_result(
-        self,
-        result: Result<u64, PersistentConfigError>,
-    ) -> Self {
-        self.payment_suggested_after_sec_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn set_payment_suggested_after_sec_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
-        self.set_payment_suggested_after_sec_params = params.clone();
-        self
-    }
-
-    pub fn set_payment_suggested_after_sec_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> Self {
-        self.set_payment_suggested_after_sec_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn payment_grace_before_ban_sec_result(
-        self,
-        result: Result<u64, PersistentConfigError>,
-    ) -> Self {
-        self.payment_grace_before_ban_sec_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn set_payment_grace_before_ban_sec_params(
-        mut self,
-        params: &Arc<Mutex<Vec<u64>>>,
-    ) -> Self {
-        self.set_payment_grace_before_ban_sec_params = params.clone();
-        self
-    }
-
-    pub fn set_payment_grace_before_ban_sec_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> Self {
-        self.set_payment_grace_before_ban_sec_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn pending_payment_scan_interval_result(
-        self,
-        result: Result<u64, PersistentConfigError>,
-    ) -> Self {
-        self.pending_payment_scan_interval_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn set_pending_payment_scan_interval_params(
-        mut self,
-        params: &Arc<Mutex<Vec<u64>>>,
-    ) -> Self {
-        self.set_pending_payment_scan_interval_params = params.clone();
-        self
-    }
-
-    pub fn set_pending_payment_scan_interval_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> Self {
-        self.set_pending_payment_scan_interval_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn permanent_debt_allowed_gwei_result(
-        self,
-        result: Result<u64, PersistentConfigError>,
-    ) -> Self {
-        self.permanent_debt_allowed_gwei_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn set_permanent_debt_allowed_gwei_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
-        self.set_permanent_debt_allowed_gwei_params = params.clone();
-        self
-    }
-
-    pub fn set_permanent_debt_allowed_gwei_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> Self {
-        self.set_permanent_debt_allowed_gwei_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn receivable_scan_interval_result(
-        self,
-        result: Result<u64, PersistentConfigError>,
-    ) -> Self {
-        self.receivable_scan_interval_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn set_receivable_scan_interval_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
-        self.set_receivable_scan_interval_params = params.clone();
-        self
-    }
-
-    pub fn set_receivable_scan_interval_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> Self {
-        self.set_receivable_scan_interval_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn routing_byte_rate_result(self, result: Result<u64, PersistentConfigError>) -> Self {
-        self.routing_byte_rate_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn set_routing_byte_rate_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
-        self.set_routing_byte_rate_params = params.clone();
-        self
-    }
-
-    pub fn set_routing_byte_rate_result(self, result: Result<(), PersistentConfigError>) -> Self {
-        self.set_routing_byte_rate_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn routing_service_rate_result(self, result: Result<u64, PersistentConfigError>) -> Self {
-        self.routing_services_rate_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn set_routing_service_rate_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
-        self.set_routing_service_rate_params = params.clone();
-        self
-    }
-
-    pub fn set_routing_service_rate_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> Self {
-        self.set_routing_service_rate_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn unban_when_balance_below_gwei_result(
-        self,
-        result: Result<u64, PersistentConfigError>,
-    ) -> Self {
-        self.unban_when_balance_below_gwei_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn set_unban_when_balance_below_gwei_params(
-        mut self,
-        params: &Arc<Mutex<Vec<u64>>>,
-    ) -> Self {
-        self.set_unban_when_balance_below_gwei_params = params.clone();
-        self
-    }
-
-    pub fn set_unban_when_balance_below_gwei_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> Self {
-        self.set_unban_when_balance_below_gwei_results
-            .borrow_mut()
-            .push(result);
+    pub fn set_scan_intervals_result(self, result: Result<(), PersistentConfigError>) -> Self {
+        self.set_scan_intervals_results.borrow_mut().push(result);
         self
     }
 

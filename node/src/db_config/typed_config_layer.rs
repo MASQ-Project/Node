@@ -31,6 +31,15 @@ pub fn decode_bytes(
     }
 }
 
+pub fn decode_coupled_params<T>(
+    string_opt: Option<String>,
+) -> Result<Option<T>, TypedConfigLayerError> {
+    match string_opt {
+        None => todo!(),
+        Some(string) => todo!(),
+    }
+}
+
 pub fn encode_u64(value_opt: Option<u64>) -> Result<Option<String>, TypedConfigLayerError> {
     match value_opt {
         None => Ok(None),

@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::coupled_parameters::PaymentCurves;
 use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
 use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessageBody;
@@ -490,32 +491,6 @@ pub struct UiConfigurationResponse {
     pub neighborhood_mode: String,
     #[serde(rename = "portMappingProtocol")]
     pub port_mapping_protocol_opt: Option<String>,
-    #[serde(rename = "balanceDecreasesForSec")]
-    pub balance_decreases_for_sec: u64,
-    #[serde(rename = "balanceToDecreaseFromGwei")]
-    pub balance_to_decrease_from_gwei: u64,
-    #[serde(rename = "exitByteRate")]
-    pub exit_byte_rate: u64,
-    #[serde(rename = "exitServiceRate")]
-    pub exit_service_rate: u64,
-    #[serde(rename = "payableScanInterval")]
-    pub payable_scan_interval: u64,
-    #[serde(rename = "paymentSuggestedAfterSec")]
-    pub payment_suggested_after_sec: u64,
-    #[serde(rename = "paymentGraceBeforeBanSec")]
-    pub payment_grace_before_ban_sec: u64,
-    #[serde(rename = "pendingPayableScanInterval")]
-    pub pending_payable_scan_interval: u64,
-    #[serde(rename = "permanentDebtAllowedGwei")]
-    pub permanent_debt_allowed_gwei: u64,
-    #[serde(rename = "receivableScanInterval")]
-    pub receivable_scan_interval: u64,
-    #[serde(rename = "routingByteRate")]
-    pub routing_byte_rate: u64,
-    #[serde(rename = "routingServiceRate")]
-    pub routing_service_rate: u64,
-    #[serde(rename = "unbanWhenBalanceBelowGwei")]
-    pub unban_when_balance_below_gwei: u64,
     #[serde(rename = "startBlock")]
     pub start_block: u64,
     #[serde(rename = "consumingWalletPrivateKeyOpt")]
@@ -526,9 +501,53 @@ pub struct UiConfigurationResponse {
     pub consuming_wallet_address_opt: Option<String>,
     #[serde(rename = "pastNeighbors")]
     pub past_neighbors: Vec<String>,
+    #[serde(rename = "scanIntervals")]
+    pub payment_curves: UiPaymentCurves,
+    #[serde(rename = "ratePack")]
+    pub rate_pack: UiRatePack,
+    #[serde(rename = "scanIntervals")]
+    pub scan_intervals: UiScanIntervals,
 }
 
 conversation_message!(UiConfigurationResponse, "configuration");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiRatePack {
+    #[serde(rename = "routingByteRate")]
+    pub routing_byte_rate: u64,
+    #[serde(rename = "routingServiceRate")]
+    pub routing_service_rate: u64,
+    #[serde(rename = "exitByteRate")]
+    pub exit_byte_rate: u64,
+    #[serde(rename = "exitServiceRate")]
+    pub exit_service_rate: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiScanIntervals {
+    #[serde(rename = "pendingPaymentScanIntervalSec")]
+    pub pending_payable_scan_interval_sec: u64,
+    #[serde(rename = "payableScanIntervalSec")]
+    pub payable_scan_interval_sec: u64,
+    #[serde(rename = "receivableScanIntervalSec")]
+    pub receivable_scan_interval_sec: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiPaymentCurves {
+    #[serde(rename = "balanceDecreasesForSec")]
+    pub balance_decreases_for_sec: i64,
+    #[serde(rename = "balanceToDecreaseFromGwei")]
+    pub balance_to_decrease_from_gwei: i64,
+    #[serde(rename = "paymentSuggestedAfterSec")]
+    pub payment_suggested_after_sec: i64,
+    #[serde(rename = "paymentGraceBeforeBanSec")]
+    pub payment_grace_before_ban_sec: i64,
+    #[serde(rename = "permanentDebtAllowedGwei")]
+    pub permanent_debt_allowed_gwei: i64,
+    #[serde(rename = "routingByteRate")]
+    pub unban_when_balance_below_gwei: i64,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiDescriptorRequest {}
