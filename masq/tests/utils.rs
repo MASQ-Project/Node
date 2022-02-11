@@ -125,11 +125,12 @@ impl StopHandle {
         self.child.id()
     }
 
-    pub fn kill(mut self) {
+    pub fn kill(mut self) -> (String, String, Option<i32>) {
         self.child.kill().unwrap();
 
         #[cfg(target_os = "windows")]
         Self::taskkill();
+        self.stop()
     }
 
     #[cfg(target_os = "windows")]
