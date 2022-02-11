@@ -195,7 +195,7 @@ mod tests {
                 "--chain".to_string(),
                 "eth-ropsten".to_string(),
                 "--scans".to_string(),
-                "off".to_string()
+                "off".to_string(),
             ])
             .unwrap();
 

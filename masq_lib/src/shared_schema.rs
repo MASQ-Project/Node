@@ -366,8 +366,8 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .value_name("SCANS")
             .takes_value(true)
             .possible_values(&["on", "off"])
-            .default_value("on")
-            .help(SCANS_HELP))
+            .help(SCANS_HELP),
+    )
 }
 
 pub mod common_validators {

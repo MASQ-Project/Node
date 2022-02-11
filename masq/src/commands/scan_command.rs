@@ -3,7 +3,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{send, Command, CommandError};
 use clap::{App, Arg, SubCommand};
-use masq_lib::messages::{UiScanRequest};
+use masq_lib::messages::UiScanRequest;
 use std::fmt::Debug;
 
 #[derive(Debug)]

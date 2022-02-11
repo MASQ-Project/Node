@@ -298,7 +298,7 @@ impl Accountant {
     }
 
     fn scan_for_payables(&mut self) {
-        debug!(self.logger, "Scanning for payables");
+        info!(self.logger, "Scanning for payables");
 
         let all_non_pending_payables = self.payable_dao.non_pending_payables();
         debug!(
@@ -332,7 +332,7 @@ impl Accountant {
     }
 
     fn scan_for_delinquencies(&mut self) {
-        debug!(self.logger, "Scanning for delinquencies");
+        info!(self.logger, "Scanning for delinquencies");
         let now = SystemTime::now();
         self.receivable_dao
             .new_delinquencies(now, &PAYMENT_CURVES)
@@ -365,7 +365,7 @@ impl Accountant {
     }
 
     fn scan_for_received_payments(&mut self) {
-        debug!(
+        info!(
             self.logger,
             "Scanning for payments to {}", self.earning_wallet
         );
@@ -1798,12 +1798,12 @@ pub mod tests {
         System::current().stop();
         system.run();
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("DEBUG: Accountant: Scanning for payables");
+        tlh.exists_log_containing("INFO: Accountant: Scanning for payables");
         tlh.exists_log_containing(&format!(
-            "DEBUG: Accountant: Scanning for payments to {}",
+            "INFO: Accountant: Scanning for payments to {}",
             make_wallet("hi")
         ));
-        tlh.exists_log_containing("DEBUG: Accountant: Scanning for delinquencies");
+        tlh.exists_log_containing("INFO: Accountant: Scanning for delinquencies");
     }
 
     #[test]

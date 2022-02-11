@@ -37,7 +37,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-const CONSOLE_DIAGNOSTICS: bool = false;
+const CONSOLE_DIAGNOSTICS: bool = true;
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
