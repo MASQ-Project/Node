@@ -139,7 +139,7 @@ fn handles_startup_and_shutdown_integration() {
 
     let masq_handle =
         MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "descriptor"]);
-    let (stdout, stderr, exit_code) = masq_handle.stop();
+    let (_stdout, _stderr, exit_code) = masq_handle.stop();
     assert_eq!(exit_code.unwrap(), 0);
 
     let (stdout, stderr, _) = daemon_handle.kill();
