@@ -9,8 +9,7 @@ use crate::sub_lib::cryptde::PlainData;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
-    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
-    DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+    DEFAULT_PAYMENT_CURVES_STR, DEFAULT_RATE_PACK_STR, DEFAULT_SCAN_INTERVALS_STR,
 };
 use masq_lib::logger::Logger;
 #[cfg(test)]
@@ -365,65 +364,18 @@ impl DatabaseMigration for Migrate_5_to_6 {
         &self,
         declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()> {
-        let sql_strings = vec![
-            (
-                "payment_suggested_after_sec",
-                DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec,
-            ),
-            (
-                "payment_grace_before_ban_sec",
-                DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec,
-            ),
-            (
-                "permanent_debt_allowed_gwei",
-                DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei,
-            ),
-            (
-                "balance_to_decrease_from_gwei",
-                DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei,
-            ),
-            (
-                "balance_decreases_for_sec",
-                DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec,
-            ),
-            (
-                "unban_when_balance_below_gwei",
-                DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei,
-            ),
-            (
-                "routing_byte_rate",
-                DEFAULT_RATE_PACK.routing_byte_rate as i64,
-            ),
-            (
-                "routing_service_rate",
-                DEFAULT_RATE_PACK.routing_service_rate as i64,
-            ),
-            ("exit_byte_rate", DEFAULT_RATE_PACK.exit_byte_rate as i64),
-            (
-                "exit_service_rate",
-                DEFAULT_RATE_PACK.exit_service_rate as i64,
-            ),
-            (
-                "pending_payment_scan_interval",
-                (DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL) as i64,
-            ),
-            (
-                "payable_scan_interval",
-                DEFAULT_PAYABLE_SCAN_INTERVAL as i64,
-            ),
-            (
-                "receivable_scan_interval",
-                DEFAULT_RECEIVABLE_SCAN_INTERVAL as i64,
-            ),
-        ]
-        .into_iter()
-        .map(Self::make_initialization_statement)
-        .collect::<Vec<String>>();
-        let sql_strs = sql_strings
-            .iter()
-            .map(|s| s.as_str())
-            .collect::<Vec<&str>>();
-        declaration_utils.execute_upon_transaction(&sql_strs)
+        let statement_1 = Self::make_initialization_statement(
+            "payment_curves",
+            DEFAULT_PAYMENT_CURVES_STR.as_str(),
+        );
+        let statement_2 = Self::make_initialization_statement("rate_pack", DEFAULT_RATE_PACK_STR);
+        let statement_3 =
+            Self::make_initialization_statement("scan_intervals", DEFAULT_SCAN_INTERVALS_STR);
+        declaration_utils.execute_upon_transaction(&[
+            statement_1.as_str(),
+            statement_2.as_str(),
+            statement_3.as_str(),
+        ])
     }
 
     fn old_version(&self) -> usize {
@@ -432,8 +384,7 @@ impl DatabaseMigration for Migrate_5_to_6 {
 }
 
 impl Migrate_5_to_6 {
-    fn make_initialization_statement(name_and_value: (&str, i64)) -> String {
-        let (name, value) = name_and_value;
+    fn make_initialization_statement(name: &str, value: &str) -> String {
         format!(
             "INSERT INTO config (name, value, encrypted) VALUES ('{}', '{}', 0)",
             name, value
@@ -675,8 +626,8 @@ mod tests {
     };
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
     use masq_lib::constants::{
-        DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-        DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+        DEFAULT_CHAIN, DEFAULT_PAYMENT_CURVES_STR, DEFAULT_RATE_PACK_STR,
+        DEFAULT_SCAN_INTERVALS_STR,
     };
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
@@ -1664,116 +1615,16 @@ mod tests {
         );
 
         let connection = result.unwrap();
-        let (payment_suggested_after_sec, encrypted) =
-            retrieve_config_row(connection.as_ref(), "payment_suggested_after_sec");
-        assert_eq!(
-            payment_suggested_after_sec,
-            Some(
-                DEFAULT_PAYMENT_CURVES
-                    .payment_suggested_after_sec
-                    .to_string()
-            )
-        );
+        let (payment_curves, encrypted) =
+            retrieve_config_row(connection.as_ref(), "payment_curves");
+        assert_eq!(payment_curves, Some(DEFAULT_PAYMENT_CURVES_STR.to_string()));
         assert_eq!(encrypted, false);
-        let (payment_grace_before_ban_sec, encrypted) =
-            retrieve_config_row(connection.as_ref(), "payment_grace_before_ban_sec");
-        assert_eq!(
-            payment_grace_before_ban_sec,
-            Some(
-                DEFAULT_PAYMENT_CURVES
-                    .payment_grace_before_ban_sec
-                    .to_string()
-            )
-        );
+        let (rate_pack, encrypted) = retrieve_config_row(connection.as_ref(), "rate_pack");
+        assert_eq!(rate_pack, Some(DEFAULT_RATE_PACK_STR.to_string()));
         assert_eq!(encrypted, false);
-        let (permanent_debt_allowed_gwei, encrypted) =
-            retrieve_config_row(connection.as_ref(), "permanent_debt_allowed_gwei");
-        assert_eq!(
-            permanent_debt_allowed_gwei,
-            Some(
-                DEFAULT_PAYMENT_CURVES
-                    .permanent_debt_allowed_gwei
-                    .to_string()
-            )
-        );
-        assert_eq!(encrypted, false);
-        let (balance_to_decrease_from_gwei, encrypted) =
-            retrieve_config_row(connection.as_ref(), "balance_to_decrease_from_gwei");
-        assert_eq!(
-            balance_to_decrease_from_gwei,
-            Some(
-                DEFAULT_PAYMENT_CURVES
-                    .balance_to_decrease_from_gwei
-                    .to_string()
-            )
-        );
-        assert_eq!(encrypted, false);
-        let (balance_decreases_for_sec, encrypted) =
-            retrieve_config_row(connection.as_ref(), "balance_decreases_for_sec");
-        assert_eq!(
-            balance_decreases_for_sec,
-            Some(DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec.to_string())
-        );
-        assert_eq!(encrypted, false);
-        let (unban_when_balance_below_gwei, encrypted) =
-            retrieve_config_row(connection.as_ref(), "unban_when_balance_below_gwei");
-        assert_eq!(
-            unban_when_balance_below_gwei,
-            Some(
-                DEFAULT_PAYMENT_CURVES
-                    .unban_when_balance_below_gwei
-                    .to_string()
-            )
-        );
-        assert_eq!(encrypted, false);
-        let (routing_byte_rate, encrypted) =
-            retrieve_config_row(connection.as_ref(), "routing_byte_rate");
-        assert_eq!(
-            routing_byte_rate,
-            Some(DEFAULT_RATE_PACK.routing_byte_rate.to_string())
-        );
-        assert_eq!(encrypted, false);
-        let (routing_service_rate, encrypted) =
-            retrieve_config_row(connection.as_ref(), "routing_service_rate");
-        assert_eq!(
-            routing_service_rate,
-            Some(DEFAULT_RATE_PACK.routing_service_rate.to_string())
-        );
-        assert_eq!(encrypted, false);
-        let (exit_byte_rate, encrypted) =
-            retrieve_config_row(connection.as_ref(), "exit_byte_rate");
-        assert_eq!(
-            exit_byte_rate,
-            Some(DEFAULT_RATE_PACK.exit_byte_rate.to_string())
-        );
-        assert_eq!(encrypted, false);
-        let (exit_service_rate, encrypted) =
-            retrieve_config_row(connection.as_ref(), "exit_service_rate");
-        assert_eq!(
-            exit_service_rate,
-            Some(DEFAULT_RATE_PACK.exit_service_rate.to_string())
-        );
-        assert_eq!(encrypted, false);
-        let (pending_payment_scan_interval, encrypted) =
-            retrieve_config_row(connection.as_ref(), "pending_payment_scan_interval");
-        assert_eq!(
-            pending_payment_scan_interval,
-            Some(DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL.to_string())
-        );
-        assert_eq!(encrypted, false);
-        let (payable_scan_interval, encrypted) =
-            retrieve_config_row(connection.as_ref(), "payable_scan_interval");
-        assert_eq!(
-            payable_scan_interval,
-            Some(DEFAULT_PAYABLE_SCAN_INTERVAL.to_string())
-        );
-        assert_eq!(encrypted, false);
-        let (receivable_scan_interval, encrypted) =
-            retrieve_config_row(connection.as_ref(), "receivable_scan_interval");
-        assert_eq!(
-            receivable_scan_interval,
-            Some(DEFAULT_RECEIVABLE_SCAN_INTERVAL.to_string())
-        );
+        let (scan_intervals, encrypted) =
+            retrieve_config_row(connection.as_ref(), "scan_intervals");
+        assert_eq!(scan_intervals, Some(DEFAULT_SCAN_INTERVALS_STR.to_string()));
         assert_eq!(encrypted, false);
     }
 }

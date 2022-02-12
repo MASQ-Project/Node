@@ -9,7 +9,7 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::coupled_parameters::RatePack;
+use masq_lib::combined_parameters::RatePack;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;

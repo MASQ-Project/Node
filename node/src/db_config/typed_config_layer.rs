@@ -7,7 +7,7 @@ use rustc_hex::{FromHex, ToHex};
 pub enum TypedConfigLayerError {
     BadNumberFormat(String),
     BadHexFormat(String),
-    BadCoupledParamsFormat(String)
+    BadCoupledParamsFormat(String),
 }
 
 pub fn decode_u64(string_opt: Option<String>) -> Result<Option<u64>, TypedConfigLayerError> {
@@ -32,15 +32,15 @@ pub fn decode_bytes(
     }
 }
 
-pub fn decode_coupled_params<T>(
+pub fn decode_combined_params<T>(
     values_parser: fn(&str) -> Result<T, String>,
     string_opt: Option<String>,
 ) -> Result<Option<T>, TypedConfigLayerError> {
     match string_opt {
         None => Ok(None),
-        Some(string_params) => {
-            values_parser(string_params.as_str()).map(|val|Some(val)).map_err(|e|TypedConfigLayerError::BadCoupledParamsFormat(e))
-        },
+        Some(string_params) => values_parser(string_params.as_str())
+            .map(|val| Some(val))
+            .map_err(|e| TypedConfigLayerError::BadCoupledParamsFormat(e)),
     }
 }
 

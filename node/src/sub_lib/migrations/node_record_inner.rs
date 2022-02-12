@@ -8,7 +8,7 @@ use crate::sub_lib::versioned_data::{
 };
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
-use masq_lib::coupled_parameters::RatePack;
+use masq_lib::combined_parameters::RatePack;
 use serde_cbor::Value;
 use std::collections::BTreeSet;
 use std::convert::TryFrom;
@@ -161,7 +161,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::versioned_data::DataVersion;
     use masq_lib::constants::DEFAULT_RATE_PACK;
-    use masq_lib::coupled_parameters::RatePack;
+    use masq_lib::combined_parameters::RatePack;
     use serde_derive::{Deserialize, Serialize};
     use std::iter::FromIterator;
 

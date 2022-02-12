@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::constants::COUPLED_PARAMETERS_DELIMITER;
-use crate::coupled_parameters::CoupledParamsDataTypes::{I64, U64};
+use crate::constants::COMBINED_PARAMETERS_DELIMITER;
+use crate::combined_parameters::CombinedParamsDataTypes::{I64, U64};
 use crate::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
 use std::any::Any;
@@ -60,21 +60,21 @@ pub struct ScanIntervals {
 }
 
 #[derive(PartialEq, Debug)]
-pub enum CoupledParamsDataTypes {
+pub enum CombinedParamsDataTypes {
     U64,
     I64,
     U128,
 }
 
 #[derive(PartialEq, Debug)]
-pub enum CoupledParamsValueRetriever {
+pub enum CombinedParamsValueRetriever {
     U64(u64),
     I64(i64),
     U128(u128),
 }
 
-impl CoupledParamsValueRetriever {
-    fn parse(str_value: &str, data_type: &CoupledParamsDataTypes) -> Result<Self, String> {
+impl CombinedParamsValueRetriever {
+    fn parse(str_value: &str, data_type: &CombinedParamsDataTypes) -> Result<Self, String> {
         fn parse<T>(str_value: &str) -> Result<T, String>
         where
             T: std::str::FromStr,
@@ -83,22 +83,22 @@ impl CoupledParamsValueRetriever {
             str_value.parse::<T>().map_err(|e| e.to_string())
         }
         match data_type {
-            CoupledParamsDataTypes::U64 => Ok(CoupledParamsValueRetriever::U64(parse(str_value)?)),
-            CoupledParamsDataTypes::I64 => Ok(CoupledParamsValueRetriever::I64(parse(str_value)?)),
-            CoupledParamsDataTypes::U128 => {
-                Ok(CoupledParamsValueRetriever::U128(parse(str_value)?))
+            CombinedParamsDataTypes::U64 => Ok(CombinedParamsValueRetriever::U64(parse(str_value)?)),
+            CombinedParamsDataTypes::I64 => Ok(CombinedParamsValueRetriever::I64(parse(str_value)?)),
+            CombinedParamsDataTypes::U128 => {
+                Ok(CombinedParamsValueRetriever::U128(parse(str_value)?))
             }
         }
     }
 
     pub fn get_value<T: 'static + Copy>(
-        map: &HashMap<String, CoupledParamsValueRetriever>,
+        map: &HashMap<String, CombinedParamsValueRetriever>,
         parameter_name: &str,
     ) -> T {
         let dynamic: &dyn Any = match map.get(parameter_name).expectv(parameter_name) {
-            CoupledParamsValueRetriever::U64(num) => num,
-            CoupledParamsValueRetriever::I64(num) => num,
-            CoupledParamsValueRetriever::U128(num) => num,
+            CombinedParamsValueRetriever::U64(num) => num,
+            CombinedParamsValueRetriever::I64(num) => num,
+            CombinedParamsValueRetriever::U128(num) => num,
         };
         *dynamic
             .downcast_ref::<T>()
@@ -106,11 +106,11 @@ impl CoupledParamsValueRetriever {
     }
 }
 
-fn parse_coupled_params_with_delimiters(
+fn parse_combined_params_with_delimiters(
     input: &str,
     delimiter: char,
-    expected_collection: &[(&str, CoupledParamsDataTypes)],
-) -> Result<HashMap<String, CoupledParamsValueRetriever>, String> {
+    expected_collection: &[(&str, CombinedParamsDataTypes)],
+) -> Result<HashMap<String, CombinedParamsValueRetriever>, String> {
     let check = |count: usize| {
         if count != expected_collection.len() {
             return Err(format!(
@@ -133,118 +133,84 @@ fn parse_coupled_params_with_delimiters(
         .map(|(piece, (param_name, data_type))| {
             (
                 param_name.to_string(),
-                CoupledParamsValueRetriever::parse(piece, &data_type).expectv("numeric value"),
+                CombinedParamsValueRetriever::parse(piece, &data_type).expectv("numeric value"),
             )
         })
         .collect())
 }
 
-pub struct CoupledParams {}
-
-impl CoupledParams {
-    pub fn parse_rate_pack(parameters: &str) -> Result<RatePack, String> {
-        if let CoupledParamsInner::RatePack(Some(rate_pack)) =
-            CoupledParamsInner::RatePack(None).parse(parameters)?
-        {
-            Ok(rate_pack)
-        } else {
-            unimplemented!()
-        }
-    }
-
-    pub fn parse_payment_curves(parameters: &str) -> Result<PaymentCurves, String> {
-        if let CoupledParamsInner::PaymentCurves(Some(payment_curves)) =
-            CoupledParamsInner::PaymentCurves(None).parse(parameters)?
-        {
-            Ok(payment_curves)
-        } else {
-            unimplemented!()
-        }
-    }
-
-    pub fn parse_scan_intervals(parameters: &str) -> Result<ScanIntervals, String> {
-        if let CoupledParamsInner::ScanIntervals(Some(scan_intervals)) =
-            CoupledParamsInner::ScanIntervals(None).parse(parameters)?
-        {
-            Ok(scan_intervals)
-        } else {
-            unimplemented!()
-        }
-    }
-}
-
 #[derive(Debug)]
-enum CoupledParamsInner {
+enum CombinedParams {
     RatePack(Option<RatePack>),
     PaymentCurves(Option<PaymentCurves>),
     ScanIntervals(Option<ScanIntervals>),
 }
 
-impl CoupledParamsInner {
+impl CombinedParams {
     pub fn parse(&self, parameters_str: &str) -> Result<Self, String> {
-        let parsed_values = parse_coupled_params_with_delimiters(
+        let parsed_values = parse_combined_params_with_delimiters(
             parameters_str,
-            COUPLED_PARAMETERS_DELIMITER,
+            COMBINED_PARAMETERS_DELIMITER,
             self.into(),
         )?;
         Ok(match self {
             Self::RatePack(None) => Self::RatePack(Some(RatePack {
-                routing_byte_rate: CoupledParamsValueRetriever::get_value(
+                routing_byte_rate: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "routing_byte_rate",
                 ),
-                routing_service_rate: CoupledParamsValueRetriever::get_value(
+                routing_service_rate: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "routing_service_rate",
                 ),
-                exit_byte_rate: CoupledParamsValueRetriever::get_value(
+                exit_byte_rate: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "exit_byte_rate",
                 ),
-                exit_service_rate: CoupledParamsValueRetriever::get_value(
+                exit_service_rate: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "exit_service_rate",
                 ),
             })),
             Self::PaymentCurves(None) => Self::PaymentCurves(Some(PaymentCurves {
-                payment_suggested_after_sec: CoupledParamsValueRetriever::get_value(
+                payment_suggested_after_sec: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "payment_suggested_after_sec",
                 ),
-                payment_grace_before_ban_sec: CoupledParamsValueRetriever::get_value(
+                payment_grace_before_ban_sec: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "payment_grace_before_ban_sec",
                 ),
-                permanent_debt_allowed_gwei: CoupledParamsValueRetriever::get_value(
+                permanent_debt_allowed_gwei: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "permanent_debt_allowed_gwei",
                 ),
-                balance_to_decrease_from_gwei: CoupledParamsValueRetriever::get_value(
+                balance_to_decrease_from_gwei: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "balance_to_decrease_from_gwei",
                 ),
-                balance_decreases_for_sec: CoupledParamsValueRetriever::get_value(
+                balance_decreases_for_sec: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "balance_decreases_for_sec",
                 ),
-                unban_when_balance_below_gwei: CoupledParamsValueRetriever::get_value(
+                unban_when_balance_below_gwei: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "unban_when_balance_below_gwei",
                 ),
             })),
             Self::ScanIntervals(None) => Self::ScanIntervals(Some(ScanIntervals {
                 pending_payable_scan_interval: Duration::from_secs(
-                    CoupledParamsValueRetriever::get_value(
+                    CombinedParamsValueRetriever::get_value(
                         &parsed_values,
                         "pending_payable_scan_interval",
                     ),
                 ),
-                payable_scan_interval: Duration::from_secs(CoupledParamsValueRetriever::get_value(
+                payable_scan_interval: Duration::from_secs(CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "payable_scan_interval",
                 )),
                 receivable_scan_interval: Duration::from_secs(
-                    CoupledParamsValueRetriever::get_value(
+                    CombinedParamsValueRetriever::get_value(
                         &parsed_values,
                         "receivable_scan_interval",
                     ),
@@ -255,16 +221,16 @@ impl CoupledParamsInner {
     }
 }
 
-impl Into<&[(&str, CoupledParamsDataTypes)]> for &CoupledParamsInner {
-    fn into(self) -> &'static [(&'static str, CoupledParamsDataTypes)] {
+impl Into<&[(&str, CombinedParamsDataTypes)]> for &CombinedParams {
+    fn into(self) -> &'static [(&'static str, CombinedParamsDataTypes)] {
         match self {
-            CoupledParamsInner::RatePack(None) => &[
+            CombinedParams::RatePack(None) => &[
                 ("routing_byte_rate", U64),
                 ("routing_service_rate", U64),
                 ("exit_byte_rate", U64),
                 ("exit_service_rate", U64),
             ],
-            CoupledParamsInner::PaymentCurves(None) => &[
+            CombinedParams::PaymentCurves(None) => &[
                 ("balance_decreases_for_sec", I64),
                 ("balance_to_decrease_from_gwei", I64),
                 ("payment_grace_before_ban_sec", I64),
@@ -272,7 +238,7 @@ impl Into<&[(&str, CoupledParamsDataTypes)]> for &CoupledParamsInner {
                 ("permanent_debt_allowed_gwei", I64),
                 ("unban_when_balance_below_gwei", I64),
             ],
-            CoupledParamsInner::ScanIntervals(None) => &[
+            CombinedParams::ScanIntervals(None) => &[
                 ("pending_payable_scan_interval", U64),
                 ("payable_scan_interval", U64),
                 ("receivable_scan_interval", U64),
@@ -282,15 +248,89 @@ impl Into<&[(&str, CoupledParamsDataTypes)]> for &CoupledParamsInner {
     }
 }
 
+pub trait CombinedParamsForm {
+    fn to_combined_params(&self) -> String;
+    fn from_combined_params(serialized_params: &str) -> Result<Self, String>
+    where
+        Self: Sized;
+}
+
+impl CombinedParamsForm for ScanIntervals {
+    fn to_combined_params(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.pending_payable_scan_interval.as_secs(),
+            self.payable_scan_interval.as_secs(),
+            self.receivable_scan_interval.as_secs()
+        )
+    }
+
+    fn from_combined_params(parameters: &str) -> Result<Self, String> {
+        if let CombinedParams::ScanIntervals(Some(scan_intervals)) =
+            CombinedParams::ScanIntervals(None).parse(parameters)?
+        {
+            Ok(scan_intervals)
+        } else {
+            unimplemented!()
+        }
+    }
+}
+
+impl CombinedParamsForm for PaymentCurves {
+    fn to_combined_params(&self) -> String {
+        format!(
+            "{}|{}|{}|{}|{}|{}",
+            self.balance_decreases_for_sec,
+            self.balance_to_decrease_from_gwei,
+            self.payment_grace_before_ban_sec,
+            self.payment_suggested_after_sec,
+            self.permanent_debt_allowed_gwei,
+            self.unban_when_balance_below_gwei
+        )
+    }
+
+    fn from_combined_params(parameters: &str) -> Result<Self, String> {
+        if let CombinedParams::PaymentCurves(Some(payment_curves)) =
+            CombinedParams::PaymentCurves(None).parse(parameters)?
+        {
+            Ok(payment_curves)
+        } else {
+            unimplemented!()
+        }
+    }
+}
+
+impl CombinedParamsForm for RatePack {
+    fn to_combined_params(&self) -> String {
+        format!(
+            "{}|{}|{}|{}",
+            self.routing_byte_rate,
+            self.routing_service_rate,
+            self.exit_byte_rate,
+            self.exit_service_rate
+        )
+    }
+
+    fn from_combined_params(parameters: &str) -> Result<Self, String> {
+        if let CombinedParams::RatePack(Some(rate_pack)) =
+            CombinedParams::RatePack(None).parse(parameters)?
+        {
+            Ok(rate_pack)
+        } else {
+            unimplemented!()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::coupled_parameters::CoupledParamsDataTypes::U128;
+    use crate::combined_parameters::CombinedParamsDataTypes::U128;
     #[test]
-    fn parse_coupled_params_with_delimiters_happy_path() {
+    fn parse_combined_params_with_delimiters_happy_path() {
         let input = "555|123|8989";
 
-        let result = parse_coupled_params_with_delimiters(
+        let result = parse_combined_params_with_delimiters(
             input,
             '|',
             &[
@@ -302,25 +342,25 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            CoupledParamsValueRetriever::get_value::<u64>(&result, "first_parameter"),
+            CombinedParamsValueRetriever::get_value::<u64>(&result, "first_parameter"),
             555
         );
         assert_eq!(
-            CoupledParamsValueRetriever::get_value::<u128>(&result, "second_parameter"),
+            CombinedParamsValueRetriever::get_value::<u128>(&result, "second_parameter"),
             123
         );
         assert_eq!(
-            CoupledParamsValueRetriever::get_value::<u64>(&result, "third_parameter"),
+            CombinedParamsValueRetriever::get_value::<u64>(&result, "third_parameter"),
             8989
         );
     }
 
     #[test]
-    fn parse_coupled_params_with_delimiters_wrong_number_of_parameters() {
+    fn parse_combined_params_with_delimiters_wrong_number_of_parameters() {
         let input = "555|123|8989|11|557";
 
-        let result: Result<HashMap<String, CoupledParamsValueRetriever>, String> =
-            parse_coupled_params_with_delimiters(
+        let result: Result<HashMap<String, CombinedParamsValueRetriever>, String> =
+            parse_combined_params_with_delimiters(
                 input,
                 '|',
                 &[
@@ -338,11 +378,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_coupled_params_with_delimiters_not_separable() {
+    fn parse_combined_params_with_delimiters_not_separable() {
         let input = "555|123|8989|11|557";
 
-        let result: Result<HashMap<String, CoupledParamsValueRetriever>, String> =
-            parse_coupled_params_with_delimiters(
+        let result: Result<HashMap<String, CombinedParamsValueRetriever>, String> =
+            parse_combined_params_with_delimiters(
                 input,
                 '@',
                 &[
@@ -360,9 +400,9 @@ mod tests {
     }
 
     #[test]
-    fn coupled_params_can_be_converted_to_type_arrays() {
-        let rate_pack: &[(&str, CoupledParamsDataTypes)] =
-            (&CoupledParamsInner::RatePack(None)).into();
+    fn combined_params_can_be_converted_to_type_arrays() {
+        let rate_pack: &[(&str, CombinedParamsDataTypes)] =
+            (&CombinedParams::RatePack(None)).into();
         assert_eq!(
             rate_pack,
             &[
@@ -372,8 +412,8 @@ mod tests {
                 ("exit_service_rate", U64),
             ]
         );
-        let scan_interval: &[(&str, CoupledParamsDataTypes)] =
-            (&CoupledParamsInner::ScanIntervals(None)).into();
+        let scan_interval: &[(&str, CombinedParamsDataTypes)] =
+            (&CombinedParams::ScanIntervals(None)).into();
         assert_eq!(
             scan_interval,
             &[
@@ -382,8 +422,8 @@ mod tests {
                 ("receivable_scan_interval", U64),
             ]
         );
-        let payment_curves: &[(&str, CoupledParamsDataTypes)] =
-            (&CoupledParamsInner::PaymentCurves(None)).into();
+        let payment_curves: &[(&str, CombinedParamsDataTypes)] =
+            (&CombinedParams::PaymentCurves(None)).into();
         assert_eq!(
             payment_curves,
             &[
@@ -398,10 +438,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_rate_pack_works() {
+    fn rate_pack_from_combined_params() {
         let rate_pack_str = "8|9|11|13";
 
-        let result = CoupledParams::parse_rate_pack(rate_pack_str).unwrap();
+        let result = RatePack::from_combined_params(rate_pack_str).unwrap();
 
         assert_eq!(
             result,
@@ -415,10 +455,24 @@ mod tests {
     }
 
     #[test]
-    fn parse_scan_intervals_works() {
+    fn rate_pack_to_combined_params() {
+        let scan_intervals = RatePack {
+            routing_byte_rate: 18,
+            routing_service_rate: 19,
+            exit_byte_rate: 21,
+            exit_service_rate: 22,
+        };
+
+        let result = scan_intervals.to_combined_params();
+
+        assert_eq!(result, "18|19|21|22".to_string());
+    }
+
+    #[test]
+    fn scan_intervals_from_combined_params() {
         let scan_intervals_str = "110|115|113";
 
-        let result = CoupledParams::parse_scan_intervals(scan_intervals_str).unwrap();
+        let result = ScanIntervals::from_combined_params(scan_intervals_str).unwrap();
 
         assert_eq!(
             result,
@@ -431,10 +485,23 @@ mod tests {
     }
 
     #[test]
-    fn parse_payment_curves_works() {
+    fn scan_intervals_to_combined_params() {
+        let scan_intervals = ScanIntervals {
+            pending_payable_scan_interval: Duration::from_secs(60),
+            payable_scan_interval: Duration::from_secs(70),
+            receivable_scan_interval: Duration::from_secs(100),
+        };
+
+        let result = scan_intervals.to_combined_params();
+
+        assert_eq!(result, "60|70|100".to_string());
+    }
+
+    #[test]
+    fn payment_curves_from_combined_params() {
         let payment_curves_str = "10020|5000010|100|120|20000|18000";
 
-        let result = CoupledParams::parse_payment_curves(payment_curves_str).unwrap();
+        let result = PaymentCurves::from_combined_params(payment_curves_str).unwrap();
 
         assert_eq!(
             result,
@@ -447,5 +514,21 @@ mod tests {
                 unban_when_balance_below_gwei: 18000
             }
         )
+    }
+
+    #[test]
+    fn payment_curves_to_combined_params() {
+        let payment_curves = PaymentCurves {
+            balance_decreases_for_sec: 30020,
+            balance_to_decrease_from_gwei: 5000010,
+            payment_grace_before_ban_sec: 123,
+            payment_suggested_after_sec: 120,
+            permanent_debt_allowed_gwei: 20000,
+            unban_when_balance_below_gwei: 111,
+        };
+
+        let result = payment_curves.to_s();
+
+        assert_eq!(result, "30020|5000010|123|120|20000|111".to_string());
     }
 }

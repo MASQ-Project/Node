@@ -26,10 +26,7 @@ use clap::value_t;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain as BlockChain;
-use masq_lib::constants::{
-    DEFAULT_CHAIN,
-    DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
-};
+use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL};
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
 use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupResponseValueStatus};
@@ -38,8 +35,6 @@ use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
-use masq_lib::utils::ExpectValue;
-use paste::paste;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
@@ -962,7 +957,7 @@ impl ValueRetriever for PaymentCurves {
         "payment-curves"
     }
 
-    fn is_required(&self, params: &SetupCluster) -> bool {
+    fn is_required(&self, _params: &SetupCluster) -> bool {
         true
     }
     // payment_curve_params_computed_default_and_is_required!("unban_when_balance_below_gwei");
@@ -3211,11 +3206,10 @@ mod tests {
 
     #[test]
     fn rate_pack_computed_default_when_persistent_config_like_default() {
-        todo!()
-        // assert_computed_default_when_persistent_config_like_default(
-        //     &RoutingByteRate {},
-        //     DEFAULT_RATE_PACK.routing_byte_rate,
-        // )
+        assert_computed_default_when_persistent_config_like_default(
+            &RatePack {},
+            DEFAULT_RATE_PACK_STR,
+        )
     }
 
     #[test]

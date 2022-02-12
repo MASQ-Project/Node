@@ -44,7 +44,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use masq_lib::constants::DEFAULT_RATE_PACK;
-use masq_lib::coupled_parameters::RatePack;
+use masq_lib::combined_parameters::RatePack;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use pretty_hex::PrettyHex;

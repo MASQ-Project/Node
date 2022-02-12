@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::time::Duration;
 use crate::blockchains::chains::Chain;
-use crate::coupled_parameters::{PaymentCurves, RatePack, ScanIntervals};
+use crate::combined_parameters::{PaymentCurves, RatePack, ScanIntervals};
 use const_format::concatcp;
 use lazy_static::lazy_static;
+use std::time::Duration;
 
 pub const DEFAULT_CHAIN: Chain = Chain::EthMainnet;
 
@@ -73,7 +73,7 @@ pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_RECEIVABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 
 lazy_static! {
-    pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals{
+    pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
         pending_payable_scan_interval: Duration::from_secs(DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL),
         payable_scan_interval: Duration::from_secs(DEFAULT_PAYABLE_SCAN_INTERVAL),
         receivable_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLE_SCAN_INTERVAL)
@@ -113,7 +113,7 @@ pub const TIMEOUT_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 6;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const COUPLED_PARAMETERS_DELIMITER: char = '|';
+pub const COMBINED_PARAMETERS_DELIMITER: char = '|';
 
 //descriptor
 pub const CENTRAL_DELIMITER: char = '@';

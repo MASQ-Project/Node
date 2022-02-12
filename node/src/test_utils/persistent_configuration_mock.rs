@@ -5,7 +5,7 @@
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
-use masq_lib::coupled_parameters::{PaymentCurves, RatePack, ScanIntervals};
+use masq_lib::combined_parameters::{PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::any::Any;
@@ -529,7 +529,10 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn payment_curves_result(self, result: Result<PaymentCurves, PersistentConfigError>) -> Self {
+    pub fn payment_curves_result(
+        self,
+        result: Result<PaymentCurves, PersistentConfigError>,
+    ) -> Self {
         self.payment_curves_results.borrow_mut().push(result);
         self
     }
@@ -559,7 +562,10 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn scan_intervals_result(self, result: Result<ScanIntervals, PersistentConfigError>) -> Self {
+    pub fn scan_intervals_result(
+        self,
+        result: Result<ScanIntervals, PersistentConfigError>,
+    ) -> Self {
         self.scan_intervals_results.borrow_mut().push(result);
         self
     }

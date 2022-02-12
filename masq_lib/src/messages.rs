@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::coupled_parameters::PaymentCurves;
 use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
 use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessageBody;
@@ -501,7 +500,7 @@ pub struct UiConfigurationResponse {
     pub consuming_wallet_address_opt: Option<String>,
     #[serde(rename = "pastNeighbors")]
     pub past_neighbors: Vec<String>,
-    #[serde(rename = "scanIntervals")]
+    #[serde(rename = "paymentCurves")]
     pub payment_curves: UiPaymentCurves,
     #[serde(rename = "ratePack")]
     pub rate_pack: UiRatePack,

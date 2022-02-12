@@ -6,8 +6,7 @@ use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::{type_name_of};
-use std::collections::HashMap;
+use masq_lib::utils::type_name_of;
 use std::io::ErrorKind;
 use std::time::{SystemTime, UNIX_EPOCH};
 

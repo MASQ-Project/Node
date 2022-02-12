@@ -1,6 +1,5 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use actix::{Actor, Context, Handler, Recipient};
@@ -33,13 +32,12 @@ use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
 use masq_lib::constants::{
-    BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR, CONFIGURATOR_WRITE_ERROR,
-    DERIVATION_PATH_ERROR, ILLEGAL_MNEMONIC_WORD_COUNT_ERROR,
-    MISSING_DATA, MNEMONIC_PHRASE_ERROR, NON_PARSABLE_VALUE, UNKNOWN_ERROR,
-    UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
+    BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR, CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR,
+    ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, MISSING_DATA, MNEMONIC_PHRASE_ERROR, NON_PARSABLE_VALUE,
+    UNKNOWN_ERROR, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
 };
 use masq_lib::logger::Logger;
-use masq_lib::utils::{derivation_path};
+use masq_lib::utils::derivation_path;
 use rustc_hex::{FromHex, ToHex};
 use tiny_hderive::bip32::ExtendedPrivKey;
 
@@ -600,7 +598,8 @@ impl Configurator {
         let routing_service_rate = rate_pack.routing_service_rate;
         let exit_byte_rate = rate_pack.exit_byte_rate;
         let exit_service_rate = rate_pack.exit_service_rate;
-        let pending_payable_scan_interval_sec = scan_intervals.pending_payable_scan_interval.as_secs();
+        let pending_payable_scan_interval_sec =
+            scan_intervals.pending_payable_scan_interval.as_secs();
         let payable_scan_interval_sec = scan_intervals.payable_scan_interval.as_secs();
         let receivable_scan_interval_sec = scan_intervals.receivable_scan_interval.as_secs();
         let balance_decreases_for_sec = payment_curves.balance_decreases_for_sec;
@@ -840,11 +839,11 @@ mod tests {
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::MISSING_DATA;
+    use masq_lib::combined_parameters::{PaymentCurves, RatePack, ScanIntervals};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
-    use masq_lib::coupled_parameters::{PaymentCurves, RatePack, ScanIntervals};
 
     #[test]
     fn constructor_connects_with_database() {
@@ -2239,35 +2238,36 @@ mod tests {
                 },
                 start_block: 3456,
                 scan_intervals: UiScanIntervals {
-                    pending_payable_scan_interval_sec: 120,
-                    payable_scan_interval_sec: 120,
-                    receivable_scan_interval_sec: 120
+                    pending_payable_scan_interval_sec: 122,
+                    payable_scan_interval_sec: 125,
+                    receivable_scan_interval_sec: 128
                 }
             }
         );
     }
 
-    fn payment_curves_scan_intervals_rate_pack(persistent_config: PersistentConfigurationMock)
-        ->PersistentConfigurationMock
-    {
-        persistent_config.rate_pack_result(Ok(RatePack{
-            routing_byte_rate: 6,
-            routing_service_rate: 8,
-            exit_byte_rate: 10,
-            exit_service_rate: 13
-        }))
-            .scan_intervals_result(Ok(ScanIntervals{
+    fn payment_curves_scan_intervals_rate_pack(
+        persistent_config: PersistentConfigurationMock,
+    ) -> PersistentConfigurationMock {
+        persistent_config
+            .rate_pack_result(Ok(RatePack {
+                routing_byte_rate: 6,
+                routing_service_rate: 8,
+                exit_byte_rate: 10,
+                exit_service_rate: 13,
+            }))
+            .scan_intervals_result(Ok(ScanIntervals {
                 pending_payable_scan_interval: Duration::from_secs(122),
                 payable_scan_interval: Duration::from_secs(125),
-                receivable_scan_interval: Duration::from_secs(128)
+                receivable_scan_interval: Duration::from_secs(128),
             }))
-            .payment_curves_result(Ok(PaymentCurves{
+            .payment_curves_result(Ok(PaymentCurves {
                 balance_decreases_for_sec: 10000,
                 balance_to_decrease_from_gwei: 5000000,
                 payment_grace_before_ban_sec: 1000,
                 payment_suggested_after_sec: 1200,
                 permanent_debt_allowed_gwei: 20000,
-                unban_when_balance_below_gwei: 20000
+                unban_when_balance_below_gwei: 20000,
             }))
     }
 
@@ -2368,9 +2368,9 @@ mod tests {
                 },
                 start_block: 3456,
                 scan_intervals: UiScanIntervals {
-                    pending_payable_scan_interval_sec: 120,
-                    payable_scan_interval_sec: 120,
-                    receivable_scan_interval_sec: 120
+                    pending_payable_scan_interval_sec: 122,
+                    payable_scan_interval_sec: 125,
+                    receivable_scan_interval_sec: 128
                 }
             }
         );

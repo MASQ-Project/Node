@@ -6,14 +6,14 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::db_config::typed_config_layer::{
-    decode_bytes, decode_coupled_params, decode_u64, encode_bytes, encode_u64,
+    decode_bytes, decode_combined_params, decode_u64, encode_bytes, encode_u64,
     TypedConfigLayerError,
 };
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
-use masq_lib::coupled_parameters::{CoupledParams, PaymentCurves, RatePack, ScanIntervals};
+use masq_lib::combined_parameters::{CombinedParamsForm, PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
@@ -50,8 +50,9 @@ impl From<TypedConfigLayerError> for PersistentConfigError {
             TypedConfigLayerError::BadNumberFormat(msg) => {
                 PersistentConfigError::BadNumberFormat(msg)
             }
-            TypedConfigLayerError::BadCoupledParamsFormat(msg)=>PersistentConfigError::BadCoupledParamsFormat(msg)
-
+            TypedConfigLayerError::BadCoupledParamsFormat(msg) => {
+                PersistentConfigError::BadCoupledParamsFormat(msg)
+            }
         }
     }
 }
@@ -445,7 +446,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn payment_curves(&self) -> Result<PaymentCurves, PersistentConfigError> {
-        self.coupled_params_get_method(CoupledParams::parse_payment_curves, "payment_curves")
+        self.combined_params_get_method(PaymentCurves::from_combined_params, "payment_curves")
     }
 
     fn set_payment_curves(&mut self, curves: String) -> Result<(), PersistentConfigError> {
@@ -453,7 +454,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn rate_pack(&self) -> Result<RatePack, PersistentConfigError> {
-        self.coupled_params_get_method(CoupledParams::parse_rate_pack, "rate_pack")
+        self.combined_params_get_method(RatePack::from_combined_params, "rate_pack")
     }
 
     fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError> {
@@ -461,7 +462,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError> {
-        self.coupled_params_get_method(CoupledParams::parse_scan_intervals, "scan_intervals")
+        self.combined_params_get_method(ScanIntervals::from_combined_params, "scan_intervals")
     }
 
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError> {
@@ -546,12 +547,12 @@ impl PersistentConfigurationReal {
         }
     }
 
-    fn coupled_params_get_method<T>(
+    fn combined_params_get_method<T>(
         &self,
         values_parser: fn(&str) -> Result<T, String>,
         parameter: &str,
     ) -> Result<T, PersistentConfigError> {
-        match decode_coupled_params(values_parser,self.get(parameter)?)? {
+        match decode_combined_params(values_parser, self.get(parameter)?)? {
             None => Self::missing_value_panic(parameter),
             Some(rate) => Ok(rate),
         }
@@ -583,8 +584,8 @@ mod tests {
     use std::convert::TryFrom;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
-    use tiny_hderive::bip32::ExtendedPrivKey;
     use std::time::Duration;
+    use tiny_hderive::bip32::ExtendedPrivKey;
 
     lazy_static! {
         static ref CONFIG_TABLE_PARAMETERS: Vec<String> = list_of_config_parameters();
@@ -648,7 +649,7 @@ mod tests {
             (
                 TypedConfigLayerError::BadCoupledParamsFormat("booga".to_string()),
                 PersistentConfigError::BadCoupledParamsFormat("booga".to_string()),
-            )
+            ),
         ]
         .into_iter()
         .for_each(|(tcle, pce)| assert_eq!(PersistentConfigError::from(tcle), pce))
@@ -1881,7 +1882,7 @@ mod tests {
         persistent_config_plain_data_assertions_for_simple_get_method!(
             "rate_pack",
             "7|11|15|20",
-            RatePack{
+            RatePack {
                 routing_byte_rate: 7,
                 routing_service_rate: 11,
                 exit_byte_rate: 15,
@@ -1909,7 +1910,7 @@ mod tests {
         persistent_config_plain_data_assertions_for_simple_get_method!(
             "scan_intervals",
             "40|60|50",
-            ScanIntervals{
+            ScanIntervals {
                 pending_payable_scan_interval: Duration::from_secs(40),
                 payable_scan_interval: Duration::from_secs(60),
                 receivable_scan_interval: Duration::from_secs(50),
@@ -1936,7 +1937,7 @@ mod tests {
         persistent_config_plain_data_assertions_for_simple_get_method!(
             "payment_curves",
             "1000|100000|1000|1000|20000|20000",
-            PaymentCurves{
+            PaymentCurves {
                 balance_decreases_for_sec: 1000,
                 balance_to_decrease_from_gwei: 100000,
                 payment_grace_before_ban_sec: 1000,

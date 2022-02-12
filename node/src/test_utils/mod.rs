@@ -39,7 +39,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
-use masq_lib::coupled_parameters::RatePack;
+use masq_lib::combined_parameters::RatePack;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use regex::Regex;
 use rustc_hex::ToHex;
@@ -514,7 +514,7 @@ pub mod unshared_test_utils {
     use actix::Message;
     use actix::{Actor, Addr, Context, Handler, System};
     use crossbeam_channel::{Receiver, Sender};
-    use masq_lib::constants::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PAYMENT_CURVES_STR, DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_STR, DEFAULT_RECEIVABLE_SCAN_INTERVAL, DEFAULT_SCAN_INTERVALS, DEFAULT_SCAN_INTERVALS_STR};
+    use masq_lib::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::ui_gateway::NodeFromUiMessage;

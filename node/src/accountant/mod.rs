@@ -36,7 +36,7 @@ use actix::Handler;
 use actix::Message;
 use actix::Recipient;
 use itertools::Itertools;
-use masq_lib::coupled_parameters::PaymentCurves;
+use masq_lib::combined_parameters::PaymentCurves;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
@@ -800,6 +800,7 @@ pub mod tests {
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use masq_lib::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_SCAN_INTERVALS};
+    use masq_lib::combined_parameters::ScanIntervals;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::ui_gateway::MessagePath::Conversation;
@@ -813,7 +814,6 @@ pub mod tests {
     use std::time::SystemTime;
     use web3::types::H256;
     use web3::types::U256;
-    use masq_lib::coupled_parameters::ScanIntervals;
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
@@ -1669,7 +1669,7 @@ pub mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                scan_intervals:ScanIntervals {
+                scan_intervals: ScanIntervals {
                     pending_payable_scan_interval: Duration::from_secs(1000),
                     payable_scan_interval: Duration::from_secs(1000),
                     receivable_scan_interval: Duration::from_millis(100),

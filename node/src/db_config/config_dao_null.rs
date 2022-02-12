@@ -7,8 +7,9 @@ use crate::db_config::config_dao::{
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
-    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
-    DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_STR, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
+    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PAYMENT_CURVES_STR,
+    DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_STR,
+    DEFAULT_RECEIVABLE_SCAN_INTERVAL, DEFAULT_SCAN_INTERVALS_STR,
 };
 use rusqlite::Transaction;
 use std::any::Any;
@@ -140,104 +141,16 @@ impl Default for ConfigDaoNull {
             (Some(format!("{}", CURRENT_SCHEMA_VERSION)), false),
         );
         data.insert(
-            "balance_decreases_for_sec".to_string(),
-            (
-                Some(DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec.to_string()),
-                false,
-            ),
-        );
-        data.insert(
-            "balance_to_decrease_from_gwei".to_string(),
-            (
-                Some(
-                    DEFAULT_PAYMENT_CURVES
-                        .balance_to_decrease_from_gwei
-                        .to_string(),
-                ),
-                false,
-            ),
-        );
-        data.insert(
-            "exit_byte_rate".to_string(),
-            (Some(DEFAULT_RATE_PACK.exit_byte_rate.to_string()), false),
-        );
-        data.insert(
-            "exit_service_rate".to_string(),
-            (Some(DEFAULT_RATE_PACK.exit_service_rate.to_string()), false),
-        );
-        data.insert(
-            "payable_scan_interval".to_string(),
-            (Some(DEFAULT_PAYABLE_SCAN_INTERVAL.to_string()), false),
-        );
-        data.insert(
-            "payment_grace_before_ban_sec".to_string(),
-            (
-                Some(
-                    DEFAULT_PAYMENT_CURVES
-                        .payment_grace_before_ban_sec
-                        .to_string(),
-                ),
-                false,
-            ),
-        );
-        data.insert(
-            "payment_suggested_after_sec".to_string(),
-            (
-                Some(
-                    DEFAULT_PAYMENT_CURVES
-                        .payment_suggested_after_sec
-                        .to_string(),
-                ),
-                false,
-            ),
-        );
-        data.insert(
-            "pending_payment_scan_interval".to_string(),
-            (
-                Some(DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL.to_string()),
-                false,
-            ),
-        );
-        data.insert(
-            "permanent_debt_allowed_gwei".to_string(),
-            (
-                Some(
-                    DEFAULT_PAYMENT_CURVES
-                        .permanent_debt_allowed_gwei
-                        .to_string(),
-                ),
-                false,
-            ),
-        );
-        data.insert(
-            "receivable_scan_interval".to_string(),
-            (Some(DEFAULT_RECEIVABLE_SCAN_INTERVAL.to_string()), false),
-        );
-        data.insert(
-            "routing_byte_rate".to_string(),
-            (Some(DEFAULT_RATE_PACK.routing_byte_rate.to_string()), false),
-        );
-        data.insert(
-            "routing_service_rate".to_string(),
-            (
-                Some(DEFAULT_RATE_PACK.routing_service_rate.to_string()),
-                false,
-            ),
-        );
-        data.insert(
-            "unban_when_balance_below_gwei".to_string(),
-            (
-                Some(
-                    DEFAULT_PAYMENT_CURVES
-                        .unban_when_balance_below_gwei
-                        .to_string(),
-                ),
-                false,
-            ),
+            "payment_curves".to_string(),
+            (Some(DEFAULT_PAYMENT_CURVES_STR.to_string()), false),
         );
         data.insert(
             "rate_pack".to_string(),
             (Some(DEFAULT_RATE_PACK_STR.to_string()), false),
+        );
+        data.insert(
+            "scan_intervals".to_string(),
+            (Some(DEFAULT_SCAN_INTERVALS_STR.to_string()), false),
         );
         Self { data }
     }
@@ -296,133 +209,21 @@ mod tests {
             ConfigDaoRecord::new("consuming_wallet_private_key", None, true)
         );
         assert_eq!(
-            subject.get("balance_decreases_for_sec").unwrap(),
+            subject.get("payment_curves").unwrap(),
             ConfigDaoRecord::new(
-                "balance_decreases_for_sec",
-                Some(&DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec.to_string()),
-                false
-            )
-        );
-        assert_eq!(
-            subject.get("balance_to_decrease_from_gwei").unwrap(),
-            ConfigDaoRecord::new(
-                "balance_to_decrease_from_gwei",
-                Some(
-                    &DEFAULT_PAYMENT_CURVES
-                        .balance_to_decrease_from_gwei
-                        .to_string()
-                ),
-                false
-            )
-        );
-        assert_eq!(
-            subject.get("exit_byte_rate").unwrap(),
-            ConfigDaoRecord::new(
-                "exit_byte_rate",
-                Some(&DEFAULT_RATE_PACK.exit_byte_rate.to_string()),
-                false
-            )
-        );
-        assert_eq!(
-            subject.get("exit_service_rate").unwrap(),
-            ConfigDaoRecord::new(
-                "exit_service_rate",
-                Some(&DEFAULT_RATE_PACK.exit_service_rate.to_string()),
-                false
-            )
-        );
-        assert_eq!(
-            subject.get("payable_scan_interval").unwrap(),
-            ConfigDaoRecord::new(
-                "payable_scan_interval",
-                Some(&DEFAULT_PAYABLE_SCAN_INTERVAL.to_string()),
-                false
-            )
-        );
-        assert_eq!(
-            subject.get("payment_grace_before_ban_sec").unwrap(),
-            ConfigDaoRecord::new(
-                "payment_grace_before_ban_sec",
-                Some(
-                    &DEFAULT_PAYMENT_CURVES
-                        .payment_grace_before_ban_sec
-                        .to_string()
-                ),
-                false
-            )
-        );
-        assert_eq!(
-            subject.get("payment_suggested_after_sec").unwrap(),
-            ConfigDaoRecord::new(
-                "payment_suggested_after_sec",
-                Some(
-                    &DEFAULT_PAYMENT_CURVES
-                        .payment_suggested_after_sec
-                        .to_string()
-                ),
-                false
-            )
-        );
-        assert_eq!(
-            subject.get("pending_payment_scan_interval").unwrap(),
-            ConfigDaoRecord::new(
-                "pending_payment_scan_interval",
-                Some(&DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL.to_string()),
-                false
-            )
-        );
-        assert_eq!(
-            subject.get("permanent_debt_allowed_gwei").unwrap(),
-            ConfigDaoRecord::new(
-                "permanent_debt_allowed_gwei",
-                Some(
-                    &DEFAULT_PAYMENT_CURVES
-                        .permanent_debt_allowed_gwei
-                        .to_string()
-                ),
-                false
-            )
-        );
-        assert_eq!(
-            subject.get("receivable_scan_interval").unwrap(),
-            ConfigDaoRecord::new(
-                "receivable_scan_interval",
-                Some(&DEFAULT_RECEIVABLE_SCAN_INTERVAL.to_string()),
-                false
-            )
-        );
-        assert_eq!(
-            subject.get("routing_byte_rate").unwrap(),
-            ConfigDaoRecord::new(
-                "routing_byte_rate",
-                Some(&DEFAULT_RATE_PACK.routing_byte_rate.to_string()),
-                false
-            )
-        );
-        assert_eq!(
-            subject.get("routing_service_rate").unwrap(),
-            ConfigDaoRecord::new(
-                "routing_service_rate",
-                Some(&DEFAULT_RATE_PACK.routing_service_rate.to_string()),
-                false
-            )
-        );
-        assert_eq!(
-            subject.get("unban_when_balance_below_gwei").unwrap(),
-            ConfigDaoRecord::new(
-                "unban_when_balance_below_gwei",
-                Some(
-                    &DEFAULT_PAYMENT_CURVES
-                        .unban_when_balance_below_gwei
-                        .to_string()
-                ),
+                "payment_curves",
+                Some(DEFAULT_PAYMENT_CURVES_STR.as_str()),
                 false
             )
         );
         assert_eq!(
             subject.get("rate_pack").unwrap(),
             ConfigDaoRecord::new("rate_pack", Some(DEFAULT_RATE_PACK_STR), false)
-        )
+        );
+        assert_eq!(
+            subject.get("scan_intervals").unwrap(),
+            ConfigDaoRecord::new("scan_intervals", Some(DEFAULT_SCAN_INTERVALS_STR), false)
+        );
     }
 
     #[test]

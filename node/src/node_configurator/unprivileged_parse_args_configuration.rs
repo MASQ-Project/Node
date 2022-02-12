@@ -10,15 +10,11 @@ use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::rate_pack;
 use clap::value_t;
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{COUPLED_PARAMETERS_DELIMITER, DEFAULT_CHAIN, MASQ_URL_PREFIX};
-use masq_lib::coupled_parameters::{
-    CoupledParams, CoupledParamsDataTypes,
-    CoupledParamsValueRetriever, PaymentCurves, RatePack,
-};
+use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
+use masq_lib::combined_parameters::{CombinedParamsForm, PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::MultiConfig;
@@ -26,13 +22,9 @@ use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{AutomapProtocol, ExpectValue, WrapResult};
 use rustc_hex::FromHex;
-use std::any::Any;
-use std::collections::{HashMap, HashSet};
-use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::time::Duration;
-use websocket::url::form_urlencoded::parse;
 
 pub trait ParseArgsConfiguration {
     // Only initialization that cannot be done with privilege should happen here.
@@ -504,7 +496,7 @@ fn configure_accountant_config(
         &mut |curves, persist_config: &mut dyn PersistentConfiguration| {
             persist_config.set_payment_curves(curves)
         },
-        CoupledParams::parse_payment_curves,
+        PaymentCurves::from_combined_params,
     )?;
     let scan_intervals = fetch_parameter_set(
         multi_config,
@@ -514,7 +506,7 @@ fn configure_accountant_config(
         &mut |intervals, persist_config: &mut dyn PersistentConfiguration| {
             persist_config.set_scan_intervals(intervals)
         },
-        CoupledParams::parse_scan_intervals,
+        ScanIntervals::from_combined_params,
     )?;
     let accountant_config = AccountantConfig {
         scan_intervals,
@@ -536,12 +528,12 @@ fn configure_rate_pack(
         &mut |rate_pack, persist_config: &mut dyn PersistentConfiguration| {
             persist_config.set_rate_pack(rate_pack)
         },
-        CoupledParams::parse_rate_pack,
+        RatePack::from_combined_params,
     )?;
     Ok(rate_pack)
 }
 
-fn fetch_parameter_set<'a, C1, C2,T>(
+fn fetch_parameter_set<'a, C1, C2, T>(
     multi_config: &MultiConfig,
     parameter_name: &'a str,
     persistent_config: &'a mut dyn PersistentConfiguration,
@@ -553,7 +545,7 @@ where
     C1: Fn(&dyn PersistentConfiguration) -> Result<T, PersistentConfigError> + ?Sized,
     C2: FnMut(String, &mut dyn PersistentConfiguration) -> Result<(), PersistentConfigError>
         + ?Sized,
-    T: PartialEq
+    T: PartialEq,
 {
     Ok(
         match (
@@ -561,9 +553,9 @@ where
             persistent_config_getter_method(persistent_config),
         ) {
             (Some(cli_string_values), pc_result) => {
-                let cli_values:T = values_parser(cli_string_values.as_str())
-                .map_err(|e| unimplemented!("{}", e))?;
-                let pc_values:T = pc_result.unwrap_or_else(|e| {
+                let cli_values: T = values_parser(cli_string_values.as_str())
+                    .map_err(|e| unimplemented!("{}", e))?;
+                let pc_values: T = pc_result.unwrap_or_else(|e| {
                     panic!("{}: database query failed due to {:?}", parameter_name, e)
                 });
                 if cli_values != pc_values {
@@ -583,21 +575,6 @@ where
             },
         },
     )
-}
-
-fn safe_conversion_to_signed<T, S>(
-    map: &HashMap<String, CoupledParamsValueRetriever>,
-    parameter_name: &str,
-) -> Result<S, ConfiguratorError>
-where
-    S: std::convert::TryFrom<T>,
-    <S as std::convert::TryFrom<T>>::Error: std::fmt::Display,
-    T: Display + Copy + 'static,
-{
-    let value = CoupledParamsValueRetriever::get_value(map, parameter_name);
-    S::try_from(value).map_err(|e| {
-        ConfiguratorError::required(parameter_name, format!("{}; value: {}", e, value).as_str())
-    })
 }
 
 fn get_db_password(
@@ -653,7 +630,8 @@ mod tests {
         make_persistent_config_real_with_config_dao_null, make_simplified_multi_config,
     };
     use crate::test_utils::{main_cryptde, unshared_test_utils, ArgsBuilder};
-    use masq_lib::constants::{DEFAULT_GAS_PRICE, DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_STR};
+    use masq_lib::constants::{DEFAULT_GAS_PRICE, DEFAULT_RATE_PACK};
+    use masq_lib::combined_parameters::ScanIntervals;
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -661,7 +639,6 @@ mod tests {
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use masq_lib::coupled_parameters::ScanIntervals;
 
     #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {
@@ -1717,18 +1694,18 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
         let mut persistent_configuration = configure_default_persistent_config(0b0000_1011)
-            .scan_intervals_result(Ok(ScanIntervals{
+            .scan_intervals_result(Ok(ScanIntervals {
                 pending_payable_scan_interval: Duration::from_secs(100),
                 payable_scan_interval: Duration::from_secs(101),
-                receivable_scan_interval: Duration::from_secs(102)
+                receivable_scan_interval: Duration::from_secs(102),
             }))
-            .payment_curves_result(Ok(PaymentCurves{
+            .payment_curves_result(Ok(PaymentCurves {
                 balance_decreases_for_sec: 3000,
                 balance_to_decrease_from_gwei: 30000,
                 payment_grace_before_ban_sec: 3000,
                 payment_suggested_after_sec: 30000,
                 permanent_debt_allowed_gwei: 30000,
-                unban_when_balance_below_gwei: 30000
+                unban_when_balance_below_gwei: 30000,
             }))
             .set_scan_intervals_params(&set_scan_intervals_params_arc)
             .set_scan_intervals_result(Ok(()))
@@ -1747,7 +1724,7 @@ mod tests {
 
         let actual_accountant_config = config.accountant_config_opt.unwrap();
         let expected_accountant_config = AccountantConfig {
-            scan_intervals:ScanIntervals {
+            scan_intervals: ScanIntervals {
                 pending_payable_scan_interval: Duration::from_secs(180),
                 payable_scan_interval: Duration::from_secs(150),
                 receivable_scan_interval: Duration::from_secs(130),
@@ -1786,18 +1763,18 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
         let mut persistent_configuration = configure_default_persistent_config(0b0000_1011)
-            .scan_intervals_result(Ok(ScanIntervals{
+            .scan_intervals_result(Ok(ScanIntervals {
                 pending_payable_scan_interval: Duration::from_secs(180),
                 payable_scan_interval: Duration::from_secs(150),
-                receivable_scan_interval: Duration::from_secs(130)
+                receivable_scan_interval: Duration::from_secs(130),
             }))
-            .payment_curves_result(Ok(PaymentCurves{
+            .payment_curves_result(Ok(PaymentCurves {
                 balance_decreases_for_sec: 1000,
                 balance_to_decrease_from_gwei: 100000,
                 payment_grace_before_ban_sec: 1000,
                 payment_suggested_after_sec: 1000,
                 permanent_debt_allowed_gwei: 20000,
-                unban_when_balance_below_gwei: 20000
+                unban_when_balance_below_gwei: 20000,
             }));
         let subject = ParseArgsConfigurationDaoReal {};
 
@@ -1812,7 +1789,7 @@ mod tests {
 
         let actual_accountant_config = config.accountant_config_opt.unwrap();
         let expected_accountant_config = AccountantConfig {
-            scan_intervals:ScanIntervals{
+            scan_intervals: ScanIntervals {
                 pending_payable_scan_interval: Duration::from_secs(180),
                 payable_scan_interval: Duration::from_secs(150),
                 receivable_scan_interval: Duration::from_secs(130),
@@ -1845,11 +1822,11 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
         let mut persistent_configuration = configure_default_persistent_config(0b0000_0111)
-            .rate_pack_result(Ok(RatePack{
+            .rate_pack_result(Ok(RatePack {
                 routing_byte_rate: 3,
                 routing_service_rate: 5,
                 exit_byte_rate: 4,
-                exit_service_rate: 7
+                exit_service_rate: 7,
             }))
             .set_rate_pack_result(Ok(()))
             .set_rate_pack_params(&set_rate_pack_params_arc);
@@ -1890,11 +1867,11 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
         let mut persistent_configuration = configure_default_persistent_config(0b0000_0111)
-            .rate_pack_result(Ok(RatePack{
+            .rate_pack_result(Ok(RatePack {
                 routing_byte_rate: 6,
                 routing_service_rate: 7,
                 exit_byte_rate: 8,
-                exit_service_rate: 9
+                exit_service_rate: 9,
             }));
         let subject = ParseArgsConfigurationDaoReal {};
 
@@ -1938,11 +1915,11 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
         let mut persistent_configuration = configure_default_persistent_config(0b0000_0111)
-            .rate_pack_result(Ok(RatePack{
+            .rate_pack_result(Ok(RatePack {
                 routing_byte_rate: 2,
                 routing_service_rate: 3,
                 exit_byte_rate: 4,
-                exit_service_rate: 5
+                exit_service_rate: 5,
             }));
         let subject = ParseArgsConfigurationDaoReal {};
 
@@ -2135,10 +2112,6 @@ mod tests {
     #[test]
     fn configure_rate_pack_command_line_absent_config_dao_null_so_all_defaults() {
         running_test();
-        let home_directory = ensure_node_home_directory_exists(
-            "unprivileged_parse_args_configuration",
-            "configure_rate_pack_command_line_absent_config_dao_null_so_all_defaults",
-        );
         let multi_config = make_simplified_multi_config([]);
         let mut persistent_config = make_persistent_config_real_with_config_dao_null();
 

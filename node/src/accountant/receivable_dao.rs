@@ -8,7 +8,7 @@ use crate::db_config::config_dao::{ConfigDaoWrite, ConfigDaoWriteableReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
-use masq_lib::coupled_parameters::PaymentCurves;
+use masq_lib::combined_parameters::PaymentCurves;
 use masq_lib::logger::Logger;
 use rusqlite::named_params;
 use rusqlite::types::{ToSql, Type};
