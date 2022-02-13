@@ -524,6 +524,7 @@ fn configure_rate_pack(
     )?)
 }
 
+//TODO untested explicit panics ... let's talk it through at a review
 fn process_combined_params<'a, T: PartialEq, C1, C2>(
     parameter_name: &'a str,
     multi_config: &MultiConfig,

@@ -1838,6 +1838,7 @@ dependencies = [
  "masq_lib",
  "nix 0.23.1",
  "regex",
+ "serde_json",
  "websocket",
 ]
 

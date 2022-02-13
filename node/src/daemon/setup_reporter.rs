@@ -27,8 +27,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain as BlockChain;
 use masq_lib::constants::{
-    DEFAULT_CHAIN, DEFAULT_PAYMENT_CURVES, DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
-    DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
+    DEFAULT_CHAIN, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
 };
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
@@ -1061,8 +1060,7 @@ mod tests {
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::combined_parameters;
     use masq_lib::constants::{
-        DEFAULT_CHAIN, DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK,
-        DEFAULT_RECEIVABLE_SCAN_INTERVAL, DEFAULT_SCAN_INTERVALS,
+        DEFAULT_CHAIN, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
     };
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};

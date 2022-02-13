@@ -6,10 +6,13 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
+use itertools::Itertools;
 use masq_lib::as_any_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 use masq_lib::short_writeln;
+use masq_lib::utils::ExpectValue;
+use serde_json::Value;
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
@@ -118,72 +121,11 @@ impl ConfigurationCommand {
             "Start block:",
             &configuration.start_block.to_string(),
         );
-        Self::dump_configuration_line(
-            stream,
-            "Balance decreases for sec:",
-            &configuration.balance_decreases_for_sec.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Balance to decrease from gwei:",
-            &configuration.balance_to_decrease_from_gwei.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Exit byte rate:",
-            &configuration.exit_byte_rate.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Exit service rate:",
-            &configuration.exit_service_rate.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Payable scan interval:",
-            &configuration.payable_scan_interval.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Payment suggested after sec:",
-            &configuration.payment_suggested_after_sec.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Payment grace before ban sec:",
-            &configuration.payment_grace_before_ban_sec.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Pending payment scan interval:",
-            &configuration.pending_payable_scan_interval.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Permanent debt allowed gwei:",
-            &configuration.permanent_debt_allowed_gwei.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Receivable scan interval:",
-            &configuration.receivable_scan_interval.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Routing byte rate:",
-            &configuration.routing_byte_rate.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Routing service rate:",
-            &configuration.routing_service_rate.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Unban when balance below gwei:",
-            &configuration.unban_when_balance_below_gwei.to_string(),
-        );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
+        let payment_curves = Self::preprocess_combined_parameters(
+            serde_json::to_value(&configuration.payment_curves).expectv("serializable object"),
+        );
+        Self::dump_value_list(stream, "Payment curves:", &payment_curves);
     }
 
     fn dump_value_list(stream: &mut dyn Write, name: &str, values: &[String]) {
@@ -212,6 +154,30 @@ impl ConfigurationCommand {
             Some(s) => s.clone(),
         }
     }
+
+    fn preprocess_combined_parameters(jason: Value) -> Vec<String> {
+        if let Value::Object(map) = jason {
+            map.into_iter()
+                .map(|(name, value)| {
+                    let mut char_vec = vec![];
+                    name.chars().for_each(|char| {
+                        if !char.is_uppercase() {
+                            char_vec.push(char)
+                        } else {
+                            char_vec.push(' ');
+                            char_vec.push(char.to_ascii_lowercase())
+                        }
+                    });
+                    char_vec.push(':');
+                    char_vec[0] = char_vec[0].to_ascii_uppercase();
+                    let clean_name = char_vec.into_iter().collect::<String>();
+                    format!("{:33}{}", clean_name, value)
+                })
+                .collect_vec()
+        } else {
+            unimplemented!()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -227,7 +193,9 @@ mod tests {
         DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
         NODE_NOT_RUNNING_ERROR,
     };
-    use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
+    use masq_lib::messages::{
+        ToMessageBody, UiConfigurationResponse, UiPaymentCurves, UiRatePack, UiScanIntervals,
+    };
     use masq_lib::utils::AutomapProtocol;
     use std::sync::{Arc, Mutex};
 
@@ -307,24 +275,27 @@ mod tests {
             consuming_wallet_address_opt: Some("consuming wallet address".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
             port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
-            balance_decreases_for_sec: DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec as u64,
-            balance_to_decrease_from_gwei: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei
-                as u64,
-            exit_byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
-            exit_service_rate: DEFAULT_RATE_PACK.exit_service_rate,
-            payable_scan_interval: DEFAULT_PAYABLE_SCAN_INTERVAL,
-            payment_suggested_after_sec: DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec as u64,
-            payment_grace_before_ban_sec: DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec
-                as u64,
-            pending_payable_scan_interval: DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
-            permanent_debt_allowed_gwei: DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei as u64,
-            receivable_scan_interval: DEFAULT_RECEIVABLE_SCAN_INTERVAL,
-            routing_byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
-            routing_service_rate: DEFAULT_RATE_PACK.routing_service_rate,
-            unban_when_balance_below_gwei: DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei
-                as u64,
             past_neighbors: vec!["neighbor 1".to_string(), "neighbor 2".to_string()],
+            payment_curves: UiPaymentCurves {
+                balance_decreases_for_sec: 11111,
+                balance_to_decrease_from_gwei: 1212,
+                payment_grace_before_ban_sec: 4578,
+                payment_suggested_after_sec: 3333,
+                permanent_debt_allowed_gwei: 11222,
+                unban_when_balance_below_gwei: 12000,
+            },
+            rate_pack: UiRatePack {
+                routing_byte_rate: 0,
+                routing_service_rate: 0,
+                exit_byte_rate: 0,
+                exit_service_rate: 0,
+            },
             start_block: 3456,
+            scan_intervals: UiScanIntervals {
+                pending_payable_scan_interval_sec: 0,
+                payable_scan_interval_sec: 0,
+                receivable_scan_interval_sec: 0,
+            },
         };
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -364,35 +335,14 @@ mod tests {
 |Neighborhood mode:                standard\n\
 |Port mapping protocol:            PCP\n\
 |Start block:                      3456\n\
-|Balance decreases for sec:        {}\n\
-|Balance to decrease from gwei:    {}\n\
-|Exit byte rate:                   {}\n\
-|Exit service rate:                {}\n\
-|Payable scan interval:            {}\n\
-|Payment suggested after sec:      {}\n\
-|Payment grace before ban sec:     {}\n\
-|Pending payment scan interval:    {}\n\
-|Permanent debt allowed gwei:      {}\n\
-|Receivable scan interval:         {}\n\
-|Routing byte rate:                {}\n\
-|Routing service rate:             {}\n\
-|Unban when balance below gwei:    {}\n\
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
-",
-                DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec,
-                DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei,
-                DEFAULT_RATE_PACK.exit_byte_rate,
-                DEFAULT_RATE_PACK.exit_service_rate,
-                DEFAULT_PAYABLE_SCAN_INTERVAL,
-                DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec,
-                DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec,
-                DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
-                DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei,
-                DEFAULT_RECEIVABLE_SCAN_INTERVAL,
-                DEFAULT_RATE_PACK.routing_byte_rate,
-                DEFAULT_RATE_PACK.routing_service_rate,
-                DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei,
+|Payment curves:                   Balance decreases for sec:       11111\n\
+|                                  Balance to decrease from gwei:   1212\n\
+|                                  Payment grace before ban sec:    4578\n\
+|                                  Payment suggested after sec:     3333\n\
+|                                  Permanent debt allowed gwei:     11222\n\
+|                                  Unban when balance below gwei:   12000\n",
             )
             .replace('|', "")
             .to_string()
@@ -414,24 +364,27 @@ mod tests {
             consuming_wallet_private_key_opt: None,
             earning_wallet_address_opt: Some("earning wallet".to_string()),
             port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
-            balance_decreases_for_sec: DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec as u64,
-            balance_to_decrease_from_gwei: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei
-                as u64,
-            exit_byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
-            exit_service_rate: DEFAULT_RATE_PACK.exit_service_rate,
-            payable_scan_interval: DEFAULT_PAYABLE_SCAN_INTERVAL,
-            payment_suggested_after_sec: DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec as u64,
-            payment_grace_before_ban_sec: DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec
-                as u64,
-            pending_payable_scan_interval: DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
-            permanent_debt_allowed_gwei: DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei as u64,
-            receivable_scan_interval: DEFAULT_RECEIVABLE_SCAN_INTERVAL,
-            routing_byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
-            routing_service_rate: DEFAULT_RATE_PACK.routing_service_rate,
-            unban_when_balance_below_gwei: DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei
-                as u64,
             past_neighbors: vec![],
+            payment_curves: UiPaymentCurves {
+                balance_decreases_for_sec: 0,
+                balance_to_decrease_from_gwei: 0,
+                payment_suggested_after_sec: 0,
+                payment_grace_before_ban_sec: 0,
+                permanent_debt_allowed_gwei: 0,
+                unban_when_balance_below_gwei: 0,
+            },
+            rate_pack: UiRatePack {
+                routing_byte_rate: 0,
+                routing_service_rate: 0,
+                exit_byte_rate: 0,
+                exit_service_rate: 0,
+            },
             start_block: 3456,
+            scan_intervals: UiScanIntervals {
+                pending_payable_scan_interval_sec: 0,
+                payable_scan_interval_sec: 0,
+                receivable_scan_interval_sec: 0,
+            },
         };
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)

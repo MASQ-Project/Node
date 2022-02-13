@@ -98,39 +98,6 @@ impl CombinedParamsValueRetriever {
     }
 }
 
-fn parse_combined_params_with_delimiters(
-    input: &str,
-    delimiter: char,
-    expected_collection: &[(&str, CombinedParamsDataTypes)],
-) -> Result<HashMap<String, CombinedParamsValueRetriever>, String> {
-    let check = |count: usize| {
-        if count != expected_collection.len() {
-            return Err(format!(
-                "Wrong number of values: expected {} but {} supplied{}",
-                expected_collection.len(),
-                count,
-                if count == 1 {
-                    format!(". Did you use the correct delimiter '{}'?", delimiter)
-                } else {
-                    "".to_string()
-                }
-            ));
-        }
-        Ok(())
-    };
-    let pieces: Vec<&str> = input.split(delimiter).collect();
-    check(pieces.len())?;
-    let zipped = pieces.into_iter().zip(expected_collection.into_iter());
-    Ok(zipped
-        .map(|(piece, (param_name, data_type))| {
-            (
-                param_name.to_string(),
-                CombinedParamsValueRetriever::parse(piece, &data_type).expectv("numeric value"),
-            )
-        })
-        .collect())
-}
-
 #[derive(Debug)]
 enum CombinedParams {
     RatePack(Option<RatePack>),
@@ -140,12 +107,52 @@ enum CombinedParams {
 
 impl CombinedParams {
     pub fn parse(&self, parameters_str: &str) -> Result<Self, String> {
-        let parsed_values = parse_combined_params_with_delimiters(
+        let parsed_values = Self::parse_combined_params(
             parameters_str,
             COMBINED_PARAMETERS_DELIMITER,
             self.into(),
         )?;
-        Ok(match self {
+        Ok(self.initiate_objects(parsed_values))
+    }
+
+    fn parse_combined_params(
+        input: &str,
+        delimiter: char,
+        expected_collection: &[(&str, CombinedParamsDataTypes)],
+    ) -> Result<HashMap<String, CombinedParamsValueRetriever>, String> {
+        let check = |count: usize| {
+            if count != expected_collection.len() {
+                return Err(format!(
+                    "Wrong number of values: expected {} but {} supplied{}",
+                    expected_collection.len(),
+                    count,
+                    if count == 1 {
+                        format!(". Did you use the correct delimiter '{}'?", delimiter)
+                    } else {
+                        "".to_string()
+                    }
+                ));
+            }
+            Ok(())
+        };
+        let pieces: Vec<&str> = input.split(delimiter).collect();
+        check(pieces.len())?;
+        let zipped = pieces.into_iter().zip(expected_collection.into_iter());
+        Ok(zipped
+            .map(|(piece, (param_name, data_type))| {
+                (
+                    param_name.to_string(),
+                    CombinedParamsValueRetriever::parse(piece, &data_type).expectv("numeric value"),
+                )
+            })
+            .collect())
+    }
+
+    fn initiate_objects(
+        &self,
+        parsed_values: HashMap<String, CombinedParamsValueRetriever>,
+    ) -> Self {
+        match self {
             Self::RatePack(None) => Self::RatePack(Some(RatePack {
                 routing_byte_rate: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
@@ -210,8 +217,11 @@ impl CombinedParams {
                     ),
                 ),
             })),
-            _ => unimplemented!(),
-        })
+            _ => panic!(
+                "should be called only on uninitialized object, not: {:?}",
+                self
+            ),
+        }
     }
 }
 
@@ -237,7 +247,10 @@ impl Into<&[(&str, CombinedParamsDataTypes)]> for &CombinedParams {
                 ("payable_scan_interval", U64),
                 ("receivable_scan_interval", U64),
             ],
-            _ => unimplemented!(),
+            _ => panic!(
+                "should be called only on uninitialized object, not: {:?}",
+                self
+            ),
         }
     }
 }
@@ -263,7 +276,7 @@ impl TryFrom<&str> for ScanIntervals {
         {
             Ok(scan_intervals)
         } else {
-            unimplemented!()
+            unreachable!("technically should never happen")
         }
     }
 }
@@ -292,7 +305,7 @@ impl TryFrom<&str> for PaymentCurves {
         {
             Ok(payment_curves)
         } else {
-            unimplemented!()
+            unreachable!("technically should never happen")
         }
     }
 }
@@ -319,7 +332,7 @@ impl TryFrom<&str> for RatePack {
         {
             Ok(rate_pack)
         } else {
-            unimplemented!()
+            unreachable!("technically should never happen")
         }
     }
 }
@@ -328,11 +341,14 @@ impl TryFrom<&str> for RatePack {
 mod tests {
     use super::*;
     use crate::combined_parameters::CombinedParamsDataTypes::U128;
+    use crate::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
+    use std::panic::catch_unwind;
+
     #[test]
     fn parse_combined_params_with_delimiters_happy_path() {
         let input = "555|123|8989";
 
-        let result = parse_combined_params_with_delimiters(
+        let result = CombinedParams::parse_combined_params(
             input,
             '|',
             &[
@@ -362,7 +378,7 @@ mod tests {
         let input = "555|123|8989|11|557";
 
         let result: Result<HashMap<String, CombinedParamsValueRetriever>, String> =
-            parse_combined_params_with_delimiters(
+            CombinedParams::parse_combined_params(
                 input,
                 '|',
                 &[
@@ -384,7 +400,7 @@ mod tests {
         let input = "555|123|8989|11|557";
 
         let result: Result<HashMap<String, CombinedParamsValueRetriever>, String> =
-            parse_combined_params_with_delimiters(
+            CombinedParams::parse_combined_params(
                 input,
                 '@',
                 &[
@@ -436,6 +452,101 @@ mod tests {
                 ("permanent_debt_allowed_gwei", I64),
                 ("unban_when_balance_below_gwei", I64)
             ]
+        );
+    }
+
+    #[test]
+    fn array_type_conversion_should_use_uninitialized_instances_only() {
+        let panic_1 = catch_unwind(|| {
+            let _: &[(&str, CombinedParamsDataTypes)] =
+                (&CombinedParams::RatePack(Some(DEFAULT_RATE_PACK))).into();
+        })
+        .unwrap_err();
+        let panic_1_msg = panic_1.downcast_ref::<String>().unwrap();
+
+        assert_eq!(
+            panic_1_msg,
+            &format!(
+                "should be called only on uninitialized object, not: RatePack(Some({:?}))",
+                DEFAULT_RATE_PACK
+            )
+        );
+
+        let panic_2 = catch_unwind(|| {
+            let _: &[(&str, CombinedParamsDataTypes)] =
+                (&CombinedParams::PaymentCurves(Some(*DEFAULT_PAYMENT_CURVES))).into();
+        })
+        .unwrap_err();
+        let panic_2_msg = panic_2.downcast_ref::<String>().unwrap();
+
+        assert_eq!(
+            panic_2_msg,
+            &format!(
+                "should be called only on uninitialized object, not: PaymentCurves(Some({:?}))",
+                *DEFAULT_PAYMENT_CURVES
+            )
+        );
+
+        let panic_3 = catch_unwind(|| {
+            let _: &[(&str, CombinedParamsDataTypes)] =
+                (&CombinedParams::ScanIntervals(Some(*DEFAULT_SCAN_INTERVALS))).into();
+        })
+        .unwrap_err();
+        let panic_3_msg = panic_3.downcast_ref::<String>().unwrap();
+
+        assert_eq!(
+            panic_3_msg,
+            &format!(
+                "should be called only on uninitialized object, not: ScanIntervals(Some({:?}))",
+                *DEFAULT_SCAN_INTERVALS
+            )
+        );
+    }
+
+    #[test]
+    fn initiate_objects_should_use_uninitialized_instances_only() {
+        let panic_1 = catch_unwind(|| {
+            (&CombinedParams::RatePack(Some(DEFAULT_RATE_PACK))).initiate_objects(HashMap::new());
+        })
+        .unwrap_err();
+        let panic_1_msg = panic_1.downcast_ref::<String>().unwrap();
+
+        assert_eq!(
+            panic_1_msg,
+            &format!(
+                "should be called only on uninitialized object, not: RatePack(Some({:?}))",
+                DEFAULT_RATE_PACK
+            )
+        );
+
+        let panic_2 = catch_unwind(|| {
+            (&CombinedParams::PaymentCurves(Some(*DEFAULT_PAYMENT_CURVES)))
+                .initiate_objects(HashMap::new());
+        })
+        .unwrap_err();
+        let panic_2_msg = panic_2.downcast_ref::<String>().unwrap();
+
+        assert_eq!(
+            panic_2_msg,
+            &format!(
+                "should be called only on uninitialized object, not: PaymentCurves(Some({:?}))",
+                *DEFAULT_PAYMENT_CURVES
+            )
+        );
+
+        let panic_3 = catch_unwind(|| {
+            (&CombinedParams::ScanIntervals(Some(*DEFAULT_SCAN_INTERVALS)))
+                .initiate_objects(HashMap::new());
+        })
+        .unwrap_err();
+        let panic_3_msg = panic_3.downcast_ref::<String>().unwrap();
+
+        assert_eq!(
+            panic_3_msg,
+            &format!(
+                "should be called only on uninitialized object, not: ScanIntervals(Some({:?}))",
+                *DEFAULT_SCAN_INTERVALS
+            )
         );
     }
 

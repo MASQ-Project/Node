@@ -538,13 +538,13 @@ pub struct UiPaymentCurves {
     pub balance_decreases_for_sec: i64,
     #[serde(rename = "balanceToDecreaseFromGwei")]
     pub balance_to_decrease_from_gwei: i64,
-    #[serde(rename = "paymentSuggestedAfterSec")]
-    pub payment_suggested_after_sec: i64,
     #[serde(rename = "paymentGraceBeforeBanSec")]
     pub payment_grace_before_ban_sec: i64,
+    #[serde(rename = "paymentSuggestedAfterSec")]
+    pub payment_suggested_after_sec: i64,
     #[serde(rename = "permanentDebtAllowedGwei")]
     pub permanent_debt_allowed_gwei: i64,
-    #[serde(rename = "routingByteRate")]
+    #[serde(rename = "unbanWhenBalanceBelowGwei")]
     pub unban_when_balance_below_gwei: i64,
 }
 

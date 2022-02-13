@@ -41,7 +41,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
             distill_args(&DirsWrapperReal {}, args)?;
         let cryptde = CryptDEReal::new(chain);
         PrivilegeDropperReal::new().drop_privileges(&real_user);
-        let config_dao = make_config_dao(&data_directory, MigratorConfig::migration_suppressed()); //dump config never migrates db
+        let config_dao = make_config_dao(&data_directory, MigratorConfig::migration_suppressed()); //dump config is not supposed to migrate db
         let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
         let json = configuration_to_json(configuration, password_opt, &cryptde);
         write_string(streams, json);
@@ -164,10 +164,7 @@ mod tests {
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
     use crate::test_utils::{main_cryptde, ArgsBuilder};
-    use masq_lib::constants::{
-        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-        DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
-    };
+    use masq_lib::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
@@ -338,87 +335,10 @@ mod tests {
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
             &map,
         );
-        assert_payment_curves_then_rates_and_then_scan_intervals(&map);
-
+        assert_value("paymentCurves", &DEFAULT_PAYMENT_CURVES.to_string(), &map);
+        assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
+        assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
         assert!(output.ends_with("\n}\n")) //asserting that there is a blank line at the end
-    }
-
-    fn assert_payment_curves_then_rates_and_then_scan_intervals(map: &Map<String, Value>) {
-        assert_value(
-            "paymentSuggestedAfterSec",
-            &DEFAULT_PAYMENT_CURVES
-                .payment_suggested_after_sec
-                .to_string(),
-            map,
-        );
-        assert_value(
-            "paymentGraceBeforeBanSec",
-            &DEFAULT_PAYMENT_CURVES
-                .payment_grace_before_ban_sec
-                .to_string(),
-            map,
-        );
-        assert_value(
-            "permanentDebtAllowedGwei",
-            &DEFAULT_PAYMENT_CURVES
-                .permanent_debt_allowed_gwei
-                .to_string(),
-            map,
-        );
-        assert_value(
-            "balanceToDecreaseFromGwei",
-            &DEFAULT_PAYMENT_CURVES
-                .balance_to_decrease_from_gwei
-                .to_string(),
-            map,
-        );
-        assert_value(
-            "balanceDecreasesForSec",
-            &DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec.to_string(),
-            map,
-        );
-        assert_value(
-            "unbanWhenBalanceBelowGwei",
-            &DEFAULT_PAYMENT_CURVES
-                .unban_when_balance_below_gwei
-                .to_string(),
-            map,
-        );
-        assert_value(
-            "routingByteRate",
-            &DEFAULT_RATE_PACK.routing_byte_rate.to_string(),
-            map,
-        );
-        assert_value(
-            "routingServiceRate",
-            &DEFAULT_RATE_PACK.routing_service_rate.to_string(),
-            map,
-        );
-        assert_value(
-            "exitByteRate",
-            &DEFAULT_RATE_PACK.exit_byte_rate.to_string(),
-            map,
-        );
-        assert_value(
-            "exitServiceRate",
-            &DEFAULT_RATE_PACK.exit_service_rate.to_string(),
-            map,
-        );
-        assert_value(
-            "pendingPaymentScanInterval",
-            &format!("{}", DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL),
-            map,
-        );
-        assert_value(
-            "payableScanInterval",
-            &DEFAULT_PAYABLE_SCAN_INTERVAL.to_string(),
-            map,
-        );
-        assert_value(
-            "receivableScanInterval",
-            &DEFAULT_RECEIVABLE_SCAN_INTERVAL.to_string(),
-            map,
-        )
     }
 
     #[test]
@@ -521,7 +441,9 @@ mod tests {
         let expected_ee_decrypted = Bip39::decrypt_bytes(&expected_ee_entry, "password").unwrap();
         let expected_ee_string = encode_bytes(Some(expected_ee_decrypted)).unwrap().unwrap();
         assert_value("exampleEncrypted", &expected_ee_string, &map);
-        assert_payment_curves_then_rates_and_then_scan_intervals(&map)
+        assert_value("paymentCurves", &DEFAULT_PAYMENT_CURVES.to_string(), &map);
+        assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
+        assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
     }
 
     #[test]
@@ -634,7 +556,9 @@ mod tests {
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
             &map,
         );
-        assert_payment_curves_then_rates_and_then_scan_intervals(&map)
+        assert_value("paymentCurves", &DEFAULT_PAYMENT_CURVES.to_string(), &map);
+        assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
+        assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
     }
 
     #[test]
