@@ -786,7 +786,7 @@ mod tests {
                 .unwrap()
                 .get_or_insert((main_cryptde, alias_cryptde, config.clone()));
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.proxy_server);
-            make_proxy_server_subs_from(&addr)
+            make_proxy_server_subs_from(&addr);
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
             ProxyServerSubs {
                 bind: recipient!(addr, BindMessage),
@@ -826,7 +826,7 @@ mod tests {
                 .unwrap()
                 .get_or_insert((cryptde, config.clone()));
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.neighborhood);
-            make_neighborhood_subs_from(&addr)
+            make_neighborhood_subs_from(&addr);
             NeighborhoodSubs {
                 bind: recipient!(addr, BindMessage),
                 start: recipient!(addr, StartMessage),
