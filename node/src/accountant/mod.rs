@@ -60,21 +60,21 @@ pub const DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL: u64 = 300; //5 mins
 pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 300; //5 mins
 pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 300; //5 mins
 
-const DEBT_MATURE_AFTER: i64 = 720; // 12 min
-const DEBT_CONSIDERED_BIG_FROM: i64 = 5_000_000;
+const DEBT_MATURE_AFTER: i64 = 1200; // 20 min
+const DEBT_CONSIDERED_BIG_FROM: i64 = 500_000_000;
 
 lazy_static! {
     pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
         payment_suggested_after_sec: DEBT_MATURE_AFTER,
         payment_grace_before_ban_sec: DEBT_MATURE_AFTER,
         permanent_debt_allowed_gwub: DEBT_CONSIDERED_BIG_FROM, //10_000_000
-        balance_to_decrease_from_gwub: 10_000_000,     //1_000_000_000
-        balance_decreases_for_sec: 30 * DEBT_MATURE_AFTER,  //30*86400
+        balance_to_decrease_from_gwub: 10_000_000_000,     //1_000_000_000
+        balance_decreases_for_sec: 2_592_000,  //30*86400
         unban_when_balance_below_gwub: DEBT_CONSIDERED_BIG_FROM, //10_000_000
     };
 }
 
-pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 120; //formerly 21 600 <=> 6h
+pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 300; //formerly 21 600 <=> 6h
 
 #[derive(Debug, PartialEq)]
 pub enum DebtRecordingError {
