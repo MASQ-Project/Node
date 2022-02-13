@@ -345,6 +345,8 @@ impl DatabaseMigration for Migrate_4_to_5 {
             statement_7,
             statement_8,
             statement_9,
+            
+        ])
     }
     
     fn old_version(&self) -> usize {
