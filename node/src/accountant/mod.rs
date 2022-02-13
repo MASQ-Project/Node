@@ -4506,10 +4506,10 @@ pub mod tests {
     }
 
     fn make_transaction_id() -> TransactionId {
+        TransactionId {
             hash: H256::from_uint(&U256::from(789)),
             rowid: 1,
-          
-        assert_eq!(result, Err(PaymentError::SignConversion(attempt)));
+        }
     }
 
     fn bc_from_ac_plus_earning_wallet(
