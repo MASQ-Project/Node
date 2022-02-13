@@ -82,7 +82,7 @@ impl ConfigurationCommand {
                 .blockchain_service_url_opt
                 .unwrap_or_else(|| "[?]".to_string()),
         );
-        Self::dump_configuration_line(stream, "Chain", &configuration.chain_name);
+        Self::dump_configuration_line(stream, "Chain:", &configuration.chain_name);
         Self::dump_configuration_line(
             stream,
             "Clandestine port:",
@@ -90,10 +90,8 @@ impl ConfigurationCommand {
         );
         Self::dump_configuration_line(
             stream,
-            "Consuming wallet derivation path:",
-            &configuration
-                .consuming_wallet_derivation_path_opt
-                .unwrap_or_else(|| "[?]".to_string()),
+            "Consuming wallet private key:",
+            &Self::interpret_option(&configuration.consuming_wallet_private_key_opt),
         );
         Self::dump_configuration_line(
             stream,
@@ -103,9 +101,7 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(
             stream,
             "Earning wallet address:",
-            &configuration
-                .earning_wallet_address_opt
-                .unwrap_or_else(|| "[?]".to_string()),
+            &Self::interpret_option(&configuration.earning_wallet_address_opt),
         );
         Self::dump_configuration_line(stream, "Gas price:", &configuration.gas_price.to_string());
         Self::dump_configuration_line(
@@ -116,22 +112,12 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(
             stream,
             "Port mapping protocol:",
-            &configuration
-                .port_mapping_protocol_opt
-                .map(|protocol| protocol.to_string())
-                .unwrap_or_else(|| "[?]".to_string()),
+            &Self::interpret_option(&configuration.port_mapping_protocol_opt),
         );
         Self::dump_configuration_line(
             stream,
             "Start block:",
             &configuration.start_block.to_string(),
-        );
-        Self::dump_configuration_line(
-            stream,
-            "Mnemonic seed:",
-            &configuration
-                .mnemonic_seed_opt
-                .unwrap_or_else(|| "[?]".to_string()),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
     }
@@ -155,6 +141,13 @@ impl ConfigurationCommand {
     fn dump_configuration_line(stream: &mut dyn Write, name: &str, value: &str) {
         short_writeln!(stream, "{:33} {}", name, value);
     }
+
+    fn interpret_option(value_opt: &Option<String>) -> String {
+        match value_opt {
+            None => "[?]".to_string(),
+            Some(s) => s.clone(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -165,9 +158,9 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
+    use masq_lib::utils::AutomapProtocol;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -241,11 +234,11 @@ mod tests {
             clandestine_port: 1234,
             chain_name: "ropsten".to_string(),
             gas_price: 2345,
-            mnemonic_seed_opt: Some("mnemonic seed".to_string()),
             neighborhood_mode: "standard".to_string(),
-            consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
+            consuming_wallet_private_key_opt: Some("consuming wallet private key".to_string()),
+            consuming_wallet_address_opt: Some("consuming wallet address".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
-            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
+            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
             past_neighbors: vec!["neighbor 1".to_string(), "neighbor 2".to_string()],
             start_block: 3456,
         };
@@ -277,16 +270,15 @@ mod tests {
             "\
 |NAME                              VALUE\n\
 |Blockchain service URL:           https://infura.io/ID\n\
-|Chain                             ropsten\n\
+|Chain:                            ropsten\n\
 |Clandestine port:                 1234\n\
-|Consuming wallet derivation path: consuming path\n\
+|Consuming wallet private key:     consuming wallet private key\n\
 |Current schema version:           schema version\n\
 |Earning wallet address:           earning address\n\
 |Gas price:                        2345\n\
 |Neighborhood mode:                standard\n\
 |Port mapping protocol:            PCP\n\
 |Start block:                      3456\n\
-|Mnemonic seed:                    mnemonic seed\n\
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
 "
@@ -305,11 +297,11 @@ mod tests {
             clandestine_port: 1234,
             chain_name: "mumbai".to_string(),
             gas_price: 2345,
-            mnemonic_seed_opt: None,
             neighborhood_mode: "zero-hop".to_string(),
-            consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
+            consuming_wallet_address_opt: None,
+            consuming_wallet_private_key_opt: None,
             earning_wallet_address_opt: Some("earning wallet".to_string()),
-            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
+            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
             past_neighbors: vec![],
             start_block: 3456,
         };
@@ -339,16 +331,15 @@ mod tests {
             "\
 NAME                              VALUE\n\
 Blockchain service URL:           https://infura.io/ID\n\
-Chain                             mumbai\n\
+Chain:                            mumbai\n\
 Clandestine port:                 1234\n\
-Consuming wallet derivation path: consuming path\n\
+Consuming wallet private key:     [?]\n\
 Current schema version:           schema version\n\
 Earning wallet address:           earning wallet\n\
 Gas price:                        2345\n\
 Neighborhood mode:                zero-hop\n\
 Port mapping protocol:            PCP\n\
 Start block:                      3456\n\
-Mnemonic seed:                    [?]\n\
 Past neighbors:                   [?]\n\
 "
             .to_string()

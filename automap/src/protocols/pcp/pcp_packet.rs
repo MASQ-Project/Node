@@ -6,6 +6,7 @@ use crate::protocols::utils::{
     ParseError, UnrecognizedData,
 };
 use std::convert::{From, TryFrom};
+use std::fmt::Debug;
 use std::net::IpAddr;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -39,24 +40,108 @@ impl Opcode {
 
     pub fn parse_data(&self, buf: &[u8]) -> Result<Box<dyn PcpOpcodeData>, ParseError> {
         match self {
-            Opcode::Announce => unimplemented!(),
+            Opcode::Announce => Ok(Box::new(UnrecognizedData::new())),
             Opcode::Map => Ok(Box::new(MapOpcodeData::try_from(buf)?)),
-            Opcode::Peer => unimplemented!(),
+            Opcode::Peer => Err(ParseError::UnexpectedOpcode("Peer".to_string())),
             Opcode::Other(_) => Ok(Box::new(UnrecognizedData::new())),
         }
     }
 }
 
-pub trait PcpOpcodeData: OpcodeData {}
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ResultCode {
+    Success,
+    UnsuppVersion,
+    NotAuthorized,
+    MalformedRequest,
+    UnsuppOpcode,
+    UnsuppOption,
+    MalformedOption,
+    NetworkFailure,
+    NoResources,
+    UnsuppProtocol,
+    UserExQuota,
+    CannotProvideExternal,
+    AddressMismatch,
+    ExcessiveRemotePeers,
+    Other(u8),
+}
+
+impl From<u8> for ResultCode {
+    fn from(input: u8) -> Self {
+        match input {
+            0 => ResultCode::Success,
+            1 => ResultCode::UnsuppVersion,
+            2 => ResultCode::NotAuthorized,
+            3 => ResultCode::MalformedRequest,
+            4 => ResultCode::UnsuppOpcode,
+            5 => ResultCode::UnsuppOption,
+            6 => ResultCode::MalformedOption,
+            7 => ResultCode::NetworkFailure,
+            8 => ResultCode::NoResources,
+            9 => ResultCode::UnsuppProtocol,
+            10 => ResultCode::UserExQuota,
+            11 => ResultCode::CannotProvideExternal,
+            12 => ResultCode::AddressMismatch,
+            13 => ResultCode::ExcessiveRemotePeers,
+            code => ResultCode::Other(code),
+        }
+    }
+}
+
+impl ResultCode {
+    pub fn code(&self) -> u8 {
+        match self {
+            ResultCode::Success => 0,
+            ResultCode::UnsuppVersion => 1,
+            ResultCode::NotAuthorized => 2,
+            ResultCode::MalformedRequest => 3,
+            ResultCode::UnsuppOpcode => 4,
+            ResultCode::UnsuppOption => 5,
+            ResultCode::MalformedOption => 6,
+            ResultCode::NetworkFailure => 7,
+            ResultCode::NoResources => 8,
+            ResultCode::UnsuppProtocol => 9,
+            ResultCode::UserExQuota => 10,
+            ResultCode::CannotProvideExternal => 11,
+            ResultCode::AddressMismatch => 12,
+            ResultCode::ExcessiveRemotePeers => 13,
+            ResultCode::Other(code) => *code,
+        }
+    }
+
+    pub fn is_permanent(&self) -> bool {
+        match self {
+            ResultCode::Success => false,
+            ResultCode::UnsuppVersion => true,
+            ResultCode::NotAuthorized => true,
+            ResultCode::MalformedRequest => true,
+            ResultCode::UnsuppOpcode => true,
+            ResultCode::UnsuppOption => true,
+            ResultCode::MalformedOption => true,
+            ResultCode::NetworkFailure => false,
+            ResultCode::NoResources => false,
+            ResultCode::UnsuppProtocol => true,
+            ResultCode::UserExQuota => false,
+            ResultCode::CannotProvideExternal => false,
+            ResultCode::AddressMismatch => true,
+            ResultCode::ExcessiveRemotePeers => true,
+            ResultCode::Other(_) => true,
+        }
+    }
+}
+
+pub trait PcpOpcodeData: OpcodeData + Debug {}
 
 impl PcpOpcodeData for UnrecognizedData {}
 
-pub trait PcpOption {}
+pub trait PcpOption: Debug {}
 
+#[derive(Debug)]
 pub struct PcpPacket {
     pub direction: Direction,
     pub opcode: Opcode,
-    pub result_code_opt: Option<u8>,
+    pub result_code_opt: Option<ResultCode>,
     pub lifetime: u32,
     pub client_ip_opt: Option<IpAddr>,
     pub epoch_time_opt: Option<u32>,
@@ -90,7 +175,12 @@ impl Packet for PcpPacket {
         buffer[2] = 0x00;
         match self.direction {
             Direction::Request => buffer[3] = 0x00,
-            Direction::Response => buffer[3] = self.result_code_opt.unwrap_or(0x00),
+            Direction::Response => {
+                buffer[3] = self
+                    .result_code_opt
+                    .unwrap_or(ResultCode::Other(0xFF))
+                    .code()
+            }
         }
         u32_into(buffer, 4, self.lifetime);
         match self.direction {
@@ -137,7 +227,7 @@ impl TryFrom<&[u8]> for PcpPacket {
                 result.client_ip_opt = Some(ipv6_addr_at(buffer, 8));
             }
             Direction::Response => {
-                result.result_code_opt = Some(buffer[3]);
+                result.result_code_opt = Some(ResultCode::from(buffer[3]));
                 result.epoch_time_opt = Some(u32_at(buffer, 8));
             }
         }
@@ -247,6 +337,35 @@ mod tests {
     }
 
     #[test]
+    fn from_works_for_announce_packet() {
+        let buffer: &[u8] = &[
+            0x02, 0x80, 0x00, 0x00, // version, direction, opcode, reserved, result code
+            0x78, 0x56, 0x34, 0x12, // lifetime
+            0xFF, 0xEE, 0xDD, 0xCC, // epoch time
+            0x00, 0x00, 0x00, 0x00, // reserved
+            0x00, 0x00, 0x00, 0x00, // reserved
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // reserved
+        ];
+
+        let subject = PcpPacket::try_from(buffer).unwrap();
+
+        assert_eq!(subject.direction, Direction::Response);
+        assert_eq!(subject.opcode, Opcode::Announce);
+        assert_eq!(subject.result_code_opt, Some(ResultCode::Success));
+        assert_eq!(subject.lifetime, 0x78563412);
+        assert_eq!(subject.epoch_time_opt, Some(0xFFEEDDCC));
+        assert_eq!(
+            subject
+                .opcode_data
+                .as_any()
+                .downcast_ref::<UnrecognizedData>()
+                .unwrap(),
+            &UnrecognizedData::new()
+        );
+        assert_eq!(subject.options.is_empty(), true);
+    }
+
+    #[test]
     fn from_works_for_unknown_response() {
         let buffer: &[u8] = &[
             0x02, 0xD5, 0x00, 0xAA, // version, direction, opcode, reserved, result code
@@ -260,7 +379,7 @@ mod tests {
 
         assert_eq!(subject.direction, Direction::Response);
         assert_eq!(subject.opcode, Opcode::Other(0x55));
-        assert_eq!(subject.result_code_opt, Some(0xAA));
+        assert_eq!(subject.result_code_opt, Some(ResultCode::Other(0xAA)));
         assert_eq!(subject.lifetime, 0x78563412);
         assert_eq!(subject.client_ip_opt, None);
         assert_eq!(subject.epoch_time_opt, Some(0x12345678));
@@ -390,12 +509,40 @@ mod tests {
     }
 
     #[test]
+    fn marshal_works_for_announce() {
+        let mut buffer = [0u8; 24];
+        let subject = PcpPacket {
+            direction: Direction::Response,
+            opcode: Opcode::Announce,
+            result_code_opt: Some(ResultCode::Success),
+            lifetime: 0x78563412,
+            client_ip_opt: None,
+            epoch_time_opt: Some(0xFFEEDDCC),
+            opcode_data: Box::new(UnrecognizedData::new()),
+            options: vec![],
+        };
+
+        let result = subject.marshal(&mut buffer).unwrap();
+
+        assert_eq!(result, 24);
+        let expected_buffer: [u8; 24] = [
+            0x02, 0x80, 0x00, 0x00, // version, direction, opcode, reserved, result code
+            0x78, 0x56, 0x34, 0x12, // requested lifetime
+            0xFF, 0xEE, 0xDD, 0xCC, // epoch time
+            0x00, 0x00, 0x00, 0x00, // reserved
+            0x00, 0x00, 0x00, 0x00, // reserved
+            0x00, 0x00, 0x00, 0x00, // reserved
+        ];
+        assert_eq!(buffer, expected_buffer);
+    }
+
+    #[test]
     fn marshal_works_for_unknown_response() {
         let mut buffer = [0u8; 24];
         let subject = PcpPacket {
             direction: Direction::Response,
             opcode: Opcode::Other(0x55),
-            result_code_opt: Some(0xAA),
+            result_code_opt: Some(ResultCode::Other(0xAA)),
             lifetime: 0x78563412,
             epoch_time_opt: Some(0x12345678),
             client_ip_opt: None,
@@ -436,6 +583,13 @@ mod tests {
     }
 
     #[test]
+    fn peer_opcode_is_future_enhancement() {
+        let result = Opcode::Peer.parse_data(&[]).err().unwrap();
+
+        assert_eq!(result, ParseError::UnexpectedOpcode("Peer".to_string()));
+    }
+
+    #[test]
     fn opcode_code_works() {
         assert_eq!(Opcode::Announce.code(), 0);
         assert_eq!(Opcode::Map.code(), 1);
@@ -456,5 +610,68 @@ mod tests {
         assert_eq!(Opcode::from(0x82), Opcode::Peer);
         assert_eq!(Opcode::from(0x83), Opcode::Other(3));
         assert_eq!(Opcode::from(0xFF), Opcode::Other(127));
+    }
+
+    #[test]
+    fn result_code_code_works() {
+        assert_eq!(ResultCode::Success.code(), 0);
+        assert_eq!(ResultCode::UnsuppVersion.code(), 1);
+        assert_eq!(ResultCode::NotAuthorized.code(), 2);
+        assert_eq!(ResultCode::MalformedRequest.code(), 3);
+        assert_eq!(ResultCode::UnsuppOpcode.code(), 4);
+        assert_eq!(ResultCode::UnsuppOption.code(), 5);
+        assert_eq!(ResultCode::MalformedOption.code(), 6);
+        assert_eq!(ResultCode::NetworkFailure.code(), 7);
+        assert_eq!(ResultCode::NoResources.code(), 8);
+        assert_eq!(ResultCode::UnsuppProtocol.code(), 9);
+        assert_eq!(ResultCode::UserExQuota.code(), 10);
+        assert_eq!(ResultCode::CannotProvideExternal.code(), 11);
+        assert_eq!(ResultCode::AddressMismatch.code(), 12);
+        assert_eq!(ResultCode::ExcessiveRemotePeers.code(), 13);
+        for code in 14..=u8::MAX {
+            assert_eq!(ResultCode::Other(code).code(), code);
+        }
+    }
+
+    #[test]
+    fn result_code_from_works() {
+        assert_eq!(ResultCode::from(0), ResultCode::Success);
+        assert_eq!(ResultCode::from(1), ResultCode::UnsuppVersion);
+        assert_eq!(ResultCode::from(2), ResultCode::NotAuthorized);
+        assert_eq!(ResultCode::from(3), ResultCode::MalformedRequest);
+        assert_eq!(ResultCode::from(4), ResultCode::UnsuppOpcode);
+        assert_eq!(ResultCode::from(5), ResultCode::UnsuppOption);
+        assert_eq!(ResultCode::from(6), ResultCode::MalformedOption);
+        assert_eq!(ResultCode::from(7), ResultCode::NetworkFailure);
+        assert_eq!(ResultCode::from(8), ResultCode::NoResources);
+        assert_eq!(ResultCode::from(9), ResultCode::UnsuppProtocol);
+        assert_eq!(ResultCode::from(10), ResultCode::UserExQuota);
+        assert_eq!(ResultCode::from(11), ResultCode::CannotProvideExternal);
+        assert_eq!(ResultCode::from(12), ResultCode::AddressMismatch);
+        assert_eq!(ResultCode::from(13), ResultCode::ExcessiveRemotePeers);
+        for code in 14..=u8::MAX {
+            assert_eq!(ResultCode::from(code), ResultCode::Other(code));
+        }
+    }
+
+    #[test]
+    fn result_code_is_permanent_works() {
+        assert_eq!(ResultCode::Success.is_permanent(), false);
+        assert_eq!(ResultCode::UnsuppVersion.is_permanent(), true);
+        assert_eq!(ResultCode::NotAuthorized.is_permanent(), true);
+        assert_eq!(ResultCode::MalformedRequest.is_permanent(), true);
+        assert_eq!(ResultCode::UnsuppOpcode.is_permanent(), true);
+        assert_eq!(ResultCode::UnsuppOption.is_permanent(), true);
+        assert_eq!(ResultCode::MalformedOption.is_permanent(), true);
+        assert_eq!(ResultCode::NetworkFailure.is_permanent(), false);
+        assert_eq!(ResultCode::NoResources.is_permanent(), false);
+        assert_eq!(ResultCode::UnsuppProtocol.is_permanent(), true);
+        assert_eq!(ResultCode::UserExQuota.is_permanent(), false);
+        assert_eq!(ResultCode::CannotProvideExternal.is_permanent(), false);
+        assert_eq!(ResultCode::AddressMismatch.is_permanent(), true);
+        assert_eq!(ResultCode::ExcessiveRemotePeers.is_permanent(), true);
+        for code in 14..=u8::MAX {
+            assert_eq!(ResultCode::Other(code).is_permanent(), true);
+        }
     }
 }

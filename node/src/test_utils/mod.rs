@@ -2,12 +2,12 @@
 
 #[macro_use]
 pub mod channel_wrapper_mocks;
+pub mod automap_mocks;
 pub mod data_hunk;
 pub mod data_hunk_framer;
 pub mod database_utils;
 pub mod little_tcp_server;
 pub mod logfile_name_guard;
-pub mod logging;
 pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;
 pub mod recorder;
@@ -35,6 +35,7 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
@@ -202,6 +203,17 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
             .flatten()
             .collect::<Vec<u8>>(),
     )
+}
+
+pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
+    PersistentConfigurationMock::new()
+        .earning_wallet_address_result(Ok(None))
+        .earning_wallet_result(Ok(None))
+        .consuming_wallet_private_key_result(Ok(None))
+        .consuming_wallet_result(Ok(None))
+        .past_neighbors_result(Ok(None))
+        .gas_price_result(Ok(1))
+        .mapping_protocol_result(Ok(None))
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
@@ -514,7 +526,7 @@ pub mod pure_test_utils {
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::ui_gateway::NodeFromUiMessage;
-    use masq_lib::utils::SliceToVec;
+    use masq_lib::utils::array_of_borrows_to_vec;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::num::ParseIntError;
@@ -524,19 +536,19 @@ pub mod pure_test_utils {
     use std::time::Duration;
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
-        let owned_args = args.array_of_borrows_to_vec();
+        let owned_args = array_of_borrows_to_vec(&args);
         let arg_matches = app_node().get_matches_from_safe(owned_args).unwrap();
         MultiConfig::new_test_only(arg_matches)
     }
 
     pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
         PersistentConfigurationMock::new()
-            .earning_wallet_from_address_result(Ok(None))
-            .consuming_wallet_derivation_path_result(Ok(None))
-            .mnemonic_seed_result(Ok(None))
-            .mnemonic_seed_exists_result(Ok(false))
+            .earning_wallet_address_result(Ok(None))
+            .earning_wallet_result(Ok(None))
+            .consuming_wallet_private_key_result(Ok(None))
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
+            .mapping_protocol_result(Ok(None))
             .blockchain_service_url_result(Ok(None))
     }
 
@@ -722,15 +734,17 @@ pub mod pure_test_utils {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::sub_lib::cryptde::CryptData;
-    use crate::sub_lib::hop::LiveHop;
-    use crate::sub_lib::neighborhood::ExpectedService;
     use std::borrow::BorrowMut;
     use std::iter;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+
+    use crate::sub_lib::cryptde::CryptData;
+    use crate::sub_lib::hop::LiveHop;
+    use crate::sub_lib::neighborhood::ExpectedService;
+
+    use super::*;
 
     #[test]
     fn characterize_zero_hop_route() {

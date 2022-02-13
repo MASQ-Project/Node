@@ -4,10 +4,11 @@ use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
+use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::ExpiredCoresPackage;
 use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
+use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
@@ -24,6 +25,7 @@ use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_UR
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};
+use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -134,6 +136,17 @@ pub struct NodeDescriptor {
     pub blockchain: Chain,
     pub encryption_public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
+}
+
+impl Default for NodeDescriptor {
+    fn default() -> Self {
+        Self::from((
+            &PublicKey::from([0u8; 32].to_vec()),
+            &NodeAddr::default(),
+            Chain::default(),
+            &CryptDEReal::new(Chain::default()) as &dyn CryptDE,
+        ))
+    }
 }
 
 //confusing but seems like the public key in the args plays a role just in tests,
@@ -331,6 +344,7 @@ lazy_static! {
 pub struct NeighborhoodSubs {
     pub bind: Recipient<BindMessage>,
     pub start: Recipient<StartMessage>,
+    pub new_public_ip: Recipient<NewPublicIp>,
     pub node_query: Recipient<NodeQueryMessage>,
     pub route_query: Recipient<RouteQueryMessage>,
     pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
@@ -521,6 +535,7 @@ mod tests {
         let subject = NeighborhoodSubs {
             bind: recipient!(recorder, BindMessage),
             start: recipient!(recorder, StartMessage),
+            new_public_ip: recipient!(recorder, NewPublicIp),
             node_query: recipient!(recorder, NodeQueryMessage),
             route_query: recipient!(recorder, RouteQueryMessage),
             update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),

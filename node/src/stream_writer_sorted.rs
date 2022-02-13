@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::channel_wrappers::ReceiverWrapper;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::sequence_buffer::SequenceBuffer;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::indicates_dead_stream;
+use masq_lib::logger::Logger;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
@@ -162,9 +162,9 @@ mod tests {
     use super::*;
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use std::io;
     use std::io::ErrorKind;
     use std::net::SocketAddr;

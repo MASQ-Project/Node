@@ -2,7 +2,7 @@
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Message;
 use actix::Recipient;
@@ -162,6 +162,7 @@ pub struct DispatcherSubs {
     pub from_dispatcher_client: Recipient<TransmitDataMsg>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
+    pub new_ip_sub: Recipient<NewPublicIp>,
 }
 
 impl Debug for DispatcherSubs {
@@ -178,6 +179,7 @@ impl Clone for DispatcherSubs {
             from_dispatcher_client: self.from_dispatcher_client.clone(),
             stream_shutdown_sub: self.stream_shutdown_sub.clone(),
             ui_sub: self.ui_sub.clone(),
+            new_ip_sub: self.new_ip_sub.clone(),
         }
     }
 }
@@ -200,6 +202,7 @@ mod tests {
             from_dispatcher_client: recipient!(addr, TransmitDataMsg),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
             ui_sub: recipient!(addr, NodeFromUiMessage),
+            new_ip_sub: recipient!(addr, NewPublicIp),
         };
 
         assert_eq!(format!("{:?}", subject), "DispatcherSubs");
