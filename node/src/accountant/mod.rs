@@ -2764,8 +2764,8 @@ pub mod tests {
 
         assert_eq!(result,
                    "Paying qualified debts:\n\
-                   10001000 owed for 2593234sec exceeds threshold: 9512428; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   10000001 owed for 2592001sec exceeds threshold: 9999604; creditor: 0x0000000000000000000000000077616c6c657431"
+                   500001000 owed for 2593234sec exceeds threshold: 495475142; creditor: 0x0000000000000000000000000077616c6c657430\n\
+                   500000001 owed for 2592001sec exceeds threshold: 499996333; creditor: 0x0000000000000000000000000077616c6c657431"
         )
     }
 
