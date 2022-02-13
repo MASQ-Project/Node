@@ -1,10 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-<<<<<<< GH-523-fast-testing
 use crate::sub_lib::logger::Logger;
 use actix::{Message, SpawnHandle};
-=======
->>>>>>> master
 use clap::App;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{FromMessageBody, UiCrashRequest};
