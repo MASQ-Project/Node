@@ -4506,7 +4506,6 @@ pub mod tests {
     }
 
     fn make_transaction_id() -> TransactionId {
-        TransactionId {
             hash: H256::from_uint(&U256::from(789)),
             rowid: 1,
           
