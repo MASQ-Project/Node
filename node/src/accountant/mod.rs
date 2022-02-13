@@ -50,19 +50,19 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 3600; // one hour
-pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 3600; // one hour
+pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 600; // one hour
+pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 600; // one hour
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
 lazy_static! {
     pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
-        payment_suggested_after_sec: SECONDS_PER_DAY,
-        payment_grace_before_ban_sec: SECONDS_PER_DAY,
-        permanent_debt_allowed_gwub: 10_000_000,
-        balance_to_decrease_from_gwub: 1_000_000_000,
+        payment_suggested_after_sec: 1200,
+        payment_grace_before_ban_sec: 1200,
+        permanent_debt_allowed_gwub: 500_000_000,
+        balance_to_decrease_from_gwub: 10_000_000_000,
         balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
-        unban_when_balance_below_gwub: 10_000_000,
+        unban_when_balance_below_gwub: 500_000_000,
     };
 }
 
