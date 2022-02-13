@@ -13,8 +13,8 @@ use crate::sub_lib::wallet::Wallet;
 use clap::value_t;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::combined_parameters::{PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
-use masq_lib::combined_parameters::{CombinedParamsForm, PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::MultiConfig;
@@ -488,29 +488,23 @@ fn configure_accountant_config(
     config: &mut BootstrapperConfig,
     persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
-    let payment_curves = fetch_parameter_set(
-        multi_config,
-        "payment-curves",
-        persist_config,
-        &|persist_config: &dyn PersistentConfiguration| persist_config.payment_curves(),
-        &mut |curves, persist_config: &mut dyn PersistentConfiguration| {
-            persist_config.set_payment_curves(curves)
-        },
-        PaymentCurves::from_combined_params,
-    )?;
-    let scan_intervals = fetch_parameter_set(
-        multi_config,
-        "scan-intervals",
-        persist_config,
-        &|persist_config: &dyn PersistentConfiguration| persist_config.scan_intervals(),
-        &mut |intervals, persist_config: &mut dyn PersistentConfiguration| {
-            persist_config.set_scan_intervals(intervals)
-        },
-        ScanIntervals::from_combined_params,
-    )?;
     let accountant_config = AccountantConfig {
-        scan_intervals,
-        payment_curves,
+        scan_intervals: process_combined_params(
+            "scan-intervals",
+            multi_config,
+            persist_config,
+            |str: &str| ScanIntervals::try_from(str),
+            |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
+            |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
+        )?,
+        payment_curves: process_combined_params(
+            "payment-curves",
+            multi_config,
+            persist_config,
+            |str: &str| PaymentCurves::try_from(str),
+            |pc: &dyn PersistentConfiguration| pc.payment_curves(),
+            |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_curves(curves),
+        )?,
     };
     config.accountant_config_opt = Some(accountant_config);
     Ok(())
@@ -520,59 +514,54 @@ fn configure_rate_pack(
     multi_config: &MultiConfig,
     persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<RatePack, ConfiguratorError> {
-    let rate_pack = fetch_parameter_set(
-        multi_config,
+    Ok(process_combined_params(
         "rate-pack",
+        multi_config,
         persist_config,
-        &|persist_config: &dyn PersistentConfiguration| persist_config.rate_pack(),
-        &mut |rate_pack, persist_config: &mut dyn PersistentConfiguration| {
-            persist_config.set_rate_pack(rate_pack)
-        },
-        RatePack::from_combined_params,
-    )?;
-    Ok(rate_pack)
+        |str: &str| RatePack::try_from(str),
+        |pc: &dyn PersistentConfiguration| pc.rate_pack(),
+        |pc: &mut dyn PersistentConfiguration, rate_pack| pc.set_rate_pack(rate_pack),
+    )?)
 }
 
-fn fetch_parameter_set<'a, C1, C2, T>(
-    multi_config: &MultiConfig,
+fn process_combined_params<'a, T: PartialEq, C1, C2>(
     parameter_name: &'a str,
-    persistent_config: &'a mut dyn PersistentConfiguration,
-    persistent_config_getter_method: &'a C1,
-    persistent_config_setter_method: &'a mut C2,
-    values_parser: fn(&str) -> Result<T, String>,
+    multi_config: &MultiConfig,
+    persist_config: &'a mut dyn PersistentConfiguration,
+    parser: fn(&str) -> Result<T, String>,
+    persistent_config_getter: C1,
+    persistent_config_setter: C2,
 ) -> Result<T, ConfiguratorError>
 where
-    C1: Fn(&dyn PersistentConfiguration) -> Result<T, PersistentConfigError> + ?Sized,
-    C2: FnMut(String, &mut dyn PersistentConfiguration) -> Result<(), PersistentConfigError>
-        + ?Sized,
-    T: PartialEq,
+    C1: Fn(&dyn PersistentConfiguration) -> Result<T, PersistentConfigError>,
+    C2: Fn(&mut dyn PersistentConfiguration, String) -> Result<(), PersistentConfigError>,
 {
     Ok(
         match (
             value_m!(multi_config, parameter_name, String),
-            persistent_config_getter_method(persistent_config),
+            persistent_config_getter(persist_config),
         ) {
             (Some(cli_string_values), pc_result) => {
-                let cli_values: T = values_parser(cli_string_values.as_str())
-                    .map_err(|e| unimplemented!("{}", e))?;
+                let cli_values: T = parser(&cli_string_values)
+                    .map_err(|e| ConfiguratorError::required(parameter_name, &e))?;
                 let pc_values: T = pc_result.unwrap_or_else(|e| {
                     panic!("{}: database query failed due to {:?}", parameter_name, e)
                 });
                 if cli_values != pc_values {
-                    persistent_config_setter_method(cli_string_values, persistent_config)
-                        .unwrap_or_else(|e| {
+                    persistent_config_setter(persist_config, cli_string_values).unwrap_or_else(
+                        |e| {
                             panic!(
-                                "{}: setting value in the database failed due to: {:?}",
+                                "{}: writing database failed due to: {:?}",
                                 parameter_name, e
                             )
-                        })
+                        },
+                    )
                 }
                 cli_values
             }
-            (None, pc_result) => match pc_result {
-                Ok(pc_values) => pc_values,
-                Err(e) => return Err(e.into_configurator_error(parameter_name)),
-            },
+            (_, pc_result) => pc_result.unwrap_or_else(|e| {
+                panic!("{}: database query failed due to {:?}", parameter_name, e)
+            }),
         },
     )
 }
@@ -630,8 +619,8 @@ mod tests {
         make_persistent_config_real_with_config_dao_null, make_simplified_multi_config,
     };
     use crate::test_utils::{main_cryptde, unshared_test_utils, ArgsBuilder};
-    use masq_lib::constants::{DEFAULT_GAS_PRICE, DEFAULT_RATE_PACK};
     use masq_lib::combined_parameters::ScanIntervals;
+    use masq_lib::constants::{DEFAULT_GAS_PRICE, DEFAULT_RATE_PACK};
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -1967,6 +1956,30 @@ mod tests {
         assert_eq!(
             result,
             ConfiguratorError::required("consuming-private-key", "Invalid value: not valid hex")
+        )
+    }
+
+    #[test]
+    fn process_combined_params_handles_parse_error() {
+        let multi_config = make_simplified_multi_config(["--rate-pack", "8|9"]);
+        let mut persist_config =
+            PersistentConfigurationMock::default().rate_pack_result(Ok(DEFAULT_RATE_PACK));
+
+        let result = process_combined_params(
+            "rate-pack",
+            &multi_config,
+            &mut persist_config,
+            |str: &str| RatePack::try_from(str),
+            |pc: &dyn PersistentConfiguration| pc.rate_pack(),
+            |pc: &mut dyn PersistentConfiguration, rate_pack| pc.set_rate_pack(rate_pack),
+        );
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required(
+                "rate-pack",
+                "Wrong number of values: expected 4 but 2 supplied"
+            ))
         )
     }
 

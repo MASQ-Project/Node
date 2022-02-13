@@ -32,10 +32,13 @@ pub fn decode_bytes(
     }
 }
 
-pub fn decode_combined_params<T>(
-    values_parser: fn(&str) -> Result<T, String>,
+pub fn decode_combined_params<'a, T, C>(
+    values_parser: C,
     string_opt: Option<String>,
-) -> Result<Option<T>, TypedConfigLayerError> {
+) -> Result<Option<T>, TypedConfigLayerError>
+where
+    C: Fn(&str) -> Result<T, String>,
+{
     match string_opt {
         None => Ok(None),
         Some(string_params) => values_parser(string_params.as_str())

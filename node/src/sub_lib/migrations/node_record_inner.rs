@@ -160,8 +160,8 @@ impl NodeRecordInner_0v1 {
 mod tests {
     use super::*;
     use crate::sub_lib::versioned_data::DataVersion;
-    use masq_lib::constants::DEFAULT_RATE_PACK;
     use masq_lib::combined_parameters::RatePack;
+    use masq_lib::constants::DEFAULT_RATE_PACK;
     use serde_derive::{Deserialize, Serialize};
     use std::iter::FromIterator;
 

@@ -6,11 +6,7 @@ use crate::db_config::config_dao::{
 };
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{
-    DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_PAYMENT_CURVES_STR,
-    DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_STR,
-    DEFAULT_RECEIVABLE_SCAN_INTERVAL, DEFAULT_SCAN_INTERVALS_STR,
-};
+use masq_lib::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
 use rusqlite::Transaction;
 use std::any::Any;
 use std::collections::HashMap;
@@ -142,15 +138,15 @@ impl Default for ConfigDaoNull {
         );
         data.insert(
             "payment_curves".to_string(),
-            (Some(DEFAULT_PAYMENT_CURVES_STR.to_string()), false),
+            (Some(DEFAULT_PAYMENT_CURVES.to_string()), false),
         );
         data.insert(
             "rate_pack".to_string(),
-            (Some(DEFAULT_RATE_PACK_STR.to_string()), false),
+            (Some(DEFAULT_RATE_PACK.to_string()), false),
         );
         data.insert(
             "scan_intervals".to_string(),
-            (Some(DEFAULT_SCAN_INTERVALS_STR.to_string()), false),
+            (Some(DEFAULT_SCAN_INTERVALS.to_string()), false),
         );
         Self { data }
     }
@@ -164,9 +160,7 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoReal;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{
-        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK,
-        DEFAULT_RATE_PACK_STR, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
-        ETH_MAINNET_CONTRACT_CREATION_BLOCK,
+        DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, ETH_MAINNET_CONTRACT_CREATION_BLOCK,
     };
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
@@ -212,17 +206,21 @@ mod tests {
             subject.get("payment_curves").unwrap(),
             ConfigDaoRecord::new(
                 "payment_curves",
-                Some(DEFAULT_PAYMENT_CURVES_STR.as_str()),
+                Some(&DEFAULT_PAYMENT_CURVES.to_string()),
                 false
             )
         );
         assert_eq!(
             subject.get("rate_pack").unwrap(),
-            ConfigDaoRecord::new("rate_pack", Some(DEFAULT_RATE_PACK_STR), false)
+            ConfigDaoRecord::new("rate_pack", Some(&DEFAULT_RATE_PACK.to_string()), false)
         );
         assert_eq!(
             subject.get("scan_intervals").unwrap(),
-            ConfigDaoRecord::new("scan_intervals", Some(DEFAULT_SCAN_INTERVALS_STR), false)
+            ConfigDaoRecord::new(
+                "scan_intervals",
+                Some(&DEFAULT_SCAN_INTERVALS.to_string()),
+                false
+            )
         );
     }
 

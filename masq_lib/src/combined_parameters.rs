@@ -1,12 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::constants::COMBINED_PARAMETERS_DELIMITER;
 use crate::combined_parameters::CombinedParamsDataTypes::{I64, U64};
+use crate::constants::COMBINED_PARAMETERS_DELIMITER;
 use crate::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
+use std::fmt::Display;
 use std::time::Duration;
 
 //please, alphabetical order
@@ -37,19 +38,6 @@ pub struct RatePack {
     pub routing_service_rate: u64,
     pub exit_byte_rate: u64,
     pub exit_service_rate: u64,
-}
-
-impl fmt::Display for RatePack {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}+{}b route {}+{}b exit",
-            self.routing_service_rate,
-            self.routing_byte_rate,
-            self.exit_service_rate,
-            self.exit_byte_rate
-        )
-    }
 }
 
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
@@ -83,8 +71,12 @@ impl CombinedParamsValueRetriever {
             str_value.parse::<T>().map_err(|e| e.to_string())
         }
         match data_type {
-            CombinedParamsDataTypes::U64 => Ok(CombinedParamsValueRetriever::U64(parse(str_value)?)),
-            CombinedParamsDataTypes::I64 => Ok(CombinedParamsValueRetriever::I64(parse(str_value)?)),
+            CombinedParamsDataTypes::U64 => {
+                Ok(CombinedParamsValueRetriever::U64(parse(str_value)?))
+            }
+            CombinedParamsDataTypes::I64 => {
+                Ok(CombinedParamsValueRetriever::I64(parse(str_value)?))
+            }
             CombinedParamsDataTypes::U128 => {
                 Ok(CombinedParamsValueRetriever::U128(parse(str_value)?))
             }
@@ -205,10 +197,12 @@ impl CombinedParams {
                         "pending_payable_scan_interval",
                     ),
                 ),
-                payable_scan_interval: Duration::from_secs(CombinedParamsValueRetriever::get_value(
-                    &parsed_values,
-                    "payable_scan_interval",
-                )),
+                payable_scan_interval: Duration::from_secs(
+                    CombinedParamsValueRetriever::get_value(
+                        &parsed_values,
+                        "payable_scan_interval",
+                    ),
+                ),
                 receivable_scan_interval: Duration::from_secs(
                     CombinedParamsValueRetriever::get_value(
                         &parsed_values,
@@ -248,24 +242,22 @@ impl Into<&[(&str, CombinedParamsDataTypes)]> for &CombinedParams {
     }
 }
 
-pub trait CombinedParamsForm {
-    fn to_combined_params(&self) -> String;
-    fn from_combined_params(serialized_params: &str) -> Result<Self, String>
-    where
-        Self: Sized;
-}
-
-impl CombinedParamsForm for ScanIntervals {
-    fn to_combined_params(&self) -> String {
-        format!(
+impl Display for ScanIntervals {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
             "{}|{}|{}",
             self.pending_payable_scan_interval.as_secs(),
             self.payable_scan_interval.as_secs(),
             self.receivable_scan_interval.as_secs()
         )
     }
+}
 
-    fn from_combined_params(parameters: &str) -> Result<Self, String> {
+impl TryFrom<&str> for ScanIntervals {
+    type Error = String;
+
+    fn try_from(parameters: &str) -> Result<Self, String> {
         if let CombinedParams::ScanIntervals(Some(scan_intervals)) =
             CombinedParams::ScanIntervals(None).parse(parameters)?
         {
@@ -276,9 +268,10 @@ impl CombinedParamsForm for ScanIntervals {
     }
 }
 
-impl CombinedParamsForm for PaymentCurves {
-    fn to_combined_params(&self) -> String {
-        format!(
+impl Display for PaymentCurves {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
             "{}|{}|{}|{}|{}|{}",
             self.balance_decreases_for_sec,
             self.balance_to_decrease_from_gwei,
@@ -288,8 +281,12 @@ impl CombinedParamsForm for PaymentCurves {
             self.unban_when_balance_below_gwei
         )
     }
+}
 
-    fn from_combined_params(parameters: &str) -> Result<Self, String> {
+impl TryFrom<&str> for PaymentCurves {
+    type Error = String;
+
+    fn try_from(parameters: &str) -> Result<Self, String> {
         if let CombinedParams::PaymentCurves(Some(payment_curves)) =
             CombinedParams::PaymentCurves(None).parse(parameters)?
         {
@@ -300,9 +297,10 @@ impl CombinedParamsForm for PaymentCurves {
     }
 }
 
-impl CombinedParamsForm for RatePack {
-    fn to_combined_params(&self) -> String {
-        format!(
+impl Display for RatePack {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
             "{}|{}|{}|{}",
             self.routing_byte_rate,
             self.routing_service_rate,
@@ -310,8 +308,12 @@ impl CombinedParamsForm for RatePack {
             self.exit_service_rate
         )
     }
+}
 
-    fn from_combined_params(parameters: &str) -> Result<Self, String> {
+impl TryFrom<&str> for RatePack {
+    type Error = String;
+
+    fn try_from(parameters: &str) -> Result<Self, String> {
         if let CombinedParams::RatePack(Some(rate_pack)) =
             CombinedParams::RatePack(None).parse(parameters)?
         {
@@ -441,7 +443,7 @@ mod tests {
     fn rate_pack_from_combined_params() {
         let rate_pack_str = "8|9|11|13";
 
-        let result = RatePack::from_combined_params(rate_pack_str).unwrap();
+        let result = RatePack::try_from(rate_pack_str).unwrap();
 
         assert_eq!(
             result,
@@ -463,7 +465,7 @@ mod tests {
             exit_service_rate: 22,
         };
 
-        let result = scan_intervals.to_combined_params();
+        let result = scan_intervals.to_string();
 
         assert_eq!(result, "18|19|21|22".to_string());
     }
@@ -472,7 +474,7 @@ mod tests {
     fn scan_intervals_from_combined_params() {
         let scan_intervals_str = "110|115|113";
 
-        let result = ScanIntervals::from_combined_params(scan_intervals_str).unwrap();
+        let result = ScanIntervals::try_from(scan_intervals_str).unwrap();
 
         assert_eq!(
             result,
@@ -492,7 +494,7 @@ mod tests {
             receivable_scan_interval: Duration::from_secs(100),
         };
 
-        let result = scan_intervals.to_combined_params();
+        let result = scan_intervals.to_string();
 
         assert_eq!(result, "60|70|100".to_string());
     }
@@ -501,7 +503,7 @@ mod tests {
     fn payment_curves_from_combined_params() {
         let payment_curves_str = "10020|5000010|100|120|20000|18000";
 
-        let result = PaymentCurves::from_combined_params(payment_curves_str).unwrap();
+        let result = PaymentCurves::try_from(payment_curves_str).unwrap();
 
         assert_eq!(
             result,
@@ -527,7 +529,7 @@ mod tests {
             unban_when_balance_below_gwei: 111,
         };
 
-        let result = payment_curves.to_s();
+        let result = payment_curves.to_string();
 
         assert_eq!(result, "30020|5000010|123|120|20000|111".to_string());
     }

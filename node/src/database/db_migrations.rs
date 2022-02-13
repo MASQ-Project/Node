@@ -8,9 +8,7 @@ use crate::db_config::typed_config_layer::decode_bytes;
 use crate::sub_lib::cryptde::PlainData;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{
-    DEFAULT_PAYMENT_CURVES_STR, DEFAULT_RATE_PACK_STR, DEFAULT_SCAN_INTERVALS_STR,
-};
+use masq_lib::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
 use masq_lib::logger::Logger;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -366,11 +364,14 @@ impl DatabaseMigration for Migrate_5_to_6 {
     ) -> rusqlite::Result<()> {
         let statement_1 = Self::make_initialization_statement(
             "payment_curves",
-            DEFAULT_PAYMENT_CURVES_STR.as_str(),
+            &DEFAULT_PAYMENT_CURVES.to_string(),
         );
-        let statement_2 = Self::make_initialization_statement("rate_pack", DEFAULT_RATE_PACK_STR);
-        let statement_3 =
-            Self::make_initialization_statement("scan_intervals", DEFAULT_SCAN_INTERVALS_STR);
+        let statement_2 =
+            Self::make_initialization_statement("rate_pack", &DEFAULT_RATE_PACK.to_string());
+        let statement_3 = Self::make_initialization_statement(
+            "scan_intervals",
+            &DEFAULT_SCAN_INTERVALS.to_string(),
+        );
         declaration_utils.execute_upon_transaction(&[
             statement_1.as_str(),
             statement_2.as_str(),
@@ -626,8 +627,7 @@ mod tests {
     };
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
     use masq_lib::constants::{
-        DEFAULT_CHAIN, DEFAULT_PAYMENT_CURVES_STR, DEFAULT_RATE_PACK_STR,
-        DEFAULT_SCAN_INTERVALS_STR,
+        DEFAULT_CHAIN, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
     };
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
@@ -1617,14 +1617,14 @@ mod tests {
         let connection = result.unwrap();
         let (payment_curves, encrypted) =
             retrieve_config_row(connection.as_ref(), "payment_curves");
-        assert_eq!(payment_curves, Some(DEFAULT_PAYMENT_CURVES_STR.to_string()));
+        assert_eq!(payment_curves, Some(DEFAULT_PAYMENT_CURVES.to_string()));
         assert_eq!(encrypted, false);
         let (rate_pack, encrypted) = retrieve_config_row(connection.as_ref(), "rate_pack");
-        assert_eq!(rate_pack, Some(DEFAULT_RATE_PACK_STR.to_string()));
+        assert_eq!(rate_pack, Some(DEFAULT_RATE_PACK.to_string()));
         assert_eq!(encrypted, false);
         let (scan_intervals, encrypted) =
             retrieve_config_row(connection.as_ref(), "scan_intervals");
-        assert_eq!(scan_intervals, Some(DEFAULT_SCAN_INTERVALS_STR.to_string()));
+        assert_eq!(scan_intervals, Some(DEFAULT_SCAN_INTERVALS.to_string()));
         assert_eq!(encrypted, false);
     }
 }

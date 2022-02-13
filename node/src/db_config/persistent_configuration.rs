@@ -12,8 +12,8 @@ use crate::db_config::typed_config_layer::{
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
+use masq_lib::combined_parameters::{PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
-use masq_lib::combined_parameters::{CombinedParamsForm, PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
@@ -446,7 +446,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn payment_curves(&self) -> Result<PaymentCurves, PersistentConfigError> {
-        self.combined_params_get_method(PaymentCurves::from_combined_params, "payment_curves")
+        self.combined_params_get_method(|str: &str| PaymentCurves::try_from(str), "payment_curves")
     }
 
     fn set_payment_curves(&mut self, curves: String) -> Result<(), PersistentConfigError> {
@@ -454,7 +454,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn rate_pack(&self) -> Result<RatePack, PersistentConfigError> {
-        self.combined_params_get_method(RatePack::from_combined_params, "rate_pack")
+        self.combined_params_get_method(|str: &str| RatePack::try_from(str), "rate_pack")
     }
 
     fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError> {
@@ -462,7 +462,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError> {
-        self.combined_params_get_method(ScanIntervals::from_combined_params, "scan_intervals")
+        self.combined_params_get_method(|str: &str| ScanIntervals::try_from(str), "scan_intervals")
     }
 
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError> {
@@ -547,11 +547,14 @@ impl PersistentConfigurationReal {
         }
     }
 
-    fn combined_params_get_method<T>(
-        &self,
-        values_parser: fn(&str) -> Result<T, String>,
-        parameter: &str,
-    ) -> Result<T, PersistentConfigError> {
+    fn combined_params_get_method<'a, T, C>(
+        &'a self,
+        values_parser: C,
+        parameter: &'a str,
+    ) -> Result<T, PersistentConfigError>
+    where
+        C: Fn(&str) -> Result<T, String>,
+    {
         match decode_combined_params(values_parser, self.get(parameter)?)? {
             None => Self::missing_value_panic(parameter),
             Some(rate) => Ok(rate),
@@ -1771,36 +1774,6 @@ mod tests {
                 Some("consume-only".to_string())
             )]
         );
-    }
-
-    macro_rules! persistent_config_plain_data_assertions_for_simple_get_method {
-        ($parameter_name: literal,$expected_value: expr) => {
-            paste! {
-                let get_params_arc = Arc::new(Mutex::new(vec![]));
-                let config_dao = ConfigDaoMock::new()
-                    .get_params(&get_params_arc)
-                    .get_result(Ok(ConfigDaoRecord::new(
-                        $parameter_name,
-                        Some($expected_value),
-                        false,
-                    )));
-                let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-
-                let result = subject.[<$parameter_name>]().unwrap();
-
-                assert_eq!(result, $expected_value);
-                let get_params = get_params_arc.lock().unwrap();
-                assert_eq!(*get_params, vec![$parameter_name.to_string()]);
-            }
-            assert_eq!(
-                CONFIG_TABLE_PARAMETERS
-                    .iter()
-                    .filter(|parameter_name| parameter_name.as_str() == $parameter_name)
-                    .count(),
-                1,
-                "This parameter is missing in the table"
-            )
-        };
     }
 
     macro_rules! persistent_config_plain_data_assertions_for_simple_get_method {

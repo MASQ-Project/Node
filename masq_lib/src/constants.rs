@@ -20,6 +20,7 @@ pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 
 pub const MASQ_PROMPT: &str = "masq> ";
 
+//TODO we should discard these redundant constants ... these should be just in the records of the respective Chain types
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
 pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
 pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
@@ -40,26 +41,12 @@ lazy_static! {
     };
 }
 
-lazy_static! {
-    pub static ref DEFAULT_PAYMENT_CURVES_STR: String = format!(
-        "{}|{}|{}|{}|{}|{}",
-        30 * SECONDS_PER_DAY,
-        1_000_000_000,
-        SECONDS_PER_DAY,
-        SECONDS_PER_DAY,
-        10_000_000,
-        10_000_000
-    );
-}
-
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
     routing_service_rate: 10000,
     exit_byte_rate: 101,
     exit_service_rate: 10001,
 };
-
-pub const DEFAULT_RATE_PACK_STR: &str = "100|10000|101|10001";
 
 pub const ZERO_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 0,
@@ -68,6 +55,7 @@ pub const ZERO_RATE_PACK: RatePack = RatePack {
     exit_service_rate: 0,
 };
 
+//TODO remove these if they ain't necessary
 pub const DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL: u64 = 3600;
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_RECEIVABLE_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -79,8 +67,6 @@ lazy_static! {
         receivable_scan_interval: Duration::from_secs(DEFAULT_RECEIVABLE_SCAN_INTERVAL)
     };
 }
-
-pub const DEFAULT_SCAN_INTERVALS_STR: &str = "3600|3600|3600";
 
 //error codes
 ////////////////////////////////////////////////////////////////////////////////////////////////////

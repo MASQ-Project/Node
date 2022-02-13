@@ -5,8 +5,8 @@ use crate::database::db_migrations::{
 };
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use masq_lib::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_PAYMENT_CURVES_STR, DEFAULT_RATE_PACK_STR,
-    DEFAULT_SCAN_INTERVALS_STR, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
+    DEFAULT_GAS_PRICE, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
+    HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
 use masq_lib::logger::Logger;
 use rand::prelude::*;
@@ -263,21 +263,21 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "payment_curves",
-            Some(DEFAULT_PAYMENT_CURVES_STR.as_str()),
+            Some(&DEFAULT_PAYMENT_CURVES.to_string()),
             false,
             "payment curves",
         );
         Self::set_config_value(
             conn,
             "rate_pack",
-            Some(DEFAULT_RATE_PACK_STR),
+            Some(&DEFAULT_RATE_PACK.to_string()),
             false,
             "rate pack",
         );
         Self::set_config_value(
             conn,
             "scan_intervals",
-            Some(DEFAULT_SCAN_INTERVALS_STR),
+            Some(&DEFAULT_SCAN_INTERVALS.to_string()),
             false,
             "scan intervals",
         );
@@ -852,20 +852,20 @@ mod tests {
         verify(
             &mut config_vec,
             "payment_curves",
-            Some(DEFAULT_PAYMENT_CURVES_STR.as_str()),
+            Some(&DEFAULT_PAYMENT_CURVES.to_string()),
             false,
         );
         verify(&mut config_vec, "preexisting", Some("yes"), false); // making sure we opened the preexisting database
         verify(
             &mut config_vec,
             "rate_pack",
-            Some(DEFAULT_RATE_PACK_STR),
+            Some(&DEFAULT_RATE_PACK.to_string()),
             false,
         );
         verify(
             &mut config_vec,
             "scan_intervals",
-            Some(DEFAULT_SCAN_INTERVALS_STR),
+            Some(&DEFAULT_SCAN_INTERVALS.to_string()),
             false,
         );
         verify(

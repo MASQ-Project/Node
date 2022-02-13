@@ -799,8 +799,8 @@ pub mod tests {
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
-    use masq_lib::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_SCAN_INTERVALS};
     use masq_lib::combined_parameters::ScanIntervals;
+    use masq_lib::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_SCAN_INTERVALS};
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::ui_gateway::MessagePath::Conversation;
