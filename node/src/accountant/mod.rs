@@ -1237,6 +1237,7 @@ pub mod tests {
     use std::time::SystemTime;
     use web3::types::U256;
     use web3::types::{TransactionReceipt, H256};
+}
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
