@@ -2123,6 +2123,7 @@ dependencies = [
  "crossbeam-channel 0.5.1",
  "daemonize",
  "dirs 4.0.0",
+ "ethabi",
  "ethereum-types",
  "ethsign",
  "ethsign-crypto",

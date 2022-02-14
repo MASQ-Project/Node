@@ -1440,8 +1440,10 @@ mod tests {
     #[test]
     fn non_clandestine_signing_a_transaction_works_for_polygon_mumbai() {
         let chain = Chain::PolyMumbai;
-        let nonce = 5; //must stay like this!
-        let signed_transaction_data = "f8ad05850ba43b740083011980944dfeee01f17e23632b15851717b811720af82e0f80b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000000e8d4a5100083027126a07ef7ca63022eb309f63e3e28bc5b33494c274f293383da21df7f884fae0a9906a03217dab00d8bf2ad5f37263b82c8ba174ff13d9266cd853b4dbb69459880d40b";
+        let nonce = 5;
+        // signed_transaction_data changed after we changed the contract address of polygon matic
+        let signed_transaction_data = "f8ad05850ba43b740083011980949b27034acabd44223fb23d628ba4849867ce1db280b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000000e8d4a5100083027126a09fdbbd7064d3b7240f5422b2164aaa13d62f0946a683d82ee26f97f242570d90a077b49dbb408c20d73e0666ba0a77ac888bf7a9cb14824a5f35c97217b9bc0a5a";
+
         let in_bytes = decode_hex(signed_transaction_data).unwrap();
 
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
