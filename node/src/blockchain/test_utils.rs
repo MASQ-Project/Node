@@ -289,11 +289,7 @@ impl SendTransactionToolsWrapper for SendTransactionToolsWrapperMock {
         self.sign_transaction_results.borrow_mut().remove(0)
     }
 
-    fn request_new_pending_payable_fingerprint(
-        &self,
-        transaction_hash: H256,
-        amount: u64,
-    ) -> SystemTime {
+    fn request_new_payable_fingerprint(&self, transaction_hash: H256, amount: u64) -> SystemTime {
         self.request_new_pending_payable_fingerprint_params
             .lock()
             .unwrap()

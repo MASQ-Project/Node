@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::unsigned_to_signed;
+use crate::accountant::{unsigned_to_signed, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -25,24 +25,18 @@ pub struct PayableAccount {
     pub wallet: Wallet,
     pub balance: i64,
     pub last_paid_timestamp: SystemTime,
-    pub pending_payable_opt: Option<PendingPayable>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct PendingPayable {
-    pub rowid: u64,
-    pub hash_opt: Option<H256>,
+    pub pending_payable_opt: Option<PendingPayableId>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Payment {
+pub struct Payable {
     pub to: Wallet,
     pub amount: u64,
     pub timestamp: SystemTime,
     pub tx_hash: H256,
 }
 
-impl Payment {
+impl Payable {
     pub fn new(to: Wallet, amount: u64, txn: H256, timestamp: SystemTime) -> Self {
         Self {
             to,
@@ -96,7 +90,10 @@ impl PayableDao for PayableDaoReal {
         let signed_amount = unsigned_to_signed(amount).map_err(PayableDaoError::SignConversion)?;
         match self.try_increase_balance(wallet, signed_amount) {
             Ok(_) => Ok(()),
-            Err(e) => panic!("Database is corrupt: {}", e),
+            Err(e) => panic!(
+                "Database is corrupt: {}; processing payable for {}",
+                e, wallet
+            ),
         }
     }
 
@@ -117,8 +114,8 @@ impl PayableDao for PayableDaoReal {
         match stm.execute(params) {
             Ok(1) => Ok(()),
             Ok(num) => panic!(
-                "Marking pending payable rowid: affected {} rows but expected 1",
-                num
+                "Marking pending payable rowid for {}: affected {} rows but expected 1",
+                wallet, num
             ),
             Err(e) => Err(PayableDaoError::RusqliteError(e.to_string())),
         }
@@ -126,14 +123,14 @@ impl PayableDao for PayableDaoReal {
 
     fn transaction_confirmed(
         &self,
-        payment: &PendingPayableFingerprint,
+        fingerprint: &PendingPayableFingerprint,
     ) -> Result<(), PayableDaoError> {
         let signed_amount =
-            unsigned_to_signed(payment.amount).map_err(PayableDaoError::SignConversion)?;
+            unsigned_to_signed(fingerprint.amount).map_err(PayableDaoError::SignConversion)?;
         self.try_decrease_balance(
-            payment.rowid_opt.expectv("initialized rowid"),
+            fingerprint.rowid_opt.expectv("initialized rowid"),
             signed_amount,
-            payment.timestamp,
+            fingerprint.timestamp,
         )
         .map_err(PayableDaoError::RusqliteError)
     }
@@ -213,10 +210,11 @@ impl PayableDao for PayableDaoReal {
                     wallet,
                     balance,
                     last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    pending_payable_opt: pending_payable_rowid_opt.map(|rowid| PendingPayable {
+                    pending_payable_opt: pending_payable_rowid_opt.map(|rowid| PendingPayableId {
                         rowid,
-                        hash_opt: pending_payable_hash_opt
-                            .map(|s| H256::from_str(&s[2..]).expectv("tx hash")),
+                        hash: pending_payable_hash_opt
+                            .map(|s| H256::from_str(&s[2..]).expectv("string tx hash"))
+                            .expectv("tx hash"),
                     }),
                 }),
                 x => panic!(
@@ -299,8 +297,8 @@ impl PayableDaoReal {
         match stmt.execute(params) {
             Ok(1) => Ok(()),
             Ok(num) => panic!(
-                "Trying to decrease balance: {} rows changed instead of 1",
-                num
+                "Trying to decrease balance for rowid {}: {} rows changed instead of 1",
+                rowid, num
             ),
             Err(e) => Err(format!("{}", e)),
         }
@@ -325,7 +323,9 @@ mod tests {
     use web3::types::U256;
 
     #[test]
-    #[should_panic(expected = "Trying to decrease balance: 0 rows changed instead of 1")]
+    #[should_panic(
+        expected = "Trying to decrease balance for rowid 45: 0 rows changed instead of 1"
+    )]
     fn try_decrease_balance_changed_no_rows() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
@@ -466,15 +466,17 @@ mod tests {
 
         let after_account_status = account_status(&secondary_conn, &wallet).unwrap();
         let mut after_expected_status = before_expected_status;
-        after_expected_status.pending_payable_opt = Some(PendingPayable {
+        after_expected_status.pending_payable_opt = Some(PendingPayableId {
             rowid: pending_payable_rowid,
-            hash_opt: None,
+            hash: H256::from_uint(&U256::from(0)), //garbage
         });
         assert_eq!(after_account_status, after_expected_status)
     }
 
     #[test]
-    #[should_panic(expected = "Marking pending payable rowid: affected 0 rows but expected 1")]
+    #[should_panic(
+        expected = "Marking pending payable rowid for 0x000000000000000000000000000000626f6f6761: affected 0 rows but expected 1"
+    )]
     fn mark_pending_payment_returned_different_row_count_than_expected() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
@@ -546,7 +548,7 @@ mod tests {
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
         let previous_timestamp = from_time_t(190_000_000);
-        let payment_timestamp = from_time_t(199_000_000);
+        let payable_timestamp = from_time_t(199_000_000);
         let attempt = 5;
         let starting_amount = 10000;
         let payment = 6666;
@@ -568,15 +570,15 @@ mod tests {
                 wallet: wallet.clone(),
                 balance: starting_amount,
                 last_paid_timestamp: previous_timestamp,
-                pending_payable_opt: Some(PendingPayable {
+                pending_payable_opt: Some(PendingPayableId {
                     rowid,
-                    hash_opt: None
-                })
+                    hash: H256::from_uint(&U256::from(0))
+                }) //hash is just garbage
             })
         );
         let pending_payable_fingerprint = PendingPayableFingerprint {
             rowid_opt: Some(rowid),
-            timestamp: payment_timestamp,
+            timestamp: payable_timestamp,
             hash,
             attempt_opt: Some(attempt),
             amount: payment as u64,
@@ -592,7 +594,7 @@ mod tests {
             Some(PayableAccount {
                 wallet,
                 balance: starting_amount - payment,
-                last_paid_timestamp: payment_timestamp,
+                last_paid_timestamp: payable_timestamp,
                 pending_payable_opt: None
             })
         )
@@ -807,7 +809,7 @@ mod tests {
             &1,
         ];
         conn
-            .prepare("insert into pending_payable (transaction_hash,amount,payment_timestamp,attempt) values (?,?,?,?)")
+            .prepare("insert into pending_payable (transaction_hash,amount,payable_timestamp,attempt) values (?,?,?,?)")
             .unwrap()
             .execute(params)
             .unwrap();
@@ -823,14 +825,12 @@ mod tests {
                     wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
                     balance: 1_000_000_001,
                     last_paid_timestamp: dao_utils::from_time_t(timestamp4),
-                    pending_payable_opt: Some(PendingPayable {
+                    pending_payable_opt: Some(PendingPayableId {
                         rowid: 1,
-                        hash_opt: Some(
-                            H256::from_str(
-                                "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
-                            )
-                            .unwrap()
+                        hash: H256::from_str(
+                            "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
                         )
+                        .unwrap()
                     })
                 },
                 PayableAccount {

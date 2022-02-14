@@ -262,7 +262,7 @@ impl DbInitializerReal {
                     rowid integer primary key,
                     transaction_hash text not null,
                     amount integer not null,
-                    payment_timestamp integer not null,
+                    payable_timestamp integer not null,
                     attempt integer not null,
                     process_error text null
             )",
@@ -688,14 +688,14 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
-        let mut stmt = conn.prepare("select rowid, transaction_hash, amount, payment_timestamp, attempt, process_error from pending_payable").unwrap();
+        let mut stmt = conn.prepare("select rowid, transaction_hash, amount, payable_timestamp, attempt, process_error from pending_payable").unwrap();
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
         let expected_key_words = [
             ["rowid", "integer", "primary", "key"].as_slice(),
             ["transaction_hash", "text", "not", "null"].as_slice(),
             ["amount", "integer", "not", "null"].as_slice(),
-            ["payment_timestamp", "integer", "not", "null"].as_slice(),
+            ["payable_timestamp", "integer", "not", "null"].as_slice(),
             ["attempt", "integer", "not", "null"].as_slice(),
             ["process_error", "text", "null"].as_slice(),
         ];

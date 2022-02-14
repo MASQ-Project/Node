@@ -282,19 +282,18 @@ where
         &self,
         inputs: SendTransactionInputs,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
-        self.logger.debug(|| self.before_sending_msg(&inputs));
+        self.logger.debug(|| self.preparation_log(&inputs));
         let signed_transaction = self.prepare_signed_transaction(&inputs, inputs.tools)?;
-        let payment_timestamp = inputs.tools.request_new_pending_payable_fingerprint(
-            signed_transaction.transaction_hash,
-            inputs.amount,
-        );
+        let payable_timestamp = inputs
+            .tools
+            .request_new_payable_fingerprint(signed_transaction.transaction_hash, inputs.amount);
         self.logger
-            .info(|| self.close_to_sending_msg(inputs.recipient, inputs.amount));
+            .info(|| self.transmission_log(inputs.recipient, inputs.amount));
         match inputs
             .tools
             .send_raw_transaction(signed_transaction.raw_transaction)
         {
-            Ok(hash) => Ok((hash, payment_timestamp)),
+            Ok(hash) => Ok((hash, payable_timestamp)),
             Err(e) => Err(BlockchainTransactionError::Sending(
                 e.to_string(),
                 signed_transaction.transaction_hash,
@@ -415,7 +414,7 @@ where
         }
     }
 
-    fn before_sending_msg(&self, inputs: &SendTransactionInputs) -> String {
+    fn preparation_log(&self, inputs: &SendTransactionInputs) -> String {
         format!("Preparing transaction for {} Gwei to {} from {} (chain_id: {}, contract: {:#x}, gas price: {})", //TODO fix this later to Wei
         inputs.amount,
         inputs.recipient,
@@ -425,7 +424,7 @@ where
         inputs.gas_price)
     }
 
-    fn close_to_sending_msg(&self, recipient: &Wallet, amount: u64) -> String {
+    fn transmission_log(&self, recipient: &Wallet, amount: u64) -> String {
         format!(
             "About to send transaction:\n\
         recipient: {},\n\
@@ -1041,7 +1040,7 @@ mod tests {
             H256::from_str("e26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f")
                 .unwrap()
         );
-        assert!(test_timestamp_before < timestamp && timestamp < test_timestamp_after);
+        assert!(test_timestamp_before <= timestamp && timestamp <= test_timestamp_after);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let sent_backup = accountant_recording.get_record::<PendingPayableFingerprint>(0);
         let expected_pending_payable_fingerprint = PendingPayableFingerprint {
@@ -1074,7 +1073,7 @@ mod tests {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let request_new_pending_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let send_raw_transaction_params_arc = Arc::new(Mutex::new(vec![]));
-        let payment_timestamp = SystemTime::now();
+        let payable_timestamp = SystemTime::now();
         let transaction_parameters_expected = TransactionParameters {
             nonce: Some(U256::from(5)),
             to: Some(subject.contract_address()),
@@ -1106,7 +1105,7 @@ mod tests {
             .request_new_pending_payable_fingerprint_params(
                 &request_new_pending_payable_fingerprint_params_arc,
             )
-            .request_new_pending_payable_fingerprint_result(payment_timestamp)
+            .request_new_pending_payable_fingerprint_result(payable_timestamp)
             .send_raw_transaction_params(&send_raw_transaction_params_arc)
             .send_raw_transaction_result(Ok(hash));
         let amount = 50_000;
@@ -1127,7 +1126,7 @@ mod tests {
 
         let result = subject.send_transaction(inputs);
 
-        assert_eq!(result, Ok((hash, payment_timestamp)));
+        assert_eq!(result, Ok((hash, payable_timestamp)));
         let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
         let (transaction_params, secret) = sign_transaction_params.remove(0);
         assert!(sign_transaction_params.is_empty());
@@ -1240,8 +1239,8 @@ mod tests {
         let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
         let (transaction_params, secret) = sign_transaction_params.remove(0);
         assert!(sign_transaction_params.is_empty());
-        assert!(transaction_params.gas > U256::from(not_under_this_value));
-        assert!(transaction_params.gas < U256::from(not_above_this_value));
+        assert!(transaction_params.gas >= U256::from(not_under_this_value));
+        assert!(transaction_params.gas <= U256::from(not_above_this_value));
         assert_eq!(
             secret,
             (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
@@ -1260,7 +1259,8 @@ mod tests {
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
         );
-        let (accountant, _, _) = make_recorder();
+        let system = System::new("test");
+        let (accountant, _, accountant_recording_arc) = make_recorder();
         let account_addr = accountant.start();
         let recipient = recipient!(account_addr, PendingPayableFingerprint);
         let account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
@@ -1280,12 +1280,15 @@ mod tests {
 
         let result = subject.send_transaction(inputs);
 
+        System::current().stop();
+        system.run();
         assert_eq!(result,
                    Err(BlockchainTransactionError::UnusableWallet(
                        "Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()
                    ))
-        )
-        //actor system did not panic, we did not try to send the request for the fingerprint
+        );
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 0)
     }
 
     #[test]

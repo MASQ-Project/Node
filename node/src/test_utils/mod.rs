@@ -679,7 +679,7 @@ pub mod pure_test_utils {
         }
     }
 
-    impl<T: Message + Copy> NotifyLaterHandle<T> for NotifyLaterHandleMock<T> {
+    impl<T: Message + Clone> NotifyLaterHandle<T> for NotifyLaterHandleMock<T> {
         fn notify_later<'a>(
             &'a self,
             msg: T,
@@ -689,7 +689,7 @@ pub mod pure_test_utils {
             self.notify_later_params
                 .lock()
                 .unwrap()
-                .push((msg, interval));
+                .push((msg.clone(), interval));
             if !cfg!(test) {
                 panic!("this shouldn't run outside a test")
             }

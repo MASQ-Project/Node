@@ -391,7 +391,7 @@ impl DatabaseMigration for Migrate_4_to_5 {
                 rowid integer primary key, \
                 transaction_hash text not null, \
                 amount integer not null, \
-                payment_timestamp integer not null, \
+                payable_timestamp integer not null, \
                 attempt integer not null, \
                 process_error text null\
             )";
@@ -1855,7 +1855,7 @@ mod tests {
             ["rowid", "integer", "primary", "key"].as_slice(),
             ["transaction_hash", "text", "not", "null"].as_slice(),
             ["amount", "integer", "not", "null"].as_slice(),
-            ["payment_timestamp", "integer", "not", "null"].as_slice(),
+            ["payable_timestamp", "integer", "not", "null"].as_slice(),
             ["attempt", "integer", "not", "null"].as_slice(),
             ["process_error", "text", "null"].as_slice(),
         ];

@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::{PayableAccount, Payment};
-use crate::accountant::{ReceivedPayments, SentPayments};
+use crate::accountant::payable_dao::{Payable, PayableAccount};
+use crate::accountant::{ReceivedPayments, SentPayable};
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
@@ -43,7 +43,7 @@ pub struct BlockchainBridge {
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
-    sent_payments_subs_opt: Option<Recipient<SentPayments>>,
+    sent_payable_subs_opt: Option<Recipient<SentPayable>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     crashable: bool,
     payment_confirmation: TransactionConfirmationTools,
@@ -71,7 +71,7 @@ impl Handler<BindMessage> for BlockchainBridge {
         self.payment_confirmation
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
-        self.sent_payments_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
+        self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_new_payments);
         match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => debug!(
@@ -153,7 +153,7 @@ impl BlockchainBridge {
             blockchain_interface,
             persistent_config,
             set_consuming_wallet_subs_opt: None,
-            sent_payments_subs_opt: None,
+            sent_payable_subs_opt: None,
             received_payments_subs_opt: None,
             crashable,
             logger: Logger::new("BlockchainBridge"),
@@ -214,10 +214,10 @@ impl BlockchainBridge {
         let processed_payments = self.handle_report_accounts_payable_inner(creditors_msg);
         match processed_payments {
             Ok(payments) => {
-                self.sent_payments_subs_opt
+                self.sent_payable_subs_opt
                     .as_ref()
                     .expect("Accountant is unbound")
-                    .try_send(SentPayments { payments })
+                    .try_send(SentPayable { payable: payments })
                     .expect("Accountant is dead");
             }
             Err(e) => warning!(self.logger, "{}", e),
@@ -227,7 +227,7 @@ impl BlockchainBridge {
     fn handle_report_accounts_payable_inner(
         &self,
         creditors_msg: ReportAccountsPayable,
-    ) -> Result<Vec<BlockchainResult<Payment>>, String> {
+    ) -> Result<Vec<BlockchainResult<Payable>>, String> {
         match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
                 Ok(gas_price) => {
@@ -264,7 +264,10 @@ impl BlockchainBridge {
     }
 
     fn handle_request_transaction_receipts(&self, msg: RequestTransactionReceipts) {
-        let short_circuit_result: (Vec<Option<TransactionReceipt>>, Option<BlockchainError>) = msg
+        let short_circuit_result: (
+            Vec<Option<TransactionReceipt>>,
+            Option<(BlockchainError, H256)>,
+        ) = msg
             .pending_payable
             .iter()
             .fold((vec![], None), |so_far, current_fingerprint| match so_far {
@@ -273,7 +276,7 @@ impl BlockchainBridge {
                     .get_transaction_receipt(current_fingerprint.hash)
                 {
                     Ok(receipt_opt) => (plus(so_far.0, receipt_opt), None),
-                    Err(e) => (so_far.0, Some(e)),
+                    Err(e) => (so_far.0, Some((e, current_fingerprint.hash))),
                 },
                 _ => so_far,
             });
@@ -292,8 +295,13 @@ impl BlockchainBridge {
                 })
                 .expect("Accountant is dead");
         }
-        if let Some(e) = error_opt {
-            warning!(self.logger,"WARN: BlockchainBridge: Aborting scanning; request of a transaction receipt failed due to '{:?}'",e)
+        if let Some((e, hash)) = error_opt {
+            warning!(
+                self.logger,
+                "Aborting scanning; request of a transaction receipt for '{:?}' failed due to '{:?}'",
+                hash,
+                e
+            )
         }
     }
 
@@ -302,12 +310,12 @@ impl BlockchainBridge {
         creditors_msg: ReportAccountsPayable,
         gas_price: u64,
         consuming_wallet: &Wallet,
-    ) -> Vec<BlockchainResult<Payment>> {
+    ) -> Vec<BlockchainResult<Payable>> {
         creditors_msg
             .accounts
             .iter()
             .map(|payable| self.process_payments_inner_body(payable, gas_price, consuming_wallet))
-            .collect::<Vec<BlockchainResult<Payment>>>()
+            .collect::<Vec<BlockchainResult<Payable>>>()
     }
 
     fn process_payments_inner_body(
@@ -315,7 +323,7 @@ impl BlockchainBridge {
         payable: &PayableAccount,
         gas_price: u64,
         consuming_wallet: &Wallet,
-    ) -> BlockchainResult<Payment> {
+    ) -> BlockchainResult<Payable> {
         let nonce = self
             .blockchain_interface
             .get_transaction_count(consuming_wallet)?;
@@ -336,7 +344,7 @@ impl BlockchainBridge {
                 gas_price,
                 send_tools.as_ref(),
             )?) {
-            Ok((hash, timestamp)) => Ok(Payment::new(
+            Ok((hash, timestamp)) => Ok(Payable::new(
                 payable.wallet.clone(),
                 unsigned_amount,
                 hash,
@@ -358,10 +366,10 @@ struct PendingTxInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::blockchain::blockchain_bridge::Payment;
+    use crate::blockchain::blockchain_bridge::Payable;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransactionError, Transaction,
     };
@@ -483,10 +491,7 @@ mod tests {
                 wallet: make_wallet("blah"),
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: Some(PendingPayable {
-                    rowid: 789,
-                    hash_opt: None,
-                }),
+                pending_payable_opt: None,
             }],
         };
         let (accountant, _, _) = make_recorder();
@@ -521,10 +526,7 @@ mod tests {
                 wallet: make_wallet("blah"),
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: Some(PendingPayable {
-                    rowid: 123,
-                    hash_opt: None,
-                }),
+                pending_payable_opt: None,
             }],
         };
 
@@ -618,17 +620,17 @@ mod tests {
         );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
-        let sent_payments_msg = accountant_received_payment.get_record::<SentPayments>(0);
+        let sent_payments_msg = accountant_received_payment.get_record::<SentPayable>(0);
         assert_eq!(
-            sent_payments_msg.payments,
+            sent_payments_msg.payable,
             vec![
-                Ok(Payment {
+                Ok(Payable {
                     to: make_wallet("blah"),
                     amount: 420,
                     timestamp: from_time_t(150_000_000),
                     tx_hash: H256::from("sometransactionhash".keccak256())
                 }),
-                Ok(Payment {
+                Ok(Payable {
                     to: make_wallet("foo"),
                     amount: 210,
                     timestamp: from_time_t(160_000_000),
@@ -840,7 +842,8 @@ mod tests {
                 (Some(transaction_receipt), fingerprint_2)
             ]
         );
-        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; request of a transaction receipt failed due to 'QueryFailed(\"bad bad bad\")'");
+        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; request of a transaction receipt \
+         for '0x000000000000000000000000000000000000000000000000000000000001348d' failed due to 'QueryFailed(\"bad bad bad\")'");
     }
 
     #[test]
@@ -886,7 +889,8 @@ mod tests {
 
         let get_transaction_receipts_params = get_transaction_receipt_params_arc.lock().unwrap();
         assert_eq!(*get_transaction_receipts_params, vec![hash_1]);
-        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; request of a transaction receipt failed due to 'QueryFailed(\"booga\")'");
+        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; request of a transaction \
+         receipt for '0x000000000000000000000000000000000000000000000000000000000001b2e6' failed due to 'QueryFailed(\"booga\")'");
     }
 
     #[test]

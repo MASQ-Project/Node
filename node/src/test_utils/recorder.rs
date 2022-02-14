@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
-    ReceivedPayments, RequestTransactionReceipts, ScanForPayables, ScanForReceivables, SentPayments,
+    ReceivedPayments, RequestTransactionReceipts, ScanForPayables, ScanForReceivables, SentPayable,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
@@ -122,7 +122,7 @@ recorder_message_handler!(ReportExitServiceConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceConsumedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
-recorder_message_handler!(SentPayments);
+recorder_message_handler!(SentPayable);
 recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(SetDbPasswordMsg);
 recorder_message_handler!(SetGasPriceMsg);
@@ -380,7 +380,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_new_payments: recipient!(addr, ReceivedPayments),
         pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
-        report_sent_payments: recipient!(addr, SentPayments),
+        report_sent_payments: recipient!(addr, SentPayable),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),
     }
 }
