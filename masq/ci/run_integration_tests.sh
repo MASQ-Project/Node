@@ -8,7 +8,7 @@ export RUST_BACKTRACE=full
 export RUSTFLAGS="-D warnings"
 
 pushd "$CI_DIR/.."
-cargo test --release -- --nocapture --test-threads=1 "_integration"
+cargo test -- --nocapture --test-threads=1 handles_startup_and_shutdown_integration
 BUILD_RESULT=$?
 popd
 exit "$BUILD_RESULT"

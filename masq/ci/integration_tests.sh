@@ -10,6 +10,8 @@ case "$OSTYPE" in
     msys)
         echo "Windows"
         ci/run_integration_tests.sh "$TOOLCHAIN_HOME"
+        mkdir -p generated/daemon_logs
+        cp $HOME/AppData/Local/MASQ/* generated/daemon_logs
         ;;
     Darwin | darwin*)
         echo "macOS"
