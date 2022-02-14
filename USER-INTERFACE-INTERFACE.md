@@ -339,23 +339,29 @@ Another reason the secrets might be missing is that there are not yet any secret
     "consumingWalletPrivateKeyOpt": <optional string>,
     "consumingWalletAddressOpt": <optional string>,
     "startBlock": <number>,
-    "balanceDecreasesForSec": <number>,
-    "balanceToDecreaseFromGwei": <number>,
-    "exitByteRate": <number>,
-    "exitServiceRate": <number>,
-    "payableScanInterval": <number>,
-    "paymentSuggestedAfterSec": <number>,
-    "paymentGraceBeforeBanSec": <number>,
-    "pendingPaymentScanInterval": <number>,
-    "permanentDebtAllowedGwei": <number>,
-    "receivableScanInterval": <number>,
-    "routingByteRate": <number>,
-    "routingServiceRate": <number>,
-    "unbanWhenBalanceBelowGwei": <number>,
     "pastNeighbors":[
         <string>,
         <string>, ...
     ],
+    "paymentCurves": {
+        "balanceDecreasesForSec": <number>,
+        "balanceToDegreaseFromGwei": <number>,
+        "paymentGraceBeforeBanSec": <number>,
+        "paymentSuggestedAfterSec": <number>,
+        "permanentDebtAllowedGwei": <number>,
+        "unban_when_balance_below_gwei": <number>
+    },
+    "ratePack": {
+        "routingByteRate": <number>,
+        "routingServiceRate": <number>,
+        "exitByteRate": <number>,
+        "exitServiceRate: <number>"
+    },
+    "scanIntervals": {
+        "pendingPayableSec": <number>,
+        "payableSec": <number>,
+        "receivableSec": <number>
+    },
 }
 ```
 ##### Description:

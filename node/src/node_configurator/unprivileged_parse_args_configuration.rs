@@ -24,7 +24,6 @@ use masq_lib::utils::{AutomapProtocol, ExpectValue, WrapResult};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
-use std::time::Duration;
 
 pub trait ParseArgsConfiguration {
     // Only initialization that cannot be done with privilege should happen here.
@@ -514,14 +513,14 @@ fn configure_rate_pack(
     multi_config: &MultiConfig,
     persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<RatePack, ConfiguratorError> {
-    Ok(process_combined_params(
+    process_combined_params(
         "rate-pack",
         multi_config,
         persist_config,
         |str: &str| RatePack::try_from(str),
         |pc: &dyn PersistentConfiguration| pc.rate_pack(),
         |pc: &mut dyn PersistentConfiguration, rate_pack| pc.set_rate_pack(rate_pack),
-    )?)
+    )
 }
 
 //TODO untested explicit panics ... let's talk it through at a review
@@ -629,6 +628,7 @@ mod tests {
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {

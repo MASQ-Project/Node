@@ -524,12 +524,12 @@ pub struct UiRatePack {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiScanIntervals {
-    #[serde(rename = "pendingPaymentScanIntervalSec")]
-    pub pending_payable_scan_interval_sec: u64,
-    #[serde(rename = "payableScanIntervalSec")]
-    pub payable_scan_interval_sec: u64,
-    #[serde(rename = "receivableScanIntervalSec")]
-    pub receivable_scan_interval_sec: u64,
+    #[serde(rename = "pendingPayableSec")]
+    pub pending_payable_sec: u64,
+    #[serde(rename = "payableSec")]
+    pub payable_sec: u64,
+    #[serde(rename = "receivableSec")]
+    pub receivable_sec: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

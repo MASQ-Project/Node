@@ -137,12 +137,12 @@ impl CombinedParams {
         };
         let pieces: Vec<&str> = input.split(delimiter).collect();
         check(pieces.len())?;
-        let zipped = pieces.into_iter().zip(expected_collection.into_iter());
+        let zipped = pieces.into_iter().zip(expected_collection.iter());
         Ok(zipped
             .map(|(piece, (param_name, data_type))| {
                 (
                     param_name.to_string(),
-                    CombinedParamsValueRetriever::parse(piece, &data_type).expectv("numeric value"),
+                    CombinedParamsValueRetriever::parse(piece, data_type).expectv("numeric value"),
                 )
             })
             .collect())
@@ -225,9 +225,9 @@ impl CombinedParams {
     }
 }
 
-impl Into<&[(&str, CombinedParamsDataTypes)]> for &CombinedParams {
-    fn into(self) -> &'static [(&'static str, CombinedParamsDataTypes)] {
-        match self {
+impl From<&CombinedParams> for &[(&str, CombinedParamsDataTypes)] {
+    fn from(params: &CombinedParams) -> &'static [(&'static str, CombinedParamsDataTypes)] {
+        match params {
             CombinedParams::RatePack(None) => &[
                 ("routing_byte_rate", U64),
                 ("routing_service_rate", U64),
@@ -249,7 +249,7 @@ impl Into<&[(&str, CombinedParamsDataTypes)]> for &CombinedParams {
             ],
             _ => panic!(
                 "should be called only on uninitialized object, not: {:?}",
-                self
+                params
             ),
         }
     }

@@ -12,11 +12,13 @@ use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
+use serde::Serialize;
 use serde_json::Value;
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
+use std::iter::once;
 
 #[derive(Debug, PartialEq)]
 pub struct ConfigurationCommand {
@@ -122,10 +124,12 @@ impl ConfigurationCommand {
             &configuration.start_block.to_string(),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
-        let payment_curves = Self::preprocess_combined_parameters(
-            serde_json::to_value(&configuration.payment_curves).expectv("serializable object"),
-        );
+        let payment_curves = Self::preprocess_combined_parameters(&configuration.payment_curves);
         Self::dump_value_list(stream, "Payment curves:", &payment_curves);
+        let rate_pack = Self::preprocess_combined_parameters(&configuration.rate_pack);
+        Self::dump_value_list(stream, "Rate pack:", &rate_pack);
+        let scan_intervals = Self::preprocess_combined_parameters(&configuration.scan_intervals);
+        Self::dump_value_list(stream, "Scan intervals:", &scan_intervals);
     }
 
     fn dump_value_list(stream: &mut dyn Write, name: &str, values: &[String]) {
@@ -155,10 +159,11 @@ impl ConfigurationCommand {
         }
     }
 
-    fn preprocess_combined_parameters(jason: Value) -> Vec<String> {
+    fn preprocess_combined_parameters(serializable: impl Serialize) -> Vec<String> {
+        let jason = serde_json::to_value(serializable).expectv("serializable object");
         if let Value::Object(map) = jason {
-            map.into_iter()
-                .map(|(name, value)| {
+            once(String::from("\n"))
+                .chain(map.into_iter().map(|(name, value)| {
                     let mut char_vec = vec![];
                     name.chars().for_each(|char| {
                         if !char.is_uppercase() {
@@ -172,10 +177,10 @@ impl ConfigurationCommand {
                     char_vec[0] = char_vec[0].to_ascii_uppercase();
                     let clean_name = char_vec.into_iter().collect::<String>();
                     format!("{:33}{}", clean_name, value)
-                })
+                }))
                 .collect_vec()
         } else {
-            unimplemented!()
+            panic!("design error")
         }
     }
 }
@@ -188,11 +193,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::constants::{
-        DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_CURVES,
-        DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL, DEFAULT_RATE_PACK, DEFAULT_RECEIVABLE_SCAN_INTERVAL,
-        NODE_NOT_RUNNING_ERROR,
-    };
+    use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{
         ToMessageBody, UiConfigurationResponse, UiPaymentCurves, UiRatePack, UiScanIntervals,
     };
@@ -285,16 +286,16 @@ mod tests {
                 unban_when_balance_below_gwei: 12000,
             },
             rate_pack: UiRatePack {
-                routing_byte_rate: 0,
-                routing_service_rate: 0,
-                exit_byte_rate: 0,
-                exit_service_rate: 0,
+                routing_byte_rate: 8,
+                routing_service_rate: 9,
+                exit_byte_rate: 12,
+                exit_service_rate: 14,
             },
             start_block: 3456,
             scan_intervals: UiScanIntervals {
-                pending_payable_scan_interval_sec: 0,
-                payable_scan_interval_sec: 0,
-                receivable_scan_interval_sec: 0,
+                pending_payable_sec: 150,
+                payable_sec: 155,
+                receivable_sec: 250,
             },
         };
         let mut context = CommandContextMock::new()
@@ -337,15 +338,24 @@ mod tests {
 |Start block:                      3456\n\
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
-|Payment curves:                   Balance decreases for sec:       11111\n\
+|Payment curves:                   \n
+|                                  Balance decreases for sec:       11111\n\
 |                                  Balance to decrease from gwei:   1212\n\
 |                                  Payment grace before ban sec:    4578\n\
 |                                  Payment suggested after sec:     3333\n\
 |                                  Permanent debt allowed gwei:     11222\n\
-|                                  Unban when balance below gwei:   12000\n",
+|                                  Unban when balance below gwei:   12000\n\
+|Rate pack:                        \n
+|                                  Exit byte rate:                  12\n\
+|                                  Exit service rate:               14\n\
+|                                  Routing byte rate:               8\n\
+|                                  Routing service rate:            9\n\
+|Scan intervals:                   \n
+|                                  Payable sec:                     155\n\
+|                                  Pending payable sec:             150\n\
+|                                  Receivable sec:                  250\n"
             )
             .replace('|', "")
-            .to_string()
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), "");
     }
@@ -366,24 +376,24 @@ mod tests {
             port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
             past_neighbors: vec![],
             payment_curves: UiPaymentCurves {
-                balance_decreases_for_sec: 0,
-                balance_to_decrease_from_gwei: 0,
-                payment_suggested_after_sec: 0,
-                payment_grace_before_ban_sec: 0,
-                permanent_debt_allowed_gwei: 0,
-                unban_when_balance_below_gwei: 0,
+                balance_decreases_for_sec: 1000,
+                balance_to_decrease_from_gwei: 2500,
+                payment_suggested_after_sec: 500,
+                payment_grace_before_ban_sec: 666,
+                permanent_debt_allowed_gwei: 1200,
+                unban_when_balance_below_gwei: 1400,
             },
             rate_pack: UiRatePack {
-                routing_byte_rate: 0,
-                routing_service_rate: 0,
-                exit_byte_rate: 0,
-                exit_service_rate: 0,
+                routing_byte_rate: 15,
+                routing_service_rate: 17,
+                exit_byte_rate: 20,
+                exit_service_rate: 30,
             },
             start_block: 3456,
             scan_intervals: UiScanIntervals {
-                pending_payable_scan_interval_sec: 0,
-                payable_scan_interval_sec: 0,
-                receivable_scan_interval_sec: 0,
+                pending_payable_sec: 1000,
+                payable_sec: 1000,
+                receivable_sec: 1000,
             },
         };
         let mut context = CommandContextMock::new()
@@ -411,46 +421,36 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
             format!(
                 "\
-NAME                              VALUE\n\
-Blockchain service URL:           https://infura.io/ID\n\
-Chain:                            mumbai\n\
-Clandestine port:                 1234\n\
-Consuming wallet private key:     [?]\n\
-Current schema version:           schema version\n\
-Earning wallet address:           earning wallet\n\
-Gas price:                        2345\n\
-Neighborhood mode:                zero-hop\n\
-Port mapping protocol:            PCP\n\
-Start block:                      3456\n\
-Balance decreases for sec:        {}\n\
-Balance to decrease from gwei:    {}\n\
-Exit byte rate:                   {}\n\
-Exit service rate:                {}\n\
-Payable scan interval:            {}\n\
-Payment suggested after sec:      {}\n\
-Payment grace before ban sec:     {}\n\
-Pending payment scan interval:    {}\n\
-Permanent debt allowed gwei:      {}\n\
-Receivable scan interval:         {}\n\
-Routing byte rate:                {}\n\
-Routing service rate:             {}\n\
-Unban when balance below gwei:    {}\n\
-Past neighbors:                   [?]\n\
-",
-                DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec,
-                DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei,
-                DEFAULT_RATE_PACK.exit_byte_rate,
-                DEFAULT_RATE_PACK.exit_service_rate,
-                DEFAULT_PAYABLE_SCAN_INTERVAL,
-                DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec,
-                DEFAULT_PAYMENT_CURVES.payment_grace_before_ban_sec,
-                DEFAULT_PENDING_PAYABLE_SCAN_INTERVAL,
-                DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei,
-                DEFAULT_RECEIVABLE_SCAN_INTERVAL,
-                DEFAULT_RATE_PACK.routing_byte_rate,
-                DEFAULT_RATE_PACK.routing_service_rate,
-                DEFAULT_PAYMENT_CURVES.unban_when_balance_below_gwei,
+|NAME                              VALUE\n\
+|Blockchain service URL:           https://infura.io/ID\n\
+|Chain:                            mumbai\n\
+|Clandestine port:                 1234\n\
+|Consuming wallet private key:     [?]\n\
+|Current schema version:           schema version\n\
+|Earning wallet address:           earning wallet\n\
+|Gas price:                        2345\n\
+|Neighborhood mode:                zero-hop\n\
+|Port mapping protocol:            PCP\n\
+|Start block:                      3456\n\
+|Past neighbors:                   [?]\n\
+|Payment curves:                   \n
+|                                  Balance decreases for sec:       1000\n\
+|                                  Balance to decrease from gwei:   2500\n\
+|                                  Payment grace before ban sec:    666\n\
+|                                  Payment suggested after sec:     500\n\
+|                                  Permanent debt allowed gwei:     1200\n\
+|                                  Unban when balance below gwei:   1400\n\
+|Rate pack:                        \n
+|                                  Exit byte rate:                  20\n\
+|                                  Exit service rate:               30\n\
+|                                  Routing byte rate:               15\n\
+|                                  Routing service rate:            17\n\
+|Scan intervals:                   \n
+|                                  Payable sec:                     1000\n\
+|                                  Pending payable sec:             1000\n\
+|                                  Receivable sec:                  1000\n",
             )
+            .replace('|', "")
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), "");
     }

@@ -32,7 +32,7 @@ pub fn decode_bytes(
     }
 }
 
-pub fn decode_combined_params<'a, T, C>(
+pub fn decode_combined_params<T, C>(
     values_parser: C,
     string_opt: Option<String>,
 ) -> Result<Option<T>, TypedConfigLayerError>
@@ -43,7 +43,7 @@ where
         None => Ok(None),
         Some(string_params) => values_parser(string_params.as_str())
             .map(|val| Some(val))
-            .map_err(|e| TypedConfigLayerError::BadCoupledParamsFormat(e)),
+            .map_err(TypedConfigLayerError::BadCoupledParamsFormat),
     }
 }
 

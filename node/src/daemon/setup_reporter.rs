@@ -884,11 +884,7 @@ impl ValueRetriever for PaymentCurves {
         pc: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        let pc_value = pc
-            .payment_curves()
-            .expectv("payment-curves")
-            .try_into()
-            .unwrap();
+        let pc_value = pc.payment_curves().expectv("payment-curves");
         payment_curves_rate_pack_and_scan_intervals(pc_value, *DEFAULT_PAYMENT_CURVES)
     }
 
@@ -911,7 +907,6 @@ impl ValueRetriever for RatePack {
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         match &bootstrapper_config.neighborhood_config.mode {
             NeighborhoodModeEnum::Standard(_, _, _) | NeighborhoodModeEnum::OriginateOnly(_, _) => {
-                ()
             }
             _ => return None,
         }
