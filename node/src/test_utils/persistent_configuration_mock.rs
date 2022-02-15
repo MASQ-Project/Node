@@ -8,7 +8,6 @@ use crate::sub_lib::wallet::Wallet;
 use masq_lib::combined_parameters::{PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
-use std::any::Any;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
@@ -262,8 +261,6 @@ impl PersistentConfiguration for PersistentConfigurationMock {
             .push(intervals);
         self.set_scan_intervals_results.borrow_mut().remove(0)
     }
-
-    as_any_impl!();
 }
 
 impl PersistentConfigurationMock {

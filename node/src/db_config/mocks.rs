@@ -4,7 +4,6 @@ use crate::db_config::config_dao::{
     ConfigDao, ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord, ConfigDaoWrite,
 };
 use rusqlite::Transaction;
-use std::any::Any;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
@@ -31,10 +30,6 @@ impl ConfigDao for ConfigDaoMock {
         &'c mut self,
     ) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError> {
         self.start_transaction_results.borrow_mut().remove(0)
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 

@@ -6,9 +6,10 @@ use crate::db_config::config_dao::{
 };
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
+use masq_lib::constants::{
+    DEFAULT_GAS_PRICE, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
+};
 use rusqlite::Transaction;
-use std::any::Any;
 use std::collections::HashMap;
 
 /*
@@ -51,10 +52,6 @@ impl ConfigDao for ConfigDaoNull {
         &'c mut self,
     ) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError> {
         Ok(Box::new(ConfigDaoNull::default()))
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 
@@ -114,7 +111,10 @@ impl Default for ConfigDaoNull {
                 false,
             ),
         );
-        data.insert("gas_price".to_string(), (Some("1".to_string()), false));
+        data.insert(
+            "gas_price".to_string(),
+            (Some(DEFAULT_GAS_PRICE.to_string()), false),
+        );
         data.insert(
             "start_block".to_string(),
             (

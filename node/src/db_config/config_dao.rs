@@ -1,4 +1,3 @@
-use std::any::Any;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::DaoFactoryReal;
@@ -58,8 +57,6 @@ pub trait ConfigDao: ConfigDaoRead {
     fn start_transaction<'b, 'c: 'b>(
         &'c mut self,
     ) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError>;
-
-    fn as_any(&self) -> &dyn Any;
 }
 
 pub struct ConfigDaoReal {
@@ -76,10 +73,6 @@ impl ConfigDao for ConfigDaoReal {
             Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{:?}", e))),
         };
         Ok(Box::new(ConfigDaoWriteableReal::new(transaction)))
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 

@@ -244,15 +244,6 @@ fn common_parameter_with_separate_u64_values(name: &str) -> Arg {
         .validator(common_validators::validate_separate_u64_values)
 }
 
-//TODO remove this
-fn wrong_common_parameter_u64_values(name: &str) -> Arg {
-    Arg::with_name(name)
-        .long(name)
-        .value_name(Box::leak(name.to_uppercase().into_boxed_str()))
-        .min_values(0)
-        .max_values(1)
-}
-
 pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
     head.arg(
         Arg::with_name("blockchain-service-url")
@@ -370,24 +361,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(NEIGHBORS_HELP),
     )
     .arg(real_user_arg())
-    .arg(wrong_common_parameter_u64_values(
-        "balance-decreases-for-sec",
-    ))
-    .arg(wrong_common_parameter_u64_values(
-        "balance-to-decrease-from-gwei",
-    ))
-    .arg(wrong_common_parameter_u64_values(
-        "payment-suggested-after-sec",
-    ))
-    .arg(wrong_common_parameter_u64_values(
-        "payment-grace-before-ban-sec",
-    ))
-    .arg(wrong_common_parameter_u64_values(
-        "permanent-debt-allowed-gwei",
-    ))
-    .arg(wrong_common_parameter_u64_values(
-        "unban-when-balance-below-gwei",
-    ))
     .arg(common_parameter_with_separate_u64_values("scan-intervals"))
     .arg(common_parameter_with_separate_u64_values("rate-pack"))
     .arg(common_parameter_with_separate_u64_values("payment-curves"))
@@ -741,8 +714,8 @@ mod tests {
     }
 
     #[test]
-    fn validate_separate_u64_values_sad_path_bad_delimiters_in_general() {
-        let result = common_validators::validate_separate_u64_values("4567|foooo|444".to_string());
+    fn validate_separate_u64_values_sad_path_bad_delimiters_generally() {
+        let result = common_validators::validate_separate_u64_values("4567,555,444".to_string());
 
         assert_eq!(
             result,

@@ -20,7 +20,7 @@ use crate::database::db_migrations::{ExternalData, MigratorConfig};
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::node_configurator::unprivileged_parse_args_configuration::{
-    ParseArgsConfiguration, ParseArgsConfigurationDaoReal,
+    UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path,
@@ -87,7 +87,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             MigratorConfig::create_or_migrate(self.wrap_up_db_externals(multi_config)),
         );
         let mut unprivileged_config = BootstrapperConfig::new();
-        let pars_args_configurator = ParseArgsConfigurationDaoReal {};
+        let pars_args_configurator = UnprivilegedParseArgsConfigurationDaoReal {};
         pars_args_configurator.unprivileged_parse_args(
             multi_config,
             &mut unprivileged_config,
@@ -272,7 +272,7 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
-    use crate::node_configurator::unprivileged_parse_args_configuration::ParseArgsConfigurationDaoNull;
+    use crate::node_configurator::unprivileged_parse_args_configuration::UnprivilegedParseArgsConfigurationDaoNull;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
@@ -485,7 +485,7 @@ mod tests {
 
         privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut bootstrapper_config)
             .unwrap();
-        let node_pars_args_configurator = ParseArgsConfigurationDaoNull {};
+        let node_pars_args_configurator = UnprivilegedParseArgsConfigurationDaoNull {};
         node_pars_args_configurator
             .unprivileged_parse_args(
                 &multi_config,

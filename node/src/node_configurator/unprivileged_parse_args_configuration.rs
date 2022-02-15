@@ -25,7 +25,7 @@ use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
-pub trait ParseArgsConfiguration {
+pub trait UnprivilegedParseArgsConfiguration {
     // Only initialization that cannot be done with privilege should happen here.
     fn unprivileged_parse_args(
         &self,
@@ -75,9 +75,9 @@ pub trait ParseArgsConfiguration {
     ) -> Result<Vec<NodeDescriptor>, ConfiguratorError>;
 }
 
-pub struct ParseArgsConfigurationDaoReal {}
+pub struct UnprivilegedParseArgsConfigurationDaoReal {}
 
-impl ParseArgsConfiguration for ParseArgsConfigurationDaoReal {
+impl UnprivilegedParseArgsConfiguration for UnprivilegedParseArgsConfigurationDaoReal {
     fn get_past_neighbors(
         &self,
         multi_config: &MultiConfig,
@@ -108,9 +108,9 @@ impl ParseArgsConfiguration for ParseArgsConfigurationDaoReal {
     }
 }
 
-pub struct ParseArgsConfigurationDaoNull {}
+pub struct UnprivilegedParseArgsConfigurationDaoNull {}
 
-impl ParseArgsConfiguration for ParseArgsConfigurationDaoNull {
+impl UnprivilegedParseArgsConfiguration for UnprivilegedParseArgsConfigurationDaoNull {
     fn get_past_neighbors(
         &self,
         _multi_config: &MultiConfig,
@@ -208,7 +208,7 @@ fn wallet_parms_are_equal(a: &str, b: &str) -> bool {
     a.to_uppercase() == b.to_uppercase()
 }
 
-pub fn make_neighborhood_config<T: ParseArgsConfiguration + ?Sized>(
+pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
     pars_args_configurator: &T,
     multi_config: &MultiConfig,
     persistent_config: &mut dyn PersistentConfiguration,
@@ -668,7 +668,7 @@ mod tests {
         ).unwrap();
 
         let result = make_neighborhood_config(
-            &ParseArgsConfigurationDaoNull {},
+            &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
             &mut configure_default_persistent_config(0b0000_1001),
             &mut BootstrapperConfig::new(),
@@ -717,7 +717,7 @@ mod tests {
             .unwrap();
 
         let result = make_neighborhood_config(
-            &ParseArgsConfigurationDaoNull {},
+            &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
             &mut configure_default_persistent_config(0b0000_1001),
             &mut BootstrapperConfig::new(),
@@ -751,7 +751,7 @@ mod tests {
             .unwrap();
 
         let result = make_neighborhood_config(
-            &ParseArgsConfigurationDaoNull {},
+            &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
             &mut configure_default_persistent_config(0b0000_1001),
             &mut BootstrapperConfig::new(),
@@ -793,7 +793,7 @@ mod tests {
         .unwrap();
 
         let result = make_neighborhood_config(
-            &ParseArgsConfigurationDaoNull {},
+            &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
             &mut configure_default_persistent_config(0b0000_1001).check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
@@ -821,7 +821,7 @@ mod tests {
             .unwrap();
 
         let result = make_neighborhood_config(
-            &ParseArgsConfigurationDaoNull {},
+            &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
             &mut configure_default_persistent_config(0b0000_0001),
             &mut BootstrapperConfig::new(),
@@ -862,7 +862,7 @@ mod tests {
         .unwrap();
 
         let result = make_neighborhood_config(
-            &ParseArgsConfigurationDaoNull {},
+            &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
             &mut configure_default_persistent_config(0b0000_0001),
             &mut BootstrapperConfig::new(),
@@ -895,7 +895,7 @@ mod tests {
         .unwrap();
 
         let result = make_neighborhood_config(
-            &ParseArgsConfigurationDaoNull {},
+            &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
             &mut configure_default_persistent_config(0b0000_0001).check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
@@ -924,7 +924,7 @@ mod tests {
         .unwrap();
 
         let result = make_neighborhood_config(
-            &ParseArgsConfigurationDaoNull {},
+            &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
             &mut configure_default_persistent_config(0b0000_0001).check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
@@ -947,7 +947,7 @@ mod tests {
         let mut persistent_config = configure_default_persistent_config(0b0000_0001);
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
-        let subject = ParseArgsConfigurationDaoReal {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         let result = subject
             .get_past_neighbors(
@@ -968,7 +968,7 @@ mod tests {
             configure_default_persistent_config(0b0000_0001).check_password_result(Ok(true));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
-        let subject = ParseArgsConfigurationDaoReal {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         let result = subject
             .get_past_neighbors(
@@ -990,7 +990,7 @@ mod tests {
             .past_neighbors_result(Err(PersistentConfigError::NotPresent));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
-        let subject = ParseArgsConfigurationDaoReal {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         let result = subject.get_past_neighbors(
             &multi_config,
@@ -1009,14 +1009,14 @@ mod tests {
 
     #[test]
     fn parse_args_configuration_dao_null_get_past_neighbors_does_nothing() {
-        //this scenario is slightly adapted from the reality; we would've been using PersistentConfigurationReal
+        //slightly adapted aside reality; we would've been using PersistentConfigurationReal
         //with ConfigDaoNull but it wouldn't have necessarily panicked if its method called so we use PersistentConfigMock
         //which can provide us with a reaction like so
         running_test();
         let multi_config = make_simplified_multi_config([]);
         let mut persistent_config = PersistentConfigurationMock::new();
         let mut unprivileged_config = BootstrapperConfig::new();
-        let subject = ParseArgsConfigurationDaoNull {};
+        let subject = UnprivilegedParseArgsConfigurationDaoNull {};
 
         let result = subject.get_past_neighbors(
             &multi_config,
@@ -1240,7 +1240,7 @@ mod tests {
             "--fake-public-key",
             "booga",
         ]);
-        let subject = ParseArgsConfigurationDaoReal {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         let _ = subject
             .unprivileged_parse_args(
@@ -1284,7 +1284,7 @@ mod tests {
             "--neighborhood-mode",
             "zero-hop",
         ]);
-        let subject = ParseArgsConfigurationDaoReal {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         let _ = subject
             .unprivileged_parse_args(
@@ -1356,7 +1356,22 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_creates_configurations() {
+    fn unprivileged_parse_args_dao_real_creates_configurations() {
+        assert_unprivileged_parse_args_creates_configurations(
+            &UnprivilegedParseArgsConfigurationDaoReal {},
+        )
+    }
+
+    #[test]
+    fn unprivileged_parse_args_dao_null_creates_configurations() {
+        assert_unprivileged_parse_args_creates_configurations(
+            &UnprivilegedParseArgsConfigurationDaoNull {},
+        )
+    }
+
+    fn assert_unprivileged_parse_args_creates_configurations(
+        subject: &dyn UnprivilegedParseArgsConfiguration,
+    ) {
         running_test();
         let home_dir = ensure_node_home_directory_exists(
             "unprivileged_parse_args_configuration",
@@ -1398,7 +1413,6 @@ mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let subject = ParseArgsConfigurationDaoNull {};
 
         subject
             .unprivileged_parse_args(
@@ -1466,7 +1480,7 @@ mod tests {
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
         let mut persistent_config =
             configure_default_persistent_config(0b0000_1111).check_password_result(Ok(false));
-        let subject = ParseArgsConfigurationDaoNull {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -1528,7 +1542,7 @@ mod tests {
             .blockchain_service_url_result(Ok(None));
             default_persistent_config_just_accountant_config(config)
         };
-        let subject = ParseArgsConfigurationDaoReal {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -1574,7 +1588,7 @@ mod tests {
                 .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
             default_persistent_config_just_accountant_config(config)
         };
-        let subject = ParseArgsConfigurationDaoNull {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -1604,7 +1618,7 @@ mod tests {
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
-        let subject = ParseArgsConfigurationDaoNull {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -1649,7 +1663,7 @@ mod tests {
             Box::new(CommandLineVcl::new(args.into())),
         ];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let subject = ParseArgsConfigurationDaoNull {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -1701,7 +1715,7 @@ mod tests {
             .set_scan_intervals_result(Ok(()))
             .set_payment_curves_params(&set_payment_curves_params_arc)
             .set_payment_curves_result(Ok(()));
-        let subject = ParseArgsConfigurationDaoReal {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -1766,7 +1780,7 @@ mod tests {
                 permanent_debt_allowed_gwei: 20000,
                 unban_when_balance_below_gwei: 20000,
             }));
-        let subject = ParseArgsConfigurationDaoReal {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -1820,7 +1834,7 @@ mod tests {
             }))
             .set_rate_pack_result(Ok(()))
             .set_rate_pack_params(&set_rate_pack_params_arc);
-        let subject = ParseArgsConfigurationDaoReal {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -1863,7 +1877,7 @@ mod tests {
                 exit_byte_rate: 8,
                 exit_service_rate: 9,
             }));
-        let subject = ParseArgsConfigurationDaoReal {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(
@@ -1911,7 +1925,7 @@ mod tests {
                 exit_byte_rate: 4,
                 exit_service_rate: 5,
             }));
-        let subject = ParseArgsConfigurationDaoReal {};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
             .unprivileged_parse_args(

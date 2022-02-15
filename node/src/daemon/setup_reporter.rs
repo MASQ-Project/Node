@@ -13,7 +13,8 @@ use crate::db_config::persistent_configuration::{
 };
 use crate::node_configurator::node_configurator_standard::privileged_parse_args;
 use crate::node_configurator::unprivileged_parse_args_configuration::{
-    ParseArgsConfiguration, ParseArgsConfigurationDaoNull, ParseArgsConfigurationDaoReal,
+    UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoNull,
+    UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
@@ -24,7 +25,6 @@ use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
 use clap::value_t;
 use itertools::Itertools;
-use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain as BlockChain;
 use masq_lib::constants::{
     DEFAULT_CHAIN, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
@@ -43,12 +43,6 @@ use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-
-//TODO get this back out
-lazy_static! {
-    //should stay private
-    static ref SETUP_REPORTER_LOGGER: Logger = Logger::new("SetupReporter");
-}
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
@@ -91,7 +85,7 @@ impl SetupReporter for SetupReporterReal {
                     blanked_out_former_values.insert(v.name.clone(), former_value);
                 };
             });
-        //TODO investigate this, not sure if proper
+        //TODO investigate this, not sure if the right way to solve the issue
         //answers an attempt to blank out chain beyond an error resulting in chain different from data_dir
         let _ = blanked_out_former_values.remove("chain");
         let mut incoming_setup = incoming_setup
@@ -428,7 +422,7 @@ impl SetupReporterReal {
             MigratorConfig::migration_suppressed_with_error(),
         ) {
             Ok(conn) => {
-                let pars_args_configuration = ParseArgsConfigurationDaoReal {};
+                let pars_args_configuration = UnprivilegedParseArgsConfigurationDaoReal {};
                 let mut persistent_config = PersistentConfigurationReal::from(conn);
                 match pars_args_configuration.unprivileged_parse_args(
                     multi_config,
@@ -449,7 +443,7 @@ impl SetupReporterReal {
             Err(InitializationError::Nonexistent | InitializationError::SuppressedMigration) => {
                 // When the Daemon runs for the first time, the database will not yet have been
                 // created. If the database is old, it should not be used by the Daemon.
-                let pars_args_configuration = ParseArgsConfigurationDaoNull {};
+                let pars_args_configuration = UnprivilegedParseArgsConfigurationDaoNull {};
                 let mut persistent_config =
                     PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
                 match pars_args_configuration.unprivileged_parse_args(
@@ -646,11 +640,13 @@ impl ValueRetriever for DbPassword {
 
 struct DnsServers {
     factory: Box<dyn DnsInspectorFactory>,
+    logger: Logger,
 }
 impl DnsServers {
     pub fn new() -> Self {
         Self {
             factory: Box::new(DnsInspectorFactoryReal::new()),
+            logger: Logger::new("DnsServers"),
         }
     }
 }
@@ -681,11 +677,7 @@ impl ValueRetriever for DnsServers {
                 Some((dns_servers, Default))
             }
             Err(e) => {
-                warning!(
-                    SETUP_REPORTER_LOGGER,
-                    "Error inspecting DNS settings: {:?}",
-                    e
-                );
+                warning!(self.logger, "Error inspecting DNS settings: {:?}", e);
                 None
             }
         }
@@ -1055,7 +1047,8 @@ mod tests {
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::combined_parameters;
     use masq_lib::constants::{
-        DEFAULT_CHAIN, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
+        DEFAULT_CHAIN, DEFAULT_GAS_PRICE, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK,
+        DEFAULT_SCAN_INTERVALS,
     };
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -2042,49 +2035,60 @@ mod tests {
 
     #[test]
     fn run_configuration_without_existing_database_implies_config_dao_null_to_use() {
-        let data_dir = ensure_node_home_directory_exists(
+        let _guard = EnvironmentGuard::new();
+        let home_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "run_configuration_without_existing_database_implies_config_dao_null_to_use",
         );
-        let conn =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
-        conn.execute("update config set value = 55 where name = 'gas_price'", [])
-            .unwrap();
-        let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
-        let updated_gas_price = dao.get("gas_price").unwrap().value_opt.unwrap();
-        assert_eq!(updated_gas_price, "55");
-        let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
-        assert_eq!(schema_version_before, "0");
+        let current_default_gas_price = DEFAULT_GAS_PRICE;
+        let gas_price_for_set_attempt = current_default_gas_price + 78;
         let multi_config =
-            make_simplified_multi_config(["--data-directory", data_dir.to_str().unwrap()]);
+            make_simplified_multi_config(["--data-directory", home_dir.to_str().unwrap()]);
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let subject = SetupReporterReal::new(Box::new(dirs_wrapper));
 
         let ((bootstrapper_config, mut persistent_config), _) =
-            subject.run_configuration(&multi_config, &data_dir);
+            subject.run_configuration(&multi_config, &home_dir);
 
-        assert_ne!(bootstrapper_config.blockchain_bridge_config.gas_price, 55); //asserting negation
-        let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
-        assert_eq!(schema_version_before, schema_version_after);
-        persistent_config.set_gas_price(66).unwrap();
+        let error = DbInitializerReal::default()
+            .initialize(&home_dir, false, MigratorConfig::test_default())
+            .unwrap_err();
+        assert_eq!(error, InitializationError::Nonexistent);
+        assert_eq!(
+            bootstrapper_config.blockchain_bridge_config.gas_price,
+            current_default_gas_price
+        );
+        persistent_config
+            .set_gas_price(gas_price_for_set_attempt)
+            .unwrap();
         //if this had contained ConfigDaoReal the setting would've worked
         let gas_price = persistent_config.gas_price().unwrap();
-        assert_ne!(gas_price, 66);
+        //asserting negation
+        assert_ne!(gas_price, gas_price_for_set_attempt);
     }
 
     #[test]
-    fn run_configuration_suppresses_db_migration_implies_just_config_dao_null_to_use() {
+    fn run_configuration_suppresses_db_migration_which_implies_just_use_of_config_dao_null() {
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
-            "run_configuration_suppresses_db_migration_implies_just_config_dao_null_to_use",
+            "run_configuration_suppresses_db_migration_which_implies_just_use_of_config_dao_null",
         );
+        let current_default_gas_price = DEFAULT_GAS_PRICE;
+        let gas_price_to_be_in_the_real_db = current_default_gas_price + 55;
+        let gas_price_for_set_attempt = current_default_gas_price + 66;
         let conn =
             bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
-        conn.execute("update config set value = 55 where name = 'gas_price'", [])
-            .unwrap();
+        conn.execute(
+            "update config set value = ? where name = 'gas_price'",
+            [&gas_price_to_be_in_the_real_db],
+        )
+        .unwrap();
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let updated_gas_price = dao.get("gas_price").unwrap().value_opt.unwrap();
-        assert_eq!(updated_gas_price, "55");
+        assert_eq!(
+            updated_gas_price,
+            gas_price_to_be_in_the_real_db.to_string()
+        );
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, "0");
         let multi_config =
@@ -2095,13 +2099,20 @@ mod tests {
         let ((bootstrapper_config, mut persistent_config), _) =
             subject.run_configuration(&multi_config, &data_dir);
 
-        assert_ne!(bootstrapper_config.blockchain_bridge_config.gas_price, 55); //asserting negation
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, schema_version_after);
-        persistent_config.set_gas_price(66).unwrap();
+        //asserting negation
+        assert_ne!(
+            bootstrapper_config.blockchain_bridge_config.gas_price,
+            gas_price_to_be_in_the_real_db
+        );
+        persistent_config
+            .set_gas_price(gas_price_for_set_attempt)
+            .unwrap();
         //if this had contained ConfigDaoReal the setting would've worked
         let gas_price = persistent_config.gas_price().unwrap();
-        assert_ne!(gas_price, 66);
+        //asserting negation
+        assert_ne!(gas_price, gas_price_for_set_attempt);
     }
 
     #[test]
@@ -2470,7 +2481,6 @@ mod tests {
 
         let result = subject.calculate_configured_setup(&setup, &data_dir).0;
 
-        eprintln!("{:?}", result);
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
 
@@ -2959,7 +2969,7 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    fn assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation(
+    fn assert_rate_pack_computed_default_advanced_evaluation_regarding_specific_neighborhood(
         neighborhood_mode: fn(rate_pack: combined_parameters::RatePack) -> NeighborhoodModeEnum,
     ) {
         let subject = RatePack {};
@@ -3021,7 +3031,7 @@ mod tests {
 
     #[test]
     fn rate_pack_standard_mode_goes_on_with_further_evaluation() {
-        assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation(
+        assert_rate_pack_computed_default_advanced_evaluation_regarding_specific_neighborhood(
             |rate_pack: combined_parameters::RatePack| {
                 NeighborhoodModeEnum::Standard(
                     NodeAddr::new(&IpAddr::from_str("4.5.6.7").unwrap(), &[44444]),
@@ -3034,7 +3044,7 @@ mod tests {
 
     #[test]
     fn rate_pack_originate_only_mode_goes_on_with_further_evaluation() {
-        assert_rate_pack_computed_default_specific_neighborhood_modes_further_evaluation(
+        assert_rate_pack_computed_default_advanced_evaluation_regarding_specific_neighborhood(
             |rate_pack: combined_parameters::RatePack| {
                 NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack)
             },

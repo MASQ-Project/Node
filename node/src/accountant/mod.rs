@@ -497,14 +497,11 @@ impl Accountant {
                     .duration_since(p.last_paid_timestamp)
                     .expect("Payable time is corrupt");
                 {
-                    //pursue a test for this if you don't understand;
-                    //but we choose a candidate by a strong parameter where also the second parameter is weighted
-                    //when finding the already highest value for the first one
-                    let check_age_parameter_if_the_first_are_the_same =
+                    //look at a test if not understandable
+                    let check_age_parameter_if_the_first_is_the_same =
                         || -> bool { p.balance == biggest.balance && p_age > biggest.age };
 
-                    if p.balance > biggest.balance
-                        || check_age_parameter_if_the_first_are_the_same()
+                    if p.balance > biggest.balance || check_age_parameter_if_the_first_is_the_same()
                     {
                         biggest = PayableInfo {
                             balance: p.balance,
@@ -512,10 +509,10 @@ impl Accountant {
                         }
                     }
 
-                    let check_balance_parameter_if_the_first_are_the_same =
+                    let check_balance_parameter_if_the_first_is_the_same =
                         || -> bool { p_age == oldest.age && p.balance > oldest.balance };
 
-                    if p_age > oldest.age || check_balance_parameter_if_the_first_are_the_same() {
+                    if p_age > oldest.age || check_balance_parameter_if_the_first_is_the_same() {
                         oldest = PayableInfo {
                             balance: p.balance,
                             age: p_age,

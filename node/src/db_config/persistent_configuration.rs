@@ -18,8 +18,6 @@ use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use rustc_hex::{FromHex, ToHex};
-#[cfg(test)]
-use std::any::Any;
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
@@ -50,7 +48,7 @@ impl From<TypedConfigLayerError> for PersistentConfigError {
             TypedConfigLayerError::BadNumberFormat(msg) => {
                 PersistentConfigError::BadNumberFormat(msg)
             }
-            TypedConfigLayerError::BadCoupledParamsFormat(msg) => {
+            TypedConfigLayerError::BadCombinedParamsFormat(msg) => {
                 PersistentConfigError::BadCoupledParamsFormat(msg)
             }
         }
@@ -144,7 +142,6 @@ pub trait PersistentConfiguration {
     fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError>;
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError>;
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError>;
-    as_any_dcl!();
 }
 
 pub struct PersistentConfigurationReal {
@@ -468,11 +465,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError> {
         self.simple_set_method("scan_intervals", intervals)
     }
-
-    #[cfg(test)]
-    fn as_any(&self) -> &dyn Any {
-        intentionally_blank!()
-    }
 }
 
 impl From<Box<dyn ConnectionWrapper>> for PersistentConfigurationReal {
@@ -650,7 +642,7 @@ mod tests {
                 PersistentConfigError::BadNumberFormat("booga".to_string()),
             ),
             (
-                TypedConfigLayerError::BadCoupledParamsFormat("booga".to_string()),
+                TypedConfigLayerError::BadCombinedParamsFormat("booga".to_string()),
                 PersistentConfigError::BadCoupledParamsFormat("booga".to_string()),
             ),
         ]

@@ -667,7 +667,7 @@ mod tests {
                 .unwrap()
                 .push(chain);
             //nonstandard...
-            //for an outer assertion, proving that we're using the expected, inserted object
+            //for an outer assertion, proving that we're using the expected, pasted-in object
             persistent_config.chain_name();
         }
     }
