@@ -781,28 +781,16 @@ impl ValueRetriever for MappingProtocol {
 
     fn computed_default(
         &self,
-        bootstrapper_config: &BootstrapperConfig,
+        _bootstrapper_config: &BootstrapperConfig,
         persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        let persistent_mapping_protocol = match persistent_config.mapping_protocol() {
+        let persistent_config_value_opt = match persistent_config.mapping_protocol() {
             Ok(protocol_opt) => protocol_opt,
             Err(_) => None,
         };
-        let from_bootstrapper_opt = bootstrapper_config.mapping_protocol_opt;
-        match (persistent_mapping_protocol, from_bootstrapper_opt) {
-            (Some(persistent), None) => Some((persistent.to_string().to_lowercase(), Configured)),
-            (None, Some(from_bootstrapper)) => {
-                Some((from_bootstrapper.to_string().to_lowercase(), Configured))
-            }
-            (Some(persistent), Some(from_bootstrapper)) if persistent != from_bootstrapper => {
-                Some((from_bootstrapper.to_string().to_lowercase(), Configured))
-            }
-            (Some(persistent), Some(_)) => {
-                Some((persistent.to_string().to_lowercase(), Configured))
-            }
-            _ => None,
-        }
+        persistent_config_value_opt
+            .map(|protocol| (protocol.to_string().to_lowercase(), Configured))
     }
 }
 
@@ -2635,7 +2623,7 @@ mod tests {
         );
 
         assert_eq!(result, None);
-        TestLogHandler::new().exists_log_containing("WARN: SetupReporter: Error inspecting DNS settings: This system does not appear to be connected to a network");
+        TestLogHandler::new().exists_log_containing("WARN: DnsServers: Error inspecting DNS settings: This system does not appear to be connected to a network");
     }
 
     #[test]
@@ -2791,7 +2779,7 @@ mod tests {
     }
 
     #[test]
-    fn mapping_protocol_is_just_blank_if_no_data_in_database_and_unspecified_on_command_line() {
+    fn mapping_protocol_is_just_blank_if_no_data_in_database() {
         let subject = MappingProtocol {};
         let persistent_config =
             PersistentConfigurationMock::default().mapping_protocol_result(Ok(None));
@@ -2803,7 +2791,7 @@ mod tests {
     }
 
     #[test]
-    fn mapping_protocol_is_configured_if_data_in_database_and_no_command_line() {
+    fn mapping_protocol_is_configured_if_data_in_database() {
         let subject = MappingProtocol {};
         let persistent_config = PersistentConfigurationMock::default()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
@@ -2812,19 +2800,6 @@ mod tests {
         let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
 
         assert_eq!(result, Some(("pmp".to_string(), Configured)))
-    }
-
-    #[test]
-    fn mapping_protocol_is_configured_if_no_database_but_bootstrapper_config_contains_some_value() {
-        let subject = MappingProtocol {};
-        let persistent_config =
-            PersistentConfigurationMock::default().mapping_protocol_result(Ok(None));
-        let mut bootstrapper_config = BootstrapperConfig::new();
-        bootstrapper_config.mapping_protocol_opt = Some(AutomapProtocol::Pcp);
-
-        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
-
-        assert_eq!(result, Some(("pcp".to_string(), Configured)))
     }
 
     #[test]

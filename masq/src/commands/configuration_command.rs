@@ -162,7 +162,7 @@ impl ConfigurationCommand {
     fn preprocess_combined_parameters(serializable: impl Serialize) -> Vec<String> {
         let jason = serde_json::to_value(serializable).expectv("serializable object");
         if let Value::Object(map) = jason {
-            once(String::from("\n"))
+            once(String::from(""))
                 .chain(map.into_iter().map(|(name, value)| {
                     let mut char_vec = vec![];
                     name.chars().for_each(|char| {
@@ -338,19 +338,19 @@ mod tests {
 |Start block:                      3456\n\
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
-|Payment curves:                   \n
+|Payment curves:                   \n\
 |                                  Balance decreases for sec:       11111\n\
 |                                  Balance to decrease from gwei:   1212\n\
 |                                  Payment grace before ban sec:    4578\n\
 |                                  Payment suggested after sec:     3333\n\
 |                                  Permanent debt allowed gwei:     11222\n\
 |                                  Unban when balance below gwei:   12000\n\
-|Rate pack:                        \n
+|Rate pack:                        \n\
 |                                  Exit byte rate:                  12\n\
 |                                  Exit service rate:               14\n\
 |                                  Routing byte rate:               8\n\
 |                                  Routing service rate:            9\n\
-|Scan intervals:                   \n
+|Scan intervals:                   \n\
 |                                  Payable sec:                     155\n\
 |                                  Pending payable sec:             150\n\
 |                                  Receivable sec:                  250\n"
@@ -433,19 +433,19 @@ mod tests {
 |Port mapping protocol:            PCP\n\
 |Start block:                      3456\n\
 |Past neighbors:                   [?]\n\
-|Payment curves:                   \n
+|Payment curves:                   \n\
 |                                  Balance decreases for sec:       1000\n\
 |                                  Balance to decrease from gwei:   2500\n\
 |                                  Payment grace before ban sec:    666\n\
 |                                  Payment suggested after sec:     500\n\
 |                                  Permanent debt allowed gwei:     1200\n\
 |                                  Unban when balance below gwei:   1400\n\
-|Rate pack:                        \n
+|Rate pack:                        \n\
 |                                  Exit byte rate:                  20\n\
 |                                  Exit service rate:               30\n\
 |                                  Routing byte rate:               15\n\
 |                                  Routing service rate:            17\n\
-|Scan intervals:                   \n
+|Scan intervals:                   \n\
 |                                  Payable sec:                     1000\n\
 |                                  Pending payable sec:             1000\n\
 |                                  Receivable sec:                  1000\n",

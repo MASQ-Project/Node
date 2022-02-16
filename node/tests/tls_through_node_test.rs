@@ -14,6 +14,7 @@ use std::thread;
 use std::time::Duration;
 
 #[test]
+#[ignore]
 fn tls_through_node_integration() {
     let _node = utils::MASQNode::start_standard(
         "tls_through_node_integration",
