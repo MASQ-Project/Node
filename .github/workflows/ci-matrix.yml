@@ -41,6 +41,7 @@ jobs:
           ./node/ci/build.sh
           ./masq/ci/build.sh
           ./masq/ci/integration_tests.sh
+          ./ci/collect_results.sh
         shell: bash
       - name: Publish ${{ matrix.os }}
         uses: actions/upload-artifact@v1

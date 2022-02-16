@@ -58,5 +58,5 @@ fn masq_terminates_because_of_an_interrupt_signal_integration() {
         //____________________________________
         //the underlined piece of this string shows what linefeed would print
     );
-    daemon_handle.kill()
+    daemon_handle.kill();
 }

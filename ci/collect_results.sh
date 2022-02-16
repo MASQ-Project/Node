@@ -47,6 +47,7 @@ sudo_ask rm -rf generated
 mkdir generated
 sudo_ask cp -R ../node/generated generated/node || echo "No results from MASQ Node"
 cp -R ../dns_utility/generated generated/dns_utility || echo "No results from dns_utility"
+cp -R ../masq/generated generated/masq || echo "No results from masq"
 cp -R ../multinode_integration_tests/generated generated/multinode_integration_tests || echo "No results from multinode integration tests"
 copy_binaries
 sudo_ask tar -czvf generated.tar.gz generated/*

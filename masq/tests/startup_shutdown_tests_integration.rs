@@ -91,6 +91,9 @@ fn masq_terminates_based_on_loss_of_connection_to_the_daemon_integration() {
     );
 }
 
+// TODO: Write a test to make sure that if you demand a descriptor from the Node before it has a
+// descriptor ready, the Node returns an error message and keeps running.
+
 #[test]
 fn handles_startup_and_shutdown_integration() {
     let dir_path = ensure_node_home_directory_exists(
@@ -98,17 +101,21 @@ fn handles_startup_and_shutdown_integration() {
         "handles_startup_and_shutdown_integration",
     );
     let port = find_free_port();
+eprintln! ("Starting Daemon");
     let daemon_handle = DaemonProcess::new().start(port);
     thread::sleep(Duration::from_millis(200));
 
+eprintln! ("Executing setup command");
     let masq_handle = MasqProcess::new().start_noninteractive(vec![
         "--ui-port",
         &port.to_string(),
         "setup",
         "--log-level",
-        "error",
-        "--neighborhood-mode",
-        "zero-hop",
+        "trace",
+        "--ip",
+        "1.2.3.4",
+        // "--neighborhood-mode",
+        // "zero-hop",
         "--data-directory",
         dir_path.to_str().unwrap(),
     ]);
@@ -117,12 +124,14 @@ fn handles_startup_and_shutdown_integration() {
 
     assert_eq!(&stderr, "", "setup phase: {}", stderr);
     assert_eq!(
-        stdout.contains("neighborhood-mode      zero-hop"),
+        stdout.contains("log-level              trace"),
         true,
         "{}",
         stdout
     );
     assert_eq!(exit_code.unwrap(), 0);
+eprintln! ("Setup command complete");
+eprintln! ("Executing start command");
     let masq_handle =
         MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "start"]);
 
@@ -136,13 +145,21 @@ fn handles_startup_and_shutdown_integration() {
         stdout
     );
     assert_eq!(exit_code.unwrap(), 0);
+eprintln! ("Start command complete; waiting for Node to create a descriptor");
+    thread::sleep(Duration::from_millis(10000));
 
+eprintln! ("Executing descriptor command");
     let masq_handle =
         MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "descriptor"]);
-    let (_stdout, _stderr, exit_code) = masq_handle.stop();
+eprintln! ("Descriptor command running");
+    let (stdout, stderr, exit_code) = masq_handle.stop();
+eprintln! ("Descriptor command complete; stdout = '{}', stderr = '{}'", stdout, stderr);
     assert_eq!(exit_code.unwrap(), 0);
+eprintln! ("Descriptor command succeeded");
 
+eprintln! ("Killing the Daemon");
     let (stdout, stderr, _) = daemon_handle.kill();
+eprintln! ("Daemon is dead");
     assert_eq!(&stderr, "boogety", "Daemon stderr: {}", stderr);
     assert_eq!(&stdout, "boogety", "Daemon stdout: {}", stdout);
 

@@ -126,11 +126,16 @@ impl StopHandle {
     }
 
     pub fn kill(mut self) -> (String, String, Option<i32>) {
+eprintln! ("About to call child.kill()");
         self.child.kill().unwrap();
+eprintln! ("child.kill() complete");
 
         #[cfg(target_os = "windows")]
         Self::taskkill();
-        self.stop()
+eprintln! ("About to call self.stop()");
+        let result = self.stop();
+eprintln! ("self.stop() complete");
+        result
     }
 
     #[cfg(target_os = "windows")]
