@@ -94,6 +94,7 @@ fn masq_terminates_based_on_loss_of_connection_to_the_daemon_integration() {
 // TODO: Write a test to make sure that if you demand a descriptor from the Node before it has a
 // descriptor ready, the Node returns an error message and keeps running.
 
+#[ignore]
 #[test]
 fn handles_startup_and_shutdown_integration() {
     let dir_path = ensure_node_home_directory_exists(
