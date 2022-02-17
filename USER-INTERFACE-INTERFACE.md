@@ -405,10 +405,10 @@ database password. If you want to know whether the password you have is the corr
   try to connect to when it starts up next time.  It's a secret, so if you don't supply the `dbPasswordOpt` in the
   request you won't see it.
 
-* `paymentCurves`: These are parameters that define the Node's regard of quality of financial records created from interaction with
-  other Nodes. The goal is to determine whether the records have crossed a boarder saying that a certain action needs to be taken 
-  - either to make a payment to the respective Nodes in order to pay our debts or put them into ban since they've ignored their
-  liabilities to us. These are ever present values, no matter if the user's set any value, they have defaults.
+* `paymentCurves`: These are parameters that define the Node's regard to quality of financial records created during interaction with
+  other Nodes. The goal is to determine whether the records have crossed boarders meaning that a certain action needs to be taken 
+  - either to make a payment to the touched Nodes in order to redeem our debts or put those Nodes under ban since they've too long 
+  ignored their liabilities toward us. These are ever present values, no matter if the user's set any value, they have defaults.
 
 * `balanceDecreasesForSec`: This interval begins after payment_suggested_after_sec for payables and after 
   payment_suggested_after_sec + payment_grace_before_ban for receivables. During the interval, the amount of a payable that is allowed
@@ -430,7 +430,7 @@ database password. If you want to know whether the password you have is the corr
 * `unbanWhenBalanceBelowGwei`: When a delinquent Node has been banned, the receivables causing the ban must be paid below this level to
   cause them to be unbanned. In most cases, you'll want this to be set the same as permanent_debt_allowed_gwei.
 
-* `ratePack`: These four parameters set your rates which you wish to be used for charging other Nodes for providing them your services.
+* `ratePack`: These four parameters specify your rates that you wish to be used for charging other Nodes for your provided services.
   They are currently denominated in Gwei, but we've been planning a transition to Wei units. These are ever present values, no matter if
   the user's set any value, they have defaults.  
 
@@ -446,18 +446,21 @@ database password. If you want to know whether the password you have is the corr
 * `routingServiceRate`: This parameter indicates an amount of MASQ demanded to provide services, unpacking and repacking 1 CORES
   package, while the Node is a common relay Node.
 
-* `scanIntervals`: These three intervals describe the length of scan cycles running automatically in the background started by the moment
-  the Node's is connected to a qualified neighborhood, understand a neighborhood consisting of enough neighbors to make a route.
-  Each parameter can be set independently but by default they are all the same which may be what you also want. These are ever present values,
-  no matter if the user's set any value, they have defaults.
+* `scanIntervals`: These three intervals describe the length of three different scan cycles running automatically in the background since
+  the Node's become connected to a qualified neighborhood, understand a neighborhood consisting of neighbors enabling a complete route.
+  Each parameter can be set independently but by default they all are the same which may also be what you want. Technically, there doesn't 
+  have to be any lower limit for the minimum of time you can set; two scans of the same sort would never run at the same time but the next one 
+  is always scheduled not earlier than the end of the previous one (but the time elapsed may be a bit longer due to placing another, different
+  task in between, because that could be created during the waiting period, and thus it factually goes before the second scan). These are ever
+  present values, no matter if the user's set any value, they have defaults.
 
 * `pendingPayableSec`: Amount of seconds between two sequential cycles of scanning for payments that are marked as currently
   pending; the payments were sent to pay our debts, the payable. The purpose of this process is to confirm that the payment was written
   into the blockchain or failed.
 
-* `payableSec`: Amount of seconds between two sequential cycles of scanning pointed to payable accounts of certain parameters; these 
-  accounts are tracked on behalf of our creditors. If they qualify with enough big significance of the debt we let the debt be paid by
-  sending a transaction to the corresponding creditor's wallet.
+* `payableSec`: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts of certain parameters; these 
+  accounts are tracked on behalf of our creditors. If they qualify by enough big significance of time or money amount we have the debt be
+  paid by sending a transaction to the creditor in question.
 
 * `receivableSec`: Amount of seconds between two sequential cycles of scanning for payments on the blockchain that have been sent
   by our creditors to us, they pay for our services this way.
