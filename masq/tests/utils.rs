@@ -125,13 +125,8 @@ impl StopHandle {
         self.child.id()
     }
 
-    pub fn kill(mut self) -> (String, String, Option<i32>) {
-eprintln! ("About to call child.kill()");
-        self.child.kill().unwrap();
-eprintln! ("child.kill() complete");
-
-        #[cfg(target_os = "windows")]
-        Self::taskkill();
+    pub fn kill(self) -> (String, String, Option<i32>) {
+        self.os_kill(); // Child.kill() is not reliable on Windows or Linux
 eprintln! ("About to call self.stop()");
         let result = self.stop();
 eprintln! ("self.stop() complete");
@@ -139,10 +134,18 @@ eprintln! ("self.stop() complete");
     }
 
     #[cfg(target_os = "windows")]
-    pub fn taskkill() {
+    pub fn os_kill(&self) {
         let mut command = Command::new("taskkill");
         command.args(&["/IM", "MASQNode.exe", "/F", "/T"]);
         let _ = command.output().expect("Couldn't kill MASQNode.exe");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    pub fn os_kill(&self) {
+        let mut command = Command::new("kill");
+        command.args([self.child.id().to_string().as_str()]);
+eprintln! ("Using OS to kill Daemon at {}", self.child.id());
+        let _ = command.output().expect("Couldn't kill MASQNode");
     }
 }
 

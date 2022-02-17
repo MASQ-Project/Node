@@ -277,11 +277,12 @@ impl Daemon {
             self.send_ui_message(
                 UiNodeCrashedBroadcast {
                     process_id: msg.process_id,
-                    crash_reason: msg.analyze(),
+                    crash_reason: msg.analyze().clone(),
                 }
                 .tmb(0),
                 MessageTarget::AllClients,
             );
+            error!(self.logger, "Node at {} crashed: {:?}", msg.process_id, msg.analyze());
         }
     }
 
@@ -453,6 +454,7 @@ mod tests {
     use std::collections::HashSet;
     use std::iter::FromIterator;
     use std::sync::{Arc, Mutex};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     struct LauncherMock {
         launch_params: Arc<Mutex<Vec<(HashMap<String, String>, Recipient<CrashNotification>)>>>,
@@ -1574,6 +1576,7 @@ mod tests {
 
     #[test]
     fn accepts_crash_notification_when_not_in_setup_mode_and_sends_ui_notification() {
+        init_test_logging();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new("test");
         let verifier_tools = VerifierToolsMock::new();
@@ -1630,6 +1633,7 @@ mod tests {
                 )),
             }
         );
+        TestLogHandler::new().exists_log_containing("ERROR: Daemon: Node at 54321 crashed: Unrecognized(\"Standard error\")");
     }
 
     #[test]

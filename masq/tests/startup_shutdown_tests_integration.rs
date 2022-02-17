@@ -134,8 +134,11 @@ eprintln! ("Setup command complete");
 eprintln! ("Executing start command");
     let masq_handle =
         MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "start"]);
+eprintln! ("Start command complete");
 
+eprintln! ("Waiting for start command to finish");
     let (stdout, stderr, exit_code) = masq_handle.stop();
+eprintln! ("Start command stopped:\nSTDOUT\n{}\nSTDERR\n{}\nEXIT CODE: {:?}", stdout, stderr, exit_code);
 
     assert_eq!(&stderr, "", "start phase: {}", stderr);
     assert_eq!(
@@ -145,37 +148,28 @@ eprintln! ("Executing start command");
         stdout
     );
     assert_eq!(exit_code.unwrap(), 0);
-eprintln! ("Start command complete; waiting for Node to create a descriptor");
-    thread::sleep(Duration::from_millis(10000));
+eprintln! ("Start command complete; waiting for Node to finish startup");
+    thread::sleep(Duration::from_millis(5000));
 
-eprintln! ("Executing descriptor command");
+eprintln! ("Executing shutdown command");
     let masq_handle =
-        MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "descriptor"]);
-eprintln! ("Descriptor command running");
+        MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "shutdown"]);
+eprintln! ("Shutdown command complete");
+
+eprintln! ("Waiting for shutdown command to finish");
     let (stdout, stderr, exit_code) = masq_handle.stop();
-eprintln! ("Descriptor command complete; stdout = '{}', stderr = '{}'", stdout, stderr);
+eprintln! ("Start command stopped:\nSTDOUT\n{}\nSTDERR\n{}\nEXIT CODE: {:?}", stdout, stderr, exit_code);
+
+    assert_eq!(&stderr, "", "shutdown phase: {}", stderr);
+    assert_eq!(
+        stdout.contains("MASQNode was instructed to shut down and has broken its connection"),
+        true,
+        "{}",
+        stdout
+    );
     assert_eq!(exit_code.unwrap(), 0);
-eprintln! ("Descriptor command succeeded");
 
-eprintln! ("Killing the Daemon");
-    let (stdout, stderr, _) = daemon_handle.kill();
-eprintln! ("Daemon is dead");
-    assert_eq!(&stderr, "boogety", "Daemon stderr: {}", stderr);
-    assert_eq!(&stdout, "boogety", "Daemon stdout: {}", stdout);
-
-    // let masq_handle =
-    //     MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "shutdown"]);
-    //
-    // let (stdout, stderr, exit_code) = masq_handle.stop();
-    //
-    // assert_eq!(&stderr, "", "shutdown phase: {}", stderr);
-    // assert_eq!(
-    //     stdout.contains("MASQNode was instructed to shut down and has broken its connection"),
-    //     true,
-    //     "{}",
-    //     stdout
-    // );
-    // assert_eq!(exit_code.unwrap(), 0);
-    //
-    // let (stdout, stderr, exit_code) = daemon_handle.kill();
+eprintln! ("Killing Daemon");
+    let (stdout, stderr, exit_code) = daemon_handle.kill();
+eprintln! ("Daemon killed\nSTDOUT\n{}\nSTDERR\n{}\nEXIT CODE: {:?}", stdout, stderr, exit_code);
 }

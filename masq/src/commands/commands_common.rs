@@ -31,7 +31,7 @@ impl Display for CommandError {
             Transmission(s) => format!("Transmission problem: {}", s),
             Reception(s) => format!("Reception problem: {}", s),
             UnexpectedResponse(e) => format!("{}", e),
-            Payload(code, s) => format!("{} (Code {})", s, code),
+            Payload(code, s) => format!("{} (Code {:X})", s, code),
             Other(s) => s.to_string(),
         };
         write!(f, "{}", msg)
