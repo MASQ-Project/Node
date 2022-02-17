@@ -175,7 +175,7 @@ mod tests {
                         "masq://eth-mainnet:95VjByq5tEUUpDcczA__zXWGE6-7YFEvzN4CDVoPbWw@13.23.13.23:4545",
                         Set,
                     ),
-                    UiSetupResponseValue::new("pending-payable-scan-interval","123",Set)
+                    UiSetupResponseValue::new("scan-intervals","123|111|228",Set)
                 ],
                 errors: vec![],
             }
@@ -191,8 +191,8 @@ mod tests {
                 "--log-level".to_string(),
                 "--chain".to_string(),
                 "eth-ropsten".to_string(),
-                "--pending-payable-scan-interval".to_string(),
-                "123".to_string(),
+                "--scan-intervals".to_string(),
+                "123|111|228".to_string(),
             ])
             .unwrap();
 
@@ -211,7 +211,7 @@ mod tests {
                         ),
                         UiSetupRequestValue::clear("log-level"),
                         UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
-                        UiSetupRequestValue::new("pending-payable-scan-interval", "123")
+                        UiSetupRequestValue::new("scan-intervals", "123|111|228")
                     ]
                 }
                 .tmb(0),
@@ -223,7 +223,7 @@ mod tests {
 chain                         eth-ropsten                                                      Configured\n\
 neighborhood-mode             zero-hop                                                         Set\n\
 neighbors                     masq://eth-mainnet:95VjByq5tEUUpDcczA__zXWGE6-7YFEvzN4CDVoPbWw@13.23.13.23:4545 Set\n\
-pending-payable-scan-interval 123                                                              Set\n\
+scan-intervals                123|111|228                                                      Set\n\
 \n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
