@@ -5,7 +5,6 @@ pub mod channel_wrapper_mocks;
 pub mod automap_mocks;
 pub mod data_hunk;
 pub mod data_hunk_framer;
-#[cfg(test)]
 pub mod database_utils;
 pub mod little_tcp_server;
 pub mod logfile_name_guard;
@@ -504,15 +503,17 @@ pub struct TestRawTransaction {
 
 #[cfg(test)]
 pub mod unshared_test_utils {
+    use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::apps::app_node;
     use crate::daemon::ChannelFactory;
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::AccountantConfig;
+    use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use actix::Message;
     use actix::{Actor, Addr, Context, Handler, System};
+    use actix::{Message, SpawnHandle};
     use crossbeam_channel::{Receiver, Sender};
     use masq_lib::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
@@ -523,6 +524,7 @@ pub mod unshared_test_utils {
     use std::collections::HashMap;
     use std::num::ParseIntError;
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
 
@@ -592,6 +594,7 @@ pub mod unshared_test_utils {
         AccountantConfig {
             scan_intervals: *DEFAULT_SCAN_INTERVALS,
             payment_curves: *DEFAULT_PAYMENT_CURVES,
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         }
     }
 
@@ -599,6 +602,7 @@ pub mod unshared_test_utils {
         AccountantConfig {
             scan_intervals: Default::default(),
             payment_curves: Default::default(),
+            when_pending_too_long_sec: Default::default(),
         }
     }
 
@@ -694,8 +698,8 @@ pub mod unshared_test_utils {
     impl Handler<CleanUpMessage> for DummyActor {
         type Result = ();
 
-        fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
-            thread::sleep(Duration::from_millis(1500));
+        fn handle(&mut self, msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
+            thread::sleep(Duration::from_millis(msg.sleep_ms));
             if let Some(sender) = &self.system_stop_signal_opt {
                 let _ = sender.send(());
             };
@@ -708,6 +712,77 @@ pub mod unshared_test_utils {
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
             .collect()
+    }
+
+    pub struct NotifyLaterHandleMock<T> {
+        notify_later_params: Arc<Mutex<Vec<(T, Duration)>>>, //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself
+    }
+
+    impl<T: Message> Default for NotifyLaterHandleMock<T> {
+        fn default() -> Self {
+            Self {
+                notify_later_params: Arc::new(Mutex::new(vec![])),
+            }
+        }
+    }
+
+    impl<T: Message> NotifyLaterHandleMock<T> {
+        pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(T, Duration)>>>) -> Self {
+            self.notify_later_params = params.clone();
+            self
+        }
+    }
+
+    impl<T: Message + Clone> NotifyLaterHandle<T> for NotifyLaterHandleMock<T> {
+        fn notify_later<'a>(
+            &'a self,
+            msg: T,
+            interval: Duration,
+            mut closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
+        ) -> SpawnHandle {
+            self.notify_later_params
+                .lock()
+                .unwrap()
+                .push((msg.clone(), interval));
+            if !cfg!(test) {
+                panic!("this shouldn't run outside a test")
+            }
+            closure(msg, interval)
+        }
+    }
+
+    pub struct NotifyHandleMock<T> {
+        //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself as the subject
+        notify_params: Arc<Mutex<Vec<T>>>,
+        pub do_you_want_to_proceed_after: bool,
+    }
+
+    impl<T: Message> Default for NotifyHandleMock<T> {
+        fn default() -> Self {
+            Self {
+                notify_params: Arc::new(Mutex::new(vec![])),
+                do_you_want_to_proceed_after: false,
+            }
+        }
+    }
+
+    impl<T: Message> NotifyHandleMock<T> {
+        pub fn notify_params(mut self, params: &Arc<Mutex<Vec<T>>>) -> Self {
+            self.notify_params = params.clone();
+            self
+        }
+    }
+
+    impl<T: Message + Clone> NotifyHandle<T> for NotifyHandleMock<T> {
+        fn notify<'a>(&'a self, msg: T, mut closure: Box<dyn FnMut(T) + 'a>) {
+            self.notify_params.lock().unwrap().push(msg.clone());
+            if !cfg!(test) {
+                panic!("this shouldn't run outside a test")
+            }
+            if self.do_you_want_to_proceed_after {
+                closure(msg)
+            }
+        }
     }
 }
 

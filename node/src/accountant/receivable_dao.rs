@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{jackass_unsigned_to_signed, PaymentError};
+use crate::accountant::unsigned_to_signed;
 use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -17,19 +17,14 @@ use std::time::SystemTime;
 
 #[derive(Debug, PartialEq)]
 pub enum ReceivableDaoError {
+    SignConversion(u64),
     ConfigurationError(String),
-    Other(String),
+    RusqliteError(String),
 }
 
 impl From<PersistentConfigError> for ReceivableDaoError {
     fn from(input: PersistentConfigError) -> Self {
         ReceivableDaoError::ConfigurationError(format!("{:?}", input))
-    }
-}
-
-impl From<String> for ReceivableDaoError {
-    fn from(input: String) -> Self {
-        ReceivableDaoError::Other(input)
     }
 }
 
@@ -41,7 +36,8 @@ pub struct ReceivableAccount {
 }
 
 pub trait ReceivableDao: Send {
-    fn more_money_receivable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError>;
+    fn more_money_receivable(&self, wallet: &Wallet, amount: u64)
+        -> Result<(), ReceivableDaoError>;
 
     fn more_money_received(&mut self, transactions: Vec<Transaction>);
 
@@ -78,8 +74,13 @@ pub struct ReceivableDaoReal {
 }
 
 impl ReceivableDao for ReceivableDaoReal {
-    fn more_money_receivable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError> {
-        let signed_amount = jackass_unsigned_to_signed(amount)?;
+    fn more_money_receivable(
+        &self,
+        wallet: &Wallet,
+        amount: u64,
+    ) -> Result<(), ReceivableDaoError> {
+        let signed_amount =
+            unsigned_to_signed(amount).map_err(ReceivableDaoError::SignConversion)?;
         match self.try_update(wallet, signed_amount) {
             Ok(true) => Ok(()),
             Ok(false) => match self.try_insert(wallet, signed_amount) {
@@ -210,8 +211,8 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
-        let min_amt = jackass_unsigned_to_signed(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
-        let max_age = jackass_unsigned_to_signed(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+        let min_amt = unsigned_to_signed(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+        let max_age = unsigned_to_signed(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
         let min_timestamp = dao_utils::now_time_t() - max_age;
         let mut stmt = self
             .conn
@@ -318,19 +319,19 @@ impl ReceivableDaoReal {
     ) -> Result<(), ReceivableDaoError> {
         let tx = match self.conn.transaction() {
             Ok(t) => t,
-            Err(e) => return Err(ReceivableDaoError::Other(e.to_string())),
+            Err(e) => return Err(ReceivableDaoError::RusqliteError(e.to_string())),
         };
 
         let block_number = payments
             .iter()
             .map(|t| t.block_number)
             .max()
-            .ok_or_else(|| "no payments given".to_string())?;
+            .expect("we should have minimally one payment here");
 
         let mut writer = ConfigDaoWriteableReal::new(tx);
         match writer.set("start_block", Some(block_number.to_string())) {
             Ok(_) => (),
-            Err(e) => return Err(ReceivableDaoError::Other(format!("{:?}", e))),
+            Err(e) => return Err(ReceivableDaoError::RusqliteError(format!("{:?}", e))),
         }
         let tx = writer
             .extract()
@@ -341,22 +342,18 @@ impl ReceivableDaoReal {
                 .expect ("Internal SQL error");
             for transaction in payments {
                 let timestamp = dao_utils::now_time_t();
-                let gwei_amount = match jackass_unsigned_to_signed(transaction.gwei_amount) {
+                let gwei_amount = match unsigned_to_signed(transaction.gwei_amount) {
                     Ok(amount) => amount,
-                    Err(e) => {
-                        return Err(ReceivableDaoError::Other(format!(
-                            "Amount too large: {:?}",
-                            e
-                        )))
-                    }
+                    Err(e) => return Err(ReceivableDaoError::SignConversion(e)),
                 };
                 let params: &[&dyn ToSql] = &[&gwei_amount, &timestamp, &transaction.from];
-                stmt.execute(params).map_err(|e| e.to_string())?;
+                stmt.execute(params)
+                    .map_err(|e| ReceivableDaoError::RusqliteError(e.to_string()))?;
             }
         }
         match tx.commit() {
             // Error response is untested here, because without a mockable Transaction, it's untestable.
-            Err(e) => Err(ReceivableDaoError::Other(format!("{:?}", e))),
+            Err(e) => Err(ReceivableDaoError::RusqliteError(format!("{:?}", e))),
             Ok(_) => Ok(()),
         }
     }
@@ -409,13 +406,6 @@ mod tests {
     }
 
     #[test]
-    fn conversion_from_string_works() {
-        let subject = ReceivableDaoError::from("booga".to_string());
-
-        assert_eq!(subject, ReceivableDaoError::Other("booga".to_string()));
-    }
-
-    #[test]
     fn try_multi_insert_payment_handles_error_of_number_sign_check() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
@@ -436,9 +426,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(ReceivableDaoError::Other(
-                "Amount too large: SignConversion(18446744073709551615)".to_string()
-            ))
+            Err(ReceivableDaoError::SignConversion(18446744073709551615))
         )
     }
 
@@ -467,7 +455,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(ReceivableDaoError::Other(
+            Err(ReceivableDaoError::RusqliteError(
                 "DatabaseError(\"no such table: config\")".to_string()
             ))
         )
@@ -586,7 +574,7 @@ mod tests {
 
         let result = subject.more_money_receivable(&make_wallet("booga"), u64::MAX);
 
-        assert_eq!(result, Err(PaymentError::SignConversion(u64::MAX)))
+        assert_eq!(result, Err(ReceivableDaoError::SignConversion(u64::MAX)))
     }
 
     #[test]
@@ -643,7 +631,6 @@ mod tests {
         let timestamp2 = dao_utils::to_time_t(status2.last_received_timestamp);
         assert!(timestamp2 >= before);
         assert!(timestamp2 <= dao_utils::to_time_t(SystemTime::now()));
-
         let config_dao = ConfigDaoReal::new(
             DbInitializerReal::default()
                 .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -683,7 +670,6 @@ mod tests {
     #[test]
     fn more_money_received_logs_when_transaction_fails() {
         init_test_logging();
-
         let conn_mock =
             ConnectionWrapperMock::default().transaction_result(Err(Error::InvalidQuery));
         let mut receivable_dao = ReceivableDaoReal::new(Box::new(conn_mock));
@@ -708,35 +694,13 @@ mod tests {
         receivable_dao.more_money_received(payments);
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: Other(\"Query is not read-only\")\n\
+            "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: RusqliteError(\"Query is not read-only\")\n\
             Block #    Wallet                                     Amount            \n\
             1234567890 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 123456789123456789\n\
             2345678901 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 234567891234567891\n\
             3456789012 0xcccccccccccccccccccccccccccccccccccccccc 345678912345678912\n\
             TOTAL                                                 703703592703703592"
         ));
-    }
-
-    #[test]
-    fn more_money_received_logs_when_no_payment_are_given() {
-        init_test_logging();
-
-        let home_dir = ensure_node_home_directory_exists(
-            "receivable_dao",
-            "more_money_received_logs_when_no_payment_are_given",
-        );
-
-        let mut receivable_dao = ReceivableDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
-                .unwrap(),
-        );
-
-        receivable_dao.more_money_received(vec![]);
-
-        TestLogHandler::new().exists_log_containing(
-            "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: Other(\"no payments given\")",
-        );
     }
 
     #[test]
@@ -766,7 +730,6 @@ mod tests {
         let wallet1 = make_wallet("wallet1");
         let wallet2 = make_wallet("wallet2");
         let time_stub = SystemTime::now();
-
         let subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
                 .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -784,7 +747,6 @@ mod tests {
                 ..r
             })
             .collect::<Vec<ReceivableAccount>>();
-
         assert_eq!(
             vec![
                 ReceivableAccount {
@@ -1063,7 +1025,6 @@ mod tests {
             1_000_000_001, // above minimum amount
             timestamp4,    // below maximum age
         );
-
         let subject = ReceivableDaoReal::new(conn);
 
         let top_records = subject.top_records(1_000_000_000, 86400);

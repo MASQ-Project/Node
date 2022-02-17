@@ -91,6 +91,7 @@ fn masq_terminates_based_on_loss_of_connection_to_the_daemon_integration() {
     );
 }
 
+#[ignore]
 #[test]
 fn handles_startup_and_shutdown_integration() {
     let dir_path = ensure_node_home_directory_exists(

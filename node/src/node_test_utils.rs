@@ -281,10 +281,10 @@ pub fn make_stream_handler_pool_subs_from(
         None => Recorder::new(),
     };
     let addr = recorder.start();
-    make_stream_handler_pool_subs_from_an_addr(addr)
+    make_stream_handler_pool_subs_from_recorder(&addr)
 }
 
-pub fn make_stream_handler_pool_subs_from_an_addr(addr: Addr<Recorder>) -> StreamHandlerPoolSubs {
+pub fn make_stream_handler_pool_subs_from_recorder(addr: &Addr<Recorder>) -> StreamHandlerPoolSubs {
     StreamHandlerPoolSubs {
         add_sub: recipient!(addr, AddStreamMsg),
         transmit_sub: recipient!(addr, TransmitDataMsg),

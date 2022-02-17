@@ -1025,7 +1025,7 @@ mod tests {
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
+    use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
         make_persistent_config_real_with_config_dao_null,
@@ -1951,8 +1951,7 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_does_not_support_database_migration",
         );
-        let conn =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, "0");
@@ -2064,8 +2063,7 @@ mod tests {
         let current_default_gas_price = DEFAULT_GAS_PRICE;
         let gas_price_to_be_in_the_real_db = current_default_gas_price + 55;
         let gas_price_for_set_attempt = current_default_gas_price + 66;
-        let conn =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         conn.execute(
             "update config set value = ? where name = 'gas_price'",
             [&gas_price_to_be_in_the_real_db],

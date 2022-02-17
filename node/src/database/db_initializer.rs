@@ -157,6 +157,7 @@ impl DbInitializerReal {
         self.create_config_table(conn);
         self.initialize_config(conn, external_params);
         self.create_payable_table(conn);
+        self.create_pending_payable_table(conn);
         self.create_receivable_table(conn);
         self.create_banned_table(conn);
     }
@@ -164,20 +165,14 @@ impl DbInitializerReal {
     fn create_config_table(&self, conn: &Connection) {
         conn.execute(
             "create table if not exists config (
-                name text not null,
-                value text,
-                encrypted integer not null
-            )",
+                    name text primary key,
+                    value text,
+                    encrypted integer not null
+           )",
             [],
         )
         .expect("Can't create config table");
-        conn.execute(
-            "create unique index if not exists idx_config_name on config (name)",
-            [],
-        )
-        .expect("Can't create config name index");
     }
-
     fn initialize_config(&self, conn: &Connection, external_params: ExternalData) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
@@ -283,39 +278,49 @@ impl DbInitializerReal {
         );
     }
 
+    fn create_pending_payable_table(&self, conn: &Connection) {
+        conn.execute(
+            "create table if not exists pending_payable (
+                    rowid integer primary key,
+                    transaction_hash text not null,
+                    amount integer not null,
+                    payable_timestamp integer not null,
+                    attempt integer not null,
+                    process_error text null
+            )",
+            [],
+        )
+        .expect("Can't create pending_payable table");
+        conn.execute(
+            "CREATE UNIQUE INDEX pending_payable_hash_idx ON pending_payable (transaction_hash)",
+            [],
+        )
+        .expect("Can't create transaction hash index in pending payments");
+    }
+
     fn create_payable_table(&self, conn: &Connection) {
         conn.execute(
             "create table if not exists payable (
-                wallet_address text primary key,
-                balance integer not null,
-                last_paid_timestamp integer not null,
-                pending_payment_transaction text null
+                    wallet_address text primary key,
+                    balance integer not null,
+                    last_paid_timestamp integer not null,
+                    pending_payable_rowid integer null
             )",
             [],
         )
         .expect("Can't create payable table");
-        conn.execute(
-            "create unique index if not exists idx_payable_wallet_address on payable (wallet_address)",
-            [],
-        )
-        .expect("Can't create payable wallet_address index");
     }
 
     fn create_receivable_table(&self, conn: &Connection) {
         conn.execute(
             "create table if not exists receivable (
-                wallet_address text primary key,
-                balance integer not null,
-                last_received_timestamp integer not null
+                    wallet_address text primary key,
+                    balance integer not null,
+                    last_received_timestamp integer not null
             )",
             [],
         )
         .expect("Can't create receivable table");
-        conn.execute(
-            "create unique index if not exists idx_receivable_wallet_address on receivable (wallet_address)",
-            [],
-        )
-        .expect("Can't create receivable wallet_address index");
     }
 
     fn create_banned_table(&self, conn: &Connection) {
@@ -324,11 +329,6 @@ impl DbInitializerReal {
             [],
         )
         .expect("Can't create banned table");
-        conn.execute(
-            "create unique index idx_banned_wallet_address on banned (wallet_address)",
-            [],
-        )
-        .expect("Can't create banned wallet_address index");
     }
 
     fn extract_configurations(&self, conn: &Connection) -> HashMap<String, (Option<String>, bool)> {
@@ -339,7 +339,7 @@ impl DbInitializerReal {
             Ok((
                 row.get(0),
                 row.get(1),
-                (row.get(2).map(|encrypted: i64| encrypted > 0)),
+                row.get(2).map(|encrypted: i64| encrypted > 0),
             ))
         });
         match query_result {
@@ -427,7 +427,7 @@ impl DbInitializerReal {
         if found_schema.eq(&target_version) {
             Box::new(ConnectionWrapperReal::new(conn))
         } else {
-            panic!("DB migration failed; the resulting records are still incorrect")
+            panic!("DB migration failed, the resulting records are still incorrect; found schema {} but expecting {}", found_schema,target_version)
         }
     }
 
@@ -610,15 +610,18 @@ mod tests {
     use super::*;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
     use crate::test_utils::database_utils::{
-        bring_db_of_version_0_back_to_life_and_return_connection, retrieve_config_row,
-        DbMigratorMock,
+        assert_create_table_statement_contains_all_important_parts,
+        assert_index_statement_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
+        bring_db_0_back_to_life_and_return_connection, retrieve_config_row, DbMigratorMock,
     };
     use itertools::Itertools;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
         TEST_DEFAULT_CHAIN,
     };
+    use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::{Error, OpenFlags};
     use std::fs::File;
     use std::io::{Read, Write};
@@ -667,6 +670,71 @@ mod tests {
     }
 
     #[test]
+    fn db_initialize_creates_config_table() {
+        let home_dir = ensure_node_home_directory_does_not_exist(
+            "db_initializer",
+            "db_initialize_creates_config_table",
+        );
+        let subject = DbInitializerReal::default();
+
+        let conn = subject
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+
+        let mut stmt = conn
+            .prepare("select name, value, encrypted from config")
+            .unwrap();
+        let _ = stmt.query_map([], |_| Ok(42)).unwrap();
+        let expected_key_words = [
+            ["name", "text", "primary", "key"].as_slice(),
+            ["value", "text"].as_slice(),
+            ["encrypted", "integer", "not", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn.as_ref(),
+            "config",
+            expected_key_words.as_slice(),
+        );
+        assert_no_index_exists_for_table(conn.as_ref(), "config")
+    }
+
+    #[test]
+    fn db_initialize_creates_pending_payable_table() {
+        let home_dir = ensure_node_home_directory_does_not_exist(
+            "db_initializer",
+            "db_initialize_creates_pending_payable_table",
+        );
+        let subject = DbInitializerReal::default();
+
+        let conn = subject
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+
+        let mut stmt = conn.prepare("select rowid, transaction_hash, amount, payable_timestamp, attempt, process_error from pending_payable").unwrap();
+        let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
+        assert!(payable_contents.next().is_none());
+        let expected_key_words = [
+            ["rowid", "integer", "primary", "key"].as_slice(),
+            ["transaction_hash", "text", "not", "null"].as_slice(),
+            ["amount", "integer", "not", "null"].as_slice(),
+            ["payable_timestamp", "integer", "not", "null"].as_slice(),
+            ["attempt", "integer", "not", "null"].as_slice(),
+            ["process_error", "text", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn.as_ref(),
+            "pending_payable",
+            expected_key_words.as_slice(),
+        );
+        let expected_key_words = [["transaction_hash"].as_slice()];
+        assert_index_statement_is_coupled_with_right_parameter(
+            conn.as_ref(),
+            "pending_payable_hash_idx",
+            expected_key_words.as_slice(),
+        )
+    }
+
+    #[test]
     fn db_initialize_creates_payable_table() {
         let home_dir = ensure_node_home_directory_does_not_exist(
             "db_initializer",
@@ -674,17 +742,25 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        subject
+        let conn = subject
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
-        let mut flags = OpenFlags::empty();
-        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
-        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-
-        let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payment_transaction from payable").unwrap ();
+        let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payable_rowid from payable").unwrap ();
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
+        let expected_key_words = [
+            ["wallet_address", "text", "primary", "key"].as_slice(),
+            ["balance", "integer", "not", "null"].as_slice(),
+            ["last_paid_timestamp", "integer", "not", "null"].as_slice(),
+            ["pending_payable_rowid", "integer", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn.as_ref(),
+            "payable",
+            expected_key_words.as_slice(),
+        );
+        assert_no_index_exists_for_table(conn.as_ref(), "payable")
     }
 
     #[test]
@@ -695,40 +771,51 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        subject
+        let conn = subject
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-
-        let mut flags = OpenFlags::empty();
-        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
-        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
 
         let mut stmt = conn
             .prepare("select wallet_address, balance, last_received_timestamp from receivable")
             .unwrap();
         let mut receivable_contents = stmt.query_map([], |_| Ok(())).unwrap();
         assert!(receivable_contents.next().is_none());
+        let expected_key_words = [
+            ["wallet_address", "text", "primary", "key"].as_slice(),
+            ["balance", "integer", "not", "null"].as_slice(),
+            ["last_received_timestamp", "integer", "not", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn.as_ref(),
+            "receivable",
+            expected_key_words.as_slice(),
+        );
+        assert_no_index_exists_for_table(conn.as_ref(), "receivable")
     }
 
     #[test]
     fn db_initialize_creates_banned_table() {
+        init_test_logging();
         let home_dir = ensure_node_home_directory_does_not_exist(
             "db_initializer",
             "db_initialize_creates_banned_table",
         );
         let subject = DbInitializerReal::default();
 
-        subject
+        let conn = subject
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-
-        let mut flags = OpenFlags::empty();
-        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
-        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
 
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
         let mut banned_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(banned_contents.next().is_none());
+        let expected_key_words = [["wallet_address", "text", "primary", "key"].as_slice()];
+        assert_create_table_statement_contains_all_important_parts(
+            conn.as_ref(),
+            "banned",
+            expected_key_words.as_slice(),
+        );
+        assert_no_index_exists_for_table(conn.as_ref(), "banned")
     }
 
     #[test]
@@ -750,7 +837,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "DB migration failed; the resulting records are still incorrect")]
+    #[should_panic(
+        expected = "DB migration failed, the resulting records are still incorrect; found schema 0 but expecting 1"
+    )]
     fn panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_migration(
     ) {
         let home_dir = ensure_node_home_directory_exists(
@@ -758,7 +847,7 @@ mod tests {
             "panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_migration",
         );
         let db_file_path = home_dir.join(DATABASE_FILE);
-        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_file_path);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_file_path);
         let target_version = 1;
         //schema_version equals to 0 but current schema version must be at least 1 and more
 
@@ -952,14 +1041,20 @@ mod tests {
         std::fs::create_dir(updated_db_path_dir).unwrap();
         std::fs::create_dir(from_scratch_db_path_dir).unwrap();
         {
-            bring_db_of_version_0_back_to_life_and_return_connection(
-                &updated_db_path_dir.join(DATABASE_FILE),
-            );
+            bring_db_0_back_to_life_and_return_connection(&updated_db_path_dir.join(DATABASE_FILE));
         }
         let subject = DbInitializerReal::default();
 
         let _ = subject
-            .initialize(&updated_db_path_dir, true, MigratorConfig::test_default())
+            .initialize(
+                &updated_db_path_dir,
+                true,
+                MigratorConfig::create_or_migrate(ExternalData::new(
+                    Chain::EthRopsten,
+                    NeighborhoodModeLight::Standard,
+                    Some("password".to_string()),
+                )),
+            )
             .unwrap();
         let _ = subject
             .initialize(
@@ -969,6 +1064,9 @@ mod tests {
             )
             .unwrap();
 
+        // db_password_opt: Some("password".to_string()),
+        // chain: Chain::EthRopsten,
+        // neighborhood_mode: NeighborhoodModeLight::Standard,
         let conn_updated = Connection::open_with_flags(
             &updated_db_path_dir.join(DATABASE_FILE),
             OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -1057,8 +1155,7 @@ mod tests {
             "db_initializer",
             "database_migration_can_be_suppressed",
         );
-        let conn =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         let subject = DbInitializerReal::default();
@@ -1078,8 +1175,7 @@ mod tests {
             "db_initializer",
             "database_migration_causes_panic_if_not_allowed",
         );
-        let _ =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let _ = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         let subject = DbInitializerReal::default();
 
         let _ = subject.initialize(&data_dir, false, MigratorConfig::panic_on_migration());
@@ -1107,8 +1203,7 @@ mod tests {
             "db_initializer",
             "database_migration_can_be_suppressed_and_give_an_initialization_error",
         );
-        let conn =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         let subject = DbInitializerReal::default();

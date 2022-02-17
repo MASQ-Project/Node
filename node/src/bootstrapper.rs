@@ -666,18 +666,6 @@ impl Bootstrapper {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::collections::HashMap;
-    use std::io;
-    use std::io::ErrorKind;
-    use std::marker::Sync;
-    use std::net::{IpAddr, SocketAddr};
-    use std::ops::DerefMut;
-    use std::path::PathBuf;
-    use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-
     use crate::actor_system_factory::{ActorFactory, ActorSystemFactory};
     use crate::bootstrapper::{
         main_cryptde_ref, Bootstrapper, BootstrapperConfig, EnvironmentWrapper, PortConfiguration,
@@ -731,6 +719,17 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::find_free_port;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::io;
+    use std::io::ErrorKind;
+    use std::marker::Sync;
+    use std::net::{IpAddr, SocketAddr};
+    use std::ops::DerefMut;
+    use std::path::PathBuf;
+    use std::str::FromStr;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
     use tokio;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;

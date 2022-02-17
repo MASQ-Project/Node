@@ -1,5 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{ReceivedPayments, ScanForPayables, ScanForReceivables, SentPayments};
+use crate::accountant::ReportTransactionReceipts;
+use crate::accountant::{
+    ReceivedPayments, RequestTransactionReceipts, ScanForPayables, ScanForReceivables, SentPayable,
+};
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
@@ -118,17 +122,20 @@ recorder_message_handler!(ReportExitServiceConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceConsumedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
-recorder_message_handler!(SentPayments);
+recorder_message_handler!(SentPayable);
 recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(SetDbPasswordMsg);
 recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
+recorder_message_handler!(PendingPayableFingerprint);
+recorder_message_handler!(RetrieveTransactions);
+recorder_message_handler!(RequestTransactionReceipts);
+recorder_message_handler!(ReportTransactionReceipts);
 recorder_message_handler!(ReportAccountsPayable);
 recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
-recorder_message_handler!(RetrieveTransactions);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -302,12 +309,8 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
     ProxyServerSubs {
         bind: recipient!(addr, BindMessage),
         from_dispatcher: recipient!(addr, InboundClientData),
-        from_hopper: addr
-            .clone()
-            .recipient::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(),
-        dns_failure_from_hopper: addr
-            .clone()
-            .recipient::<ExpiredCoresPackage<DnsResolveFailure_0v1>>(),
+        from_hopper: recipient!(addr, ExpiredCoresPackage<ClientResponsePayload_0v1>),
+        dns_failure_from_hopper: recipient!(addr, ExpiredCoresPackage<DnsResolveFailure_0v1>),
         add_return_route: recipient!(addr, AddReturnRouteMessage),
         add_route: recipient!(addr, AddRouteMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
@@ -340,9 +343,7 @@ pub fn make_hopper_subs_from(addr: &Addr<Recorder>) -> HopperSubs {
 pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
     ProxyClientSubs {
         bind: recipient!(addr, BindMessage),
-        from_hopper: addr
-            .clone()
-            .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
+        from_hopper: recipient!(addr, ExpiredCoresPackage<ClientRequestPayload_0v1>),
         inbound_server_data: recipient!(addr, InboundServerData),
         dns_resolve_failed: recipient!(addr, DnsResolveFailure_0v1),
         node_from_ui: recipient!(addr, NodeFromUiMessage),
@@ -357,38 +358,34 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         node_query: recipient!(addr, NodeQueryMessage),
         route_query: recipient!(addr, RouteQueryMessage),
         update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
-        from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>(),
-        gossip_failure: addr
-            .clone()
-            .recipient::<ExpiredCoresPackage<GossipFailure_0v1>>(),
+        from_hopper: recipient!(addr, ExpiredCoresPackage<Gossip_0v1>),
+        gossip_failure: recipient!(addr, ExpiredCoresPackage<GossipFailure_0v1>),
         dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
         remove_neighbor: recipient!(addr, RemoveNeighborMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
-        from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
-        new_password_sub: addr.clone().recipient::<NewPasswordMessage>(),
+        from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
+        new_password_sub: recipient!(addr, NewPasswordMessage),
     }
 }
 
-pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
+pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSubs {
     AccountantSubs {
         bind: recipient!(addr, BindMessage),
         start: recipient!(addr, StartMessage),
-        report_routing_service_provided: addr
-            .clone()
-            .recipient::<ReportRoutingServiceProvidedMessage>(),
+        report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
-        report_routing_service_consumed: addr
-            .clone()
-            .recipient::<ReportRoutingServiceConsumedMessage>(),
+        report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
         report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
         report_new_payments: recipient!(addr, ReceivedPayments),
-        report_sent_payments: recipient!(addr, SentPayments),
+        pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
+        report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
+        report_sent_payments: recipient!(addr, SentPayable),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),
     }
 }
 
-pub fn make_ui_gateway_subs_from(addr: &Addr<Recorder>) -> UiGatewaySubs {
+pub fn make_ui_gateway_subs_from_recorder(addr: &Addr<Recorder>) -> UiGatewaySubs {
     UiGatewaySubs {
         bind: recipient!(addr, BindMessage),
         node_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
@@ -402,6 +399,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
         report_accounts_payable: recipient!(addr, ReportAccountsPayable),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
+        request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
     }
 }
 
@@ -507,8 +505,8 @@ impl PeerActorsBuilder {
             hopper: make_hopper_subs_from(&hopper_addr),
             proxy_client_opt: Some(make_proxy_client_subs_from(&proxy_client_addr)),
             neighborhood: make_neighborhood_subs_from(&neighborhood_addr),
-            accountant: make_accountant_subs_from(&accountant_addr),
-            ui_gateway: make_ui_gateway_subs_from(&ui_gateway_addr),
+            accountant: make_accountant_subs_from_recorder(&accountant_addr),
+            ui_gateway: make_ui_gateway_subs_from_recorder(&ui_gateway_addr),
             blockchain_bridge: make_blockchain_bridge_subs_from(&blockchain_bridge_addr),
             configurator: make_configurator_subs_from(&configurator_addr),
         }

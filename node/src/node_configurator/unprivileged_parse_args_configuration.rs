@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
@@ -504,6 +505,7 @@ fn configure_accountant_config(
             |pc: &dyn PersistentConfiguration| pc.payment_curves(),
             |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_curves(curves),
         )?,
+        when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
     };
     config.accountant_config_opt = Some(accountant_config);
     Ok(())
@@ -1357,26 +1359,33 @@ mod tests {
 
     #[test]
     fn unprivileged_parse_args_dao_real_creates_configurations() {
+        let home_dir = ensure_node_home_directory_exists(
+            "unprivileged_parse_args_configuration",
+            "unprivileged_parse_args_dao_real_creates_configurations",
+        );
         assert_unprivileged_parse_args_creates_configurations(
+            home_dir,
             &UnprivilegedParseArgsConfigurationDaoReal {},
         )
     }
 
     #[test]
     fn unprivileged_parse_args_dao_null_creates_configurations() {
+        let home_dir = ensure_node_home_directory_exists(
+            "unprivileged_parse_args_configuration",
+            "unprivileged_parse_args_dao_null_creates_configurations",
+        );
         assert_unprivileged_parse_args_creates_configurations(
+            home_dir,
             &UnprivilegedParseArgsConfigurationDaoNull {},
         )
     }
 
     fn assert_unprivileged_parse_args_creates_configurations(
+        home_dir: PathBuf,
         subject: &dyn UnprivilegedParseArgsConfiguration,
     ) {
         running_test();
-        let home_dir = ensure_node_home_directory_exists(
-            "unprivileged_parse_args_configuration",
-            "unprivileged_parse_args_creates_configurations",
-        );
         let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
                 .initialize(&home_dir.clone(), true, MigratorConfig::test_default())
@@ -1741,6 +1750,7 @@ mod tests {
                 permanent_debt_allowed_gwei: 20000,
                 unban_when_balance_below_gwei: 20000,
             },
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         assert_eq!(actual_accountant_config, expected_accountant_config);
         let set_scan_intervals_params = set_scan_intervals_params_arc.lock().unwrap();
@@ -1806,6 +1816,7 @@ mod tests {
                 permanent_debt_allowed_gwei: 20000,
                 unban_when_balance_below_gwei: 20000,
             },
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         assert_eq!(actual_accountant_config, expected_accountant_config);
         //no prepared results for the setter methods, that is they were uncalled
