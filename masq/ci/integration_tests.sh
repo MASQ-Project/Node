@@ -11,7 +11,7 @@ case "$OSTYPE" in
         echo "Windows"
         ci/run_integration_tests.sh "$TOOLCHAIN_HOME"
         mkdir -p generated/daemon_logs
-        ls -R $HOME/AppData/Local
+        ls -lR $HOME/AppData/Local
         cp $HOME/AppData/Local/MASQ/ generated/daemon_logs/ || echo "No Daemon logs available"
         ;;
     Darwin | darwin*)

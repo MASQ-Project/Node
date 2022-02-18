@@ -8,7 +8,17 @@ export RUST_BACKTRACE=full
 export RUSTFLAGS="-D warnings"
 
 pushd "$CI_DIR/.."
-cargo test -- --nocapture --test-threads=1 handles_startup_and_shutdown_integration
+for i in {1..100}; do
+  echo "------"
+  echo "Test iteration $i"
+  echo "------"
+  if ! cargo test -- --nocapture --test-threads=1 handles_startup_and_shutdown_integration; then
+    echo "------"
+    echo "Test failure! Huzzah!"
+    echo "------"
+    exit 1
+  fi
+done
 BUILD_RESULT=$?
 popd
 exit "$BUILD_RESULT"
