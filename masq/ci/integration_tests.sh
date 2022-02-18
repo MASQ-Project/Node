@@ -9,7 +9,7 @@ ci/build.sh # Build here before sudo to make sure we don't produce any root-owne
 case "$OSTYPE" in
     msys)
         echo "Windows"
-        ci/run_integration_tests.sh "$TOOLCHAIN_HOME"
+        ci/run_integration_tests.sh "$TOOLCHAIN_HOME"|| echo "Integration tests failed"
         mkdir -p generated/daemon_logs
         ls -lR $HOME/AppData/Local
         cp $HOME/AppData/Local/MASQ/ generated/daemon_logs/ || echo "No Daemon logs available"
