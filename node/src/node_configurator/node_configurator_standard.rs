@@ -1383,6 +1383,21 @@ mod tests {
     }
 
     #[test]
+    fn get_past_neighbors_handles_unavailable_password() {
+        //sets the password in the database - we'll have to resolve if the use case is appropriate
+        running_test();
+        let mut persistent_config = make_default_persistent_configuration()
+            .check_password_result(Ok(true))
+            .change_password_result(Ok(()));
+        let mut unprivileged_config = BootstrapperConfig::new();
+        unprivileged_config.db_password_opt = Some("password".to_string());
+
+        let result = get_past_neighbors(&mut persistent_config, &mut unprivileged_config).unwrap();
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
     fn convert_ci_configs_handles_whitespaces_between_descriptors_and_commas() {
         let multi_config = make_simplified_multi_config([
             "program",
