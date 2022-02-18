@@ -263,6 +263,7 @@ pub fn unprivileged_parse_args(
                 Err(pce) => return Err(pce.into_configurator_error("gas-price")),
             }
         };
+    unprivileged_config.db_password_opt = value_m!(multi_config, "db-password", String);
     unprivileged_config.mapping_protocol_opt =
         compute_mapping_protocol_opt(multi_config, persistent_config, logger);
     let mnc_result = {
@@ -331,17 +332,10 @@ pub fn get_wallets(
     persistent_config: &mut dyn PersistentConfiguration,
     config: &mut BootstrapperConfig,
 ) -> Result<(), ConfiguratorError> {
-    let db_password_opt = match (
-        value_m!(multi_config, "db-password", String),
-        &config.db_password_opt,
-    ) {
-        (Some(dbp), _) => Some(dbp),
-        (_, dbpo) => dbpo.clone(),
-    };
     let mc_consuming_opt = value_m!(multi_config, "consuming-private-key", String);
     let mc_earning_opt = value_m!(multi_config, "earning-wallet", String);
-    let pc_consuming_opt = if let Some(db_password) = db_password_opt {
-        match persistent_config.consuming_wallet_private_key(&db_password) {
+    let pc_consuming_opt = if let Some(db_password) = &config.db_password_opt {
+        match persistent_config.consuming_wallet_private_key(db_password.as_str()) {
             Ok(pco) => pco,
             Err(PersistentConfigError::PasswordError) => None,
             Err(e) => return Err(e.into_configurator_error("consuming-private-key")),
@@ -421,7 +415,7 @@ pub fn make_neighborhood_config(
     let neighbor_configs: Vec<NodeDescriptor> = {
         match convert_ci_configs(multi_config)? {
             Some(configs) => configs,
-            None => get_past_neighbors(multi_config, persistent_config, unprivileged_config)?,
+            None => get_past_neighbors(persistent_config, unprivileged_config)?,
         }
     };
     match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
@@ -537,13 +531,11 @@ fn validate_mandatory_node_addr(
 }
 
 pub fn get_past_neighbors(
-    multi_config: &MultiConfig,
-
     persistent_config: &mut dyn PersistentConfiguration,
     unprivileged_config: &mut BootstrapperConfig,
 ) -> Result<Vec<NodeDescriptor>, ConfiguratorError> {
     Ok(
-        match &get_db_password(multi_config, unprivileged_config, persistent_config)? {
+        match &get_db_password(unprivileged_config, persistent_config)? {
             Some(db_password) => match persistent_config.past_neighbors(db_password) {
                 Ok(Some(past_neighbors)) => past_neighbors,
                 Ok(None) => vec![],
@@ -693,19 +685,14 @@ pub fn get_public_ip(multi_config: &MultiConfig) -> Result<IpAddr, ConfiguratorE
 }
 
 pub fn get_db_password(
-    multi_config: &MultiConfig,
     config: &mut BootstrapperConfig,
     persistent_config: &mut dyn PersistentConfiguration,
 ) -> Result<Option<String>, ConfiguratorError> {
     if let Some(db_password) = &config.db_password_opt {
+        set_db_password_at_first_mention(db_password, persistent_config)?;
         return Ok(Some(db_password.clone()));
     }
-    let db_password_opt = value_m!(multi_config, "db-password", String);
-    if let Some(db_password) = &db_password_opt {
-        set_db_password_at_first_mention(db_password, persistent_config)?;
-        config.db_password_opt = Some(db_password.clone());
-    };
-    Ok(db_password_opt)
+    Ok(None)
 }
 
 fn set_db_password_at_first_mention(
@@ -1364,37 +1351,13 @@ mod tests {
     #[test]
     fn get_past_neighbors_handles_good_password_but_no_past_neighbors() {
         running_test();
-        let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
-        let mut persistent_config =
-            make_default_persistent_configuration().past_neighbors_result(Ok(None));
+        let mut persistent_config = make_default_persistent_configuration()
+            .check_password_result(Ok(false))
+            .past_neighbors_result(Ok(None));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
 
-        let result = get_past_neighbors(
-            &multi_config,
-            &mut persistent_config,
-            &mut unprivileged_config,
-        )
-        .unwrap();
-
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn get_past_neighbors_handles_unavailable_password() {
-        running_test();
-        let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
-        let mut persistent_config =
-            make_default_persistent_configuration().check_password_result(Ok(true));
-        let mut unprivileged_config = BootstrapperConfig::new();
-        unprivileged_config.db_password_opt = Some("password".to_string());
-
-        let result = get_past_neighbors(
-            &multi_config,
-            &mut persistent_config,
-            &mut unprivileged_config,
-        )
-        .unwrap();
+        let result = get_past_neighbors(&mut persistent_config, &mut unprivileged_config).unwrap();
 
         assert!(result.is_empty());
     }
@@ -1402,18 +1365,13 @@ mod tests {
     #[test]
     fn get_past_neighbors_handles_non_password_error() {
         running_test();
-        let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
         let mut persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(false))
             .past_neighbors_result(Err(PersistentConfigError::NotPresent));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
 
-        let result = get_past_neighbors(
-            &multi_config,
-            &mut persistent_config,
-            &mut unprivileged_config,
-        );
+        let result = get_past_neighbors(&mut persistent_config, &mut unprivileged_config);
 
         assert_eq!(
             result,
@@ -1823,6 +1781,7 @@ mod tests {
                 )
             }
         );
+        assert_eq!(config.db_password_opt, Some(password.to_string()));
         assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
     }
 
@@ -1892,6 +1851,7 @@ mod tests {
             None,
             Some("masq://eth-ropsten:AQIDBA@1.2.3.4:1234,masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"),
         )
+        .check_password_result(Ok(false))
         .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
         .past_neighbors_params(&past_neighbors_params_arc)
         .blockchain_service_url_result(Ok(None));
@@ -2134,8 +2094,6 @@ mod tests {
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
         let args = [
             "program",
-            "--db-password",
-            "password",
             "--consuming-private-key",
             consuming_private_key_hex,
         ];
@@ -2148,6 +2106,7 @@ mod tests {
             None,
         );
         let mut config = BootstrapperConfig::new();
+        config.db_password_opt = Some("password".to_string());
 
         let result = get_wallets(&multi_config, &mut persistent_config, &mut config).err();
 
@@ -2263,14 +2222,12 @@ mod tests {
     #[test]
     fn get_db_password_shortcuts_if_its_already_gotten() {
         running_test();
-        let args = ["program"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut config = BootstrapperConfig::new();
         let mut persistent_config =
             make_default_persistent_configuration().check_password_result(Ok(false));
         config.db_password_opt = Some("password".to_string());
 
-        let result = get_db_password(&multi_config, &mut config, &mut persistent_config);
+        let result = get_db_password(&mut config, &mut persistent_config);
 
         assert_eq!(result, Ok(Some("password".to_string())));
     }
@@ -2278,12 +2235,11 @@ mod tests {
     #[test]
     fn get_db_password_doesnt_bother_if_database_has_no_password_yet() {
         running_test();
-        let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
         let mut config = BootstrapperConfig::new();
         let mut persistent_config =
             make_default_persistent_configuration().check_password_result(Ok(true));
 
-        let result = get_db_password(&multi_config, &mut config, &mut persistent_config);
+        let result = get_db_password(&mut config, &mut persistent_config);
 
         assert_eq!(result, Ok(None));
     }
@@ -2291,16 +2247,13 @@ mod tests {
     #[test]
     fn get_db_password_handles_database_write_error() {
         running_test();
-        let args = ["command", "--db-password", "password"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut config = BootstrapperConfig::new();
+        config.db_password_opt = Some("password".to_string());
         let mut persistent_config = make_default_persistent_configuration()
-            .check_password_result(Ok(true))
-            .check_password_result(Ok(true))
             .check_password_result(Ok(true))
             .change_password_result(Err(PersistentConfigError::NotPresent));
 
-        let result = get_db_password(&multi_config, &mut config, &mut persistent_config);
+        let result = get_db_password(&mut config, &mut persistent_config);
 
         assert_eq!(
             result,
