@@ -57,6 +57,8 @@ pub trait UnprivilegedParseArgsConfiguration {
                     Err(pce) => return Err(pce.into_configurator_error("gas-price")),
                 }
             };
+        unprivileged_config.db_password_opt = value_m!(multi_config, "db-password", String);
+        //TODO decide if we'd rather have this configuration in privileged_pars_args
         configure_accountant_config(multi_config, unprivileged_config, persistent_config)?;
         unprivileged_config.mapping_protocol_opt =
             compute_mapping_protocol_opt(multi_config, persistent_config, logger);
@@ -70,7 +72,6 @@ pub trait UnprivilegedParseArgsConfiguration {
 
     fn get_past_neighbors(
         &self,
-        multi_config: &MultiConfig,
         persistent_config: &mut dyn PersistentConfiguration,
         unprivileged_config: &mut BootstrapperConfig,
     ) -> Result<Vec<NodeDescriptor>, ConfiguratorError>;
@@ -81,12 +82,11 @@ pub struct UnprivilegedParseArgsConfigurationDaoReal {}
 impl UnprivilegedParseArgsConfiguration for UnprivilegedParseArgsConfigurationDaoReal {
     fn get_past_neighbors(
         &self,
-        multi_config: &MultiConfig,
         persistent_config: &mut dyn PersistentConfiguration,
         unprivileged_config: &mut BootstrapperConfig,
     ) -> Result<Vec<NodeDescriptor>, ConfiguratorError> {
         Ok(
-            match &get_db_password(multi_config, unprivileged_config, persistent_config)? {
+            match &get_db_password(unprivileged_config, persistent_config)? {
                 Some(db_password) => match persistent_config.past_neighbors(db_password) {
                     Ok(Some(past_neighbors)) => past_neighbors,
                     Ok(None) => vec![],
@@ -114,7 +114,6 @@ pub struct UnprivilegedParseArgsConfigurationDaoNull {}
 impl UnprivilegedParseArgsConfiguration for UnprivilegedParseArgsConfigurationDaoNull {
     fn get_past_neighbors(
         &self,
-        _multi_config: &MultiConfig,
         _persistent_config: &mut dyn PersistentConfiguration,
         _unprivileged_config: &mut BootstrapperConfig,
     ) -> Result<Vec<NodeDescriptor>, ConfiguratorError> {
@@ -127,17 +126,10 @@ pub fn get_wallets(
     persistent_config: &mut dyn PersistentConfiguration,
     config: &mut BootstrapperConfig,
 ) -> Result<(), ConfiguratorError> {
-    let db_password_opt = match (
-        value_m!(multi_config, "db-password", String),
-        &config.db_password_opt,
-    ) {
-        (Some(dbp), _) => Some(dbp),
-        (_, dbpo) => dbpo.clone(),
-    };
     let mc_consuming_opt = value_m!(multi_config, "consuming-private-key", String);
     let mc_earning_opt = value_m!(multi_config, "earning-wallet", String);
-    let pc_consuming_opt = if let Some(db_password) = db_password_opt {
-        match persistent_config.consuming_wallet_private_key(&db_password) {
+    let pc_consuming_opt = if let Some(db_password) = &config.db_password_opt {
+        match persistent_config.consuming_wallet_private_key(db_password.as_str()) {
             Ok(pco) => pco,
             Err(PersistentConfigError::PasswordError) => None,
             Err(e) => return Err(e.into_configurator_error("consuming-private-key")),
@@ -152,7 +144,7 @@ pub fn get_wallets(
     let consuming_opt = match (&mc_consuming_opt, &pc_consuming_opt) {
         (None, _) => pc_consuming_opt,
         (Some(_), None) => mc_consuming_opt,
-        (Some(m), Some(c)) if wallet_parms_are_equal(m, c) => pc_consuming_opt,
+        (Some(m), Some(c)) if wallet_params_are_equal(m, c) => pc_consuming_opt,
         _ => {
             return Err(ConfiguratorError::required(
                 "consuming-private-key",
@@ -163,7 +155,7 @@ pub fn get_wallets(
     let earning_opt = match (&mc_earning_opt, &pc_earning_opt) {
         (None, _) => pc_earning_opt,
         (Some(_), None) => mc_earning_opt,
-        (Some(m), Some(c)) if wallet_parms_are_equal(m, c) => pc_earning_opt,
+        (Some(m), Some(c)) if wallet_params_are_equal(m, c) => pc_earning_opt,
         (Some(m), Some(c)) => {
             return Err(ConfiguratorError::required(
                 "earning-wallet",
@@ -205,7 +197,7 @@ pub fn get_wallets(
     Ok(())
 }
 
-fn wallet_parms_are_equal(a: &str, b: &str) -> bool {
+fn wallet_params_are_equal(a: &str, b: &str) -> bool {
     a.to_uppercase() == b.to_uppercase()
 }
 
@@ -218,11 +210,9 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
     let neighbor_configs: Vec<NodeDescriptor> = {
         match convert_ci_configs(multi_config)? {
             Some(configs) => configs,
-            None => pars_args_configurator.get_past_neighbors(
-                multi_config,
-                persistent_config,
-                unprivileged_config,
-            )?,
+            None => {
+                pars_args_configurator.get_past_neighbors(persistent_config, unprivileged_config)?
+            }
         }
     };
     match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
@@ -569,19 +559,14 @@ where
 }
 
 fn get_db_password(
-    multi_config: &MultiConfig,
     config: &mut BootstrapperConfig,
     persistent_config: &mut dyn PersistentConfiguration,
 ) -> Result<Option<String>, ConfiguratorError> {
     if let Some(db_password) = &config.db_password_opt {
+        set_db_password_at_first_mention(db_password, persistent_config)?;
         return Ok(Some(db_password.clone()));
     }
-    let db_password_opt = value_m!(multi_config, "db-password", String);
-    if let Some(db_password) = &db_password_opt {
-        set_db_password_at_first_mention(db_password, persistent_config)?;
-        config.db_password_opt = Some(db_password.clone());
-    };
-    Ok(db_password_opt)
+    Ok(None)
 }
 
 fn set_db_password_at_first_mention(
@@ -620,7 +605,7 @@ mod tests {
         configure_default_persistent_config, default_persistent_config_just_accountant_config,
         make_persistent_config_real_with_config_dao_null, make_simplified_multi_config,
     };
-    use crate::test_utils::{main_cryptde, unshared_test_utils, ArgsBuilder};
+    use crate::test_utils::{main_cryptde, ArgsBuilder};
     use masq_lib::combined_parameters::ScanIntervals;
     use masq_lib::constants::{DEFAULT_GAS_PRICE, DEFAULT_RATE_PACK};
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
@@ -942,51 +927,25 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_configuration_dao_real_get_past_neighbors_handles_good_password_but_no_past_neighbors(
+    fn get_past_neighbors_handles_good_password_but_no_past_neighbors_parse_args_configuration_dao_real(
     ) {
         running_test();
-        let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
-        let mut persistent_config = configure_default_persistent_config(0b0000_0001);
-        let mut unprivileged_config = BootstrapperConfig::new();
-        unprivileged_config.db_password_opt = Some("password".to_string());
-        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
-
-        let result = subject
-            .get_past_neighbors(
-                &multi_config,
-                &mut persistent_config,
-                &mut unprivileged_config,
-            )
-            .unwrap();
-
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn parse_args_configuration_dao_real_get_past_neighbors_handles_unavailable_password() {
-        running_test();
-        let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
         let mut persistent_config =
-            configure_default_persistent_config(0b0000_0001).check_password_result(Ok(true));
+            configure_default_persistent_config(0b0000_0001).check_password_result(Ok(false));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         let result = subject
-            .get_past_neighbors(
-                &multi_config,
-                &mut persistent_config,
-                &mut unprivileged_config,
-            )
+            .get_past_neighbors(&mut persistent_config, &mut unprivileged_config)
             .unwrap();
 
         assert!(result.is_empty());
     }
 
     #[test]
-    fn parse_args_configuration_dao_real_get_past_neighbors_handles_non_password_error() {
+    fn get_past_neighbors_handles_non_password_error_for_parse_args_configuration_dao_real() {
         running_test();
-        let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
         let mut persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(false))
             .past_neighbors_result(Err(PersistentConfigError::NotPresent));
@@ -994,11 +953,7 @@ mod tests {
         unprivileged_config.db_password_opt = Some("password".to_string());
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
-        let result = subject.get_past_neighbors(
-            &multi_config,
-            &mut persistent_config,
-            &mut unprivileged_config,
-        );
+        let result = subject.get_past_neighbors(&mut persistent_config, &mut unprivileged_config);
 
         assert_eq!(
             result,
@@ -1010,21 +965,34 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_configuration_dao_null_get_past_neighbors_does_nothing() {
+    fn get_past_neighbors_handles_unavailable_password_for_parse_args_configuration_dao_real() {
+        //sets the password in the database - we'll have to resolve if the use case is appropriate
+        running_test();
+        let mut persistent_config = configure_default_persistent_config(0b0000_0001)
+            .check_password_result(Ok(true))
+            .change_password_result(Ok(()));
+        let mut unprivileged_config = BootstrapperConfig::new();
+        unprivileged_config.db_password_opt = Some("password".to_string());
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
+
+        let result = subject
+            .get_past_neighbors(&mut persistent_config, &mut unprivileged_config)
+            .unwrap();
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn get_past_neighbors_does_nothing_for_parse_args_configuration_dao_null() {
         //slightly adapted aside reality; we would've been using PersistentConfigurationReal
         //with ConfigDaoNull but it wouldn't have necessarily panicked if its method called so we use PersistentConfigMock
         //which can provide us with a reaction like so
         running_test();
-        let multi_config = make_simplified_multi_config([]);
         let mut persistent_config = PersistentConfigurationMock::new();
         let mut unprivileged_config = BootstrapperConfig::new();
         let subject = UnprivilegedParseArgsConfigurationDaoNull {};
 
-        let result = subject.get_past_neighbors(
-            &multi_config,
-            &mut persistent_config,
-            &mut unprivileged_config,
-        );
+        let result = subject.get_past_neighbors(&mut persistent_config, &mut unprivileged_config);
 
         assert_eq!(result, Ok(vec![]));
         //Nothing panicked so we could not call real persistent config's methods.
@@ -1101,15 +1069,14 @@ mod tests {
     }
 
     #[test]
-    fn get_db_password_shortcuts_if_its_already_gotten() {
+    fn get_db_password_if_supplied() {
         running_test();
-        let multi_config = unshared_test_utils::make_simplified_multi_config([]);
         let mut config = BootstrapperConfig::new();
         let mut persistent_config =
             configure_default_persistent_config(0b0000_0001).check_password_result(Ok(false));
         config.db_password_opt = Some("password".to_string());
 
-        let result = get_db_password(&multi_config, &mut config, &mut persistent_config);
+        let result = get_db_password(&mut config, &mut persistent_config);
 
         assert_eq!(result, Ok(Some("password".to_string())));
     }
@@ -1117,12 +1084,11 @@ mod tests {
     #[test]
     fn get_db_password_doesnt_bother_if_database_has_no_password_yet() {
         running_test();
-        let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
         let mut config = BootstrapperConfig::new();
         let mut persistent_config =
             configure_default_persistent_config(0b0000_0001).check_password_result(Ok(true));
 
-        let result = get_db_password(&multi_config, &mut config, &mut persistent_config);
+        let result = get_db_password(&mut config, &mut persistent_config);
 
         assert_eq!(result, Ok(None));
     }
@@ -1130,16 +1096,13 @@ mod tests {
     #[test]
     fn get_db_password_handles_database_write_error() {
         running_test();
-        let args = ["--db-password", "password"];
-        let multi_config = unshared_test_utils::make_simplified_multi_config(args);
         let mut config = BootstrapperConfig::new();
+        config.db_password_opt = Some("password".to_string());
         let mut persistent_config = configure_default_persistent_config(0b0000_0001)
-            .check_password_result(Ok(true))
-            .check_password_result(Ok(true))
             .check_password_result(Ok(true))
             .change_password_result(Err(PersistentConfigError::NotPresent));
 
-        let result = get_db_password(&multi_config, &mut config, &mut persistent_config);
+        let result = get_db_password(&mut config, &mut persistent_config);
 
         assert_eq!(
             result,
@@ -1476,6 +1439,7 @@ mod tests {
                 )
             }
         );
+        assert_eq!(config.db_password_opt, Some(password.to_string()));
         assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
     }
 
@@ -1546,6 +1510,7 @@ mod tests {
                 ),
                 None,
             )
+            .check_password_result(Ok(false))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .past_neighbors_params(&past_neighbors_params_arc)
             .blockchain_service_url_result(Ok(None));
@@ -2096,12 +2061,7 @@ mod tests {
         running_test();
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
-        let args = [
-            "--db-password",
-            "password",
-            "--consuming-private-key",
-            consuming_private_key_hex,
-        ];
+        let args = ["--consuming-private-key", consuming_private_key_hex];
         let multi_config = make_simplified_multi_config(args);
         let mut persistent_config = make_persistent_config(
             Some("password"),
@@ -2112,6 +2072,7 @@ mod tests {
             None,
         );
         let mut config = BootstrapperConfig::new();
+        config.db_password_opt = Some("password".to_string());
 
         let result = get_wallets(&multi_config, &mut persistent_config, &mut config).err();
 
