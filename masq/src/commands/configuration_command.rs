@@ -6,14 +6,12 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
-use itertools::Itertools;
 use masq_lib::as_any_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use serde::Serialize;
-use serde_json::Value;
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
@@ -124,11 +122,32 @@ impl ConfigurationCommand {
             &configuration.start_block.to_string(),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
-        let payment_curves = Self::preprocess_combined_parameters(&configuration.payment_curves);
+        let payment_curves = Self::preprocess_combined_parameters(
+            &configuration.payment_curves,
+            &[
+                "balanceDecreasesForSec",
+                "balanceToDecreaseFromGwei",
+                "paymentGraceBeforeBanSec",
+                "paymentSuggestedAfterSec",
+                "permanentDebtAllowedGwei",
+                "unbanWhenBalanceBelowGwei",
+            ],
+        );
         Self::dump_value_list(stream, "Payment curves:", &payment_curves);
-        let rate_pack = Self::preprocess_combined_parameters(&configuration.rate_pack);
+        let rate_pack = Self::preprocess_combined_parameters(
+            &configuration.rate_pack,
+            &[
+                "routingByteRate",
+                "routingServiceRate",
+                "exitByteRate",
+                "exitServiceRate",
+            ],
+        );
         Self::dump_value_list(stream, "Rate pack:", &rate_pack);
-        let scan_intervals = Self::preprocess_combined_parameters(&configuration.scan_intervals);
+        let scan_intervals = Self::preprocess_combined_parameters(
+            &configuration.scan_intervals,
+            &["pendingPayableSec", "payableSec", "receivableSec"],
+        );
         Self::dump_value_list(stream, "Scan intervals:", &scan_intervals);
     }
 
@@ -159,29 +178,30 @@ impl ConfigurationCommand {
         }
     }
 
-    fn preprocess_combined_parameters(serializable: impl Serialize) -> Vec<String> {
-        let jason = serde_json::to_value(serializable).expectv("serializable object");
-        if let Value::Object(map) = jason {
-            once(String::from(""))
-                .chain(map.into_iter().map(|(name, value)| {
-                    let mut char_vec = vec![];
-                    name.chars().for_each(|char| {
-                        if !char.is_uppercase() {
-                            char_vec.push(char)
-                        } else {
-                            char_vec.push(' ');
-                            char_vec.push(char.to_ascii_lowercase())
-                        }
-                    });
-                    char_vec.push(':');
-                    char_vec[0] = char_vec[0].to_ascii_uppercase();
-                    let clean_name = char_vec.into_iter().collect::<String>();
-                    format!("{:33}{}", clean_name, value)
-                }))
-                .collect_vec()
-        } else {
-            panic!("design error")
-        }
+    fn preprocess_combined_parameters(
+        serializable: impl Serialize,
+        expected_jason_fields: &[&str],
+    ) -> Vec<String> {
+        let serialized_struct = serde_json::to_value(serializable).expectv("serializable object");
+        let iter_of_strings = expected_jason_fields.iter().map(|jason_name| {
+            let value = serialized_struct[jason_name].to_string();
+            let normal_name = {
+                let mut char_vec = vec![];
+                jason_name.chars().for_each(|char| {
+                    if !char.is_uppercase() {
+                        char_vec.push(char)
+                    } else {
+                        char_vec.push(' ');
+                        char_vec.push(char.to_ascii_lowercase())
+                    }
+                });
+                char_vec.push(':');
+                char_vec[0] = char_vec[0].to_ascii_uppercase();
+                char_vec.into_iter().collect::<String>()
+            };
+            format!("{:33}{}", normal_name, value)
+        });
+        once(String::from("")).chain(iter_of_strings).collect()
     }
 }
 
@@ -346,13 +366,13 @@ mod tests {
 |                                  Permanent debt allowed gwei:     11222\n\
 |                                  Unban when balance below gwei:   12000\n\
 |Rate pack:                        \n\
-|                                  Exit byte rate:                  12\n\
-|                                  Exit service rate:               14\n\
 |                                  Routing byte rate:               8\n\
 |                                  Routing service rate:            9\n\
+|                                  Exit byte rate:                  12\n\
+|                                  Exit service rate:               14\n\
 |Scan intervals:                   \n\
-|                                  Payable sec:                     155\n\
 |                                  Pending payable sec:             150\n\
+|                                  Payable sec:                     155\n\
 |                                  Receivable sec:                  250\n"
             )
             .replace('|', "")
@@ -441,13 +461,13 @@ mod tests {
 |                                  Permanent debt allowed gwei:     1200\n\
 |                                  Unban when balance below gwei:   1400\n\
 |Rate pack:                        \n\
-|                                  Exit byte rate:                  20\n\
-|                                  Exit service rate:               30\n\
 |                                  Routing byte rate:               15\n\
 |                                  Routing service rate:            17\n\
+|                                  Exit byte rate:                  20\n\
+|                                  Exit service rate:               30\n\
 |Scan intervals:                   \n\
-|                                  Payable sec:                     1000\n\
 |                                  Pending payable sec:             1000\n\
+|                                  Payable sec:                     1000\n\
 |                                  Receivable sec:                  1000\n",
             )
             .replace('|', "")
