@@ -3619,7 +3619,7 @@ mod tests {
             attempt_opt: Some(4),
             ..fingerprint_2_first_round.clone()
         };
-        let pending_payable_dao = PendingPayableDaoMock::default()
+        let mut pending_payable_dao = PendingPayableDaoMock::default()
             .return_all_fingerprints_params(&return_all_fingerprints_params_arc)
             .return_all_fingerprints_result(vec![])
             .return_all_fingerprints_result(vec![
@@ -3635,8 +3635,6 @@ mod tests {
                 fingerprint_2_third_round,
             ])
             .return_all_fingerprints_result(vec![fingerprint_2_fourth_round.clone()])
-            //extra one, for a case when we are too fast at some machine
-            .return_all_fingerprints_result(vec![])
             .insert_fingerprint_params(&insert_fingerprint_params_arc)
             .insert_fingerprint_result(Ok(()))
             .insert_fingerprint_result(Ok(()))
@@ -3655,6 +3653,7 @@ mod tests {
             .delete_fingerprint_params(&delete_record_params_arc)
             //this is used during confirmation of the successful one
             .delete_fingerprint_result(Ok(()));
+        pending_payable_dao.have_return_all_fingerprints_shut_down_the_system = true;
         let accountant_addr = Arbiter::builder()
             .stop_system_on_panic(true)
             .start(move |_| {
@@ -3684,18 +3683,11 @@ mod tests {
         let blockchain_bridge_addr = blockchain_bridge.start();
         let blockchain_bridge_subs = BlockchainBridge::make_subs_from(&blockchain_bridge_addr);
         peer_actors.blockchain_bridge = blockchain_bridge_subs.clone();
-        let dummy_actor = DummyActor::new(None);
-        let dummy_actor_addr = Arbiter::builder()
-            .stop_system_on_panic(true)
-            .start(move |_| dummy_actor);
         send_bind_message!(accountant_subs, peer_actors);
         send_bind_message!(blockchain_bridge_subs, peer_actors);
 
         send_start_message!(accountant_subs);
 
-        dummy_actor_addr
-            .try_send(CleanUpMessage { sleep_ms: 1090 })
-            .unwrap();
         assert_eq!(system.run(), 0);
         let mut mark_pending_payable_params = mark_pending_payable_params_arc.lock().unwrap();
         let first_payable = mark_pending_payable_params.remove(0);
@@ -3710,7 +3702,7 @@ mod tests {
         assert_eq!(second_payable.0, wallet_account_2);
         assert_eq!(second_payable.1, rowid_for_account_2);
         let return_all_fingerprints_params = return_all_fingerprints_params_arc.lock().unwrap();
-        //it varies with machines and sometimes we manage more cycles than necessary,
+        //it varies with machines and sometimes we manage more cycles than necessary
         assert!(return_all_fingerprints_params.len() >= 5);
         let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
         assert_eq!(*non_pending_payables_params, vec![()]); //because we disabled further scanning for payables
@@ -3755,6 +3747,7 @@ mod tests {
             notify_later_scan_for_pending_payable_params_arc
                 .lock()
                 .unwrap();
+        //it varies with machines and sometimes we manage more cycles than necessary
         let vector_of_first_five_cycles = notify_later_check_for_confirmation
             .drain(0..=4)
             .collect_vec();
