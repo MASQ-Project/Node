@@ -2130,31 +2130,39 @@ mod tests {
         let accountant_config = make_populated_accountant_config_with_defaults();
         let config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
         let now = to_time_t(SystemTime::now());
+        let payment_curves = PaymentCurves {
+            balance_decreases_for_sec: 2_592_000,
+            balance_to_decrease_from_gwei: 1_000_000_000,
+            payment_grace_before_ban_sec: 86_400,
+            payment_suggested_after_sec: 86_400,
+            permanent_debt_allowed_gwei: 10_000_000,
+            unban_when_balance_below_gwei: 10_000_000,
+        };
         let accounts = vec![
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei - 1,
+                balance: payment_curves.permanent_debt_allowed_gwei - 1,
                 last_paid_timestamp: from_time_t(
-                    now - DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec - 10,
+                    now - payment_curves.balance_decreases_for_sec - 10,
                 ),
                 pending_payable_opt: None,
             },
             // above balance intersection, to the left of minimum time (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 1,
+                balance: payment_curves.balance_to_decrease_from_gwei + 1,
                 last_paid_timestamp: from_time_t(
-                    now - DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec + 10,
+                    now - payment_curves.payment_suggested_after_sec + 10,
                 ),
                 pending_payable_opt: None,
             },
             // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
             PayableAccount {
                 wallet: make_wallet("wallet2"),
-                balance: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei - 1000,
+                balance: payment_curves.balance_to_decrease_from_gwei - 1000,
                 last_paid_timestamp: from_time_t(
-                    now - DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec - 1,
+                    now - payment_curves.payment_suggested_after_sec - 1,
                 ),
                 pending_payable_opt: None,
             },
@@ -2174,6 +2182,7 @@ mod tests {
             .payable_dao(payable_dao)
             .build();
         subject.report_accounts_payable_sub = Some(report_accounts_payable_sub);
+        subject.config.payment_curves = payment_curves;
 
         subject.scan_for_payables();
 
@@ -3346,29 +3355,38 @@ mod tests {
     #[test]
     fn payables_debug_summary_prints_pretty_summary() {
         let now = to_time_t(SystemTime::now());
+        let payment_curves = PaymentCurves {
+            balance_decreases_for_sec: 2_592_000,
+            balance_to_decrease_from_gwei: 1_000_000_000,
+            payment_grace_before_ban_sec: 86_400,
+            payment_suggested_after_sec: 86_400,
+            permanent_debt_allowed_gwei: 10_000_000,
+            unban_when_balance_below_gwei: 10_000_000,
+        };
         let qualified_payables = &[
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei + 1000,
+                balance: payment_curves.permanent_debt_allowed_gwei + 1000,
                 last_paid_timestamp: from_time_t(
-                    now - DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec - 1234,
+                    now - payment_curves.balance_decreases_for_sec - 1234,
                 ),
                 pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei + 1,
+                balance: payment_curves.permanent_debt_allowed_gwei + 1,
                 last_paid_timestamp: from_time_t(
-                    now - DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec - 1,
+                    now - payment_curves.balance_decreases_for_sec - 1,
                 ),
                 pending_payable_opt: None,
             },
         ];
         let mut config = BootstrapperConfig::default();
         config.accountant_config_opt = Some(make_populated_accountant_config_with_defaults());
-        let subject = AccountantBuilder::default()
+        let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .build();
+        subject.config.payment_curves = payment_curves;
 
         let result = subject.payables_debug_summary(qualified_payables);
 

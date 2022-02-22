@@ -26,24 +26,23 @@ pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
 pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 24_638_838;
 
 //payment curves, rate pack, scan intervals
-const SECONDS_PER_DAY: i64 = 86_400;
 
 lazy_static! {
     pub static ref DEFAULT_PAYMENT_CURVES: PaymentCurves = PaymentCurves {
-        balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
-        balance_to_decrease_from_gwei: 1_000_000_000,
-        payment_grace_before_ban_sec: SECONDS_PER_DAY,
-        payment_suggested_after_sec: SECONDS_PER_DAY,
-        permanent_debt_allowed_gwei: 10_000_000,
-        unban_when_balance_below_gwei: 10_000_000,
+        balance_decreases_for_sec: 2_592_000,
+        balance_to_decrease_from_gwei: 10_000_000_000,
+        payment_grace_before_ban_sec: 1200,
+        payment_suggested_after_sec: 1200,
+        permanent_debt_allowed_gwei: 500_000_000,
+        unban_when_balance_below_gwei: 500_000_000,
     };
 }
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
-    routing_byte_rate: 100,
-    routing_service_rate: 10000,
-    exit_byte_rate: 101,
-    exit_service_rate: 10001,
+    routing_byte_rate: 1,
+    routing_service_rate: 100,
+    exit_byte_rate: 3,
+    exit_service_rate: 300,
 };
 
 pub const ZERO_RATE_PACK: RatePack = RatePack {
@@ -55,9 +54,9 @@ pub const ZERO_RATE_PACK: RatePack = RatePack {
 
 lazy_static! {
     pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
-        pending_payable_scan_interval: Duration::from_secs(3600),
-        payable_scan_interval: Duration::from_secs(3600),
-        receivable_scan_interval: Duration::from_secs(3600)
+        pending_payable_scan_interval: Duration::from_secs(600),
+        payable_scan_interval: Duration::from_secs(600),
+        receivable_scan_interval: Duration::from_secs(600)
     };
 }
 
