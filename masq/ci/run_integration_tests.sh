@@ -8,6 +8,10 @@ export RUST_BACKTRACE=full
 export RUSTFLAGS="-D warnings"
 
 pushd "$CI_DIR/.."
+echo "------"
+echo "Here's what's using TCP:"
+lsof -i4TCP
+echo "------"
 for i in {1..100}; do
   echo "------"
   echo "Test iteration $i"

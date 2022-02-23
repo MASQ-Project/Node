@@ -158,7 +158,7 @@ eprintln! ("Shutdown command complete");
 
 eprintln! ("Waiting for shutdown command to finish");
     let (stdout, stderr, exit_code) = masq_handle.stop();
-eprintln! ("Start command stopped:\nSTDOUT\n{}\nSTDERR\n{}\nEXIT CODE: {:?}", stdout, stderr, exit_code);
+eprintln! ("Shutdown command stopped:\nSTDOUT\n{}\nSTDERR\n{}\nEXIT CODE: {:?}", stdout, stderr, exit_code);
 
     assert_eq!(&stderr, "", "shutdown phase: {}", stderr);
     assert_eq!(
