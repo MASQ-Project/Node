@@ -7,9 +7,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::{fs, io, thread};
 
-pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
-pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
-pub const BASE_TEST_DIR: &str = "generated/test";
+pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten; // tested
+pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev; // tested
+pub const BASE_TEST_DIR: &str = "generated/test"; // tested
 
 pub fn node_home_directory(module: &str, name: &str) -> PathBuf {
     let home_dir_string = format!("{}/{}/{}/home", BASE_TEST_DIR, module, name);
@@ -56,4 +56,16 @@ pub fn real_format_function(
 
 pub fn to_millis(dur: &Duration) -> u64 {
     (dur.as_secs() * 1000) + (u64::from(dur.subsec_nanos()) / 1_000_000)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(TEST_DEFAULT_CHAIN, Chain::EthRopsten);
+        assert_eq!(TEST_DEFAULT_MULTINODE_CHAIN, Chain::Dev);
+        assert_eq!(BASE_TEST_DIR, "generated/test");
+    }
 }

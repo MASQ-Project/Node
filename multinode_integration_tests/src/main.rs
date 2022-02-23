@@ -23,7 +23,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
-pub const CONTROL_STREAM_PORT: u16 = 42511;
+pub const CONTROL_STREAM_PORT: u16 = 42511; // tested
 
 pub fn main() {
     let mut streams: StdStreams<'_> = StdStreams {
@@ -354,6 +354,11 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::Duration;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CONTROL_STREAM_PORT, 42511);
+    }
 
     #[test]
     fn cant_start_with_no_node_ref() {

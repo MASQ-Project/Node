@@ -15,8 +15,8 @@ mod not_win_cfg {
     pub use std::time::Duration;
 }
 
-const FIND_FREE_PORT_LOWEST: u16 = 32768;
-const FIND_FREE_PORT_HIGHEST: u16 = 65535;
+const FIND_FREE_PORT_LOWEST: u16 = 32768; // tested
+const FIND_FREE_PORT_HIGHEST: u16 = 65535; // tested
 
 pub struct RunningTestData {
     test_is_running: bool,
@@ -133,7 +133,7 @@ pub fn localhost() -> IpAddr {
     IpAddr::V4(Ipv4Addr::LOCALHOST)
 }
 
-pub const DERIVATION_PATH_ROOT: &str = "m/44'/60'/0'";
+pub const DERIVATION_PATH_ROOT: &str = "m/44'/60'/0'"; // tested
 
 pub fn derivation_path(a: u8, b: u8) -> String {
     format!("{}/{}/{}", DERIVATION_PATH_ROOT, a, b)
@@ -382,6 +382,13 @@ mod tests {
     use std::fmt::Write;
     use std::fs::{create_dir_all, File, OpenOptions};
     use std::io::Write as FmtWrite;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(FIND_FREE_PORT_LOWEST, 32768);
+        assert_eq!(FIND_FREE_PORT_HIGHEST, 65535);
+        assert_eq!(DERIVATION_PATH_ROOT, "m/44'/60'/0'");
+    }
 
     #[test]
     fn automap_protocol_display_works() {
