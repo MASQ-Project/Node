@@ -672,7 +672,7 @@ mod tests {
     use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 
     #[test]
-    fn NODE_UI_PROTOCOL_constant_has_correct_value() {
+    fn constants_have_correct_values() {
         assert_eq!(NODE_UI_PROTOCOL, "MASQNode-UIv2");
     }
 

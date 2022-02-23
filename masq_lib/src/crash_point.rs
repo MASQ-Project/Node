@@ -44,7 +44,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn constants_has_correct_values() {
+    fn constants_have_correct_values() {
         assert_eq!(NONE, 0);
         assert_eq!(PANIC, 1);
         assert_eq!(ERROR, 2);

@@ -474,7 +474,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
-    fn constants_has_correct_value() {
+    fn constants_have_correct_values() {
         assert_eq!(NOT_FOUND, 2);
         assert_eq!(PERMISSION_DENIED, 5);
         assert_eq!(PERMISSION_DENIED_STR, "Permission denied");

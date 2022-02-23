@@ -75,7 +75,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn max_printed_string_size_constant_has_correct_value() {
+    fn constants_have_correct_values() {
         assert_eq!(MAX_PRINTED_STRING_SIZE, 10000);
     }
 }

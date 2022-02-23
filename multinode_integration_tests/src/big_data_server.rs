@@ -96,7 +96,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chunk_size_constant_has_correct_value() {
+    fn constants_have_correct_values() {
         assert_eq!(CHUNK_SIZE, 131072);
     }
 }

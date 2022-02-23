@@ -411,7 +411,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
-    fn constants_has_correct_value() {
+    fn constants_have_correct_values() {
         assert_eq!(PRIMARY_SERVICE, "PrimaryService");
         assert_eq!(SERVER_ADDRESSES, "ServerAddresses");
         assert_eq!(SERVER_ADDRESSES_BAK, "ServerAddressesBak");

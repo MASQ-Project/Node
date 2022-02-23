@@ -1171,7 +1171,7 @@ mod tests {
     use masq_lib::utils::localhost;
 
     #[test]
-    fn constants_has_correct_value() {
+    fn constants_have_correct_values() {
         assert_eq!(
             DEFAULT_MNEMONIC_PHRASE,
             "lamp sadness busy twist illegal task neither survey copper object room project"
