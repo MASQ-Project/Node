@@ -33,7 +33,7 @@ use std::string::ToString;
 use std::thread;
 use std::time::Duration;
 
-pub const DATA_DIRECTORY: &str = "/node_root/home";
+pub const DATA_DIRECTORY: &str = "/node_root/home"; // tested
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Firewall {
@@ -1169,6 +1169,11 @@ mod tests {
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
     use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
     use masq_lib::utils::localhost;
+
+    #[test]
+    fn data_directory_constant_has_correct_value() {
+        assert_eq!(DATA_DIRECTORY, "/node_root/home");
+    }
 
     #[test]
     fn node_startup_config_builder_zero_hop() {

@@ -9,9 +9,9 @@ use std::io;
 use winreg::enums::*;
 use winreg::RegKey;
 
-const NOT_FOUND: i32 = 2;
-const PERMISSION_DENIED: i32 = 5;
-const PERMISSION_DENIED_STR: &str = "Permission denied";
+const NOT_FOUND: i32 = 2; // tested
+const PERMISSION_DENIED: i32 = 5; // tested
+const PERMISSION_DENIED_STR: &str = "Permission denied"; // tested
 
 pub struct WinDnsModifier {
     hive: Box<dyn RegKeyTrait>,
@@ -472,6 +472,21 @@ mod tests {
     use std::collections::HashMap;
     use std::io::Error;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn not_found_constant_has_correct_value() {
+        assert_eq!(NOT_FOUND, 2);
+    }
+
+    #[test]
+    fn permission_denied_constant_has_correct_value() {
+        assert_eq!(PERMISSION_DENIED, 5);
+    }
+
+    #[test]
+    fn permission_denied_str_constant_has_correct_value() {
+        assert_eq!(PERMISSION_DENIED_STR, "Permission denied");
+    }
 
     #[test]
     fn is_subverted_says_no_if_masq_dns_appears_too_late() {
