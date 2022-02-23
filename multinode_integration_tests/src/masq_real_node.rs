@@ -48,8 +48,8 @@ pub enum LocalIpInfo {
 }
 
 pub const DEFAULT_MNEMONIC_PHRASE: &str =
-    "lamp sadness busy twist illegal task neither survey copper object room project";
-pub const DEFAULT_MNEMONIC_PASSPHRASE: &str = "weenie";
+    "lamp sadness busy twist illegal task neither survey copper object room project"; // tested
+pub const DEFAULT_MNEMONIC_PASSPHRASE: &str = "weenie"; // tested
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum EarningWalletInfo {
@@ -1171,7 +1171,12 @@ mod tests {
     use masq_lib::utils::localhost;
 
     #[test]
-    fn data_directory_constant_has_correct_value() {
+    fn constants_has_correct_value() {
+        assert_eq!(
+            DEFAULT_MNEMONIC_PHRASE,
+            "lamp sadness busy twist illegal task neither survey copper object room project"
+        );
+        assert_eq!(DEFAULT_MNEMONIC_PASSPHRASE, "weenie");
         assert_eq!(DATA_DIRECTORY, "/node_root/home");
     }
 
