@@ -71,250 +71,58 @@ mod tests {
     use super::*;
 
     #[test]
-    fn DEFAULT_CHAIN_constant_has_correct_value() {
+    fn constants_has_correct_value() {
         assert_eq!(DEFAULT_CHAIN, Chain::EthMainnet);
-    }
-
-    #[test]
-    fn HIGHEST_RANDOM_CLANDESTINE_PORT_constant_has_correct_value() {
         assert_eq!(HIGHEST_RANDOM_CLANDESTINE_PORT, 9999);
-    }
-
-    #[test]
-    fn HTTP_PORT_constant_has_correct_value() {
         assert_eq!(HTTP_PORT, 80);
-    }
-
-    #[test]
-    fn TLS_PORT_constant_has_correct_value() {
         assert_eq!(TLS_PORT, 443);
-    }
-
-    #[test]
-    fn MASQ_URL_PREFIX_constant_has_correct_value() {
         assert_eq!(MASQ_URL_PREFIX, "masq://");
-    }
-
-    #[test]
-    fn DEFAULT_GAS_PRICE_constant_has_correct_value() {
         assert_eq!(DEFAULT_GAS_PRICE, 1);
-    }
-
-    #[test]
-    fn LOWEST_USABLE_INSECURE_PORT_constant_has_correct_value() {
         assert_eq!(LOWEST_USABLE_INSECURE_PORT, 1025);
-    }
-
-    #[test]
-    fn HIGHEST_USABLE_PORT_constant_has_correct_value() {
         assert_eq!(HIGHEST_USABLE_PORT, 65535);
-    }
-
-    #[test]
-    fn DEFAULT_UI_PORT_constant_has_correct_value() {
         assert_eq!(DEFAULT_UI_PORT, 5333);
-    }
-
-    #[test]
-    fn CURRENT_LOGFILE_NAME_constant_has_correct_value() {
         assert_eq!(CURRENT_LOGFILE_NAME, "MASQNode_rCURRENT.log");
-    }
-
-    #[test]
-    fn MASQ_PROMPT_constant_has_correct_value() {
         assert_eq!(MASQ_PROMPT, "masq> ");
-    }
-
-    #[test]
-    fn ETH_MAINNET_CONTRACT_CREATION_BLOCK_constant_has_correct_value() {
         assert_eq!(ETH_MAINNET_CONTRACT_CREATION_BLOCK, 11_170_708);
-    }
-
-    #[test]
-    fn ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK_constant_has_correct_value() {
         assert_eq!(ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK, 8_688_171);
-    }
-
-    #[test]
-    fn MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK_constant_has_correct_value() {
         assert_eq!(MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, 0);
-    }
-
-    #[test]
-    fn POLYGON_MAINNET_CONTRACT_CREATION_BLOCK_constant_has_correct_value() {
         assert_eq!(POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, 14_863_650);
-    }
-
-    #[test]
-    fn MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK_constant_has_correct_value() {
         assert_eq!(MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, 24_638_838);
-    }
-
-    #[test]
-    fn CONFIGURATOR_PREFIX_constant_has_correct_value() {
         assert_eq!(CONFIGURATOR_PREFIX, 0x0001_0000_0000_0000);
-    }
-
-    #[test]
-    fn CONFIGURATOR_READ_ERROR_constant_has_correct_value() {
         assert_eq!(CONFIGURATOR_READ_ERROR, CONFIGURATOR_PREFIX | 1);
-    }
-
-    #[test]
-    fn CONFIGURATOR_WRITE_ERROR_constant_has_correct_value() {
         assert_eq!(CONFIGURATOR_WRITE_ERROR, CONFIGURATOR_PREFIX | 2);
-    }
-
-    #[test]
-    fn UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR_constant_has_correct_value() {
         assert_eq!(
             UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR,
             CONFIGURATOR_PREFIX | 3
         );
-    }
-
-    #[test]
-    fn ILLEGAL_MNEMONIC_WORD_COUNT_ERROR_constant_has_correct_value() {
         assert_eq!(ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, CONFIGURATOR_PREFIX | 4);
-    }
-
-    #[test]
-    fn KEY_PAIR_CONSTRUCTION_ERROR_constant_has_correct_value() {
         assert_eq!(KEY_PAIR_CONSTRUCTION_ERROR, CONFIGURATOR_PREFIX | 5);
-    }
-
-    #[test]
-    fn BAD_PASSWORD_ERROR_constant_has_correct_value() {
         assert_eq!(BAD_PASSWORD_ERROR, CONFIGURATOR_PREFIX | 6);
-    }
-
-    #[test]
-    fn ALREADY_INITIALIZED_ERROR_constant_has_correct_value() {
         assert_eq!(ALREADY_INITIALIZED_ERROR, CONFIGURATOR_PREFIX | 7);
-    }
-
-    #[test]
-    fn DERIVATION_PATH_ERROR_constant_has_correct_value() {
         assert_eq!(DERIVATION_PATH_ERROR, CONFIGURATOR_PREFIX | 8);
-    }
-
-    #[test]
-    fn MNEMONIC_PHRASE_ERROR_constant_has_correct_value() {
         assert_eq!(MNEMONIC_PHRASE_ERROR, CONFIGURATOR_PREFIX | 9);
-    }
-
-    #[test]
-    fn EARLY_QUESTIONING_ABOUT_DATA_constant_has_correct_value() {
         assert_eq!(EARLY_QUESTIONING_ABOUT_DATA, CONFIGURATOR_PREFIX | 10);
-    }
-
-    #[test]
-    fn UNRECOGNIZED_PARAMETER_constant_has_correct_value() {
         assert_eq!(UNRECOGNIZED_PARAMETER, CONFIGURATOR_PREFIX | 11);
-    }
-
-    #[test]
-    fn NON_PARSABLE_VALUE_constant_has_correct_value() {
         assert_eq!(NON_PARSABLE_VALUE, CONFIGURATOR_PREFIX | 12);
-    }
-
-    #[test]
-    fn MISSING_DATA_constant_has_correct_value() {
         assert_eq!(MISSING_DATA, CONFIGURATOR_PREFIX | 13);
-    }
-
-    #[test]
-    fn UNKNOWN_ERROR_constant_has_correct_value() {
         assert_eq!(UNKNOWN_ERROR, CONFIGURATOR_PREFIX | 14);
-    }
-
-    #[test]
-    fn UI_NODE_COMMUNICATION_PREFIX_constant_has_correct_value() {
         assert_eq!(UI_NODE_COMMUNICATION_PREFIX, 0x8000_0000_0000_0000);
-    }
-
-    #[test]
-    fn NODE_LAUNCH_ERROR_constant_has_correct_value() {
         assert_eq!(NODE_LAUNCH_ERROR, UI_NODE_COMMUNICATION_PREFIX | 1);
-    }
-
-    #[test]
-    fn NODE_NOT_RUNNING_ERROR_constant_has_correct_value() {
         assert_eq!(NODE_NOT_RUNNING_ERROR, UI_NODE_COMMUNICATION_PREFIX | 2);
-    }
-
-    #[test]
-    fn NODE_ALREADY_RUNNING_ERROR_constant_has_correct_value() {
         assert_eq!(NODE_ALREADY_RUNNING_ERROR, UI_NODE_COMMUNICATION_PREFIX | 3);
-    }
-
-    #[test]
-    fn UNMARSHAL_ERROR_constant_has_correct_value() {
         assert_eq!(UNMARSHAL_ERROR, UI_NODE_COMMUNICATION_PREFIX | 4);
-    }
-
-    #[test]
-    fn SETUP_ERROR_constant_has_correct_value() {
         assert_eq!(SETUP_ERROR, UI_NODE_COMMUNICATION_PREFIX | 5);
-    }
-
-    #[test]
-    fn TIMEOUT_ERROR_constant_has_correct_value() {
         assert_eq!(TIMEOUT_ERROR, UI_NODE_COMMUNICATION_PREFIX | 6);
-    }
-
-    #[test]
-    fn CENTRAL_DELIMITER_constant_has_correct_value() {
         assert_eq!(CENTRAL_DELIMITER, '@');
-    }
-
-    #[test]
-    fn CHAIN_IDENTIFIER_DELIMITER_constant_has_correct_value() {
         assert_eq!(CHAIN_IDENTIFIER_DELIMITER, ':');
-    }
-
-    #[test]
-    fn MAINNET_constant_has_correct_value() {
         assert_eq!(MAINNET, "mainnet");
-    }
-
-    #[test]
-    fn POLYGON_FAMILY_constant_has_correct_value() {
         assert_eq!(POLYGON_FAMILY, "polygon");
-    }
-
-    #[test]
-    fn ETH_FAMILY_constant_has_correct_value() {
         assert_eq!(ETH_FAMILY, "eth");
-    }
-
-    #[test]
-    fn LINK_constant_has_correct_value() {
         assert_eq!(LINK, '-');
-    }
-
-    #[test]
-    fn POLYGON_MAINNET_FULL_IDENTIFIER_constant_has_correct_value() {
         assert_eq!(POLYGON_MAINNET_FULL_IDENTIFIER, "polygon-mainnet");
-    }
-
-    #[test]
-    fn _constant_has_correct_value() {
         assert_eq!(POLYGON_MUMBAI_FULL_IDENTIFIER, "polygon-mumbai");
-    }
-
-    #[test]
-    fn DEV_CHAIN_FULL_IDENTIFIER_constant_has_correct_value() {
         assert_eq!(DEV_CHAIN_FULL_IDENTIFIER, "dev");
-    }
-
-    #[test]
-    fn ETH_MAINNET_FULL_IDENTIFIER_constant_has_correct_value() {
         assert_eq!(ETH_MAINNET_FULL_IDENTIFIER, "eth-mainnet");
-    }
-
-    #[test]
-    fn ETH_ROPSTEN_FULL_IDENTIFIER_constant_has_correct_value() {
         assert_eq!(ETH_ROPSTEN_FULL_IDENTIFIER, "eth-ropsten");
     }
 }
