@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
 
-pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
+pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2"; // tested
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiMessageError {
@@ -670,6 +670,11 @@ mod tests {
     use super::*;
     use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
     use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
+
+    #[test]
+    fn NODE_UI_PROTOCOL_constant_has_correct_value() {
+        assert_eq!(NODE_UI_PROTOCOL, "MASQNode-UIv2");
+    }
 
     #[test]
     fn ui_message_errors_are_displayable() {

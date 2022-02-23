@@ -12,10 +12,10 @@ arg_enum! {
     }
 }
 
-const NONE: usize = 0;
-const PANIC: usize = 1;
-const ERROR: usize = 2;
-const MESSAGE: usize = 3;
+const NONE: usize = 0; // tested
+const PANIC: usize = 1; // tested
+const ERROR: usize = 2; // tested
+const MESSAGE: usize = 3; // tested
 
 impl From<usize> for CrashPoint {
     fn from(number: usize) -> Self {
@@ -42,6 +42,14 @@ impl From<CrashPoint> for usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constants_has_correct_values() {
+        assert_eq!(NONE, 0);
+        assert_eq!(PANIC, 1);
+        assert_eq!(ERROR, 2);
+        assert_eq!(MESSAGE, 3);
+    }
 
     #[test]
     fn from_usize_to_crash_point() {
