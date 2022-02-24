@@ -443,13 +443,13 @@ pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
             Err(ref e)
                 if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
             {
-                thread::sleep(Duration::from_millis(1000));
+                thread::sleep(Duration::from_millis(100));
             }
             Err(ref e) if (e.kind() == ErrorKind::ConnectionReset) && !response.is_empty() => break,
             Err(e) => panic!("Read error: {}", e),
             Ok(len) => {
                 response.extend(&buf[..len]);
-                last_data_at = Instant::now()
+                last_data_at = Instant::now();
             }
         }
         let now = Instant::now();
