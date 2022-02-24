@@ -32,7 +32,7 @@ impl Into<EthsignSecretKey> for &Bip32ECKeyProvider {
 }
 
 impl Bip32ECKeyProvider {
-    const SECRET_KEY_LENGTH: usize = 32;
+    const SECRET_KEY_LENGTH: usize = 32; // tested
 
     pub fn from_raw_secret(secret_raw: &[u8]) -> Result<Self, String> {
         Self::validate_raw_input(secret_raw)?;
@@ -152,6 +152,11 @@ mod tests {
     };
     use bip39::{Language, Mnemonic, Seed};
     use std::collections::hash_map::DefaultHasher;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(Bip32ECKeyProvider::SECRET_KEY_LENGTH, 32);
+    }
 
     #[test]
     fn bip32_derivation_path_0_produces_a_key_with_correct_address() {

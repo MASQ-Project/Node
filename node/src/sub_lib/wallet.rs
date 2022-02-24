@@ -414,12 +414,12 @@ impl<'de> serde::Deserialize<'de> for Wallet {
                 })
             }
         }
-        const FIELDS: &[&str] = &["address"];
+
         let human_readable = deserializer.is_human_readable();
         serde::Deserializer::deserialize_struct(
             deserializer,
             "Wallet",
-            FIELDS,
+            &["address"],
             WalletVisitor {
                 marker: serde::__private::PhantomData::<Wallet>,
                 lifetime: serde::__private::PhantomData,

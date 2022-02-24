@@ -17,7 +17,7 @@ pub struct NodeAddr {
 }
 
 impl NodeAddr {
-    pub const PORTS_SEPARATOR: &'static str = "/";
+    pub const PORTS_SEPARATOR: &'static str = "/"; // tested
 
     pub fn new(ip_addr: &IpAddr, ports: &[u16]) -> NodeAddr {
         let mut ports = ports.to_owned();
@@ -147,6 +147,11 @@ impl FromStr for NodeAddr {
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(NodeAddr::PORTS_SEPARATOR, "/");
+    }
 
     #[test]
     fn can_create_from_socket_addr() {
