@@ -8,7 +8,7 @@ export RUST_BACKTRACE=full
 export RUSTFLAGS="-D warnings"
 
 pushd "$CI_DIR/.."
-apt-get install lsof -q -y
+apt install lsof -y
 echo "------"
 echo "Here's what's using TCP:"
 lsof -i4TCP
