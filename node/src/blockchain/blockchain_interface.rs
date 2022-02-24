@@ -578,30 +578,19 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        const REQUESTS_IN_PARALLEL_EXPECTED: usize = 1;
-
-        const CONTRACT_ABI_EXPECTED: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
-
-        const TRANSACTION_LITERAL_EXPECTED: H256 = H256 {
+        let contract_abi_expected: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
+        let transaction_literal_expected: H256 = H256 {
             0: [
                 0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37,
                 0x8d, 0xaa, 0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16, 0x28, 0xf5, 0x5a, 0x4d,
                 0xf5, 0x23, 0xb3, 0xef,
             ],
         };
-
-        const TRANSFER_METHOD_ID_EXPECTED: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
-        const GWEI_EXPECTED: U256 = U256([1_000_000_000u64, 0, 0, 0]);
-
-        assert_eq!(REQUESTS_IN_PARALLEL, REQUESTS_IN_PARALLEL_EXPECTED);
-        assert_eq!(CONTRACT_ABI, CONTRACT_ABI_EXPECTED);
-        assert_eq!(TRANSACTION_LITERAL, TRANSACTION_LITERAL_EXPECTED);
-        assert_eq!(TRANSFER_METHOD_ID, TRANSFER_METHOD_ID_EXPECTED);
-        assert_eq!(GWEI, GWEI_EXPECTED);
-
-        assert_eq!(TEST_PAYMENT_AMOUNT, 1000);
-        assert_eq!(TEST_GAS_PRICE_ETH, 110);
-        assert_eq!(TEST_GAS_PRICE_POLYGON, 50);
+        assert_eq!(REQUESTS_IN_PARALLEL, 1);
+        assert_eq!(CONTRACT_ABI, contract_abi_expected);
+        assert_eq!(TRANSACTION_LITERAL, transaction_literal_expected);
+        assert_eq!(TRANSFER_METHOD_ID, [0xa9, 0x05, 0x9c, 0xbb]);
+        assert_eq!(GWEI, U256([1_000_000_000u64, 0, 0, 0]));
     }
 
     struct TestServer {
@@ -1415,9 +1404,9 @@ mod tests {
         Wallet::from(address)
     }
 
-    const TEST_PAYMENT_AMOUNT: u64 = 1000; // tested
-    const TEST_GAS_PRICE_ETH: u64 = 110; // tested
-    const TEST_GAS_PRICE_POLYGON: u64 = 50; // tested
+    const TEST_PAYMENT_AMOUNT: u64 = 1000;
+    const TEST_GAS_PRICE_ETH: u64 = 110;
+    const TEST_GAS_PRICE_POLYGON: u64 = 50;
 
     fn assert_that_signed_transactions_agrees_with_template(
         chain: Chain,

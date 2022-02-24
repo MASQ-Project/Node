@@ -33,7 +33,7 @@ use std::string::ToString;
 use std::thread;
 use std::time::Duration;
 
-pub const DATA_DIRECTORY: &str = "/node_root/home"; // tested
+pub const DATA_DIRECTORY: &str = "/node_root/home";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Firewall {
@@ -48,8 +48,8 @@ pub enum LocalIpInfo {
 }
 
 pub const DEFAULT_MNEMONIC_PHRASE: &str =
-    "lamp sadness busy twist illegal task neither survey copper object room project"; // tested
-pub const DEFAULT_MNEMONIC_PASSPHRASE: &str = "weenie"; // tested
+    "lamp sadness busy twist illegal task neither survey copper object room project";
+pub const DEFAULT_MNEMONIC_PASSPHRASE: &str = "weenie";
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum EarningWalletInfo {
@@ -1169,16 +1169,6 @@ mod tests {
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
     use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
     use masq_lib::utils::localhost;
-
-    #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(
-            DEFAULT_MNEMONIC_PHRASE,
-            "lamp sadness busy twist illegal task neither survey copper object room project"
-        );
-        assert_eq!(DEFAULT_MNEMONIC_PASSPHRASE, "weenie");
-        assert_eq!(DATA_DIRECTORY, "/node_root/home");
-    }
 
     #[test]
     fn node_startup_config_builder_zero_hop() {

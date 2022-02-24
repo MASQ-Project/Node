@@ -7,7 +7,7 @@ use std::net::{SocketAddr, TcpListener};
 use std::thread;
 use std::time::Duration;
 
-const CHUNK_SIZE: usize = 131072; // tested
+const CHUNK_SIZE: usize = 131072;
 
 pub struct BigDataServer {
     tx: Sender<()>,
@@ -88,15 +88,5 @@ impl BigDataServer {
 
     fn make_header(size: usize) -> Vec<u8> {
         format!("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n", size).into_bytes()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(CHUNK_SIZE, 131072);
     }
 }

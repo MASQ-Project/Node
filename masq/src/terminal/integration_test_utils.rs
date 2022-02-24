@@ -194,10 +194,6 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(MASQ_TEST_INTEGRATION_KEY, "MASQ_TEST_INTEGRATION");
-        assert_eq!(
-            MASQ_TEST_INTEGRATION_VALUE,
-            "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb74b2eac7b8a3be8xzt"
-        );
     }
 
     #[test]

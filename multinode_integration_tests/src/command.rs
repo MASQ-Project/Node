@@ -10,7 +10,7 @@ pub struct Command {
 }
 
 // Jenkins will fail if you try to println! too many (hundreds of thousands) of characters at once
-const MAX_PRINTED_STRING_SIZE: usize = 10000; // tested
+const MAX_PRINTED_STRING_SIZE: usize = 10000;
 
 impl Command {
     pub fn new(program: &str, args: Vec<String>) -> Command {
@@ -67,15 +67,5 @@ impl Command {
             string.push_str(" [...truncated...]");
         }
         string
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(MAX_PRINTED_STRING_SIZE, 10000);
     }
 }

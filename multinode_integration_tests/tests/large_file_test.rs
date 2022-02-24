@@ -7,12 +7,7 @@ use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use std::net::SocketAddr;
 use std::time::Duration;
 
-const NODE_MEMORY_REQUIRED: usize = 148_480 * 1024; // tested
-
-#[test]
-fn constants_have_correct_values() {
-    assert_eq!(NODE_MEMORY_REQUIRED, 148_480 * 1024);
-}
+const NODE_MEMORY_REQUIRED: usize = 148_480 * 1024;
 
 #[test]
 fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it_stronger() {

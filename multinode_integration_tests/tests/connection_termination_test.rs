@@ -32,18 +32,9 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
-const HTTP_REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: booga.com\r\n\r\n"; // tested
+const HTTP_REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: booga.com\r\n\r\n";
 const HTTP_RESPONSE: &[u8] =
-    b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Type: text/plain\r\n\r\nbooga"; // tested
-
-#[test]
-fn constants_have_correct_values() {
-    assert_eq!(HTTP_REQUEST, b"GET / HTTP/1.1\r\nHost: booga.com\r\n\r\n");
-    assert_eq!(
-        HTTP_RESPONSE,
-        b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Type: text/plain\r\n\r\nbooga"
-    );
-}
+    b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Type: text/plain\r\n\r\nbooga";
 
 #[test]
 // Given: Originating Node is real_node; exit Node is fictional Node with exit_key.
