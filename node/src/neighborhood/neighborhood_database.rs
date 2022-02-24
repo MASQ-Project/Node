@@ -20,7 +20,7 @@ use std::fmt::Error;
 use std::fmt::Formatter;
 use std::net::IpAddr;
 
-pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30; // tested
+pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 
 #[derive(Clone)]
 pub struct NeighborhoodDatabase {

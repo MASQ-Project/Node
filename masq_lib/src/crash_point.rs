@@ -12,10 +12,10 @@ arg_enum! {
     }
 }
 
-const NONE: usize = 0; // tested
-const PANIC: usize = 1; // tested
-const ERROR: usize = 2; // tested
-const MESSAGE: usize = 3; // tested
+const NONE: usize = 0;
+const PANIC: usize = 1;
+const ERROR: usize = 2;
+const MESSAGE: usize = 3;
 
 impl From<usize> for CrashPoint {
     fn from(number: usize) -> Self {

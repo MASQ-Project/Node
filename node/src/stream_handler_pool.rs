@@ -49,7 +49,7 @@ use tokio::prelude::Future;
 // overseen by StreamHandlerPool will not (and should not) have StreamKeys. Don't let the
 // concept leak down this far.
 
-pub const CRASH_KEY: &str = "STREAMHANDLERPOOL"; // tested
+pub const CRASH_KEY: &str = "STREAMHANDLERPOOL";
 
 pub struct StreamHandlerPoolSubs {
     pub add_sub: Recipient<AddStreamMsg>,

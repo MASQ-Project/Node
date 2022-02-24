@@ -17,7 +17,7 @@ pub struct NodeAddr {
 }
 
 impl NodeAddr {
-    pub const PORTS_SEPARATOR: &'static str = "/"; // tested
+    pub const PORTS_SEPARATOR: &'static str = "/";
 
     pub fn new(ip_addr: &IpAddr, ports: &[u16]) -> NodeAddr {
         let mut ports = ports.to_owned();

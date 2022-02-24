@@ -35,7 +35,7 @@ use std::time::SystemTime;
 use web3::transports::Http;
 use web3::types::{TransactionReceipt, H256};
 
-pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE"; // tested
+pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
 pub struct BlockchainBridge {
     consuming_wallet_opt: Option<Wallet>,

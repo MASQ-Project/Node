@@ -41,7 +41,7 @@ use masq_lib::utils::derivation_path;
 use rustc_hex::{FromHex, ToHex};
 use tiny_hderive::bip32::ExtendedPrivKey;
 
-pub const CRASH_KEY: &str = "CONFIGURATOR"; // tested
+pub const CRASH_KEY: &str = "CONFIGURATOR";
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,

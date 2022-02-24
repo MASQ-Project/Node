@@ -32,7 +32,7 @@ impl Into<EthsignSecretKey> for &Bip32ECKeyProvider {
 }
 
 impl Bip32ECKeyProvider {
-    const SECRET_KEY_LENGTH: usize = 32; // tested
+    const SECRET_KEY_LENGTH: usize = 32;
 
     pub fn from_raw_secret(secret_raw: &[u8]) -> Result<Self, String> {
         Self::validate_raw_input(secret_raw)?;

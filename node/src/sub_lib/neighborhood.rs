@@ -35,14 +35,14 @@ pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_service_rate: 10000,
     exit_byte_rate: 101,
     exit_service_rate: 10001,
-}; // tested
+};
 
 pub const ZERO_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 0,
     routing_service_rate: 0,
     exit_byte_rate: 0,
     exit_service_rate: 0,
-}; // tested
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NeighborhoodMode {

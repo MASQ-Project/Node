@@ -71,7 +71,7 @@ use masq_lib::logger::Logger;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
-pub const CRASH_KEY: &str = "NEIGHBORHOOD"; // tested
+pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,

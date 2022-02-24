@@ -58,12 +58,12 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 use web3::types::{TransactionReceipt, H256};
 
-pub const CRASH_KEY: &str = "ACCOUNTANT"; // tested
-pub const DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL: u64 = 3600; // tested
-pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 3600; // tested
-pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 3600; // tested
+pub const CRASH_KEY: &str = "ACCOUNTANT";
+pub const DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL: u64 = 3600;
+pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 3600;
+pub const DEFAULT_RECEIVABLES_SCAN_INTERVAL: u64 = 3600;
 
-const SECONDS_PER_DAY: i64 = 86_400; // tested
+const SECONDS_PER_DAY: i64 = 86_400;
 
 lazy_static! {
     pub static ref PAYMENT_CURVES: PaymentCurves = PaymentCurves {
@@ -76,7 +76,7 @@ lazy_static! {
     };
 }
 
-pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; // tested //6 hours
+pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct PaymentCurves {

@@ -25,7 +25,7 @@ use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::mem::replace;
 
-pub const CRASH_KEY: &str = "UIGATEWAY"; // tested
+pub const CRASH_KEY: &str = "UIGATEWAY";
 
 pub struct UiGateway {
     port: u16,

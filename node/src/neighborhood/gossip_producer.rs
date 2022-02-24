@@ -8,7 +8,7 @@ use crate::sub_lib::utils::time_t_timestamp;
 use masq_lib::logger::Logger;
 use std::cell::Cell;
 
-pub const DEAD_NODE_CHECK_INTERVAL_SECS: u32 = 60; // tested
+pub const DEAD_NODE_CHECK_INTERVAL_SECS: u32 = 60;
 
 pub trait GossipProducer: Send {
     fn produce(

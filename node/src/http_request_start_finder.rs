@@ -10,8 +10,8 @@ use masq_lib::utils::index_of;
 
 const METHODS: &[&[u8]] = &[
     b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"CONNECT", b"OPTIONS", b"TRACE", b"PATCH",
-]; // tested
-const LONGEST_METHOD_LEN: usize = 7; // tested
+];
+const LONGEST_METHOD_LEN: usize = 7;
 
 pub struct HttpRequestStartFinder {}
 

@@ -8,7 +8,7 @@ use masq_lib::short_writeln;
 use std::default::Default;
 use std::fmt::Debug;
 
-const START_COMMAND_TIMEOUT_MILLIS: u64 = 15000; // tested
+const START_COMMAND_TIMEOUT_MILLIS: u64 = 15000;
 
 pub fn start_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("start")

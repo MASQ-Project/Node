@@ -63,7 +63,7 @@ lazy_static! {
 }
 
 const DUMP_CONFIG_HELP: &str =
-    "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs."; // tested
+    "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
 
 const NODE_HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:
@@ -91,7 +91,7 @@ const NODE_HELP_TEXT: &str = indoc!(
         1. Log in to the router.
         2. Navigate to the router's port forwarding section, also frequently called virtual server.
         3. Create the port forwarding entries in the router."
-); // tested
+);
 
 #[cfg(test)]
 mod tests {

@@ -82,13 +82,13 @@ const ERROR_TEMPLATE: &str = "<html>\n\
                               <h3>Subtitle: {subtitle}</h3>\n\
                               <p>{content}</p>\n\
                               </body>\n\
-                              </html>\n"; // tested
+                              </html>\n";
 
 const HTTP_RESPONSE_TEMPLATE: &str = "HTTP/1.1 {status} Routing Error\r\n\
                                       Content-Type: text/html\r\n\
                                       Content-Length: {length}\r\n\
                                       \r\n\
-                                      {body}"; // tested
+                                      {body}";
 
 #[cfg(test)]
 mod tests {

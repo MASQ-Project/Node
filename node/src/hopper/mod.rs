@@ -21,7 +21,7 @@ use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use routing_service::RoutingService;
 
-pub const CRASH_KEY: &str = "HOPPER"; // tested
+pub const CRASH_KEY: &str = "HOPPER";
 
 pub struct Hopper {
     main_cryptde: &'static dyn CryptDE,

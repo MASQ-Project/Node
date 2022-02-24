@@ -359,9 +359,9 @@ impl HttpPacketFramer {
     }
 }
 
-const BYTES_TO_PRESERVE: usize = 9; // tested
-const CRLF: &[u8; 2] = b"\r\n"; // tested
-const DOUBLE_CRLF: &[u8; 4] = b"\r\n\r\n"; // tested
+const BYTES_TO_PRESERVE: usize = 9;
+const CRLF: &[u8; 2] = b"\r\n";
+const DOUBLE_CRLF: &[u8; 4] = b"\r\n\r\n";
 
 pub fn summarize_http_packet(request: &[u8]) -> String {
     let first_space_index = match index_of_from(request, &(b' '), 0) {

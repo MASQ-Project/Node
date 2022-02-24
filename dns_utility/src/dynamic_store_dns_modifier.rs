@@ -16,9 +16,9 @@ use std::io::Write;
 use system_configuration::dynamic_store::SCDynamicStore;
 use system_configuration::dynamic_store::SCDynamicStoreBuilder;
 
-const PRIMARY_SERVICE: &str = "PrimaryService"; // tested
-const SERVER_ADDRESSES: &str = "ServerAddresses"; // tested
-const SERVER_ADDRESSES_BAK: &str = "ServerAddressesBak"; // tested
+const PRIMARY_SERVICE: &str = "PrimaryService";
+const SERVER_ADDRESSES: &str = "ServerAddresses";
+const SERVER_ADDRESSES_BAK: &str = "ServerAddressesBak";
 
 pub struct DynamicStoreDnsModifier {
     store: Box<dyn StoreWrapper>,

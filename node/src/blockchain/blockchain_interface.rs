@@ -23,9 +23,9 @@ use web3::types::{
 };
 use web3::{Transport, Web3};
 
-pub const REQUESTS_IN_PARALLEL: usize = 1; // tested
+pub const REQUESTS_IN_PARALLEL: usize = 1;
 
-pub const CONTRACT_ABI: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#; // tested
+pub const CONTRACT_ABI: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
 
 const TRANSACTION_LITERAL: H256 = H256 {
     0: [
@@ -33,9 +33,9 @@ const TRANSACTION_LITERAL: H256 = H256 {
         0xaa, 0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16, 0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23,
         0xb3, 0xef,
     ],
-}; // tested
+};
 
-const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb]; // tested
+const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
 pub struct Transaction {
@@ -200,7 +200,7 @@ pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
     contract: Contract<T>,
 }
 
-const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]); // tested
+const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
 
 pub fn to_gwei(wei: U256) -> Option<u64> {
     u64::try_from(wei / GWEI).ok()

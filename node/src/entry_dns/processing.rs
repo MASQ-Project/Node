@@ -13,8 +13,8 @@ use trust_dns::op::ResponseCode;
 use trust_dns::rr::DNSClass;
 use trust_dns::rr::RecordType;
 
-const HEADER_BYTES: usize = 12; // tested
-const UNKNOWN: &str = "<unknown>"; // tested
+const HEADER_BYTES: usize = 12;
+const UNKNOWN: &str = "<unknown>";
 
 pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger) -> usize {
     let mut facade = PacketFacade::new(buf, length);

@@ -17,7 +17,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-pub const DEFAULT_MINIMUM_HOP_COUNT: usize = 3; // tested
+pub const DEFAULT_MINIMUM_HOP_COUNT: usize = 3;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]

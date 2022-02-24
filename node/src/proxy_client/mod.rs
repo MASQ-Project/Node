@@ -45,7 +45,7 @@ use trust_dns_resolver::config::Protocol;
 use trust_dns_resolver::config::ResolverConfig;
 use trust_dns_resolver::config::ResolverOpts;
 
-pub const CRASH_KEY: &str = "PROXYCLIENT"; // tested
+pub const CRASH_KEY: &str = "PROXYCLIENT";
 
 pub struct ProxyClient {
     dns_servers: Vec<SocketAddr>,

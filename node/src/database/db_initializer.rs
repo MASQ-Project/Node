@@ -19,8 +19,8 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use tokio::net::TcpListener;
 
-pub const DATABASE_FILE: &str = "node-data.db"; // tested
-pub const CURRENT_SCHEMA_VERSION: usize = 5; // tested
+pub const DATABASE_FILE: &str = "node-data.db";
+pub const CURRENT_SCHEMA_VERSION: usize = 5;
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {

@@ -15,8 +15,8 @@ mod not_win_cfg {
     pub use std::time::Duration;
 }
 
-const FIND_FREE_PORT_LOWEST: u16 = 32768; // tested
-const FIND_FREE_PORT_HIGHEST: u16 = 65535; // tested
+const FIND_FREE_PORT_LOWEST: u16 = 32768;
+const FIND_FREE_PORT_HIGHEST: u16 = 65535;
 
 pub struct RunningTestData {
     test_is_running: bool,
@@ -133,7 +133,7 @@ pub fn localhost() -> IpAddr {
     IpAddr::V4(Ipv4Addr::LOCALHOST)
 }
 
-pub const DERIVATION_PATH_ROOT: &str = "m/44'/60'/0'"; // tested
+pub const DERIVATION_PATH_ROOT: &str = "m/44'/60'/0'";
 
 pub fn derivation_path(a: u8, b: u8) -> String {
     format!("{}/{}/{}", DERIVATION_PATH_ROOT, a, b)

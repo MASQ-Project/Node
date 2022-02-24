@@ -16,7 +16,7 @@ use tokio::prelude::Future;
 use tokio::reactor::Handle;
 use tokio::timer::Timeout;
 
-pub const CONNECT_TIMEOUT_MS: u64 = 5000; // tested
+pub const CONNECT_TIMEOUT_MS: u64 = 5000;
 pub type ConnectionInfoFuture = Box<dyn Future<Item = ConnectionInfo, Error = io::Error> + Send>;
 
 pub struct ConnectionInfo {

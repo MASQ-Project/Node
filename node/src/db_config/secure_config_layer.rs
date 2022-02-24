@@ -7,7 +7,7 @@ use crate::db_config::config_dao::{
 use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use rand::Rng;
 
-pub const EXAMPLE_ENCRYPTED: &str = "example_encrypted"; // tested
+pub const EXAMPLE_ENCRYPTED: &str = "example_encrypted";
 
 #[derive(Debug, PartialEq)]
 pub enum SecureConfigLayerError {

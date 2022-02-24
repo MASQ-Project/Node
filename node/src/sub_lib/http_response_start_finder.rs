@@ -7,7 +7,7 @@ use crate::sub_lib::http_packet_framer::PacketProgressState;
 use masq_lib::utils::index_of;
 use regex::Regex;
 
-const LONGEST_PREFIX_LEN: usize = 13; // tested
+const LONGEST_PREFIX_LEN: usize = 13;
 
 pub struct HttpResponseStartFinder {}
 

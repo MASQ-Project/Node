@@ -28,7 +28,7 @@ const TLS_INTERNAL_ERROR_ALERT: [u8; 7] = [
     0x00, 0x02, // packet length
     0x02, // fatal alert
     0x50, // internal_error alert
-]; // tested
+];
 
 const TLS_UNRECOGNIZED_NAME_ALERT: [u8; 7] = [
     0x15, // alert
@@ -36,7 +36,7 @@ const TLS_UNRECOGNIZED_NAME_ALERT: [u8; 7] = [
     0x00, 0x02, // packet length
     0x02, // fatal alert
     0x70, // unrecognized_name alert
-]; // tested
+];
 
 #[cfg(test)]
 mod tests {

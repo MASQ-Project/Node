@@ -23,7 +23,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
-pub const CONTROL_STREAM_PORT: u16 = 42511; // tested
+pub const CONTROL_STREAM_PORT: u16 = 42511;
 
 pub fn main() {
     let mut streams: StdStreams<'_> = StdStreams {

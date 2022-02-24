@@ -12,7 +12,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Display;
 
-pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000; // tested
+pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000;
 
 #[derive(Debug, PartialEq)]
 pub enum CommandError {

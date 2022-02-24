@@ -7,7 +7,7 @@ pub struct ChunkOffsetLength {
     pub length: usize,
 }
 
-pub const CRLF: &[u8; 2] = b"\r\n"; // tested
+pub const CRLF: &[u8; 2] = b"\r\n";
 
 pub fn find_chunk_offset_length(data_so_far: &[u8]) -> Option<ChunkOffsetLength> {
     // TODO: Optimization: Only look at new-data length + 17 characters maximum

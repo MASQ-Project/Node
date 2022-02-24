@@ -9,9 +9,9 @@ use std::io;
 use winreg::enums::*;
 use winreg::RegKey;
 
-const NOT_FOUND: i32 = 2; // tested
-const PERMISSION_DENIED: i32 = 5; // tested
-const PERMISSION_DENIED_STR: &str = "Permission denied"; // tested
+const NOT_FOUND: i32 = 2;
+const PERMISSION_DENIED: i32 = 5;
+const PERMISSION_DENIED_STR: &str = "Permission denied";
 
 pub struct WinDnsModifier {
     hive: Box<dyn RegKeyTrait>,

@@ -11,51 +11,51 @@ pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
      https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
-     https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID"; // tested
+     https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID";
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
-    Ethereum client specified by --blockchain-service-url communicates with the same blockchain network."; // tested
+    Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.";
 pub const CONFIG_FILE_HELP: &str =
     "Optional TOML file containing configuration that doesn't often change. Should contain only \
      scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
      they replace (except no '--' prefix). If you specify a relative path, or no path, the Node will \
      look for your config file starting in the --data-directory. If you specify an absolute path, \
      --data-directory will be ignored when searching for the config file. A few parameters \
-     (such as --config-file, --generate-wallet, and --recover-wallet) must not be specified in a config file."; // tested
+     (such as --config-file, --generate-wallet, and --recover-wallet) must not be specified in a config file.";
 pub const CONSUMING_PRIVATE_KEY_HELP: &str = "The private key for the Ethereum wallet from which you wish to pay \
      other Nodes for routing and exit services. Mostly this is used for testing; be careful using it for real \
      traffic, because this value is very sensitive: anyone who sees it can use it to drain your consuming wallet. \
      If you use it, don't put it on the command line (the environment is good, the config file is less so), \
      make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
      supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
-     hexadecimal digits."; // tested
+     hexadecimal digits.";
 pub const DATA_DIRECTORY_HELP: &str =
     "Directory in which the Node will store its persistent state, including at \
-     least its database and by default its configuration file as well."; // tested
+     least its database and by default its configuration file as well.";
 pub const DB_PASSWORD_HELP: &str =
     "A password or phrase to decrypt the encrypted material in the database, to include your \
      mnemonic seed (if applicable) and your list of previous neighbors. If you don't provide this \
      password, none of the encrypted data in your database will be used. This is a secret;\
-     providing it on the command line or in a config file may be insecure"; // tested
+     providing it on the command line or in a config file may be insecure";
 pub const DNS_SERVERS_HELP: &str =
     "IP addresses of DNS Servers for host name look-up while providing exit \
-     services for other MASQ Nodes (e.g. 1.0.0.1,1.1.1.1,8.8.8.8,9.9.9.9, etc.)"; // tested
+     services for other MASQ Nodes (e.g. 1.0.0.1,1.1.1.1,8.8.8.8,9.9.9.9, etc.)";
 pub const EARNING_WALLET_HELP: &str =
     "An Ethereum wallet address. Addresses must begin with 0x followed by 40 hexadecimal digits \
      (case-insensitive). If you already have a derivation-path earning wallet, don't supply this. \
      If you have supplied an earning wallet address before, either don't supply it again or be \
-     careful to supply exactly the same one you supplied before."; // tested
+     careful to supply exactly the same one you supplied before.";
 pub const IP_ADDRESS_HELP: &str = "The public IP address of your MASQ Node: that is, the IPv4 \
      address at which other Nodes can contact yours. If you're running your Node behind \
      a router, this will be the IP address of the router. If this IP address starts with 192.168 or 10.0, \
      it's a local address rather than a public address, and other Nodes won't be able to see yours. \
-     --ip is meaningless except in --neighborhood-mode standard."; // tested
+     --ip is meaningless except in --neighborhood-mode standard.";
 pub const LOG_LEVEL_HELP: &str =
     "The minimum severity of the logs that should appear in the Node's logfile. You should probably not specify \
      a level lower than the default unless you're doing testing or forensics: a Node at the 'trace' log level \
      generates a lot of log traffic. This will both consume your disk space and degrade your Node's performance. \
      You should probably not specify a level higher than the default unless you have security concerns about \
-     persistent logs being kept on your computer: if your Node crashes, it's good to know why."; // tested
+     persistent logs being kept on your computer: if your Node crashes, it's good to know why.";
 pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in the MASQ \
      One or more Node descriptors for active Nodes in the MASQ Network to which you'd like your Node to connect \
      on startup. A Node descriptor looks similar to one of these:\n\n\
@@ -70,7 +70,7 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      should be enclosed by quotes. No default value is available; \
      if you don't specify a neighbor, your Node will start without being connected to any MASQ \
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
-     --neighbors is meaningless in --neighborhood-mode zero-hop."; // tested
+     --neighbors is meaningless in --neighborhood-mode zero-hop.";
 
 // generated valid encoded keys for future needs
 // UJNoZW5p/PDVqEjpr3b+8jZ/93yPG8i5dOAgE1bhK+A
@@ -95,7 +95,7 @@ pub const NEIGHBORHOOD_MODE_HELP: &str = "This configures the way the Node relat
      are incompatible with --neighborhood_mode consume-only.\n\n\
      standard means that your Node will operate fully unconstrained, both originating and accepting \
      connections, both consuming and providing services, and when you operate behind a router, it \
-     requires that you forward your clandestine port through that router to your Node's machine."; // tested
+     requires that you forward your clandestine port through that router to your Node's machine.";
 pub const MAPPING_PROTOCOL_HELP: &str =
     "The Node can speak three protocols to your router to make it allow outside Nodes to connect inward \
     through it to your machine. These three protocols are pcp, pmp, and igdp. The Node can try them one \
@@ -104,12 +104,12 @@ pub const MAPPING_PROTOCOL_HELP: &str =
     and you don't need Node to negotiate with your router, say 'none' here and be sure to specify your \
     public IP address with the --ip parameter. If the Node communicates successfully with your router, \
     it will remember the protocol it used, and on its next run it will try that protocol first, unless \
-    you specify a different protocol on the command line."; // tested
+    you specify a different protocol on the command line.";
 pub const REAL_USER_HELP: &str =
     "The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
      you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
-     like <uid>:<gid>:<home directory>."; // tested
+     like <uid>:<gid>:<home directory>.";
 
 lazy_static! {
     pub static ref DEFAULT_UI_PORT_VALUE: String = DEFAULT_UI_PORT.to_string();

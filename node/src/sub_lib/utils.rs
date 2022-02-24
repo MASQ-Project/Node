@@ -263,7 +263,7 @@ pub mod tests {
         assert_eq!(NODE_MAILBOX_CAPACITY, 0)
     }
 
-    const BEGINNING_OF_CRASH_RQ_MESSAGE: &str = "Received a crash request"; // tested
+    const BEGINNING_OF_CRASH_RQ_MESSAGE: &str = "Received a crash request";
 
     #[test]
     fn handle_ui_crash_message_does_not_crash_if_not_crashable() {

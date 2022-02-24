@@ -10,7 +10,7 @@ use std::str::FromStr;
 use winreg::enums::*;
 use winreg::RegKey;
 
-const NOT_FOUND: i32 = 2; // tested
+const NOT_FOUND: i32 = 2;
 
 pub struct WinDnsInspector {
     hive: Box<dyn RegKeyTrait>,

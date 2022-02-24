@@ -3,7 +3,7 @@ use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 use masq_lib::utils::index_of;
 
-const PRESERVE_HEADER_LEN: usize = 4; // tested
+const PRESERVE_HEADER_LEN: usize = 4;
 
 #[derive(Default)]
 pub struct TlsFramer {

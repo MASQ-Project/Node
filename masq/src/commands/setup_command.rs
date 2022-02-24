@@ -17,7 +17,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
 
-pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000; // tested
+pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 
 pub fn setup_subcommand() -> App<'static, 'static> {
     shared_app(SubCommand::with_name("setup")

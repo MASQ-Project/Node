@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
-const DNS_PORT: u16 = 53; // tested
+const DNS_PORT: u16 = 53;
 
 use crate::entry_dns::processing;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;

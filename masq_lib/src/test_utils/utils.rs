@@ -7,9 +7,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::{fs, io, thread};
 
-pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten; // tested
-pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev; // tested
-pub const BASE_TEST_DIR: &str = "generated/test"; // tested
+pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
+pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
+pub const BASE_TEST_DIR: &str = "generated/test";
 
 pub fn node_home_directory(module: &str, name: &str) -> PathBuf {
     let home_dir_string = format!("{}/{}/{}/home", BASE_TEST_DIR, module, name);

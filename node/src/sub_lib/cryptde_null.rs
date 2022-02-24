@@ -619,7 +619,7 @@ mod tests {
         infants were rocked to slumber. Oh, woe on woe! Oh, Death, why canst thou not sometimes \
         be timely? Hadst thou taken this old blacksmith to thyself ere his full ruin came upon \
         him, then had the young widow had a delicious grief, and her orphans a truly venerable, \
-        legendary sire to dream of in their after years; and all of them a care-killing competency."; // tested
+        legendary sire to dream of in their after years; and all of them a care-killing competency.";
 
     #[test]
     fn verifying_a_good_signature_works() {

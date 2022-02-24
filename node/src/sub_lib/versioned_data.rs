@@ -12,7 +12,7 @@ use std::sync::RwLock;
 pub const FUTURE_VERSION: DataVersion = DataVersion {
     major: 0xFFFF,
     minor: 0xFFFF,
-}; // tested
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DataVersion {

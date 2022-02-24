@@ -38,7 +38,7 @@ impl CrashNotification {
 
 struct ChildWaitFailureRecognizer {}
 
-const CHILD_WAIT_FAILURE_PREFIX: &str = "Child wait failure: "; // tested
+const CHILD_WAIT_FAILURE_PREFIX: &str = "Child wait failure: ";
 
 impl Recognizer for ChildWaitFailureRecognizer {
     fn try_convert(
