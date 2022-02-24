@@ -8,7 +8,7 @@ use crate::sub_lib::utils::time_t_timestamp;
 use masq_lib::logger::Logger;
 use std::cell::Cell;
 
-pub const DEAD_NODE_CHECK_INTERVAL_SECS: u32 = 60;
+pub const DEAD_NODE_CHECK_INTERVAL_SECS: u32 = 60; // tested
 
 pub trait GossipProducer: Send {
     fn produce(
@@ -114,6 +114,11 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::collections::btree_set::BTreeSet;
     use std::convert::TryFrom;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DEAD_NODE_CHECK_INTERVAL_SECS, 60);
+    }
 
     #[test]
     fn constructor_populates_last_dead_node_check() {

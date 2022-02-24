@@ -8,7 +8,7 @@ use masq_lib::short_writeln;
 use std::default::Default;
 use std::fmt::Debug;
 
-const START_COMMAND_TIMEOUT_MILLIS: u64 = 15000;
+const START_COMMAND_TIMEOUT_MILLIS: u64 = 15000; // tested
 
 pub fn start_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("start")
@@ -53,6 +53,11 @@ mod tests {
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use std::string::ToString;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(START_COMMAND_TIMEOUT_MILLIS, 15000);
+    }
 
     #[test]
     fn start_command_happy_path() {

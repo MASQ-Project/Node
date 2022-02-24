@@ -15,9 +15,9 @@ use std::str::FromStr;
 use system_configuration::dynamic_store::SCDynamicStore;
 use system_configuration::dynamic_store::SCDynamicStoreBuilder;
 
-const PRIMARY_SERVICE: &str = "PrimaryService";
-const SERVER_ADDRESSES: &str = "ServerAddresses";
-const SERVER_ADDRESSES_BAK: &str = "ServerAddressesBak";
+const PRIMARY_SERVICE: &str = "PrimaryService"; // tested
+const SERVER_ADDRESSES: &str = "ServerAddresses"; // tested
+const SERVER_ADDRESSES_BAK: &str = "ServerAddressesBak"; // tested
 
 pub struct DynamicStoreDnsInspector {
     store: Box<dyn StoreWrapper>,
@@ -255,6 +255,13 @@ mod tests {
     use std::cell::RefCell;
     use std::sync::Arc;
     use std::sync::Mutex;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(PRIMARY_SERVICE, "PrimaryService");
+        assert_eq!(SERVER_ADDRESSES, "ServerAddresses");
+        assert_eq!(SERVER_ADDRESSES_BAK, "ServerAddressesBak");
+    }
 
     struct StoreWrapperMock {
         get_dictionary_string_cfpl_parameters: Arc<Mutex<Vec<String>>>,

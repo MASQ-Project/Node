@@ -28,7 +28,7 @@ const TLS_INTERNAL_ERROR_ALERT: [u8; 7] = [
     0x00, 0x02, // packet length
     0x02, // fatal alert
     0x50, // internal_error alert
-];
+]; // tested
 
 const TLS_UNRECOGNIZED_NAME_ALERT: [u8; 7] = [
     0x15, // alert
@@ -36,11 +36,36 @@ const TLS_UNRECOGNIZED_NAME_ALERT: [u8; 7] = [
     0x00, 0x02, // packet length
     0x02, // fatal alert
     0x70, // unrecognized_name alert
-];
+]; // tested
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constants_have_correct_values() {
+        const TLS_INTERNAL_ERROR_ALERT_EXPECTED: [u8; 7] = [
+            0x15, // alert
+            0x03, 0x03, // TLS 1.2
+            0x00, 0x02, // packet length
+            0x02, // fatal alert
+            0x50, // internal_error alert
+        ];
+
+        const TLS_UNRECOGNIZED_NAME_ALERT_EXPECTED: [u8; 7] = [
+            0x15, // alert
+            0x03, 0x03, // TLS 1.2
+            0x00, 0x02, // packet length
+            0x02, // fatal alert
+            0x70, // unrecognized_name alert
+        ];
+
+        assert_eq!(TLS_INTERNAL_ERROR_ALERT, TLS_INTERNAL_ERROR_ALERT_EXPECTED);
+        assert_eq!(
+            TLS_UNRECOGNIZED_NAME_ALERT,
+            TLS_UNRECOGNIZED_NAME_ALERT_EXPECTED
+        );
+    }
 
     #[test]
     fn route_query_failure_response_produces_internal_error_alert() {

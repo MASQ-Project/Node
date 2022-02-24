@@ -3,7 +3,7 @@ use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 use masq_lib::utils::index_of;
 
-const PRESERVE_HEADER_LEN: usize = 4;
+const PRESERVE_HEADER_LEN: usize = 4; // tested
 
 #[derive(Default)]
 pub struct TlsFramer {
@@ -101,6 +101,11 @@ impl TlsFramer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(PRESERVE_HEADER_LEN, 4);
+    }
 
     #[test]
     fn constant_values() {

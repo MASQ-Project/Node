@@ -17,7 +17,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
 
-pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
+pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000; // tested
 
 pub fn setup_subcommand() -> App<'static, 'static> {
     shared_app(SubCommand::with_name("setup")
@@ -146,6 +146,11 @@ mod tests {
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(SETUP_COMMAND_TIMEOUT_MILLIS, 30000);
+    }
 
     #[test]
     fn setup_command_with_syntax_error() {

@@ -71,7 +71,7 @@ use masq_lib::logger::Logger;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
-pub const CRASH_KEY: &str = "NEIGHBORHOOD";
+pub const CRASH_KEY: &str = "NEIGHBORHOOD"; // tested
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -1304,6 +1304,11 @@ mod tests {
 
     use super::*;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "NEIGHBORHOOD");
+    }
 
     #[test]
     #[should_panic(

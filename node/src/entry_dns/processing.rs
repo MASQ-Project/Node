@@ -13,8 +13,8 @@ use trust_dns::op::ResponseCode;
 use trust_dns::rr::DNSClass;
 use trust_dns::rr::RecordType;
 
-const HEADER_BYTES: usize = 12;
-const UNKNOWN: &str = "<unknown>";
+const HEADER_BYTES: usize = 12; // tested
+const UNKNOWN: &str = "<unknown>"; // tested
 
 pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger) -> usize {
     let mut facade = PacketFacade::new(buf, length);
@@ -187,6 +187,12 @@ mod tests {
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
     use std::time::Instant;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(HEADER_BYTES, 12);
+        assert_eq!(UNKNOWN, "<unknown>");
+    }
 
     #[test]
     fn returns_format_error_if_queries_overrun() {

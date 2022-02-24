@@ -22,7 +22,7 @@ use masq_lib::messages::{
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use std::net::{IpAddr, Ipv4Addr};
 
-pub const CRASH_KEY: &str = "DISPATCHER";
+pub const CRASH_KEY: &str = "DISPATCHER"; // tested
 lazy_static! {
     static ref NULL_IP_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
 }
@@ -232,6 +232,11 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::str::FromStr;
     use std::thread;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "DISPATCHER");
+    }
 
     lazy_static! {
         static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::try_from((

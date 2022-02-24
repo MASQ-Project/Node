@@ -37,7 +37,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-const CONSOLE_DIAGNOSTICS: bool = false;
+const CONSOLE_DIAGNOSTICS: bool = false; // tested
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
@@ -973,6 +973,11 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CONSOLE_DIAGNOSTICS, false);
+    }
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,

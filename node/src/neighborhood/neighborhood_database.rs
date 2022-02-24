@@ -20,7 +20,7 @@ use std::fmt::Error;
 use std::fmt::Formatter;
 use std::net::IpAddr;
 
-pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
+pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30; // tested
 
 #[derive(Clone)]
 pub struct NeighborhoodDatabase {
@@ -367,6 +367,11 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
     use std::str::FromStr;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(ISOLATED_NODE_GRACE_PERIOD_SECS, 30);
+    }
 
     #[test]
     fn a_brand_new_database_has_the_expected_contents() {

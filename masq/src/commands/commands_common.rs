@@ -12,7 +12,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Display;
 
-pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000;
+pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000; // tested
 
 #[derive(Debug, PartialEq)]
 pub enum CommandError {
@@ -106,6 +106,11 @@ mod tests {
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(STANDARD_COMMAND_TIMEOUT_MILLIS, 1000);
+    }
 
     #[test]
     fn two_way_transaction_passes_dropped_connection_error() {

@@ -21,7 +21,7 @@ use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use routing_service::RoutingService;
 
-pub const CRASH_KEY: &str = "HOPPER";
+pub const CRASH_KEY: &str = "HOPPER"; // tested
 
 pub struct Hopper {
     main_cryptde: &'static dyn CryptDE,
@@ -162,6 +162,11 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::SocketAddr;
     use std::str::FromStr;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "HOPPER");
+    }
 
     #[test]
     #[should_panic(expected = "Hopper unbound: no RoutingService")]

@@ -7,7 +7,7 @@ use crate::sub_lib::http_packet_framer::PacketProgressState;
 use masq_lib::utils::index_of;
 use regex::Regex;
 
-const LONGEST_PREFIX_LEN: usize = 13;
+const LONGEST_PREFIX_LEN: usize = 13; // tested
 
 pub struct HttpResponseStartFinder {}
 
@@ -82,6 +82,11 @@ impl HttpResponseStartFinder {
 mod tests {
     use super::*;
     use crate::sub_lib::http_packet_framer::ChunkProgressState;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(LONGEST_PREFIX_LEN, 13);
+    }
 
     #[test]
     fn returns_none_if_no_http() {

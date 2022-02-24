@@ -12,10 +12,10 @@ use websocket::ClientBuilder;
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
 // because they depend on being able to fail twice and still succeed.
-const DELAY_FOR_RESPONSE_MS: u64 = 10000;
-const RESPONSE_CHECK_INTERVAL_MS: u64 = 250;
-const DELAY_FOR_DEATH_MS: u64 = 1000;
-const DEATH_CHECK_INTERVAL_MS: u64 = 250;
+const DELAY_FOR_RESPONSE_MS: u64 = 10000; // tested
+const RESPONSE_CHECK_INTERVAL_MS: u64 = 250; // tested
+const DELAY_FOR_DEATH_MS: u64 = 1000; // tested
+const DEATH_CHECK_INTERVAL_MS: u64 = 250; // tested
 
 pub trait VerifierTools {
     fn can_connect_to_ui_gateway(&self, ui_port: u16) -> bool;
@@ -201,6 +201,14 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
     use websocket::server::sync::Server;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DELAY_FOR_RESPONSE_MS, 10000);
+        assert_eq!(RESPONSE_CHECK_INTERVAL_MS, 250);
+        assert_eq!(DELAY_FOR_DEATH_MS, 1000);
+        assert_eq!(DEATH_CHECK_INTERVAL_MS, 250);
+    }
 
     #[test]
     fn detects_successful_launch_after_two_attempts() {

@@ -16,9 +16,9 @@ use std::ops::Add;
 use std::thread;
 use std::time::{Duration, Instant};
 
-const DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL: u64 = 250; // milliseconds
-const DEFAULT_SHUTDOWN_ATTEMPT_LIMIT: u64 = 4;
-const SHUTDOWN_COMMAND_TIMEOUT_MILLIS: u64 = 60000;
+const DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL: u64 = 250; // tested // milliseconds
+const DEFAULT_SHUTDOWN_ATTEMPT_LIMIT: u64 = 4; // tested
+const SHUTDOWN_COMMAND_TIMEOUT_MILLIS: u64 = 60000; // tested
 
 #[derive(Debug)]
 pub struct ShutdownCommand {
@@ -150,6 +150,13 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Instant;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL, 250);
+        assert_eq!(DEFAULT_SHUTDOWN_ATTEMPT_LIMIT, 4);
+        assert_eq!(SHUTDOWN_COMMAND_TIMEOUT_MILLIS, 60000);
+    }
 
     #[derive(Debug)]
     struct ShutdownAwaiterMock {

@@ -49,7 +49,7 @@ use tokio::prelude::Future;
 // overseen by StreamHandlerPool will not (and should not) have StreamKeys. Don't let the
 // concept leak down this far.
 
-pub const CRASH_KEY: &str = "STREAMHANDLERPOOL";
+pub const CRASH_KEY: &str = "STREAMHANDLERPOOL"; // tested
 
 pub struct StreamHandlerPoolSubs {
     pub add_sub: Recipient<AddStreamMsg>,
@@ -600,6 +600,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Async;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "STREAMHANDLERPOOL");
+    }
 
     struct TrafficAnalyzerMock {}
 

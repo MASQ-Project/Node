@@ -35,7 +35,7 @@ use std::time::SystemTime;
 use web3::transports::Http;
 use web3::types::{TransactionReceipt, H256};
 
-pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
+pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE"; // tested
 
 pub struct BlockchainBridge {
     consuming_wallet_opt: Option<Wallet>,
@@ -394,6 +394,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
     use web3::types::{TransactionReceipt, H160, H256, U256};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "BLOCKCHAINBRIDGE");
+    }
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())

@@ -204,6 +204,11 @@ pub mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(BEGINNING_OF_CRASH_RQ_MESSAGE, "Received a crash request");
+    }
+
+    #[test]
     fn indicates_dead_stream_identifies_dead_stream_errors() {
         vec![
             ErrorKind::BrokenPipe,
@@ -258,7 +263,7 @@ pub mod tests {
         assert_eq!(NODE_MAILBOX_CAPACITY, 0)
     }
 
-    const BEGINNING_OF_CRASH_RQ_MESSAGE: &str = "Received a crash request";
+    const BEGINNING_OF_CRASH_RQ_MESSAGE: &str = "Received a crash request"; // tested
 
     #[test]
     fn handle_ui_crash_message_does_not_crash_if_not_crashable() {

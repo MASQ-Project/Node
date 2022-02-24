@@ -16,7 +16,7 @@ use tokio::prelude::Future;
 use tokio::reactor::Handle;
 use tokio::timer::Timeout;
 
-pub const CONNECT_TIMEOUT_MS: u64 = 5000;
+pub const CONNECT_TIMEOUT_MS: u64 = 5000; // tested
 pub type ConnectionInfoFuture = Box<dyn Future<Item = ConnectionInfo, Error = io::Error> + Send>;
 
 pub struct ConnectionInfo {
@@ -168,6 +168,11 @@ mod tests {
     use std::time::Duration;
     use tokio;
     use tokio::io::ErrorKind;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CONNECT_TIMEOUT_MS, 5000);
+    }
 
     #[test]
     fn stream_connector_can_fail_to_connect() {

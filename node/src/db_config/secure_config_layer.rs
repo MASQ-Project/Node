@@ -7,7 +7,7 @@ use crate::db_config::config_dao::{
 use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use rand::Rng;
 
-pub const EXAMPLE_ENCRYPTED: &str = "example_encrypted";
+pub const EXAMPLE_ENCRYPTED: &str = "example_encrypted"; // tested
 
 #[derive(Debug, PartialEq)]
 pub enum SecureConfigLayerError {
@@ -211,6 +211,11 @@ mod tests {
     use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
     use crate::sub_lib::cryptde::PlainData;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(EXAMPLE_ENCRYPTED, "example_encrypted");
+    }
 
     #[test]
     fn secure_config_layer_error_from_config_dao_error() {

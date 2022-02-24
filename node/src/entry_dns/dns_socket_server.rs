@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
-const DNS_PORT: u16 = 53;
+const DNS_PORT: u16 = 53; // tested
 
 use crate::entry_dns::processing;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
@@ -109,6 +109,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use tokio;
     use trust_dns::op::ResponseCode;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DNS_PORT, 53);
+    }
 
     struct UdpSocketWrapperMockGuts {
         log: Vec<String>,

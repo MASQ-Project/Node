@@ -53,8 +53,8 @@ use std::rc::Rc;
 use std::time::Duration;
 use tokio::prelude::Future;
 
-pub const CRASH_KEY: &str = "PROXYSERVER";
-pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
+pub const CRASH_KEY: &str = "PROXYSERVER"; // tested
+pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120); // tested
 
 struct ProxyServerOutSubs {
     dispatcher: Recipient<TransmitDataMsg>,
@@ -1000,6 +1000,12 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::thread;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "PROXYSERVER");
+        assert_eq!(RETURN_ROUTE_TTL, Duration::from_secs(120));
+    }
 
     const STANDARD_CONSUMING_WALLET_BALANCE: i64 = 0;
 

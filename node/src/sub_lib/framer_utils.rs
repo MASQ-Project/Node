@@ -7,7 +7,7 @@ pub struct ChunkOffsetLength {
     pub length: usize,
 }
 
-pub const CRLF: &[u8; 2] = b"\r\n";
+pub const CRLF: &[u8; 2] = b"\r\n"; // tested
 
 pub fn find_chunk_offset_length(data_so_far: &[u8]) -> Option<ChunkOffsetLength> {
     // TODO: Optimization: Only look at new-data length + 17 characters maximum
@@ -91,6 +91,11 @@ fn position_in_range(digit: u8, first: u8, last: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRLF, b"\r\n");
+    }
 
     #[test]
     pub fn returns_none_if_no_crlf() {

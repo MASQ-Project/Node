@@ -35,14 +35,14 @@ pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_service_rate: 10000,
     exit_byte_rate: 101,
     exit_service_rate: 10001,
-};
+}; // tested
 
 pub const ZERO_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 0,
     routing_service_rate: 0,
     exit_byte_rate: 0,
     exit_service_rate: 0,
-};
+}; // tested
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NeighborhoodMode {
@@ -518,6 +518,28 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{localhost, NeighborhoodModeLight};
     use std::str::FromStr;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            DEFAULT_RATE_PACK,
+            RatePack {
+                routing_byte_rate: 100,
+                routing_service_rate: 10000,
+                exit_byte_rate: 101,
+                exit_service_rate: 10001,
+            }
+        );
+        assert_eq!(
+            ZERO_RATE_PACK,
+            RatePack {
+                routing_byte_rate: 0,
+                routing_service_rate: 0,
+                exit_byte_rate: 0,
+                exit_service_rate: 0,
+            }
+        );
+    }
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
         RatePack {

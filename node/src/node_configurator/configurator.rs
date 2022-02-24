@@ -41,7 +41,7 @@ use masq_lib::utils::derivation_path;
 use rustc_hex::{FromHex, ToHex};
 use tiny_hderive::bip32::ExtendedPrivKey;
 
-pub const CRASH_KEY: &str = "CONFIGURATOR";
+pub const CRASH_KEY: &str = "CONFIGURATOR"; // tested
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
@@ -803,6 +803,11 @@ mod tests {
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "CONFIGURATOR")
+    }
 
     #[test]
     fn constructor_connects_with_database() {

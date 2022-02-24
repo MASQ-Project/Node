@@ -19,8 +19,8 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use tokio::net::TcpListener;
 
-pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: usize = 5;
+pub const DATABASE_FILE: &str = "node-data.db"; // tested
+pub const CURRENT_SCHEMA_VERSION: usize = 5; // tested
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -608,6 +608,12 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DATABASE_FILE, "node-data.db");
+        assert_eq!(CURRENT_SCHEMA_VERSION, 5);
+    }
 
     #[test]
     fn db_initialize_does_not_create_if_directed_not_to_and_directory_does_not_exist() {

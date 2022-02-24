@@ -10,7 +10,7 @@ use std::str::FromStr;
 use winreg::enums::*;
 use winreg::RegKey;
 
-const NOT_FOUND: i32 = 2;
+const NOT_FOUND: i32 = 2; // tested
 
 pub struct WinDnsInspector {
     hive: Box<dyn RegKeyTrait>,
@@ -241,6 +241,11 @@ mod tests {
     use std::collections::HashMap;
     use std::io::Error;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(NOT_FOUND, 2);
+    }
 
     #[test]
     fn get_default_gateway_sees_dhcp_if_both_are_specified() {

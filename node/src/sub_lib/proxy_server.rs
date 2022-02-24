@@ -17,7 +17,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-pub const DEFAULT_MINIMUM_HOP_COUNT: usize = 3;
+pub const DEFAULT_MINIMUM_HOP_COUNT: usize = 3; // tested
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -95,6 +95,11 @@ mod tests {
     use crate::sub_lib::proxy_server::ProxyServerSubs;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DEFAULT_MINIMUM_HOP_COUNT, 3);
+    }
 
     #[test]
     fn proxy_server_subs_debug() {

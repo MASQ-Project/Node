@@ -359,9 +359,9 @@ impl HttpPacketFramer {
     }
 }
 
-const BYTES_TO_PRESERVE: usize = 9;
-const CRLF: &[u8; 2] = b"\r\n";
-const DOUBLE_CRLF: &[u8; 4] = b"\r\n\r\n";
+const BYTES_TO_PRESERVE: usize = 9; // tested
+const CRLF: &[u8; 2] = b"\r\n"; // tested
+const DOUBLE_CRLF: &[u8; 4] = b"\r\n\r\n"; // tested
 
 pub fn summarize_http_packet(request: &[u8]) -> String {
     let first_space_index = match index_of_from(request, &(b' '), 0) {
@@ -384,6 +384,13 @@ mod framer_tests {
     use crate::sub_lib::http_response_start_finder::HttpResponseStartFinder;
     use crate::sub_lib::utils::to_string;
     use crate::sub_lib::utils::to_string_s;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(BYTES_TO_PRESERVE, 9);
+        assert_eq!(CRLF, b"\r\n");
+        assert_eq!(DOUBLE_CRLF, b"\r\n\r\n");
+    }
 
     const GOOD_FIRST_LINE: [u8; 15] = *b"GOOD_FIRST_LINE";
 

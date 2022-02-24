@@ -10,8 +10,8 @@ use masq_lib::utils::index_of;
 
 const METHODS: &[&[u8]] = &[
     b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"CONNECT", b"OPTIONS", b"TRACE", b"PATCH",
-];
-const LONGEST_METHOD_LEN: usize = 7;
+]; // tested
+const LONGEST_METHOD_LEN: usize = 7; // tested
 
 pub struct HttpRequestStartFinder {}
 
@@ -77,6 +77,16 @@ mod tests {
     use crate::sub_lib::http_packet_framer::ChunkExistenceState;
     use crate::sub_lib::http_packet_framer::ChunkProgressState;
     use crate::sub_lib::http_packet_framer::PacketProgressState;
+
+    #[test]
+    fn constants_have_correct_values() {
+        const METHODS_EXPECTED: &[&[u8]] = &[
+            b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"CONNECT", b"OPTIONS", b"TRACE", b"PATCH",
+        ];
+
+        assert_eq!(METHODS, METHODS_EXPECTED);
+        assert_eq!(LONGEST_METHOD_LEN, 7);
+    }
 
     #[test]
     fn discriminator_factory_duplicate_works() {

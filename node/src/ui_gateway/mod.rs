@@ -25,7 +25,7 @@ use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::mem::replace;
 
-pub const CRASH_KEY: &str = "UIGATEWAY";
+pub const CRASH_KEY: &str = "UIGATEWAY"; // tested
 
 pub struct UiGateway {
     port: u16,
@@ -201,6 +201,11 @@ mod tests {
     use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use masq_lib::utils::find_free_port;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "UIGATEWAY");
+    }
 
     #[test]
     fn inbound_ui_message_is_disseminated_properly() {
