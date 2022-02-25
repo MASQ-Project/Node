@@ -449,7 +449,9 @@ pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
             Err(e) => panic!("Read error: {}", e),
             Ok(len) => {
                 response.extend(&buf[..len]);
-                last_data_at = Instant::now();
+                if len > 0 {
+                    last_data_at = Instant::now();
+                }
             }
         }
         let now = Instant::now();
