@@ -8,10 +8,12 @@ export RUST_BACKTRACE=full
 export RUSTFLAGS="-D warnings"
 
 pushd "$CI_DIR/.."
-apt install lsof -y
 echo "------"
-echo "Here's what's using TCP:"
-lsof -i4TCP
+echo "Here's what's using ports:"
+lsof netstat -a -n -o
+echo "------"
+echo "Here are the running processes:"
+tasklist
 echo "------"
 for i in {1..100}; do
   echo "------"
