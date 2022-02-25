@@ -9,6 +9,16 @@ ci/build.sh # Build here before sudo to make sure we don't produce any root-owne
 case "$OSTYPE" in
     msys)
         echo "Windows"
+        echo "------"
+        echo "Telling http.sys to lay off IPv4"
+        netsh http add iplisten ipaddress=::
+        echo "------"
+        echo "Here's what's using ports:"
+        netstat -a -n -o
+        echo "------"
+        echo "Here are the running processes:"
+        tasklist
+        echo "------"
         ci/run_integration_tests.sh "$TOOLCHAIN_HOME"|| echo "Integration tests failed"
         mkdir -p generated/daemon_logs
 #        ls -lR $HOME/AppData/Local

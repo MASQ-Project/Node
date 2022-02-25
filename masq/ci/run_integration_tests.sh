@@ -8,13 +8,6 @@ export RUST_BACKTRACE=full
 export RUSTFLAGS="-D warnings"
 
 pushd "$CI_DIR/.."
-echo "------"
-echo "Here's what's using ports:"
-netstat -a -n -o
-echo "------"
-echo "Here are the running processes:"
-tasklist
-echo "------"
 for i in {1..100}; do
   echo "------"
   echo "Test iteration $i"
