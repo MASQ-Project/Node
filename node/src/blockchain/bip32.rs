@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use ethereum_types::Address;
+use ethereum_types::{Address, H160};
 use ethsign::keyfile::Crypto;
 use ethsign::{Protected, PublicKey, SecretKey as EthsignSecretKey, Signature};
 use secp256k1secrets::key::SecretKey as Secp256k1SecretKey;
@@ -48,9 +48,7 @@ impl Bip32ECKeyProvider {
     }
 
     pub fn address(&self) -> Address {
-        Address {
-            0: *self.public_key().address(),
-        }
+        H160(*self.public_key().address())
     }
 
     pub fn public_key(&self) -> PublicKey {

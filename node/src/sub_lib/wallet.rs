@@ -3,6 +3,7 @@ use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::PublicKey as CryptdePublicKey;
+use ethereum_types::H160;
 use ethsign::{PublicKey, Signature};
 use rusqlite::types::{FromSql, FromSqlError, ToSqlOutput, Value, ValueRef};
 use rusqlite::ToSql;
@@ -45,7 +46,7 @@ pub enum WalletKind {
 impl Clone for WalletKind {
     fn clone(&self) -> Self {
         match self {
-            WalletKind::Address(address) => WalletKind::Address(Address { 0: address.0 }),
+            WalletKind::Address(address) => WalletKind::Address(H160(address.0)),
             WalletKind::SecretKey(keypair) => WalletKind::SecretKey(
                 Bip32ECKeyProvider::from_raw_secret(keypair.clone_secret().as_ref())
                     .expect("failed to clone once checked secret"),
@@ -124,10 +125,8 @@ impl Wallet {
 
     pub fn address(&self) -> Address {
         match &self.kind {
-            WalletKind::Address(address) => Address { 0: address.0 },
-            WalletKind::PublicKey(public) => Address {
-                0: *public.address(),
-            },
+            WalletKind::Address(address) => H160(address.0),
+            WalletKind::PublicKey(public) => H160(*public.address()),
             WalletKind::SecretKey(key_provider) => key_provider.address(),
             WalletKind::Uninitialized => panic!("No address for an uninitialized wallet!"),
         }
@@ -214,7 +213,7 @@ impl From<H256> for Wallet {
         let mut addr = [0u8; 20];
         addr.copy_from_slice(&address.0[12..32]);
         Self {
-            kind: WalletKind::Address(Address { 0: addr }),
+            kind: WalletKind::Address(H160(addr)),
         }
     }
 }
@@ -394,7 +393,7 @@ impl<'de> serde::Deserialize<'de> for Wallet {
                                         serde::de::MapAccess::next_value::<Vec<u8>>(&mut map)?;
                                     let mut address = [0u8; 20];
                                     address.copy_from_slice(bytes.as_slice());
-                                    serde::__private::Some(Address { 0: address })
+                                    serde::__private::Some(H160(address))
                                 }
                             }
                         }

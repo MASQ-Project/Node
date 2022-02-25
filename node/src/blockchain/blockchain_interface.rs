@@ -19,7 +19,7 @@ use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
 use web3::types::{
     Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
-    TransactionReceipt, H256, U256,
+    TransactionReceipt, H160, H256, U256,
 };
 use web3::{Transport, Web3};
 
@@ -27,13 +27,10 @@ pub const REQUESTS_IN_PARALLEL: usize = 1;
 
 pub const CONTRACT_ABI: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
 
-const TRANSACTION_LITERAL: H256 = H256 {
-    0: [
-        0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d,
-        0xaa, 0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16, 0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23,
-        0xb3, 0xef,
-    ],
-};
+const TRANSACTION_LITERAL: H256 = H256([
+    0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
+    0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16, 0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23, 0xb3, 0xef,
+]);
 
 const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
@@ -393,9 +390,7 @@ where
 
         let transaction_parameters = TransactionParameters {
             nonce: Some(converted_nonce),
-            to: Some(ethereum_types::Address {
-                0: self.contract_address().0,
-            }),
+            to: Some(H160(self.contract_address().0)),
             gas: gas_limit,
             gas_price: Some(gas_price),
             value: ethereum_types::U256::zero(),
