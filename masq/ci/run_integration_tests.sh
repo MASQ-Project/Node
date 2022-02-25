@@ -10,7 +10,7 @@ export RUSTFLAGS="-D warnings"
 pushd "$CI_DIR/.."
 echo "------"
 echo "Here's what's using ports:"
-lsof netstat -a -n -o
+netstat -a -n -o
 echo "------"
 echo "Here are the running processes:"
 tasklist
