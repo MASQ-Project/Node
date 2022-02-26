@@ -19,7 +19,7 @@ lazy_static! {
         Regex::new(r"HTTP/(\d\.\d)").expect("Bad regular expression");
 }
 
-struct MBCSBuilder {
+pub struct MBCSBuilder {
     port: u16,
     response_batch_opt: Option<Vec<String>>,
     responses: Vec<String>,
@@ -102,7 +102,7 @@ struct MBCSThreadInfo {
     join_handle: JoinHandle<()>,
 }
 
-struct MockBlockchainClientServer {
+pub struct MockBlockchainClientServer {
     port: u16,
     thread_info_opt: Option<MBCSThreadInfo>,
     requests_arc: Arc<Mutex<Vec<String>>>,

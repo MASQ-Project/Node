@@ -125,6 +125,7 @@ pub struct NodeStartupConfig {
     pub blockchain_service_url_opt: Option<String>,
     pub chain: Chain,
     pub db_password_opt: Option<String>,
+    pub start_block_opt: Option<u64>,
 }
 
 impl Default for NodeStartupConfig {
@@ -152,6 +153,7 @@ impl NodeStartupConfig {
             blockchain_service_url_opt: None,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
             db_password_opt: Some("password".to_string()),
+            start_block_opt: None,
         }
     }
 
@@ -206,6 +208,11 @@ impl NodeStartupConfig {
         if let Some(ref db_password) = self.db_password_opt {
             args.push("--db-password".to_string());
             args.push(db_password.to_string());
+        }
+
+        if let Some(ref start_block) = self.start_block_opt {
+            args.push("--start-block".to_string());
+            args.push(start_block.to_string());
         }
         args
     }
@@ -616,6 +623,7 @@ impl NodeStartupConfigBuilder {
             blockchain_service_url_opt: self.blockchain_service_url,
             chain: self.chain,
             db_password_opt: self.db_password,
+            start_block_opt: self.start_block_opt,
         }
     }
 }
@@ -1307,6 +1315,7 @@ mod tests {
             blockchain_service_url_opt: None,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
             db_password_opt: Some("booga".to_string()),
+            start_block_opt: Some (12345),
         };
         let neighborhood_mode = "standard".to_string();
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -1365,7 +1374,8 @@ mod tests {
             result.fake_public_key_opt,
             Some(PublicKey::new(&[1, 2, 3, 4]))
         );
-        assert_eq!(result.db_password_opt, Some("booga".to_string()))
+        assert_eq!(result.db_password_opt, Some("booga".to_string()));
+        assert_eq!(result.start_block_opt, Some(12345))
     }
 
     #[test]
