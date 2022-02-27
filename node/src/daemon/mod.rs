@@ -272,17 +272,17 @@ impl Daemon {
 
     fn handle_crash_notification(&mut self, msg: CrashNotification) {
         if self.node_ui_port.is_some() || self.node_process_id.is_some() {
-debug!(self.logger, "Broadcasting UiNodeCrashedBroadcast");
+debug!(self.logger, "Preparing UiNodeCrashedBroadcast broadcast");
             self.node_process_id = None;
             self.node_ui_port = None;
-            self.send_ui_message(
-                UiNodeCrashedBroadcast {
-                    process_id: msg.process_id,
-                    crash_reason: msg.analyze().clone(),
-                }
-                .tmb(0),
-                MessageTarget::AllClients,
-            );
+            let crash_reason = msg.analyze().clone();
+            let message_body = UiNodeCrashedBroadcast {
+                process_id: msg.process_id,
+                crash_reason: crash_reason.clone(),
+            }
+            .tmb(0);
+debug!(self.logger, "Broadcast prepared. Broadcasting: {:?}", crash_reason);
+            self.send_ui_message(message_body, MessageTarget::AllClients);
             error!(self.logger, "Node at {} crashed: {:?}", msg.process_id, msg.analyze());
         }
 debug!(self.logger, "Broadcast complete");
