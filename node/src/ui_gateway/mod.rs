@@ -146,6 +146,7 @@ impl Handler<NodeToUiMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: NodeToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+debug!(self.logger, "Sending {} message to WebsocketSupervisor", msg.body.opcode);
         self.websocket_supervisor
             .as_ref()
             .right()

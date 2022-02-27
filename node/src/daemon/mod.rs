@@ -272,6 +272,7 @@ impl Daemon {
 
     fn handle_crash_notification(&mut self, msg: CrashNotification) {
         if self.node_ui_port.is_some() || self.node_process_id.is_some() {
+debug!(self.logger, "Broadcasting UiNodeCrashedBroadcast");
             self.node_process_id = None;
             self.node_ui_port = None;
             self.send_ui_message(
@@ -284,6 +285,7 @@ impl Daemon {
             );
             error!(self.logger, "Node at {} crashed: {:?}", msg.process_id, msg.analyze());
         }
+debug!(self.logger, "Broadcast complete");
     }
 
     fn port_if_node_is_running(&mut self) -> Option<u16> {

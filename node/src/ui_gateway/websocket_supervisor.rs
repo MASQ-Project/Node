@@ -71,6 +71,7 @@ struct WebSocketSupervisorInner {
     from_ui_message_sub: Recipient<NodeFromUiMessage>,
     client_id_by_socket_addr: HashMap<SocketAddr, u64>,
     client_by_id: HashMap<u64, Box<dyn ClientWrapper>>,
+    logger: Logger,
 }
 
 impl WebSocketSupervisor for WebSocketSupervisorReal {
@@ -91,6 +92,7 @@ impl WebSocketSupervisorReal {
             from_ui_message_sub,
             client_id_by_socket_addr: HashMap::new(),
             client_by_id: HashMap::new(),
+            logger: Logger::new ("WebSocketSupervisorInner"),
         }));
         let logger = Logger::new("WebSocketSupervisor");
         let logger_1 = logger.clone();
@@ -376,22 +378,25 @@ impl WebSocketSupervisorReal {
         client_ids: Vec<u64>,
         json: String,
     ) {
+let logger = locked_inner.logger.clone();
+debug!(logger, "Sending to clients {:?}:\n{}", client_ids, json);
         client_ids.into_iter().for_each(|client_id| {
             let client = locked_inner
                 .client_by_id
                 .get_mut(&client_id)
                 .unwrap_or_else(|| panic!("Tried to send to a nonexistent client {}", client_id));
+debug!(logger, "Sending to client {}", client_id);
             match client.send(OwnedMessage::Text(json.clone())) {
                 Ok(_) => match client.flush() {
                     Ok(_) => (),
                     Err(_) => warning!(
-                        Logger::new("WebSocketSupervisor"),
+                        locked_inner.logger,
                         "Client {} dropped its connection before it could be flushed",
                         client_id
                     ),
                 },
                 Err(e) => error!(
-                    Logger::new("WebSocketSupervisor"),
+                    locked_inner.logger,
                     "Error sending to client {}: {:?}", client_id, e
                 ),
             };
@@ -816,6 +821,7 @@ mod tests {
             from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
             client_id_by_socket_addr: Default::default(),
             client_by_id: Default::default(),
+            logger: Logger::new ("test"),
         };
         let subject = WebSocketSupervisorReal {
             inner: Arc::new(Mutex::new(subject_inner)),
@@ -883,6 +889,7 @@ mod tests {
             from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
             client_id_by_socket_addr: Default::default(),
             client_by_id: Default::default(),
+            logger: Logger::new ("test"),
         };
         let subject = WebSocketSupervisorReal {
             inner: Arc::new(Mutex::new(subject_inner)),
@@ -950,6 +957,7 @@ mod tests {
             from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
             client_id_by_socket_addr: Default::default(),
             client_by_id: Default::default(),
+            logger: Logger::new ("test"),
         };
         let subject = WebSocketSupervisorReal {
             inner: Arc::new(Mutex::new(subject_inner)),
@@ -1026,6 +1034,7 @@ mod tests {
             from_ui_message_sub,
             client_id_by_socket_addr: Default::default(),
             client_by_id,
+            logger: Logger::new ("can_handle_flush_failure_after_send"),
         }));
 
         WebSocketSupervisorReal::send_to_clients(
@@ -1034,7 +1043,7 @@ mod tests {
             "json".to_string(),
         );
 
-        TestLogHandler::new().exists_log_containing ("WARN: WebSocketSupervisor: Client 1234 dropped its connection before it could be flushed");
+        TestLogHandler::new().exists_log_containing ("WARN: can_handle_flush_failure_after_send: Client 1234 dropped its connection before it could be flushed");
     }
 
     #[test]
@@ -1269,7 +1278,7 @@ mod tests {
         System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "WARN: WebSocketSupervisor: Client 0 dropped its connection before it could be flushed",
+            "WARN: WebSocketSupervisorInner: Client 0 dropped its connection before it could be flushed",
         );
     }
 
@@ -1299,7 +1308,7 @@ mod tests {
         System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "ERROR: WebSocketSupervisor: Error sending to client 0: NoDataAvailable",
+            "ERROR: WebSocketSupervisorInner: Error sending to client 0: NoDataAvailable",
         );
     }
 
