@@ -48,19 +48,11 @@ fn request_financial_information_integration() {
         true,
     );
     node.wait_for_log("UIGateway bound", Some(5000));
-    let financials_request = UiFinancialsRequest {
-        payable_minimum_amount: 0,
-        payable_maximum_age: 1_000_000_000_000,
-        receivable_minimum_amount: 0,
-        receivable_maximum_age: 1_000_000_000_000,
-    };
+    let financials_request = UiFinancialsRequest {};
     let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
 
     client.send(financials_request);
-    let financials_response: UiFinancialsResponse = client.receive().unwrap();
-
-    assert_eq!(financials_response.payables.len(), 0);
-    assert_eq!(financials_response.receivables.len(), 0);
+    let _: UiFinancialsResponse = client.receive().unwrap();
     client.send(UiShutdownRequest {});
     node.wait_for_exit();
 }

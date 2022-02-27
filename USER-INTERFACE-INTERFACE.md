@@ -480,80 +480,47 @@ field will be null or absent.
 ##### Correspondent: Node
 ##### Layout:
 ```
-"payload": {
-    "payableMinimumAmount" = <nonnegative integer>,
-    "payableMaximumAge" = <nonnegative integer>,
-    "receivableMinimumAmount" = <nonnegative integer>,
-    "receivableMaximumAge" = <nonnegative integer>
-}
+"payload": {}
 ```
 ##### Description:
-Requests a financial report from the Node.
+Requests financial statistics from the Node.
 
-In most cases, there will be many records in the database, most of them irrelevant because of amount or age.
-Therefore, when the UI requests a financial report, it should specify minimum amounts and maximum ages. Records
-with amounts smaller than the minimums, or older than the maximums, won't be included in the results, although
-their values will be included in the totals.
-
-This request will result in a cluster of queries to the database, which are quick but not instantaneous,
-especially on old databases that contain lots of records. A UI that makes this request too many times per
-second will perceptibly degrade the performance of the Node.
-
-Amounts are specified in gwei (billions of wei); ages are specified in seconds. Values less than zero or
-greater than 64 bits long will cause undefined behavior.
+This will report back information about Node's performance, recorded services over time; mostly put as
+some money value. 
 
 #### `financials`
 ##### Direction: Response
 ##### Correspondent: Node
 ##### Layout:
 ```
+    
 "payload": {
-    "payables": [
-        {
-            "wallet": <string>,
-            "age": <nonnegative integer>,
-            "amount": <nonnegative integer>,
-            "pendingPayableHashOpt": <optional string>
-        },
-        < ... >
-    ],
-    "totalPayable": <nonnegative integer>,
-    "receivables": [
-        {
-            "wallet": <string>,
-            "age": <nonnegative integer>,
-            "amount": <nonnegative integer>
-        },
-        < ... >
-    ],
-    "totalReceivable": <nonnegative integer>
+    "totalUnpaidPayable": <integer>
+    "totalPaidPayable": <nonegative integer>
+    "totalUnpaidReceivable": <integer>
+    "totalPaidReceivable": <nonnegative integer>
 }
 ```
 ##### Description:
-Contains a financial report from the Node.
+Contains a financial statistics report from the Node.
 
-In most cases, there will be accounts in the database that are too old, or whose balances are too low, to
-show up in this report. The `totalPayable` and `totalReceivable` fields will be accurate, but they will
-probably be larger than the sums of the `payables` and `receivables` `amount` fields. The UI may choose to
-ignore this discrepancy, or it may generate an "Other" account in each case to make up the difference.
+`totalUnpaidPayable` is a cumulative amount of Gwei from all accounts that were established on behalf of the Node's
+creditors in the DB; referred as payable, that is a basis of our payments to make to other Nodes. The fact there is
+an account in the DB's affected table may mean two situations, either the debt is still being build up to reach a level
+when it begins to be desirable to pay, or it also may mean that there is already a pending transaction with a goal to
+settle a qualified debt. However, an existence of the record clearly means the debt's settlement has not completed yet,
+either way, and thus the blockchain definitely hasn't been modified accordingly.
+                  
+`totalPaidPayable`, unlike the previous, this is a sum of every paid (or settled) token amount that our Node has sent to
+our creditors, and as well, the transactions were confirmed eventually. Tracked since the startup, figures in Gwei. 
 
-The `wallet` fields will consist of 40 hexadecimal digits, prefixed by "0x".
+`totalUnpaidReceivable`, this is similar to `totalUnpaidReceivables`, the values making a sum here come from the DB
+table belonging to receivable; this table contains records of accounts of different Nodes that have drawn the Node's
+services in the past. We take a track of the amount of "work", put in Gwei, for each and here we request the cumulative
+active debt from all our debtors. 
 
-The `age` fields contain the age in seconds, at the time the request was received, of the most recent transaction
-on the associated account. The value will not be less than zero or longer than 64 bits.
-
-The `amount` fields contain the total amount in gwei owed to or due from the associated account at the time the
-request was received. The value will not be less than zero or longer than 64 bits.
-
-The `pendingPayableHashOpt` fields, if present, indicate that an obligation has been paid, but the payment is not
-yet confirmed on the blockchain. If they appear, they will be standard 64-digit hexadecimal transaction numbers,
-prefixed by "0x". If no `pendingPayableHashOpt` is given, then there were no pending payments on that account
-at the time the request was received.
-
-The `payables` and `receivables` arrays are not in any particular order.
-
-For security reasons, the Node does not keep track of individual blockchain transactions, with the exception
-of payments that have not yet been confirmed. Only cumulative account balances are retained.
+`totalPaidReceivable`: this number of Gwei means a total of transactions we detected as already paid on our account
+from our debtors since the Node's startup. 
 
 #### `generateWallets`
 ##### Direction: Request

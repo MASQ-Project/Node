@@ -14,7 +14,7 @@ use crate::accountant::receivable_dao::{
 use crate::accountant::{Accountant, PaymentCurves, PendingPayableId};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::blockchain::blockchain_interface::Transaction;
+use crate::blockchain::blockchain_interface::PaidReceivable;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils;
 use crate::database::dao_utils::{from_time_t, to_time_t};
@@ -285,7 +285,7 @@ pub struct PayableDaoMock {
     transaction_canceled_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
     top_records_results: RefCell<Vec<Vec<PayableAccount>>>,
-    total_results: RefCell<Vec<u64>>,
+    total_results: RefCell<Vec<i64>>,
     pub have_non_pending_payables_shut_down_the_system: bool,
 }
 
@@ -342,7 +342,7 @@ impl PayableDao for PayableDaoMock {
         self.top_records_results.borrow_mut().remove(0)
     }
 
-    fn total(&self) -> u64 {
+    fn total(&self) -> i64 {
         self.total_results.borrow_mut().remove(0)
     }
 }
@@ -426,7 +426,7 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn total_result(self, result: u64) -> Self {
+    pub fn total_result(self, result: i64) -> Self {
         self.total_results.borrow_mut().push(result);
         self
     }
@@ -438,7 +438,7 @@ pub struct ReceivableDaoMock {
     account_status_results: RefCell<Vec<Option<ReceivableAccount>>>,
     more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
     more_money_receivable_results: RefCell<Vec<Result<(), ReceivableDaoError>>>,
-    more_money_received_parameters: Arc<Mutex<Vec<Vec<Transaction>>>>,
+    more_money_received_parameters: Arc<Mutex<Vec<Vec<PaidReceivable>>>>,
     more_money_received_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     receivables_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentCurves)>>>,
@@ -447,7 +447,7 @@ pub struct ReceivableDaoMock {
     paid_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
     top_records_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-    total_results: RefCell<Vec<u64>>,
+    total_results: RefCell<Vec<i64>>,
     pub have_new_delinquencies_shutdown_the_system: bool,
 }
 
@@ -464,7 +464,7 @@ impl ReceivableDao for ReceivableDaoMock {
         self.more_money_receivable_results.borrow_mut().remove(0)
     }
 
-    fn more_money_received(&mut self, transactions: Vec<Transaction>) {
+    fn more_money_received(&mut self, transactions: Vec<PaidReceivable>) {
         self.more_money_received_parameters
             .lock()
             .unwrap()
@@ -518,7 +518,7 @@ impl ReceivableDao for ReceivableDaoMock {
         self.top_records_results.borrow_mut().remove(0)
     }
 
-    fn total(&self) -> u64 {
+    fn total(&self) -> i64 {
         self.total_results.borrow_mut().remove(0)
     }
 }
@@ -543,7 +543,7 @@ impl ReceivableDaoMock {
 
     pub fn more_money_received_parameters(
         mut self,
-        parameters: &Arc<Mutex<Vec<Vec<Transaction>>>>,
+        parameters: &Arc<Mutex<Vec<Vec<PaidReceivable>>>>,
     ) -> Self {
         self.more_money_received_parameters = parameters.clone();
         self
@@ -590,7 +590,7 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn total_result(self, result: u64) -> Self {
+    pub fn total_result(self, result: i64) -> Self {
         self.total_results.borrow_mut().push(result);
         self
     }
