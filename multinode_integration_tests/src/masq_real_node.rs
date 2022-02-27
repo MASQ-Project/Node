@@ -126,6 +126,7 @@ pub struct NodeStartupConfig {
     pub chain: Chain,
     pub db_password_opt: Option<String>,
     pub start_block_opt: Option<u64>,
+    pub scans_opt: Option<bool>,
 }
 
 impl Default for NodeStartupConfig {
@@ -154,6 +155,7 @@ impl NodeStartupConfig {
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
             db_password_opt: Some("password".to_string()),
             start_block_opt: None,
+            scans_opt: None,
         }
     }
 
@@ -213,6 +215,11 @@ impl NodeStartupConfig {
         if let Some(ref start_block) = self.start_block_opt {
             args.push("--start-block".to_string());
             args.push(start_block.to_string());
+        }
+
+        if let Some(ref scans) = self.scans_opt {
+            args.push("--scans".to_string());
+            args.push(if scans {"on".to_string()} else {"off".to_string()});
         }
         args
     }
@@ -383,6 +390,8 @@ pub struct NodeStartupConfigBuilder {
     fake_public_key: Option<PublicKey>,
     blockchain_service_url: Option<String>,
     chain: Chain,
+    start_block_opt: Option<u64>,
+    scans_opt: Option<bool>,
     db_password: Option<String>,
 }
 
@@ -404,6 +413,8 @@ impl NodeStartupConfigBuilder {
             fake_public_key: None,
             blockchain_service_url: None,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
+            start_block_opt: None,
+            scans_opt: None,
             db_password: None,
         }
     }
@@ -429,6 +440,8 @@ impl NodeStartupConfigBuilder {
             fake_public_key: None,
             blockchain_service_url: None,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
+            start_block_opt: None,
+            scans_opt: None,
             db_password: Some("password".to_string()),
         }
     }
@@ -454,6 +467,8 @@ impl NodeStartupConfigBuilder {
             fake_public_key: None,
             blockchain_service_url: None,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
+            start_block_opt: None,
+            scans_opt: None,
             db_password: Some("password".to_string()),
         }
     }
@@ -475,6 +490,8 @@ impl NodeStartupConfigBuilder {
             fake_public_key: None,
             blockchain_service_url: None,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
+            start_block_opt: None,
+            scans_opt: None,
             db_password: Some("password".to_string()),
         }
     }
@@ -496,6 +513,8 @@ impl NodeStartupConfigBuilder {
             fake_public_key: config.fake_public_key_opt.clone(),
             blockchain_service_url: config.blockchain_service_url_opt.clone(),
             chain: config.chain,
+            start_block_opt: config.start_block_opt,
+            scans_opt: config.scans_opt,
             db_password: config.db_password_opt.clone(),
         }
     }
@@ -600,6 +619,16 @@ impl NodeStartupConfigBuilder {
         self
     }
 
+    pub fn start_block(mut self, start_block: u64) -> Self {
+        self.start_block_opt = Some (start_block);
+        self
+    }
+
+    pub fn scans(mut self, scans: bool) -> Self {
+        self.scans_opt = Some (scans);
+        self
+    }
+
     pub fn db_password(mut self, value: Option<&str>) -> Self {
         self.db_password = value.map(|str| str.to_string());
         self
@@ -624,6 +653,7 @@ impl NodeStartupConfigBuilder {
             chain: self.chain,
             db_password_opt: self.db_password,
             start_block_opt: self.start_block_opt,
+            scans_opt: None,
         }
     }
 }
@@ -1316,6 +1346,7 @@ mod tests {
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
             db_password_opt: Some("booga".to_string()),
             start_block_opt: Some (12345),
+            scans_opt: Some (false),
         };
         let neighborhood_mode = "standard".to_string();
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -1375,7 +1406,8 @@ mod tests {
             Some(PublicKey::new(&[1, 2, 3, 4]))
         );
         assert_eq!(result.db_password_opt, Some("booga".to_string()));
-        assert_eq!(result.start_block_opt, Some(12345))
+        assert_eq!(result.start_block_opt, Some(12345));
+        assert_eq!(result.scans_opt, Some (false))
     }
 
     #[test]

@@ -8,6 +8,7 @@ use regex::escape;
 use std::time::Duration;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
+use multinode_integration_tests_lib::utils::{config_dao, receivable_dao};
 
 #[test]
 fn debtors_are_credited_once_but_not_twice() {
@@ -35,10 +36,17 @@ fn debtors_are_credited_once_but_not_twice() {
         .start();
     // Start a real Node pointing at the mock blockchain client with a start block of 1000
     let mut cluster = MASQNodeCluster::start().unwrap();
-    let node = cluster.start_real_node (NodeStartupConfigBuilder::standard().start_block (0x1000));
+    let node = cluster.start_real_node (NodeStartupConfigBuilder::standard()
+        .start_block (0x1000)
+        .scans (false)
+        .build()
+    );
     // Get the config DAO
+    let config_dao = config_dao (&node);
     // Get the receivable DAO
+    let receivable_dao = receivable_dao (&node);
     // Create a receivable record to match the client receivable
+    receivable_dao.more_money_receivable(We may want to do direct database access so that we can fiddle the date.)
     // Wait for a scan log
     // Kill the real Node
     // Use the receivable DAO to verify that the receivable's balance has been adjusted
