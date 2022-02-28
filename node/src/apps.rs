@@ -107,30 +107,30 @@ mod tests {
             NODE_HELP_TEXT,
             indoc!(
                 r"ADDITIONAL HELP:
-    If you want to start the MASQ Daemon to manage the MASQ Node and the MASQ UIs, try:
-
-        MASQNode --help --initialization
-
-    If you want to dump the contents of the configuration table in the database so that
-    you can see what's in it, try:
-
-        MASQNode --help --dump-config
-
-    MASQ Node listens for connections from other Nodes using the computer's
-    network interface. Configuring the internet router for port forwarding is a necessary
-    step for Node users to permit network communication between Nodes.
-
-    Once started, Node prints the node descriptor to the console. The descriptor
-    indicates the required port needing to be forwarded by the network router. The port is
-    the last number in the descriptor, as shown below:
-
-        masq://eth-mainnet:6hXbJTZWUKboREQsEMl9iQxsjRz6LQxh-zGZmGCvA3k@86.75.30.9:1234
-                                                                                  ^^^^
-
-    Steps To Forwarding Ports In The Router
-        1. Log in to the router.
-        2. Navigate to the router's port forwarding section, also frequently called virtual server.
-        3. Create the port forwarding entries in the router."
+                  If you want to start the MASQ Daemon to manage the MASQ Node and the MASQ UIs, try:
+            
+                      MASQNode --help --initialization
+            
+                  If you want to dump the contents of the configuration table in the database so that
+                  you can see what's in it, try:
+            
+                      MASQNode --help --dump-config
+            
+                  MASQ Node listens for connections from other Nodes using the computer's
+                  network interface. Configuring the internet router for port forwarding is a necessary
+                  step for Node users to permit network communication between Nodes.
+            
+                  Once started, Node prints the node descriptor to the console. The descriptor
+                  indicates the required port needing to be forwarded by the network router. The port is
+                  the last number in the descriptor, as shown below:
+            
+                      masq://eth-mainnet:6hXbJTZWUKboREQsEMl9iQxsjRz6LQxh-zGZmGCvA3k@86.75.30.9:1234
+                                                                                                ^^^^
+            
+                  Steps To Forwarding Ports In The Router
+                      1. Log in to the router.
+                      2. Navigate to the router's port forwarding section, also frequently called virtual server.
+                      3. Create the port forwarding entries in the router."
             )
         );
     }
