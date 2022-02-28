@@ -44,7 +44,7 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        const TLS_INTERNAL_ERROR_ALERT_EXPECTED: [u8; 7] = [
+        let tls_internal_error_alert_expected: [u8; 7] = [
             0x15, // alert
             0x03, 0x03, // TLS 1.2
             0x00, 0x02, // packet length
@@ -52,7 +52,7 @@ mod tests {
             0x50, // internal_error alert
         ];
 
-        const TLS_UNRECOGNIZED_NAME_ALERT_EXPECTED: [u8; 7] = [
+        let tls_unrecognized_name_alert_expected: [u8; 7] = [
             0x15, // alert
             0x03, 0x03, // TLS 1.2
             0x00, 0x02, // packet length
@@ -60,10 +60,10 @@ mod tests {
             0x70, // unrecognized_name alert
         ];
 
-        assert_eq!(TLS_INTERNAL_ERROR_ALERT, TLS_INTERNAL_ERROR_ALERT_EXPECTED);
+        assert_eq!(TLS_INTERNAL_ERROR_ALERT, tls_internal_error_alert_expected);
         assert_eq!(
             TLS_UNRECOGNIZED_NAME_ALERT,
-            TLS_UNRECOGNIZED_NAME_ALERT_EXPECTED
+            tls_unrecognized_name_alert_expected
         );
     }
 
