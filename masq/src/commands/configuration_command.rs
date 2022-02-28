@@ -10,13 +10,13 @@ use masq_lib::as_any_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 use masq_lib::short_writeln;
-use masq_lib::utils::ExpectValue;
-use serde::Serialize;
 #[cfg(test)]
 use std::any::Any;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::iter::once;
+
+const COLUMN_WIDTH: usize = 34;
 
 #[derive(Debug, PartialEq)]
 pub struct ConfigurationCommand {
@@ -122,32 +122,60 @@ impl ConfigurationCommand {
             &configuration.start_block.to_string(),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
-        let payment_curves = Self::preprocess_combined_parameters(
-            &configuration.payment_curves,
+        let payment_curves = Self::preprocess_combined_parameters({
+            let p_c = &configuration.payment_curves;
             &[
-                "balanceDecreasesForSec",
-                "balanceToDecreaseFromGwei",
-                "paymentGraceBeforeBanSec",
-                "paymentSuggestedAfterSec",
-                "permanentDebtAllowedGwei",
-                "unbanWhenBalanceBelowGwei",
-            ],
-        );
+                (
+                    "Balance decreases for:",
+                    &p_c.balance_decreases_for_sec,
+                    "s",
+                ),
+                (
+                    "Balance to decrease from:",
+                    &p_c.balance_to_decrease_from_gwei,
+                    "Gwei",
+                ),
+                (
+                    "Payment grace before ban:",
+                    &p_c.payment_grace_before_ban_sec,
+                    "s",
+                ),
+                (
+                    "Payment suggested after:",
+                    &p_c.payment_suggested_after_sec,
+                    "s",
+                ),
+                (
+                    "Permanent debt allowed:",
+                    &p_c.permanent_debt_allowed_gwei,
+                    "Gwei",
+                ),
+                (
+                    "Unban when balance below:",
+                    &p_c.unban_when_balance_below_gwei,
+                    "Gwei",
+                ),
+            ]
+        });
         Self::dump_value_list(stream, "Payment curves:", &payment_curves);
-        let rate_pack = Self::preprocess_combined_parameters(
-            &configuration.rate_pack,
+        let rate_pack = Self::preprocess_combined_parameters({
+            let r_p = &configuration.rate_pack;
             &[
-                "routingByteRate",
-                "routingServiceRate",
-                "exitByteRate",
-                "exitServiceRate",
-            ],
-        );
+                ("Routing byte rate:", &r_p.routing_byte_rate, "Gwei"),
+                ("Routing service rate:", &r_p.routing_service_rate, "Gwei"),
+                ("Exit byte rate:", &r_p.exit_byte_rate, "Gwei"),
+                ("Exit service rate:", &r_p.exit_service_rate, "Gwei"),
+            ]
+        });
         Self::dump_value_list(stream, "Rate pack:", &rate_pack);
-        let scan_intervals = Self::preprocess_combined_parameters(
-            &configuration.scan_intervals,
-            &["pendingPayableSec", "payableSec", "receivableSec"],
-        );
+        let scan_intervals = Self::preprocess_combined_parameters({
+            let s_i = &configuration.scan_intervals;
+            &[
+                ("Pending payable:", &s_i.pending_payable_sec, "s"),
+                ("Payable:", &s_i.payable_sec, "s"),
+                ("Receivable:", &s_i.receivable_sec, "s"),
+            ]
+        });
         Self::dump_value_list(stream, "Scan intervals:", &scan_intervals);
     }
 
@@ -168,7 +196,7 @@ impl ConfigurationCommand {
     }
 
     fn dump_configuration_line(stream: &mut dyn Write, name: &str, value: &str) {
-        short_writeln!(stream, "{:33} {}", name, value);
+        short_writeln!(stream, "{:width$} {}", name, value, width = COLUMN_WIDTH);
     }
 
     fn interpret_option(value_opt: &Option<String>) -> String {
@@ -178,28 +206,15 @@ impl ConfigurationCommand {
         }
     }
 
-    fn preprocess_combined_parameters(
-        serializable: impl Serialize,
-        expected_jason_fields: &[&str],
-    ) -> Vec<String> {
-        let serialized_struct = serde_json::to_value(serializable).expectv("serializable object");
-        let iter_of_strings = expected_jason_fields.iter().map(|jason_name| {
-            let value = serialized_struct[jason_name].to_string();
-            let normal_name = {
-                let mut char_vec = vec![];
-                jason_name.chars().for_each(|char| {
-                    if !char.is_uppercase() {
-                        char_vec.push(char)
-                    } else {
-                        char_vec.push(' ');
-                        char_vec.push(char.to_ascii_lowercase())
-                    }
-                });
-                char_vec.push(':');
-                char_vec[0] = char_vec[0].to_ascii_uppercase();
-                char_vec.into_iter().collect::<String>()
-            };
-            format!("{:33}{}", normal_name, value)
+    fn preprocess_combined_parameters(parameters: &[(&str, &dyn Display, &str)]) -> Vec<String> {
+        let iter_of_strings = parameters.iter().map(|(description, value, unit)| {
+            format!(
+                "{:width$} {} {}",
+                description,
+                value,
+                unit,
+                width = COLUMN_WIDTH
+            )
         });
         once(String::from("")).chain(iter_of_strings).collect()
     }
@@ -345,35 +360,35 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
             format!(
                 "\
-|NAME                              VALUE\n\
-|Blockchain service URL:           https://infura.io/ID\n\
-|Chain:                            ropsten\n\
-|Clandestine port:                 1234\n\
-|Consuming wallet private key:     consuming wallet private key\n\
-|Current schema version:           schema version\n\
-|Earning wallet address:           earning address\n\
-|Gas price:                        2345\n\
-|Neighborhood mode:                standard\n\
-|Port mapping protocol:            PCP\n\
-|Start block:                      3456\n\
-|Past neighbors:                   neighbor 1\n\
-|                                  neighbor 2\n\
-|Payment curves:                   \n\
-|                                  Balance decreases for sec:       11111\n\
-|                                  Balance to decrease from gwei:   1212\n\
-|                                  Payment grace before ban sec:    4578\n\
-|                                  Payment suggested after sec:     3333\n\
-|                                  Permanent debt allowed gwei:     11222\n\
-|                                  Unban when balance below gwei:   12000\n\
-|Rate pack:                        \n\
-|                                  Routing byte rate:               8\n\
-|                                  Routing service rate:            9\n\
-|                                  Exit byte rate:                  12\n\
-|                                  Exit service rate:               14\n\
-|Scan intervals:                   \n\
-|                                  Pending payable sec:             150\n\
-|                                  Payable sec:                     155\n\
-|                                  Receivable sec:                  250\n"
+|NAME                               VALUE\n\
+|Blockchain service URL:            https://infura.io/ID\n\
+|Chain:                             ropsten\n\
+|Clandestine port:                  1234\n\
+|Consuming wallet private key:      consuming wallet private key\n\
+|Current schema version:            schema version\n\
+|Earning wallet address:            earning address\n\
+|Gas price:                         2345\n\
+|Neighborhood mode:                 standard\n\
+|Port mapping protocol:             PCP\n\
+|Start block:                       3456\n\
+|Past neighbors:                    neighbor 1\n\
+|                                   neighbor 2\n\
+|Payment curves:                    \n\
+|                                   Balance decreases for:             11111 s\n\
+|                                   Balance to decrease from:          1212 Gwei\n\
+|                                   Payment grace before ban:          4578 s\n\
+|                                   Payment suggested after:           3333 s\n\
+|                                   Permanent debt allowed:            11222 Gwei\n\
+|                                   Unban when balance below:          12000 Gwei\n\
+|Rate pack:                         \n\
+|                                   Routing byte rate:                 8 Gwei\n\
+|                                   Routing service rate:              9 Gwei\n\
+|                                   Exit byte rate:                    12 Gwei\n\
+|                                   Exit service rate:                 14 Gwei\n\
+|Scan intervals:                    \n\
+|                                   Pending payable:                   150 s\n\
+|                                   Payable:                           155 s\n\
+|                                   Receivable:                        250 s\n"
             )
             .replace('|', "")
         );
@@ -441,34 +456,34 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
             format!(
                 "\
-|NAME                              VALUE\n\
-|Blockchain service URL:           https://infura.io/ID\n\
-|Chain:                            mumbai\n\
-|Clandestine port:                 1234\n\
-|Consuming wallet private key:     [?]\n\
-|Current schema version:           schema version\n\
-|Earning wallet address:           earning wallet\n\
-|Gas price:                        2345\n\
-|Neighborhood mode:                zero-hop\n\
-|Port mapping protocol:            PCP\n\
-|Start block:                      3456\n\
-|Past neighbors:                   [?]\n\
-|Payment curves:                   \n\
-|                                  Balance decreases for sec:       1000\n\
-|                                  Balance to decrease from gwei:   2500\n\
-|                                  Payment grace before ban sec:    666\n\
-|                                  Payment suggested after sec:     500\n\
-|                                  Permanent debt allowed gwei:     1200\n\
-|                                  Unban when balance below gwei:   1400\n\
-|Rate pack:                        \n\
-|                                  Routing byte rate:               15\n\
-|                                  Routing service rate:            17\n\
-|                                  Exit byte rate:                  20\n\
-|                                  Exit service rate:               30\n\
-|Scan intervals:                   \n\
-|                                  Pending payable sec:             1000\n\
-|                                  Payable sec:                     1000\n\
-|                                  Receivable sec:                  1000\n",
+|NAME                               VALUE\n\
+|Blockchain service URL:            https://infura.io/ID\n\
+|Chain:                             mumbai\n\
+|Clandestine port:                  1234\n\
+|Consuming wallet private key:      [?]\n\
+|Current schema version:            schema version\n\
+|Earning wallet address:            earning wallet\n\
+|Gas price:                         2345\n\
+|Neighborhood mode:                 zero-hop\n\
+|Port mapping protocol:             PCP\n\
+|Start block:                       3456\n\
+|Past neighbors:                    [?]\n\
+|Payment curves:                    \n\
+|                                   Balance decreases for:             1000 s\n\
+|                                   Balance to decrease from:          2500 Gwei\n\
+|                                   Payment grace before ban:          666 s\n\
+|                                   Payment suggested after:           500 s\n\
+|                                   Permanent debt allowed:            1200 Gwei\n\
+|                                   Unban when balance below:          1400 Gwei\n\
+|Rate pack:                         \n\
+|                                   Routing byte rate:                 15 Gwei\n\
+|                                   Routing service rate:              17 Gwei\n\
+|                                   Exit byte rate:                    20 Gwei\n\
+|                                   Exit service rate:                 30 Gwei\n\
+|Scan intervals:                    \n\
+|                                   Pending payable:                   1000 s\n\
+|                                   Payable:                           1000 s\n\
+|                                   Receivable:                        1000 s\n",
             )
             .replace('|', "")
         );

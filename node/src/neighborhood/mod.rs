@@ -254,6 +254,10 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
         match msg {
             NodeRecordMetadataMessage::Desirable(public_key, desirable) => {
                 if let Some(node_record) = self.neighborhood_database.node_by_key_mut(&public_key) {
+                    debug!(
+                        self.logger,
+                        "About to set desirable '{}' for '{:?}'", desirable, public_key
+                    );
                     node_record.set_desirable(desirable);
                 };
             }

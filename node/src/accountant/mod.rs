@@ -13,7 +13,7 @@ use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDa
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::tools::accountant_tools::{Scanners, TransactionConfirmationTools};
+use crate::accountant::tools::accountant_tools::{Scanner, Scanners, TransactionConfirmationTools};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
@@ -125,30 +125,11 @@ impl Handler<StartMessage> for Accountant {
     }
 }
 
-macro_rules! notify_later_assertable {
-    ($self: expr, $ctx: expr, $message_type: ident, $notify_later_handle_field: ident,$scan_interval_field: ident) => {
-        let closure =
-            Box::new(|msg: $message_type, interval: Duration| $ctx.notify_later(msg, interval));
-        let _ = $self.tools.$notify_later_handle_field.notify_later(
-            $message_type {},
-            $self.config.scan_intervals.$scan_interval_field,
-            closure,
-        );
-    };
-}
-
 impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.scanners.payables.scan(self);
-        notify_later_assertable!(
-            self,
-            ctx,
-            ScanForPayables,
-            notify_later_handle_scan_for_payable,
-            payable_scan_interval
-        );
+        self.handle_scan_message(self.scanners.payables.as_ref(), ctx)
     }
 }
 
@@ -156,14 +137,7 @@ impl Handler<ScanForPendingPayable> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: ScanForPendingPayable, ctx: &mut Self::Context) -> Self::Result {
-        self.scanners.pending_payable.scan(self);
-        notify_later_assertable!(
-            self,
-            ctx,
-            ScanForPendingPayable,
-            notify_later_handle_scan_for_pending_payable,
-            pending_payable_scan_interval
-        );
+        self.handle_scan_message(self.scanners.pending_payables.as_ref(), ctx)
     }
 }
 
@@ -171,14 +145,7 @@ impl Handler<ScanForReceivables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
-        self.scanners.receivables.scan(self);
-        notify_later_assertable!(
-            self,
-            ctx,
-            ScanForReceivables,
-            notify_later_handle_scan_for_receivable,
-            receivable_scan_interval
-        );
+        self.handle_scan_message(self.scanners.receivables.as_ref(), ctx)
     }
 }
 
@@ -376,6 +343,11 @@ impl Accountant {
         DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
     }
 
+    fn handle_scan_message(&self, scanner: &dyn Scanner, ctx: &mut Context<Accountant>) {
+        scanner.scan(self);
+        scanner.notify_later_assertable(self, ctx)
+    }
+
     fn scan_for_payables(&self) {
         debug!(self.logger, "Scanning for payables");
 
@@ -510,14 +482,14 @@ impl Accountant {
             .expect("Internal error")
             .as_secs();
 
-        if self.payable_threshold_tools.safe_age(
+        if self.payable_threshold_tools.is_tolerable_age(
             time_since_last_paid,
             self.config.payment_curves.payment_suggested_after_sec as u64,
         ) {
             return None;
         }
 
-        if self.payable_threshold_tools.safe_balance(
+        if self.payable_threshold_tools.is_tolerable_balance(
             payable.balance,
             self.config.payment_curves.permanent_debt_allowed_gwei,
         ) {
@@ -1068,7 +1040,7 @@ impl Accountant {
 
     fn cancel_failed_transaction(&self, transaction_id: PendingPayableId, ctx: &mut Context<Self>) {
         let closure = |msg: CancelFailedPendingTransaction| ctx.notify(msg);
-        self.tools.notify_handle_cancel_failed_transaction.notify(
+        self.tools.notify_cancel_failed_transaction.notify(
             CancelFailedPendingTransaction { id: transaction_id },
             Box::new(closure),
         )
@@ -1080,7 +1052,7 @@ impl Accountant {
         ctx: &mut Context<Self>,
     ) {
         let closure = |msg: ConfirmPendingTransaction| ctx.notify(msg);
-        self.tools.notify_handle_confirm_transaction.notify(
+        self.tools.notify_confirm_transaction.notify(
             ConfirmPendingTransaction {
                 pending_payable_fingerprint,
             },
@@ -1142,19 +1114,19 @@ impl From<&PendingPayableFingerprint> for PendingPayableId {
 
 //TODO the data types should change with GH-497 (including signed => unsigned)
 trait PayableExceedThresholdTools {
-    fn safe_age(&self, age: u64, limit: u64) -> bool;
-    fn safe_balance(&self, balance: i64, limit: i64) -> bool;
+    fn is_tolerable_age(&self, age: u64, limit: u64) -> bool;
+    fn is_tolerable_balance(&self, balance: i64, limit: i64) -> bool;
     fn calculate_payout_threshold(&self, payment_curves: PaymentCurves, x: u64) -> f64;
 }
 
 struct PayableExceedThresholdToolsReal {}
 
 impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
-    fn safe_age(&self, age: u64, limit: u64) -> bool {
+    fn is_tolerable_age(&self, age: u64, limit: u64) -> bool {
         age <= limit
     }
 
-    fn safe_balance(&self, balance: i64, limit: i64) -> bool {
+    fn is_tolerable_balance(&self, balance: i64, limit: i64) -> bool {
         balance <= limit
     }
 
@@ -1234,12 +1206,12 @@ mod tests {
     }
 
     impl PayableExceedThresholdTools for PayableThresholdToolsMock {
-        fn safe_age(&self, age: u64, limit: u64) -> bool {
+        fn is_tolerable_age(&self, age: u64, limit: u64) -> bool {
             self.safe_age_params.lock().unwrap().push((age, limit));
             self.safe_age_results.borrow_mut().remove(0)
         }
 
-        fn safe_balance(&self, balance: i64, limit: i64) -> bool {
+        fn is_tolerable_balance(&self, balance: i64, limit: i64) -> bool {
             self.safe_balance_params
                 .lock()
                 .unwrap()
@@ -1645,7 +1617,7 @@ mod tests {
             ))
             .payable_dao(payable_dao)
             .build();
-        subject.scanners.pending_payable = Box::new(NullScanner);
+        subject.scanners.pending_payables = Box::new(NullScanner);
         subject.scanners.receivables = Box::new(NullScanner);
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
@@ -1695,7 +1667,7 @@ mod tests {
             .receivable_dao(receivable_dao)
             .persistent_config(persistent_config)
             .build();
-        subject.scanners.pending_payable = Box::new(NullScanner);
+        subject.scanners.pending_payables = Box::new(NullScanner);
         subject.scanners.payables = Box::new(NullScanner);
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
@@ -1900,9 +1872,9 @@ mod tests {
             .banned_dao(banned_dao)
             .persistent_config(persistent_config)
             .build();
-        subject.scanners.pending_payable = Box::new(NullScanner);
+        subject.scanners.pending_payables = Box::new(NullScanner);
         subject.scanners.payables = Box::new(NullScanner);
-        subject.tools.notify_later_handle_scan_for_receivable = Box::new(
+        subject.tools.notify_later_scan_for_receivable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc),
         );
@@ -2004,7 +1976,7 @@ mod tests {
             .build();
         subject.scanners.receivables = Box::new(NullScanner); //skipping
         subject.scanners.payables = Box::new(NullScanner); //skipping
-        subject.tools.notify_later_handle_scan_for_pending_payable = Box::new(
+        subject.tools.notify_later_scan_for_pending_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_pending_payable_params_arc),
         );
@@ -2088,9 +2060,9 @@ mod tests {
             .payable_dao(payable_dao)
             .persistent_config(persistent_config)
             .build();
-        subject.scanners.pending_payable = Box::new(NullScanner); //skipping
+        subject.scanners.pending_payables = Box::new(NullScanner); //skipping
         subject.scanners.receivables = Box::new(NullScanner); //skipping
-        subject.tools.notify_later_handle_scan_for_payable = Box::new(
+        subject.tools.notify_later_scan_for_payable = Box::new(
             NotifyLaterHandleMock::default().notify_later_params(&notify_later_payables_params_arc),
         );
         let subject_addr = subject.start();
@@ -2242,7 +2214,7 @@ mod tests {
             .bootstrapper_config(config)
             .payable_dao(payable_dao)
             .build();
-        subject.scanners.pending_payable = Box::new(NullScanner);
+        subject.scanners.pending_payables = Box::new(NullScanner);
         subject.scanners.receivables = Box::new(NullScanner);
         let subject_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&subject_addr);
@@ -3665,16 +3637,16 @@ mod tests {
                 subject.scanners.receivables = Box::new(NullScanner);
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned);
-                subject.tools.notify_later_handle_scan_for_pending_payable =
+                subject.tools.notify_later_scan_for_pending_payable =
                     Box::new(notify_later_half_mock);
                 let mut notify_half_mock = NotifyHandleMock::default()
                     .notify_params(&notify_cancel_failed_transaction_params_arc_cloned);
                 notify_half_mock.do_you_want_to_proceed_after = true;
-                subject.tools.notify_handle_cancel_failed_transaction = Box::new(notify_half_mock);
+                subject.tools.notify_cancel_failed_transaction = Box::new(notify_half_mock);
                 let mut notify_half_mock = NotifyHandleMock::default()
                     .notify_params(&notify_confirm_transaction_params_arc_cloned);
                 notify_half_mock.do_you_want_to_proceed_after = true;
-                subject.tools.notify_handle_confirm_transaction = Box::new(notify_half_mock);
+                subject.tools.notify_confirm_transaction = Box::new(notify_half_mock);
                 subject
             });
         let mut peer_actors = peer_actors_builder().build();
@@ -3813,7 +3785,7 @@ mod tests {
     fn accountant_receives_reported_transaction_receipts_and_processes_them_all() {
         let notify_handle_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = AccountantBuilder::default().build();
-        subject.tools.notify_handle_confirm_transaction =
+        subject.tools.notify_confirm_transaction =
             Box::new(NotifyHandleMock::default().notify_params(&notify_handle_params_arc));
         let subject_addr = subject.start();
         let transaction_hash_1 = H256::from_uint(&U256::from(4545));
