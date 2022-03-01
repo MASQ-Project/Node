@@ -1,10 +1,19 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::messages::{ToMessageBody, UiLogBroadcast};
+use crate::ui_gateway::{MessageTarget, NodeToUiMessage};
+use actix::Recipient;
+use lazy_static::lazy_static;
 use log::logger;
 use log::Level;
 #[allow(unused_imports)]
 use log::Metadata;
 #[allow(unused_imports)]
 use log::Record;
+use std::sync::{Mutex, Once};
+
+pub static INIT_LOG_RECIPIENT: Once = Once::new();
+pub static mut LOG_RECIPIENT_OPT: Option<Recipient<NodeToUiMessage>> = None;
+const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
 
 #[derive(Clone)]
 pub struct Logger {
@@ -132,11 +141,13 @@ impl Logger {
     where
         F: FnOnce() -> String,
     {
+        if UI_MESSAGE_LOG_LEVEL.le(&level) {
+            self.transmit(log_function())
+        }
         if !self.level_enabled(level) {
             return;
         }
-        let string = log_function();
-        self.log(level, string)
+        self.log(level, log_function())
     }
 
     pub fn log(&self, level: Level, msg: String) {
@@ -147,6 +158,16 @@ impl Logger {
                 .level(level)
                 .build(),
         );
+    }
+
+    fn transmit(&self, msg: String) {
+        if let Some(recipient) = unsafe { LOG_RECIPIENT_OPT.as_ref() } {
+            let actor_msg = NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiLogBroadcast { msg }.tmb(0),
+            }; //TODO we probably don't want to confront all connected clients?
+            recipient.try_send(actor_msg).expect("UiGateway is dead")
+        }
     }
 }
 

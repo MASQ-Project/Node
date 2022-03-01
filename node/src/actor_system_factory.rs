@@ -39,6 +39,7 @@ use automap_lib::control_layer::automap_control::{
 };
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
+use masq_lib::logger::{INIT_LOG_RECIPIENT, LOG_RECIPIENT_OPT};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
@@ -168,7 +169,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
             hopper: hopper_subs,
             neighborhood: neighborhood_subs.clone(),
             accountant: accountant_subs,
-            ui_gateway: ui_gateway_subs,
+            ui_gateway: ui_gateway_subs.clone(),
             blockchain_bridge: blockchain_bridge_subs,
             configurator: configurator_subs,
         };
@@ -200,6 +201,11 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
                 neighborhood_subs,
             })
             .expect("Dispatcher is dead");
+
+        unsafe {
+            INIT_LOG_RECIPIENT
+                .call_once(|| LOG_RECIPIENT_OPT = Some(ui_gateway_subs.node_to_ui_message_sub))
+        }
 
         self.start_automap(
             &config,
