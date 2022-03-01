@@ -23,8 +23,8 @@ lazy_static! {
         "If the Daemon is listening for connections at some port other than {}, specify that port \
          here. Must be between {} and {}.",
         DEFAULT_UI_PORT, LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
-    );
-    static ref DEFAULT_UI_PORT_STRING: String = format!("{}", DEFAULT_UI_PORT);
+    ); // tested
+    static ref DEFAULT_UI_PORT_STRING: String = format!("{}", DEFAULT_UI_PORT); // tested
 }
 
 pub fn app_head() -> App<'static, 'static> {
@@ -72,5 +72,26 @@ fn validate_ui_port(port: String) -> Result<(), String> {
         Ok(p) if p < LOWEST_USABLE_INSECURE_PORT => Err(format!("{}", p)),
         Ok(_) => Ok(()),
         Err(_) => Err(port),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            UI_PORT_HELP.to_string(),
+            format!(
+                "If the Daemon is listening for connections at some port other than {}, specify that port \
+                 here. Must be between {} and {}.",
+                DEFAULT_UI_PORT, LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
+            )
+        );
+        assert_eq!(
+            DEFAULT_UI_PORT_STRING.to_string(),
+            format!("{}", DEFAULT_UI_PORT)
+        );
     }
 }

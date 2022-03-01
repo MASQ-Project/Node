@@ -9,7 +9,7 @@ use masq_lib::utils::index_of;
 use regex::Regex;
 
 lazy_static! {
-    static ref HOST_PATTERN: Regex = Regex::new(r"^(?:https?://)?([^\s/]+)").expect("bad regex");
+    static ref HOST_PATTERN: Regex = Regex::new(r"^(?:https?://)?([^\s/]+)").expect("bad regex"); // tested
 }
 
 pub struct HttpProtocolPack {}
@@ -102,6 +102,13 @@ impl HttpProtocolPack {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constants_have_correct_values() {
+        let host_pattern_expected: Regex =
+            Regex::new(r"^(?:https?://)?([^\s/]+)").expect("bad regex");
+        assert_eq!(*HOST_PATTERN.to_string(), host_pattern_expected.to_string());
+    }
 
     #[test]
     fn knows_its_protocol() {

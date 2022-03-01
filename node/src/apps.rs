@@ -59,7 +59,7 @@ lazy_static! {
         interfaces will connect to the Node: no one will know that until after the Node starts.) \
         Best to accept the default unless you know what you're doing. Must be between {} and {}.",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
-    );
+    ); // tested
 }
 
 const DUMP_CONFIG_HELP: &str =
@@ -131,6 +131,15 @@ mod tests {
                       1. Log in to the router.
                       2. Navigate to the router's port forwarding section, also frequently called virtual server.
                       3. Create the port forwarding entries in the router."
+            )
+        );
+        assert_eq!(
+            DAEMON_UI_PORT_HELP.to_string(),
+            format!(
+                "The port at which user interfaces will connect to the Daemon. (This is NOT the port at which \
+                 interfaces will connect to the Node: no one will know that until after the Node starts.) \
+                 Best to accept the default unless you know what you're doing. Must be between {} and {}.",
+                LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
             )
         );
     }

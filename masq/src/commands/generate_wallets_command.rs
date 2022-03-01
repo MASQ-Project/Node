@@ -22,7 +22,7 @@ lazy_static! {
             quotes; otherwise the single quotes will cause problems. (Use \"{}\" if you don't have \
             a different value.) Leave this out to generate a consuming private key instead.",
         DEFAULT_CONSUMING_DERIVATION_PATH.as_str()
-    );
+    ); // tested
     static ref EARNING_PATH_HELP: String = format!(
         "Derivation path from which to generate the \
             earning wallet from which your bills will be paid. Can be the same as consuming-path. \
@@ -30,7 +30,7 @@ lazy_static! {
             (Use \"{}\" if you don't have a different value.)  Leave this out to generate an \
             earning address instead.",
         DEFAULT_EARNING_DERIVATION_PATH.as_str()
-    );
+    ); // tested
 }
 
 #[derive(Debug, PartialEq)]
@@ -212,6 +212,31 @@ mod tests {
 
     use super::*;
     use crate::command_context::ContextError;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            CONSUMING_PATH_HELP.to_string(),
+            format!(
+                "Derivation path from which to generate the \
+                 consuming wallet from which your bills will be paid. Remember to put it in double \
+                 quotes; otherwise the single quotes will cause problems. (Use \"{}\" if you don't have \
+                 a different value.) Leave this out to generate a consuming private key instead.",
+                DEFAULT_CONSUMING_DERIVATION_PATH.as_str()
+            )
+        );
+        assert_eq!(
+            EARNING_PATH_HELP.to_string(),
+            format!(
+                "Derivation path from which to generate the \
+                 earning wallet from which your bills will be paid. Can be the same as consuming-path. \
+                 Remember to put it in double quotes; otherwise the single quotes will cause problems. \
+                 (Use \"{}\" if you don't have a different value.)  Leave this out to generate an \
+                 earning address instead.",
+                DEFAULT_EARNING_DERIVATION_PATH.as_str()
+            )
+        );
+    }
 
     #[test]
     fn command_factory_works_with_earning_path_and_consuming_path_with_no_defaults() {

@@ -13,10 +13,10 @@ use std::str::FromStr;
 use std::time::Duration;
 
 lazy_static! {
-    pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
+    pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error"); // tested
     // TODO: The consuming wallet should never be defaulted; it should always come in from a
     // (possibly-complicated) command-line parameter, or the bidirectional GUI.
-    pub static ref TEMPORARY_CONSUMING_WALLET: Wallet = Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
+    pub static ref TEMPORARY_CONSUMING_WALLET: Wallet = Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error"); // tested
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -94,8 +94,25 @@ pub struct FinancialStatisticsMessage {
 
 #[cfg(test)]
 mod tests {
+    use crate::sub_lib::accountant::{DEFAULT_EARNING_WALLET, TEMPORARY_CONSUMING_WALLET};
+    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
+    use std::str::FromStr;
+
+    #[test]
+    fn constants_have_correct_values() {
+        let default_earning_wallet_expected: Wallet =
+            Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
+        let temporary_consuming_wallet_expected: Wallet =
+            Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
+
+        assert_eq!(*DEFAULT_EARNING_WALLET, default_earning_wallet_expected);
+        assert_eq!(
+            *TEMPORARY_CONSUMING_WALLET,
+            temporary_consuming_wallet_expected
+        )
+    }
 
     #[test]
     fn accountant_subs_debug() {

@@ -52,7 +52,7 @@ lazy_static! {
         ]
         .into_iter()
         .collect()
-    };
+    }; // tested
 }
 
 #[allow(clippy::type_complexity)]
@@ -453,6 +453,20 @@ mod tests {
     use std::collections::HashSet;
     use std::iter::FromIterator;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        let censorables_expected: HashMap<String, usize> = {
+            vec![
+                ("db-password".to_string(), 16),
+                ("consuming-private-key".to_string(), 64),
+            ]
+            .into_iter()
+            .collect()
+        };
+
+        assert_eq!(*CENSORABLES, censorables_expected);
+    }
 
     struct LauncherMock {
         launch_params: Arc<Mutex<Vec<(HashMap<String, String>, Recipient<CrashNotification>)>>>,

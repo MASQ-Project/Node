@@ -140,8 +140,8 @@ pub fn derivation_path(a: u8, b: u8) -> String {
 }
 
 lazy_static! {
-    pub static ref DEFAULT_CONSUMING_DERIVATION_PATH: String = derivation_path(0, 0);
-    pub static ref DEFAULT_EARNING_DERIVATION_PATH: String = derivation_path(0, 1);
+    pub static ref DEFAULT_CONSUMING_DERIVATION_PATH: String = derivation_path(0, 0); // tested
+    pub static ref DEFAULT_EARNING_DERIVATION_PATH: String = derivation_path(0, 1); // tested
 }
 
 #[allow(clippy::needless_range_loop)]
@@ -385,6 +385,14 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
+        assert_eq!(
+            DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
+            "m/44'/60'/0'/0/0"
+        );
+        assert_eq!(
+            DEFAULT_EARNING_DERIVATION_PATH.to_string(),
+            "m/44'/60'/0'/0/1"
+        );
         assert_eq!(FIND_FREE_PORT_LOWEST, 32768);
         assert_eq!(FIND_FREE_PORT_HIGHEST, 65535);
         assert_eq!(DERIVATION_PATH_ROOT, "m/44'/60'/0'");
