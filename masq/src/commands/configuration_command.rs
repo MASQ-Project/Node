@@ -20,14 +20,25 @@ pub struct ConfigurationCommand {
     pub db_password: Option<String>,
 }
 
+const CONFIGURATION_SUBCOMMAND: &str = "configuration";
+const CONFIGURATION_ABOUT: &str = "Displays a running Node's current configuration.";
+const CONFIGURATION_ARG_NAME: &str = "db-password";
+const CONFIGURATION_ARG_HELP: &str =
+    "Password of the database from which the configuration will be read";
+const CONFIGURATION_ARG_INDEX: u64 = 1;
+const CONFIGURATION_ARG_REQUIRED: bool = false;
+const NODE_NOT_RUNNING_ERROR_MSG: &str =
+    "MASQNode is not running; therefore its configuration cannot be displayed.";
+const DB_PASSWORD: &str = "db-password";
+
 pub fn configuration_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("configuration")
-        .about("Displays a running Node's current configuration.")
+    SubCommand::with_name(CONFIGURATION_SUBCOMMAND)
+        .about(CONFIGURATION_ABOUT)
         .arg(
-            Arg::with_name("db-password")
-                .help("Password of the database from which the configuration will be read")
-                .index(1)
-                .required(false),
+            Arg::with_name(CONFIGURATION_ARG_NAME)
+                .help(CONFIGURATION_ARG_HELP)
+                .index(CONFIGURATION_ARG_INDEX)
+                .required(CONFIGURATION_ARG_REQUIRED),
         )
 }
 
@@ -44,10 +55,7 @@ impl Command for ConfigurationCommand {
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
-                short_writeln!(
-                    context.stderr(),
-                    "MASQNode is not running; therefore its configuration cannot be displayed."
-                );
+                short_writeln!(context.stderr(), "{}", NODE_NOT_RUNNING_ERROR_MSG);
                 Err(Payload(code, message))
             }
             Err(e) => {
@@ -68,7 +76,7 @@ impl ConfigurationCommand {
         };
 
         Ok(ConfigurationCommand {
-            db_password: matches.value_of("db-password").map(|s| s.to_string()),
+            db_password: matches.value_of(DB_PASSWORD).map(|s| s.to_string()),
         })
     }
 
@@ -162,6 +170,27 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
     use masq_lib::utils::AutomapProtocol;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CONFIGURATION_SUBCOMMAND, "configuration");
+        assert_eq!(
+            CONFIGURATION_ABOUT,
+            "Displays a running Node's current configuration."
+        );
+        assert_eq!(CONFIGURATION_ARG_NAME, "db-password");
+        assert_eq!(
+            CONFIGURATION_ARG_HELP,
+            "Password of the database from which the configuration will be read"
+        );
+        assert_eq!(CONFIGURATION_ARG_INDEX, 1);
+        assert_eq!(CONFIGURATION_ARG_REQUIRED, false);
+        assert_eq!(
+            NODE_NOT_RUNNING_ERROR_MSG,
+            "MASQNode is not running; therefore its configuration cannot be displayed."
+        );
+        assert_eq!(DB_PASSWORD, "db-password");
+    }
 
     #[test]
     fn command_factory_works_with_password() {
