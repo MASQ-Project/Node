@@ -11,12 +11,19 @@ use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse};
 use masq_lib::short_writeln;
 use std::fmt::Debug;
 
+const DESCRIPTOR_SUBCOMMAND: &str = "descriptor";
+const DESCRIPTOR_SUBCOMMAND_ABOUT: &str =
+    "Displays the Node descriptor of the running MASQNode. Only valid if Node is already running.";
+const NODE_DESCRIPTOR_NOT_AVAILABLE_MSG: &str =
+    "Node descriptor is not yet available; try again later";
+const NODE_NOT_RUNNING_MSG: &str =
+    "MASQNode is not running; therefore its descriptor cannot be displayed.";
+
 #[derive(Debug)]
 pub struct DescriptorCommand {}
 
 pub fn descriptor_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("descriptor")
-        .about("Displays the Node descriptor of the running MASQNode. Only valid if Node is already running.")
+    SubCommand::with_name(DESCRIPTOR_SUBCOMMAND).about(DESCRIPTOR_SUBCOMMAND_ABOUT)
 }
 
 impl Command for DescriptorCommand {
@@ -30,18 +37,14 @@ impl Command for DescriptorCommand {
                     Some(node_descriptor) => {
                         short_writeln!(context.stdout(), "{}", node_descriptor)
                     }
-                    None => short_writeln!(
-                        context.stdout(),
-                        "Node descriptor is not yet available; try again later"
-                    ),
+                    None => {
+                        short_writeln!(context.stdout(), "{}", NODE_DESCRIPTOR_NOT_AVAILABLE_MSG)
+                    }
                 }
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
-                short_writeln!(
-                    context.stderr(),
-                    "MASQNode is not running; therefore its descriptor cannot be displayed."
-                );
+                short_writeln!(context.stderr(), "{}", NODE_NOT_RUNNING_MSG);
                 Err(Payload(code, message))
             }
             Err(e) => {
@@ -75,6 +78,20 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiDescriptorRequest, UiDescriptorResponse};
     use masq_lib::utils::find_free_port;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DESCRIPTOR_SUBCOMMAND, "descriptor");
+        assert_eq!(DESCRIPTOR_SUBCOMMAND_ABOUT, "Displays the Node descriptor of the running MASQNode. Only valid if Node is already running.");
+        assert_eq!(
+            NODE_DESCRIPTOR_NOT_AVAILABLE_MSG,
+            "Node descriptor is not yet available; try again later"
+        );
+        assert_eq!(
+            NODE_NOT_RUNNING_MSG,
+            "MASQNode is not running; therefore its descriptor cannot be displayed."
+        );
+    }
 
     #[test]
     fn testing_command_factory_here() {
