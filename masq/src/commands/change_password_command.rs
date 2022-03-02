@@ -20,14 +20,26 @@ pub struct ChangePasswordCommand {
     pub new_password: String,
 }
 
+const NEW_PASSWORD_VALUE_OF: &str = "new-db-password";
+const NEW_PASSWORD_EXPECT_MESSAGE: &str = "new-db-password is not properly required";
+
+const OLD_PASSWORD_VALUE_OF: &str = "old-db-password";
+const OLD_PASSWORD_EXPECT_MESSAGE: &str = "old-db-password is not properly required";
+
+const HANDLE_BROADCAST_WRITE_MESSAGE: &str = "\nThe Node's database password has changed.\n\n";
+const HANDLE_BROADCAST_WRITE_EXPECT_MESSAGE: &str = "write! failed";
+const HANDLE_BROADCAST_WRITE_FLUSH_EXPECT_MESSAGE: &str = "flush failed";
+
+const CHANGE_PASSWORD_MESSAGE: &str = "Database password has been changed";
+
 impl ChangePasswordCommand {
     pub fn new_set(pieces: &[String]) -> Result<Self, String> {
         match set_password_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => Ok(Self {
                 old_password: None,
                 new_password: matches
-                    .value_of("new-db-password")
-                    .expect("new-db-password is not properly required")
+                    .value_of(NEW_PASSWORD_VALUE_OF)
+                    .expect(NEW_PASSWORD_EXPECT_MESSAGE)
                     .to_string(),
             }),
             Err(e) => Err(format!("{}", e)),
@@ -39,13 +51,13 @@ impl ChangePasswordCommand {
             Ok(matches) => Ok(Self {
                 old_password: Some(
                     matches
-                        .value_of("old-db-password")
-                        .expect("old-db-password is not properly required")
+                        .value_of(OLD_PASSWORD_VALUE_OF)
+                        .expect(OLD_PASSWORD_EXPECT_MESSAGE)
                         .to_string(),
                 ),
                 new_password: matches
-                    .value_of("new-db-password")
-                    .expect("new-db-password is not properly required")
+                    .value_of(NEW_PASSWORD_VALUE_OF)
+                    .expect(NEW_PASSWORD_EXPECT_MESSAGE)
                     .to_string(),
             }),
             Err(e) => Err(format!("{}", e)),
@@ -58,8 +70,11 @@ impl ChangePasswordCommand {
         term_interface: &TerminalWrapper,
     ) {
         let _lock = term_interface.lock();
-        write!(stdout, "\nThe Node's database password has changed.\n\n").expect("write! failed");
-        stdout.flush().expect("flush failed");
+        write!(stdout, "{}", HANDLE_BROADCAST_WRITE_MESSAGE)
+            .expect(HANDLE_BROADCAST_WRITE_EXPECT_MESSAGE);
+        stdout
+            .flush()
+            .expect(HANDLE_BROADCAST_WRITE_FLUSH_EXPECT_MESSAGE);
     }
 }
 
@@ -71,43 +86,68 @@ impl Command for ChangePasswordCommand {
         };
         let _: UiChangePasswordResponse =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
-        short_writeln!(context.stdout(), "Database password has been changed");
+        short_writeln!(context.stdout(), "{}", CHANGE_PASSWORD_MESSAGE);
         Ok(())
     }
 
     as_any_impl!();
 }
 
+const CHANGE_PASSWORD_COMMAND: &str = "change-password";
+const CHANGE_PASSWORD_ABOUT_MESSAGE: &str = "Changes the existing password on the Node database";
+
+const OLD_DB_PASSWORD_NAME: &str = "old-db-password";
+const OLD_DB_PASSWORD_HELP: &str = "The existing password";
+const OLD_DB_PASSWORD_VALUE_NAME: &str = "OLD-DB-PASSWORD";
+const OLD_DB_PASSWORD_INDEX: u64 = 1;
+const OLD_DB_PASSWORD_REQUIRED: bool = true;
+const OLD_DB_PASSWORD_CASE_INSENSITIVE: bool = false;
+
+const NEW_DB_PASSWORD_NAME: &str = "new-db-password";
+const NEW_DB_PASSWORD_HELP: &str = "The new password to set";
+const NEW_DB_PASSWORD_VALUE_NAME: &str = "NEW-DB-PASSWORD";
+const NEW_DB_PASSWORD_INDEX: u64 = 2;
+const NEW_DB_PASSWORD_REQUIRED: bool = true;
+const NEW_DB_PASSWORD_CASE_INSENSITIVE: bool = false;
+
 pub fn change_password_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("change-password")
-        .about("Changes the existing password on the Node database")
+    SubCommand::with_name(CHANGE_PASSWORD_COMMAND)
+        .about(CHANGE_PASSWORD_ABOUT_MESSAGE)
         .arg(
-            Arg::with_name("old-db-password")
-                .help("The existing password")
-                .value_name("OLD-DB-PASSWORD")
-                .index(1)
-                .required(true)
-                .case_insensitive(false),
+            Arg::with_name(OLD_DB_PASSWORD_NAME)
+                .help(OLD_DB_PASSWORD_HELP)
+                .value_name(OLD_DB_PASSWORD_VALUE_NAME)
+                .index(OLD_DB_PASSWORD_INDEX)
+                .required(OLD_DB_PASSWORD_REQUIRED)
+                .case_insensitive(OLD_DB_PASSWORD_CASE_INSENSITIVE),
         )
         .arg(
-            Arg::with_name("new-db-password")
-                .help("The new password to set")
-                .value_name("NEW-DB-PASSWORD")
-                .index(2)
-                .required(true)
-                .case_insensitive(false),
+            Arg::with_name(NEW_DB_PASSWORD_NAME)
+                .help(NEW_DB_PASSWORD_HELP)
+                .value_name(NEW_DB_PASSWORD_VALUE_NAME)
+                .index(NEW_DB_PASSWORD_INDEX)
+                .required(NEW_DB_PASSWORD_REQUIRED)
+                .case_insensitive(NEW_DB_PASSWORD_CASE_INSENSITIVE),
         )
 }
 
+const SET_PASSWORD_SUBCOMMAND: &str = "set-password";
+const SET_PASSWORD_ABOUT: &str = "Sets an initial password on the Node database";
+const SET_PASSWORD_NAME: &str = "new-db-password";
+const SET_PASSWORD_HELP: &str = "Password to be set; must not already exist";
+const SET_PASSWORD_INDEX: u64 = 1;
+const SET_PASSWORD_REQUIRED: bool = true;
+const SET_PASSWORD_CASE_INSENSITIVE: bool = false;
+
 pub fn set_password_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("set-password")
-        .about("Sets an initial password on the Node database")
+    SubCommand::with_name(SET_PASSWORD_SUBCOMMAND)
+        .about(SET_PASSWORD_ABOUT)
         .arg(
-            Arg::with_name("new-db-password")
-                .help("Password to be set; must not already exist")
-                .index(1)
-                .required(true)
-                .case_insensitive(false),
+            Arg::with_name(SET_PASSWORD_NAME)
+                .help(SET_PASSWORD_HELP)
+                .index(SET_PASSWORD_INDEX)
+                .required(SET_PASSWORD_REQUIRED)
+                .case_insensitive(SET_PASSWORD_CASE_INSENSITIVE),
         )
 }
 
@@ -118,6 +158,60 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(NEW_PASSWORD_VALUE_OF, "new-db-password");
+        assert_eq!(
+            NEW_PASSWORD_EXPECT_MESSAGE,
+            "new-db-password is not properly required"
+        );
+        assert_eq!(OLD_PASSWORD_VALUE_OF, "old-db-password");
+        assert_eq!(
+            OLD_PASSWORD_EXPECT_MESSAGE,
+            "old-db-password is not properly required"
+        );
+        assert_eq!(
+            HANDLE_BROADCAST_WRITE_MESSAGE,
+            "\nThe Node's database password has changed.\n\n"
+        );
+        assert_eq!(HANDLE_BROADCAST_WRITE_EXPECT_MESSAGE, "write! failed");
+        assert_eq!(HANDLE_BROADCAST_WRITE_FLUSH_EXPECT_MESSAGE, "flush failed");
+        assert_eq!(
+            CHANGE_PASSWORD_MESSAGE,
+            "Database password has been changed"
+        );
+        assert_eq!(CHANGE_PASSWORD_COMMAND, "change-password");
+        assert_eq!(
+            CHANGE_PASSWORD_ABOUT_MESSAGE,
+            "Changes the existing password on the Node database"
+        );
+        assert_eq!(OLD_DB_PASSWORD_NAME, "old-db-password");
+        assert_eq!(OLD_DB_PASSWORD_HELP, "The existing password");
+        assert_eq!(OLD_DB_PASSWORD_VALUE_NAME, "OLD-DB-PASSWORD");
+        assert_eq!(OLD_DB_PASSWORD_INDEX, 1);
+        assert_eq!(OLD_DB_PASSWORD_REQUIRED, true);
+        assert_eq!(OLD_DB_PASSWORD_CASE_INSENSITIVE, false);
+        assert_eq!(NEW_DB_PASSWORD_NAME, "new-db-password");
+        assert_eq!(NEW_DB_PASSWORD_HELP, "The new password to set");
+        assert_eq!(NEW_DB_PASSWORD_VALUE_NAME, "NEW-DB-PASSWORD");
+        assert_eq!(NEW_DB_PASSWORD_INDEX, 2);
+        assert_eq!(NEW_DB_PASSWORD_REQUIRED, true);
+        assert_eq!(NEW_DB_PASSWORD_CASE_INSENSITIVE, false);
+        assert_eq!(SET_PASSWORD_SUBCOMMAND, "set-password");
+        assert_eq!(
+            SET_PASSWORD_ABOUT,
+            "Sets an initial password on the Node database"
+        );
+        assert_eq!(SET_PASSWORD_NAME, "new-db-password");
+        assert_eq!(
+            SET_PASSWORD_HELP,
+            "Password to be set; must not already exist"
+        );
+        assert_eq!(SET_PASSWORD_INDEX, 1);
+        assert_eq!(SET_PASSWORD_REQUIRED, true);
+        assert_eq!(SET_PASSWORD_CASE_INSENSITIVE, false);
+    }
 
     #[test]
     fn set_password_command_works_when_changing_from_no_password() {
