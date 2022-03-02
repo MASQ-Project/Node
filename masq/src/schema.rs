@@ -27,8 +27,14 @@ lazy_static! {
     static ref DEFAULT_UI_PORT_STRING: String = format!("{}", DEFAULT_UI_PORT); // tested
 }
 
+const APP_NAME: &str = "masq";
+const APP_VERSION: &str = "1.0.0";
+const APP_AUTHOR: &str = "MASQ";
+const APP_ABOUT: &str =
+    "masq is a command-line user interface to the MASQ Daemon and the MASQ Node";
+
 pub fn app_head() -> App<'static, 'static> {
-    App::new("masq")
+    App::new(APP_NAME)
         .global_settings(if cfg!(test) {
             &[AppSettings::ColorNever]
         } else {
@@ -36,9 +42,9 @@ pub fn app_head() -> App<'static, 'static> {
         })
         //.version(crate_version!())
         //.author(crate_authors!("\n")) // TODO: Put this back in when clap is compatible with Rust 1.38.0
-        .version("1.0.0")
-        .author("MASQ")
-        .about("masq is a command-line user interface to the MASQ Daemon and the MASQ Node")
+        .version(APP_VERSION)
+        .author(APP_AUTHOR)
+        .about(APP_ABOUT)
 }
 
 pub fn app() -> App<'static, 'static> {
@@ -81,6 +87,13 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
+        assert_eq!(APP_NAME, "masq");
+        assert_eq!(APP_VERSION, "1.0.0");
+        assert_eq!(APP_AUTHOR, "MASQ");
+        assert_eq!(
+            APP_ABOUT,
+            "masq is a command-line user interface to the MASQ Daemon and the MASQ Node"
+        );
         assert_eq!(
             UI_PORT_HELP.to_string(),
             format!(
