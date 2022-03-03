@@ -9,7 +9,7 @@ use masq_lib::utils::index_of;
 use regex::Regex;
 
 lazy_static! {
-    static ref HOST_PATTERN: Regex = Regex::new(r"^(?:https?://)?([^\s/]+)").expect("bad regex"); // tested
+    static ref HOST_PATTERN: Regex = Regex::new(r"^(?:https?://)?([^\s/]+)").expect("bad regex");
 }
 
 pub struct HttpProtocolPack {}

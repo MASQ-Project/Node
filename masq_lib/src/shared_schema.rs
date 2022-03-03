@@ -112,12 +112,12 @@ pub const REAL_USER_HELP: &str =
      like <uid>:<gid>:<home directory>.";
 
 lazy_static! {
-    pub static ref DEFAULT_UI_PORT_VALUE: String = DEFAULT_UI_PORT.to_string(); // tested
+    pub static ref DEFAULT_UI_PORT_VALUE: String = DEFAULT_UI_PORT.to_string();
     pub static ref UI_PORT_HELP: String = format!(
         "The port at which user interfaces will connect to the Node. Best to accept the default unless \
         you know what you're doing. Must be between {} and {}.",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
-    ); // tested
+    );
     pub static ref CLANDESTINE_PORT_HELP: String = format!(
         "The port this Node will advertise to other Nodes at which clandestine traffic will be \
          received. If you don't specify a clandestine port, the Node will choose an unused \
@@ -126,11 +126,11 @@ lazy_static! {
          meaningless except in --neighborhood-mode standard. \
          Must be between {} and {} [default: last used port]",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
-    ); // tested
+    );
     pub static ref GAS_PRICE_HELP: String = format!(
        "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
        If left unspecified, MASQ Node will use the previously stored value (Default {}).",
-       DEFAULT_GAS_PRICE); // tested
+       DEFAULT_GAS_PRICE);
 }
 
 // These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred

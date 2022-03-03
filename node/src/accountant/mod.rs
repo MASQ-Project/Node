@@ -73,7 +73,7 @@ lazy_static! {
         balance_to_decrease_from_gwub: 1_000_000_000,
         balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
         unban_when_balance_below_gwub: 10_000_000,
-    }; // tested
+    };
 }
 
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours

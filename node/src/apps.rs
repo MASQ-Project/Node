@@ -59,7 +59,7 @@ lazy_static! {
         interfaces will connect to the Node: no one will know that until after the Node starts.) \
         Best to accept the default unless you know what you're doing. Must be between {} and {}.",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
-    ); // tested
+    );
 }
 
 const DUMP_CONFIG_HELP: &str =

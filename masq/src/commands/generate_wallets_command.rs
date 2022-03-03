@@ -22,7 +22,7 @@ lazy_static! {
             quotes; otherwise the single quotes will cause problems. (Use \"{}\" if you don't have \
             a different value.) Leave this out to generate a consuming private key instead.",
         DEFAULT_CONSUMING_DERIVATION_PATH.as_str()
-    ); // tested
+    );
     static ref EARNING_PATH_HELP: String = format!(
         "Derivation path from which to generate the \
             earning wallet from which your bills will be paid. Can be the same as consuming-path. \
@@ -30,7 +30,7 @@ lazy_static! {
             (Use \"{}\" if you don't have a different value.)  Leave this out to generate an \
             earning address instead.",
         DEFAULT_EARNING_DERIVATION_PATH.as_str()
-    ); // tested
+    );
 }
 
 #[derive(Debug, PartialEq)]

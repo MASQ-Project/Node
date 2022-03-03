@@ -52,7 +52,7 @@ lazy_static! {
         ]
         .into_iter()
         .collect()
-    }; // tested
+    };
 }
 
 #[allow(clippy::type_complexity)]

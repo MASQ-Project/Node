@@ -23,8 +23,8 @@ lazy_static! {
         "If the Daemon is listening for connections at some port other than {}, specify that port \
          here. Must be between {} and {}.",
         DEFAULT_UI_PORT, LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
-    ); // tested
-    static ref DEFAULT_UI_PORT_STRING: String = format!("{}", DEFAULT_UI_PORT); // tested
+    );
+    static ref DEFAULT_UI_PORT_STRING: String = format!("{}", DEFAULT_UI_PORT);
 }
 
 const APP_NAME: &str = "masq";
