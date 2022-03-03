@@ -277,8 +277,7 @@ pub mod tests {
         // no panic; test passes
 
         TestLogHandler::new().exists_no_log_containing(&format!(
-            "handle_ui_crash_message_does_not_crash_if_not_crashable: {}",
-            "Received a crash request"
+            "handle_ui_crash_message_does_not_crash_if_not_crashable: Received a crash request",
         ));
     }
 
