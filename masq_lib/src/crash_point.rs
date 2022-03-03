@@ -44,6 +44,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(NONE, 0);
+        assert_eq!(PANIC, 1);
+        assert_eq!(ERROR, 2);
+        assert_eq!(MESSAGE, 3);
+    }
+
+    #[test]
     fn from_usize_to_crash_point() {
         assert_eq!(CrashPoint::from(NONE), CrashPoint::None);
         assert_eq!(CrashPoint::from(PANIC), CrashPoint::Panic);

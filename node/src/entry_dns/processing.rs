@@ -189,6 +189,12 @@ mod tests {
     use std::time::Instant;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(HEADER_BYTES, 12);
+        assert_eq!(UNKNOWN, "<unknown>");
+    }
+
+    #[test]
     fn returns_format_error_if_queries_overrun() {
         let memory: [u8; 100] = [0; 100];
         let mut correct_buf: Vec<u8> = Vec::from(&memory[0..memory.len()]);

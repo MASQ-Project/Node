@@ -78,7 +78,7 @@ lazy_static! {
 
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub struct PaymentCurves {
     pub payment_suggested_after_sec: i64,
     pub payment_grace_before_ban_sec: i64,
@@ -1218,6 +1218,26 @@ mod tests {
     use std::time::SystemTime;
     use web3::types::U256;
     use web3::types::{TransactionReceipt, H256};
+
+    #[test]
+    fn constants_have_correct_values() {
+        let payment_curves_expected: PaymentCurves = PaymentCurves {
+            payment_suggested_after_sec: SECONDS_PER_DAY,
+            payment_grace_before_ban_sec: SECONDS_PER_DAY,
+            permanent_debt_allowed_gwub: 10_000_000,
+            balance_to_decrease_from_gwub: 1_000_000_000,
+            balance_decreases_for_sec: 30 * SECONDS_PER_DAY,
+            unban_when_balance_below_gwub: 10_000_000,
+        };
+
+        assert_eq!(CRASH_KEY, "ACCOUNTANT");
+        assert_eq!(DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL, 3600);
+        assert_eq!(DEFAULT_PAYABLES_SCAN_INTERVAL, 3600);
+        assert_eq!(DEFAULT_RECEIVABLES_SCAN_INTERVAL, 3600);
+        assert_eq!(SECONDS_PER_DAY, 86_400);
+        assert_eq!(DEFAULT_PENDING_TOO_LONG_SEC, 21_600);
+        assert_eq!(*PAYMENT_CURVES, payment_curves_expected);
+    }
 
     #[test]
     fn new_calls_factories_properly() {

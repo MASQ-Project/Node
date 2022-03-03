@@ -385,6 +385,13 @@ mod framer_tests {
     use crate::sub_lib::utils::to_string;
     use crate::sub_lib::utils::to_string_s;
 
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(BYTES_TO_PRESERVE, 9);
+        assert_eq!(CRLF, b"\r\n");
+        assert_eq!(DOUBLE_CRLF, b"\r\n\r\n");
+    }
+
     const GOOD_FIRST_LINE: [u8; 15] = *b"GOOD_FIRST_LINE";
 
     struct TameStartFinder {}

@@ -474,6 +474,13 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(NOT_FOUND, 2);
+        assert_eq!(PERMISSION_DENIED, 5);
+        assert_eq!(PERMISSION_DENIED_STR, "Permission denied");
+    }
+
+    #[test]
     fn is_subverted_says_no_if_masq_dns_appears_too_late() {
         let result = WinDnsModifier::is_subverted(&"1.1.1.1,127.0.0.1".to_string());
 

@@ -192,6 +192,11 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(MASQ_TEST_INTEGRATION_KEY, "MASQ_TEST_INTEGRATION");
+    }
+
+    #[test]
     fn integration_test_terminal_provides_synchronization() {
         let (tx_cb, rx_cb) = unbounded();
         let mut terminal_interface = IntegrationTestTerminal::default();

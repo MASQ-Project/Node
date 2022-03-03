@@ -364,6 +364,10 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "PROXYCLIENT");
+    }
 
     fn dnss() -> Vec<SocketAddr> {
         vec![SocketAddr::from_str("8.8.8.8:53").unwrap()]

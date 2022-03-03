@@ -116,6 +116,11 @@ mod tests {
     use std::convert::TryFrom;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DEAD_NODE_CHECK_INTERVAL_SECS, 60);
+    }
+
+    #[test]
     fn constructor_populates_last_dead_node_check() {
         let begin_at = time_t_timestamp();
         let subject = GossipProducerReal::new();

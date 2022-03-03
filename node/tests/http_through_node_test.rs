@@ -23,7 +23,7 @@ fn http_through_node_integration() {
     );
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
     stream
-        .set_read_timeout(Some(Duration::from_millis(100)))
+        .set_read_timeout(Some(Duration::from_millis(1000)))
         .unwrap();
     let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
 
