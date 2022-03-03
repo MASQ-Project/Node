@@ -908,7 +908,7 @@ impl Neighborhood {
         }
     }
 
-    fn sort_routes_by_desirable_exit_nodes(&self, node_seqs: &mut Vec<Vec<&PublicKey>>) {
+    fn sort_routes_by_desirable_exit_nodes(&self, node_seqs: &mut [Vec<&PublicKey>]) {
         if node_seqs.is_empty() {
             panic!("Unable to sort routes by desirable exit nodes: Missing routes.");
         }
