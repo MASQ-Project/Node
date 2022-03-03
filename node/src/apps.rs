@@ -134,8 +134,8 @@ mod tests {
             )
         );
         assert_eq!(
-            DAEMON_UI_PORT_HELP.to_string(),
-            format!(
+            DAEMON_UI_PORT_HELP.as_str(),
+            &format!(
                 "The port at which user interfaces will connect to the Daemon. (This is NOT the port at which \
                  interfaces will connect to the Node: no one will know that until after the Node starts.) \
                  Best to accept the default unless you know what you're doing. Must be between {} and {}.",
