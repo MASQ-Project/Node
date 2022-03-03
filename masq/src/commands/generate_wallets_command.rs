@@ -75,6 +75,8 @@ const LANGUAGE_ARG_POSSIBLE_VALUES: [&str; 8] = [
     "Korean",
     "Spanish",
 ];
+const WORD_COUNT_ARG_DEFAULT_VALUE: &str = "12";
+const LANGUAGE_ARG_DEFAULT_VALUE: &str = "English";
 
 impl GenerateWalletsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
@@ -187,7 +189,7 @@ pub fn generate_wallets_subcommand() -> App<'static, 'static> {
                 .long("word-count")
                 .value_name("WORD-COUNT")
                 .required(false)
-                .default_value("12")
+                .default_value(WORD_COUNT_ARG_DEFAULT_VALUE)
                 .takes_value(true)
                 .possible_values(&WORD_COUNT_ARG_POSSIBLE_VALUES),
         )
@@ -197,7 +199,7 @@ pub fn generate_wallets_subcommand() -> App<'static, 'static> {
                 .long("language")
                 .value_name("LANGUAGE")
                 .required(false)
-                .default_value("English")
+                .default_value(LANGUAGE_ARG_DEFAULT_VALUE)
                 .takes_value(true)
                 .possible_values(&LANGUAGE_ARG_POSSIBLE_VALUES),
         )
@@ -307,6 +309,8 @@ mod tests {
                 "Spanish",
             ]
         );
+        assert_eq!(WORD_COUNT_ARG_DEFAULT_VALUE, "12");
+        assert_eq!(LANGUAGE_ARG_DEFAULT_VALUE, "English");
     }
 
     #[test]

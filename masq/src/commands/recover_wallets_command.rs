@@ -145,6 +145,7 @@ const LANGUAGE_ARG_POSSIBLE_VALUES: [&str; 8] = [
     "Korean",
     "Spanish",
 ];
+const LANGUAGE_ARG_DEFAULT_VALUE: &str = "English";
 
 pub fn recover_wallets_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("recover-wallets")
@@ -180,7 +181,7 @@ pub fn recover_wallets_subcommand() -> App<'static, 'static> {
                 .long("language")
                 .value_name("LANGUAGE")
                 .required(false)
-                .default_value("English")
+                .default_value(LANGUAGE_ARG_DEFAULT_VALUE)
                 .takes_value(true)
                 .possible_values(&LANGUAGE_ARG_POSSIBLE_VALUES),
         )
@@ -269,6 +270,7 @@ mod tests {
                 "Spanish",
             ]
         );
+        assert_eq!(LANGUAGE_ARG_DEFAULT_VALUE, "English")
     }
 
     #[test]
