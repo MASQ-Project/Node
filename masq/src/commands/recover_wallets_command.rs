@@ -135,6 +135,16 @@ const CONSUMING_KEY_ARG_HELP: &str = "The private key of the consuming wallet. R
 const EARNING_PATH_ARG_HELP: &str = "Derivation path that was used to generate the earning wallet from which your bills will be paid. Can be the same as consuming-path. Remember to put it in double quotes; otherwise the single quotes will cause problems";
 const EARNING_ADDRESS_ARG_HELP: &str =
     "The address of the earning wallet. Represent it as '0x' followed by 40 hexadecimal digits.";
+const LANGUAGE_ARG_POSSIBLE_VALUES: [&str; 8] = [
+    "English",
+    "Chinese",
+    "Traditional Chinese",
+    "French",
+    "Italian",
+    "Japanese",
+    "Korean",
+    "Spanish",
+];
 
 pub fn recover_wallets_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("recover-wallets")
@@ -172,16 +182,7 @@ pub fn recover_wallets_subcommand() -> App<'static, 'static> {
                 .required(false)
                 .default_value("English")
                 .takes_value(true)
-                .possible_values(&[
-                    "English",
-                    "Chinese",
-                    "Traditional Chinese",
-                    "French",
-                    "Italian",
-                    "Japanese",
-                    "Korean",
-                    "Spanish",
-                ]),
+                .possible_values(&LANGUAGE_ARG_POSSIBLE_VALUES),
         )
         .arg(
             Arg::with_name("consuming-path")
@@ -255,6 +256,19 @@ mod tests {
         assert_eq!(EARNING_PATH_ARG_HELP, "Derivation path that was used to generate the earning wallet from which your bills will be paid. Can be the same as consuming-path. Remember to put it in double quotes; otherwise the single quotes will cause problems");
         assert_eq!(EARNING_ADDRESS_ARG_HELP,
             "The address of the earning wallet. Represent it as '0x' followed by 40 hexadecimal digits.");
+        assert_eq!(
+            LANGUAGE_ARG_POSSIBLE_VALUES,
+            [
+                "English",
+                "Chinese",
+                "Traditional Chinese",
+                "French",
+                "Italian",
+                "Japanese",
+                "Korean",
+                "Spanish",
+            ]
+        );
     }
 
     #[test]

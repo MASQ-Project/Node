@@ -64,6 +64,18 @@ const PASSPHRASE_ARG_HELP: &str =
              process should require at the end of the mnemonic phrase, if you're supplying a \
              derivation path.";
 
+const WORD_COUNT_ARG_POSSIBLE_VALUES: [&str; 5] = ["12", "15", "18", "21", "24"];
+const LANGUAGE_ARG_POSSIBLE_VALUES: [&str; 8] = [
+    "English",
+    "Chinese",
+    "Traditional Chinese",
+    "French",
+    "Italian",
+    "Japanese",
+    "Korean",
+    "Spanish",
+];
+
 impl GenerateWalletsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match generate_wallets_subcommand().get_matches_from_safe(pieces) {
@@ -177,7 +189,7 @@ pub fn generate_wallets_subcommand() -> App<'static, 'static> {
                 .required(false)
                 .default_value("12")
                 .takes_value(true)
-                .possible_values(&["12", "15", "18", "21", "24"]),
+                .possible_values(&WORD_COUNT_ARG_POSSIBLE_VALUES),
         )
         .arg(
             Arg::with_name("language")
@@ -187,16 +199,7 @@ pub fn generate_wallets_subcommand() -> App<'static, 'static> {
                 .required(false)
                 .default_value("English")
                 .takes_value(true)
-                .possible_values(&[
-                    "English",
-                    "Chinese",
-                    "Traditional Chinese",
-                    "French",
-                    "Italian",
-                    "Japanese",
-                    "Korean",
-                    "Spanish",
-                ]),
+                .possible_values(&LANGUAGE_ARG_POSSIBLE_VALUES),
         )
         .arg(
             Arg::with_name("passphrase")
@@ -285,6 +288,24 @@ mod tests {
             "An optional additional word (it can be any word) that the wallet-recovery \
              process should require at the end of the mnemonic phrase, if you're supplying a \
              derivation path."
+        );
+
+        assert_eq!(
+            WORD_COUNT_ARG_POSSIBLE_VALUES,
+            ["12", "15", "18", "21", "24"]
+        );
+        assert_eq!(
+            LANGUAGE_ARG_POSSIBLE_VALUES,
+            [
+                "English",
+                "Chinese",
+                "Traditional Chinese",
+                "French",
+                "Italian",
+                "Japanese",
+                "Korean",
+                "Spanish",
+            ]
         );
     }
 
