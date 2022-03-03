@@ -9,7 +9,9 @@ use std::default::Default;
 use std::fmt::Debug;
 
 const START_COMMAND_TIMEOUT_MILLIS: u64 = 15000;
-const START_SUBCOMMAND_ABOUT: &str = "Starts a MASQNode with the parameters that have been established by 'setup.' Only valid if Node is not already running.";
+const START_SUBCOMMAND_ABOUT: &str =
+    "Starts a MASQNode with the parameters that have been established by 'setup.' \
+     Only valid if Node is not already running.";
 
 pub fn start_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("start").about(START_SUBCOMMAND_ABOUT)
@@ -57,7 +59,11 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(START_COMMAND_TIMEOUT_MILLIS, 15000);
-        assert_eq!(START_SUBCOMMAND_ABOUT, "Starts a MASQNode with the parameters that have been established by 'setup.' Only valid if Node is not already running.");
+        assert_eq!(
+            START_SUBCOMMAND_ABOUT,
+            "Starts a MASQNode with the parameters that have been established by 'setup.' \
+             Only valid if Node is not already running."
+        );
     }
 
     #[test]

@@ -30,8 +30,10 @@ impl WalletAddressesCommand {
     }
 }
 
-const WALLET_ADDRESS_SUBCOMMAND_ABOUT: &str = "Provides addresses of consuming and earning wallets.\
- Only valid if the wallets were successfully generated (generate-wallets) or recovered (recover-wallets)";
+const WALLET_ADDRESS_SUBCOMMAND_ABOUT: &str =
+    "Provides addresses of consuming and earning wallets.\
+     Only valid if the wallets were successfully generated (generate-wallets) or \
+     recovered (recover-wallets)";
 const DB_PASSWORD_ARG_HELP: &str =
     "The current database password (a password must be set to use this command)";
 

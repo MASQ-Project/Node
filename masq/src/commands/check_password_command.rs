@@ -16,7 +16,8 @@ pub struct CheckPasswordCommand {
     pub db_password_opt: Option<String>,
 }
 
-const CHECK_PASSWORD_ABOUT: &str = "Checks whether the supplied db-password (if any) is the correct password for the Node's database";
+const CHECK_PASSWORD_ABOUT: &str =
+    "Checks whether the supplied db-password (if any) is the correct password for the Node's database";
 const DB_PASSWORD_ARG_HELP: &str =
     "Password to check--leave it out if you think the database doesn't have a password yet";
 

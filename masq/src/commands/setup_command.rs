@@ -152,7 +152,10 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(SETUP_COMMAND_TIMEOUT_MILLIS, 30000);
-        assert_eq!(SETUP_COMMAND_ABOUT, "Establishes (if Node is not already running) and displays startup parameters for MASQNode.");
+        assert_eq!(
+            SETUP_COMMAND_ABOUT,
+            "Establishes (if Node is not already running) and displays startup parameters for MASQNode."
+         );
     }
 
     #[test]
