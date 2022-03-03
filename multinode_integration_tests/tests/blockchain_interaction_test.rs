@@ -6,13 +6,17 @@ use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{ConsumingWalletInfo, NodeStartupConfig, NodeStartupConfigBuilder};
 use regex::escape;
 use std::time::Duration;
+use masq_lib::messages::{ToMessageBody, UiScanRequest};
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
-use multinode_integration_tests_lib::utils::{config_dao, receivable_dao};
+use multinode_integration_tests_lib::utils::{config_dao, database_conn, receivable_dao};
+use node_lib::accountant::PAYMENT_CURVES;
+use serde_derive::Serialize;
 
 #[test]
 fn debtors_are_credited_once_but_not_twice() {
     let mbcs_port = find_free_port();
+    let ui_port = find_free_port();
     // Create and initialize mock blockchain client: prepare a receivable at block 2000
     let blockchain_client = MBCSBuilder::new (mbcs_port)
         .response (
@@ -39,16 +43,35 @@ fn debtors_are_credited_once_but_not_twice() {
     let node = cluster.start_real_node (NodeStartupConfigBuilder::standard()
         .start_block (0x1000)
         .scans (false)
+        .blockchain_service_url(format!("http://{}:{}", MASQNodeCluster::host_ip_addr(), mbcs_port))
+        .ui_port (ui_port)
         .build()
     );
     // Get the config DAO
     let config_dao = config_dao (&node);
-    // Get the receivable DAO
-    let receivable_dao = receivable_dao (&node);
+    // Get direct access to the RECEIVABLE table
+    let conn = database_conn(&node);
     // Create a receivable record to match the client receivable
-    receivable_dao.more_money_receivable(We may want to do direct database access so that we can fiddle the date.)
-    // Wait for a scan log
+    let mut stmt = conn.prepare (
+        "insert into receivable (\
+            wallet_address, \
+            balance, \
+            last_received_timestamp\
+        ) values (\
+            '0x3333333333333333333333333333333333333333',
+            1000000,
+            '2001-09-11'
+        )").unwrap();
+    stmt.execute([]).unwrap();
+    // Command a scan log
+    let ui_client = node.make_ui(ui_port);
+    ui_client.send_request (UiScanRequest {
+        name: "receivables".to_string()
+    }.tmb(1234));
+    let _ = ui_client.wait_for_response (1234).payload.unwrap();
     // Kill the real Node
+
+    let receivable_dao = receivable_dao (&node);
     // Use the receivable DAO to verify that the receivable's balance has been adjusted
     // Use the config DAO to verify that the start block has been advanced to 2001
     todo!("Complete me");

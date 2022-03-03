@@ -2047,6 +2047,7 @@ dependencies = [
  "tiny-hderive",
  "uint 0.9.1",
  "web3",
+ "websocket",
 ]
 
 [[package]]

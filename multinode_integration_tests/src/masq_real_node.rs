@@ -32,6 +32,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::thread;
 use std::time::Duration;
+use crate::masq_node_ui_client::MASQNodeUIClient;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
 
@@ -127,6 +128,7 @@ pub struct NodeStartupConfig {
     pub db_password_opt: Option<String>,
     pub start_block_opt: Option<u64>,
     pub scans_opt: Option<bool>,
+    pub ui_port_opt: Option<u16>,
 }
 
 impl Default for NodeStartupConfig {
@@ -156,6 +158,7 @@ impl NodeStartupConfig {
             db_password_opt: Some("password".to_string()),
             start_block_opt: None,
             scans_opt: None,
+            ui_port_opt: None,
         }
     }
 
@@ -219,7 +222,12 @@ impl NodeStartupConfig {
 
         if let Some(ref scans) = self.scans_opt {
             args.push("--scans".to_string());
-            args.push(if scans {"on".to_string()} else {"off".to_string()});
+            args.push(if *scans {"on".to_string()} else {"off".to_string()});
+        }
+
+        if let Some(ref ui_port) = self.ui_port_opt {
+            args.push("--ui-port".to_string());
+            args.push(ui_port.to_string());
         }
         args
     }
@@ -392,6 +400,7 @@ pub struct NodeStartupConfigBuilder {
     chain: Chain,
     start_block_opt: Option<u64>,
     scans_opt: Option<bool>,
+    ui_port_opt: Option<u16>,
     db_password: Option<String>,
 }
 
@@ -415,6 +424,7 @@ impl NodeStartupConfigBuilder {
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
             start_block_opt: None,
             scans_opt: None,
+            ui_port_opt: None,
             db_password: None,
         }
     }
@@ -442,6 +452,7 @@ impl NodeStartupConfigBuilder {
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
             start_block_opt: None,
             scans_opt: None,
+            ui_port_opt: None,
             db_password: Some("password".to_string()),
         }
     }
@@ -469,6 +480,7 @@ impl NodeStartupConfigBuilder {
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
             start_block_opt: None,
             scans_opt: None,
+            ui_port_opt: None,
             db_password: Some("password".to_string()),
         }
     }
@@ -492,6 +504,7 @@ impl NodeStartupConfigBuilder {
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
             start_block_opt: None,
             scans_opt: None,
+            ui_port_opt: None,
             db_password: Some("password".to_string()),
         }
     }
@@ -515,6 +528,7 @@ impl NodeStartupConfigBuilder {
             chain: config.chain,
             start_block_opt: config.start_block_opt,
             scans_opt: config.scans_opt,
+            ui_port_opt: config.ui_port_opt,
             db_password: config.db_password_opt.clone(),
         }
     }
@@ -629,6 +643,11 @@ impl NodeStartupConfigBuilder {
         self
     }
 
+    pub fn ui_port(mut self, ui_port: u16) -> Self {
+        self.ui_port_opt = Some (ui_port);
+        self
+    }
+
     pub fn db_password(mut self, value: Option<&str>) -> Self {
         self.db_password = value.map(|str| str.to_string());
         self
@@ -654,6 +673,7 @@ impl NodeStartupConfigBuilder {
             db_password_opt: self.db_password,
             start_block_opt: self.start_block_opt,
             scans_opt: None,
+            ui_port_opt: None,
         }
     }
 }
@@ -922,6 +942,10 @@ impl MASQRealNode {
 
     pub fn make_server(&self, port: u16) -> MASQNodeServer {
         MASQNodeServer::new(port)
+    }
+
+    pub fn make_ui(&self, port: u16) -> MASQNodeUIClient {
+        MASQNodeUIClient::new (SocketAddr::new (self.guts.container_ip, port))
     }
 
     fn establish_wallet_info(name: &str, startup_config: &NodeStartupConfig) {
@@ -1347,6 +1371,7 @@ mod tests {
             db_password_opt: Some("booga".to_string()),
             start_block_opt: Some (12345),
             scans_opt: Some (false),
+            ui_port_opt: Some (4321),
         };
         let neighborhood_mode = "standard".to_string();
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -1407,7 +1432,8 @@ mod tests {
         );
         assert_eq!(result.db_password_opt, Some("booga".to_string()));
         assert_eq!(result.start_block_opt, Some(12345));
-        assert_eq!(result.scans_opt, Some (false))
+        assert_eq!(result.scans_opt, Some (false));
+        assert_eq!(result.ui_port_opt, Some(4321));
     }
 
     #[test]
