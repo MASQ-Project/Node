@@ -80,11 +80,11 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        const METHODS_EXPECTED: &[&[u8]] = &[
+        let methods_expected: &[&[u8]] = &[
             b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"CONNECT", b"OPTIONS", b"TRACE", b"PATCH",
         ];
 
-        assert_eq!(METHODS, METHODS_EXPECTED);
+        assert_eq!(METHODS, methods_expected);
         assert_eq!(LONGEST_METHOD_LEN, 7);
     }
 

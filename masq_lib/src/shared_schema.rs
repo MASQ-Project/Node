@@ -535,99 +535,164 @@ mod tests {
         assert_eq!(
             BLOCKCHAIN_SERVICE_HELP,
             "The Ethereum client you wish to use to provide Blockchain \
-     exit services from your MASQ Node (e.g. http://localhost:8545, \
-     https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
-     https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID"
+             exit services from your MASQ Node (e.g. http://localhost:8545, \
+             https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+             https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID"
         );
-        assert_eq!(CHAIN_HELP, "The blockchain network MASQ Node will configure itself to use. You must ensure the \
-    Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.");
-        assert_eq!(CONFIG_FILE_HELP, "Optional TOML file containing configuration that doesn't often change. Should contain only \
-     scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
-     they replace (except no '--' prefix). If you specify a relative path, or no path, the Node will \
-     look for your config file starting in the --data-directory. If you specify an absolute path, \
-     --data-directory will be ignored when searching for the config file. A few parameters \
-     (such as --config-file, --generate-wallet, and --recover-wallet) must not be specified in a config file.");
-        assert_eq!(CONSUMING_PRIVATE_KEY_HELP, "The private key for the Ethereum wallet from which you wish to pay \
-     other Nodes for routing and exit services. Mostly this is used for testing; be careful using it for real \
-     traffic, because this value is very sensitive: anyone who sees it can use it to drain your consuming wallet. \
-     If you use it, don't put it on the command line (the environment is good, the config file is less so), \
-     make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
-     supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
-     hexadecimal digits.");
+        assert_eq!(
+            CHAIN_HELP,
+            "The blockchain network MASQ Node will configure itself to use. You must ensure the \
+             Ethereum client specified by --blockchain-service-url communicates with the same blockchain network."
+        );
+        assert_eq!(
+            CONFIG_FILE_HELP,
+            "Optional TOML file containing configuration that doesn't often change. Should contain only \
+             scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
+             they replace (except no '--' prefix). If you specify a relative path, or no path, the Node will \
+             look for your config file starting in the --data-directory. If you specify an absolute path, \
+             --data-directory will be ignored when searching for the config file. A few parameters \
+             (such as --config-file, --generate-wallet, and --recover-wallet) must not be specified in a config file."
+        );
+        assert_eq!(
+            CONSUMING_PRIVATE_KEY_HELP,
+            "The private key for the Ethereum wallet from which you wish to pay \
+             other Nodes for routing and exit services. Mostly this is used for testing; be careful using it for real \
+             traffic, because this value is very sensitive: anyone who sees it can use it to drain your consuming wallet. \
+             If you use it, don't put it on the command line (the environment is good, the config file is less so), \
+             make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
+             supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
+             hexadecimal digits."
+        );
         assert_eq!(
             DATA_DIRECTORY_HELP,
             "Directory in which the Node will store its persistent state, including at \
-     least its database and by default its configuration file as well."
+             least its database and by default its configuration file as well."
         );
-        assert_eq!(DB_PASSWORD_HELP, "A password or phrase to decrypt the encrypted material in the database, to include your \
-     mnemonic seed (if applicable) and your list of previous neighbors. If you don't provide this \
-     password, none of the encrypted data in your database will be used. This is a secret;\
-     providing it on the command line or in a config file may be insecure");
+        assert_eq!(
+            DB_PASSWORD_HELP,
+            "A password or phrase to decrypt the encrypted material in the database, to include your \
+             mnemonic seed (if applicable) and your list of previous neighbors. If you don't provide this \
+             password, none of the encrypted data in your database will be used. This is a secret;\
+             providing it on the command line or in a config file may be insecure"
+        );
         assert_eq!(
             DNS_SERVERS_HELP,
             "IP addresses of DNS Servers for host name look-up while providing exit \
-     services for other MASQ Nodes (e.g. 1.0.0.1,1.1.1.1,8.8.8.8,9.9.9.9, etc.)"
+             services for other MASQ Nodes (e.g. 1.0.0.1,1.1.1.1,8.8.8.8,9.9.9.9, etc.)"
         );
-        assert_eq!(EARNING_WALLET_HELP, "An Ethereum wallet address. Addresses must begin with 0x followed by 40 hexadecimal digits \
-     (case-insensitive). If you already have a derivation-path earning wallet, don't supply this. \
-     If you have supplied an earning wallet address before, either don't supply it again or be \
-     careful to supply exactly the same one you supplied before.");
-        assert_eq!(IP_ADDRESS_HELP, "The public IP address of your MASQ Node: that is, the IPv4 \
-     address at which other Nodes can contact yours. If you're running your Node behind \
-     a router, this will be the IP address of the router. If this IP address starts with 192.168 or 10.0, \
-     it's a local address rather than a public address, and other Nodes won't be able to see yours. \
-     --ip is meaningless except in --neighborhood-mode standard.");
-        assert_eq!(LOG_LEVEL_HELP, "The minimum severity of the logs that should appear in the Node's logfile. You should probably not specify \
-     a level lower than the default unless you're doing testing or forensics: a Node at the 'trace' log level \
-     generates a lot of log traffic. This will both consume your disk space and degrade your Node's performance. \
-     You should probably not specify a level higher than the default unless you have security concerns about \
-     persistent logs being kept on your computer: if your Node crashes, it's good to know why.");
-        assert_eq!(NEIGHBORS_HELP, "One or more Node descriptors for running Nodes in the MASQ \
-     One or more Node descriptors for active Nodes in the MASQ Network to which you'd like your Node to connect \
-     on startup. A Node descriptor looks similar to one of these:\n\n\
-          masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
-          masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-          masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-          masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
-     Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
-     and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
-     a configuration with multiple clandestine ports.\n\n\
-     If you have more than one descriptor, separate them with commas. Whether single or multiple descriptors, they \
-     should be enclosed by quotes. No default value is available; \
-     if you don't specify a neighbor, your Node will start without being connected to any MASQ \
-     Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
-     --neighbors is meaningless in --neighborhood-mode zero-hop.");
-        assert_eq!(NEIGHBORHOOD_MODE_HELP, "This configures the way the Node relates to other Nodes.\n\n\
-     zero-hop means that your Node will operate as its own MASQ Network and will not communicate with any \
-     other Nodes. --ip, --neighbors, and --clandestine-port are incompatible with --neighborhood_mode \
-     zero-hop.\n\n\
-     originate-only means that your Node will not accept connections from any other Node; it \
-     will only originate connections to other Nodes. This will reduce your Node's opportunity to route \
-     data (it will only ever have two neighbors, so the number of routes it can participate in is limited), \
-     it will reduce redundancy in the MASQ Network, and it will prevent your Node from acting as \
-     a connection point for other Nodes to get on the Network; but it will enable your Node to operate in \
-     an environment where your network hookup is preventing you from accepting connections, and it means \
-     that you don't have to forward any incoming ports through your router. --ip and --clandestine_port \
-     are incompatible with --neighborhood_mode originate-only.\n\n\
-     consume-only means that your Node will not accept connections from or route data for any other Node; \
-     it will only consume services from the MASQ Network. This mode is appropriate for devices that \
-     cannot maintain a constant IP address or stay constantly on the Network. --ip and --clandestine_port \
-     are incompatible with --neighborhood_mode consume-only.\n\n\
-     standard means that your Node will operate fully unconstrained, both originating and accepting \
-     connections, both consuming and providing services, and when you operate behind a router, it \
-     requires that you forward your clandestine port through that router to your Node's machine.");
-        assert_eq!(MAPPING_PROTOCOL_HELP, "The Node can speak three protocols to your router to make it allow outside Nodes to connect inward \
-    through it to your machine. These three protocols are pcp, pmp, and igdp. The Node can try them one \
-    by one to determine which your router supports, but if you happen to know already, you can supply the \
-    name of the protocol here. If you've taken care of port mapping in some other way, \
-    and you don't need Node to negotiate with your router, say 'none' here and be sure to specify your \
-    public IP address with the --ip parameter. If the Node communicates successfully with your router, \
-    it will remember the protocol it used, and on its next run it will try that protocol first, unless \
-    you specify a different protocol on the command line.");
-        assert_eq!(REAL_USER_HELP,"The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
-     run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
-     you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
-     like <uid>:<gid>:<home directory>.");
+        assert_eq!(
+            EARNING_WALLET_HELP,
+            "An Ethereum wallet address. Addresses must begin with 0x followed by 40 hexadecimal digits \
+             (case-insensitive). If you already have a derivation-path earning wallet, don't supply this. \
+             If you have supplied an earning wallet address before, either don't supply it again or be \
+             careful to supply exactly the same one you supplied before."
+        );
+        assert_eq!(
+            IP_ADDRESS_HELP,
+            "The public IP address of your MASQ Node: that is, the IPv4 \
+             address at which other Nodes can contact yours. If you're running your Node behind \
+             a router, this will be the IP address of the router. If this IP address starts with 192.168 or 10.0, \
+             it's a local address rather than a public address, and other Nodes won't be able to see yours. \
+             --ip is meaningless except in --neighborhood-mode standard."
+        );
+        assert_eq!(
+            LOG_LEVEL_HELP,
+            "The minimum severity of the logs that should appear in the Node's logfile. You should probably not specify \
+             a level lower than the default unless you're doing testing or forensics: a Node at the 'trace' log level \
+             generates a lot of log traffic. This will both consume your disk space and degrade your Node's performance. \
+             You should probably not specify a level higher than the default unless you have security concerns about \
+             persistent logs being kept on your computer: if your Node crashes, it's good to know why.");
+        assert_eq!(
+            NEIGHBORS_HELP,
+            "One or more Node descriptors for running Nodes in the MASQ \
+             One or more Node descriptors for active Nodes in the MASQ Network to which you'd like your Node to connect \
+             on startup. A Node descriptor looks similar to one of these:\n\n\
+                  masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
+                  masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
+                  masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+                  masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+             Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
+             and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
+             a configuration with multiple clandestine ports.\n\n\
+             If you have more than one descriptor, separate them with commas. Whether single or multiple descriptors, they \
+             should be enclosed by quotes. No default value is available; \
+             if you don't specify a neighbor, your Node will start without being connected to any MASQ \
+             Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
+             --neighbors is meaningless in --neighborhood-mode zero-hop."
+        );
+        assert_eq!(
+            NEIGHBORHOOD_MODE_HELP,
+            "This configures the way the Node relates to other Nodes.\n\n\
+             zero-hop means that your Node will operate as its own MASQ Network and will not communicate with any \
+             other Nodes. --ip, --neighbors, and --clandestine-port are incompatible with --neighborhood_mode \
+             zero-hop.\n\n\
+             originate-only means that your Node will not accept connections from any other Node; it \
+             will only originate connections to other Nodes. This will reduce your Node's opportunity to route \
+             data (it will only ever have two neighbors, so the number of routes it can participate in is limited), \
+             it will reduce redundancy in the MASQ Network, and it will prevent your Node from acting as \
+             a connection point for other Nodes to get on the Network; but it will enable your Node to operate in \
+             an environment where your network hookup is preventing you from accepting connections, and it means \
+             that you don't have to forward any incoming ports through your router. --ip and --clandestine_port \
+             are incompatible with --neighborhood_mode originate-only.\n\n\
+             consume-only means that your Node will not accept connections from or route data for any other Node; \
+             it will only consume services from the MASQ Network. This mode is appropriate for devices that \
+             cannot maintain a constant IP address or stay constantly on the Network. --ip and --clandestine_port \
+             are incompatible with --neighborhood_mode consume-only.\n\n\
+             standard means that your Node will operate fully unconstrained, both originating and accepting \
+             connections, both consuming and providing services, and when you operate behind a router, it \
+             requires that you forward your clandestine port through that router to your Node's machine."
+        );
+        assert_eq!(
+            MAPPING_PROTOCOL_HELP,
+            "The Node can speak three protocols to your router to make it allow outside Nodes to connect inward \
+             through it to your machine. These three protocols are pcp, pmp, and igdp. The Node can try them one \
+             by one to determine which your router supports, but if you happen to know already, you can supply the \
+             name of the protocol here. If you've taken care of port mapping in some other way, \
+             and you don't need Node to negotiate with your router, say 'none' here and be sure to specify your \
+             public IP address with the --ip parameter. If the Node communicates successfully with your router, \
+             it will remember the protocol it used, and on its next run it will try that protocol first, unless \
+             you specify a different protocol on the command line."
+        );
+        assert_eq!(
+            REAL_USER_HELP,
+            "The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
+             run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
+             you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
+             like <uid>:<gid>:<home directory>."
+        );
+
+        assert_eq!(
+            DEFAULT_UI_PORT_VALUE.to_string(),
+            DEFAULT_UI_PORT.to_string()
+        );
+        assert_eq!(
+            UI_PORT_HELP.to_string(),
+            format!(
+                "The port at which user interfaces will connect to the Node. Best to accept the default unless \
+                 you know what you're doing. Must be between {} and {}.",
+                LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
+            )
+        );
+        assert_eq!(
+            CLANDESTINE_PORT_HELP.to_string(),
+            format!(
+                "The port this Node will advertise to other Nodes at which clandestine traffic will be \
+                 received. If you don't specify a clandestine port, the Node will choose an unused \
+                 one at random on first startup, then use that one for every subsequent run unless \
+                 you change it by specifying a different clandestine port here. --clandestine-port is \
+                 meaningless except in --neighborhood-mode standard. \
+                 Must be between {} and {} [default: last used port]",
+                LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
+            )
+        );
+        assert_eq!(
+            GAS_PRICE_HELP.to_string(),
+            format!(
+                "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
+                 If left unspecified, MASQ Node will use the previously stored value (Default {}).",
+                DEFAULT_GAS_PRICE
+            )
+        );
     }
 
     #[test]

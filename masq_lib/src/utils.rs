@@ -385,6 +385,14 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
+        assert_eq!(
+            DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
+            "m/44'/60'/0'/0/0"
+        );
+        assert_eq!(
+            DEFAULT_EARNING_DERIVATION_PATH.to_string(),
+            "m/44'/60'/0'/0/1"
+        );
         assert_eq!(FIND_FREE_PORT_LOWEST, 32768);
         assert_eq!(FIND_FREE_PORT_HIGHEST, 65535);
         assert_eq!(DERIVATION_PATH_ROOT, "m/44'/60'/0'");

@@ -27,9 +27,11 @@ pub struct ShutdownCommand {
     attempt_limit: u64,
 }
 
+const SHUTDOWN_SUBCOMMAND_ABOUT: &str =
+    "Shuts down the running MASQNode. Only valid if Node is already running.";
+
 pub fn shutdown_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("shutdown")
-        .about("Shuts down the running MASQNode. Only valid if Node is already running.")
+    SubCommand::with_name("shutdown").about(SHUTDOWN_SUBCOMMAND_ABOUT)
 }
 
 impl Command for ShutdownCommand {
@@ -156,6 +158,10 @@ mod tests {
         assert_eq!(DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL, 250);
         assert_eq!(DEFAULT_SHUTDOWN_ATTEMPT_LIMIT, 4);
         assert_eq!(SHUTDOWN_COMMAND_TIMEOUT_MILLIS, 60000);
+        assert_eq!(
+            SHUTDOWN_SUBCOMMAND_ABOUT,
+            "Shuts down the running MASQNode. Only valid if Node is already running."
+        );
     }
 
     #[derive(Debug)]
