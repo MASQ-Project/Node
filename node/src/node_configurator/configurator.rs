@@ -805,6 +805,11 @@ mod tests {
     use tiny_hderive::bip32::ExtendedPrivKey;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "CONFIGURATOR")
+    }
+
+    #[test]
     fn constructor_connects_with_database() {
         let data_dir =
             ensure_node_home_directory_exists("configurator", "constructor_connects_with_database");

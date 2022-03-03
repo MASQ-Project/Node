@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use ethereum_types::Address;
+use ethereum_types::{Address, H160};
 use ethsign::keyfile::Crypto;
 use ethsign::{Protected, PublicKey, SecretKey as EthsignSecretKey, Signature};
 use secp256k1secrets::key::SecretKey as Secp256k1SecretKey;
@@ -48,9 +48,7 @@ impl Bip32ECKeyProvider {
     }
 
     pub fn address(&self) -> Address {
-        Address {
-            0: *self.public_key().address(),
-        }
+        H160(*self.public_key().address())
     }
 
     pub fn public_key(&self) -> PublicKey {
@@ -152,6 +150,11 @@ mod tests {
     };
     use bip39::{Language, Mnemonic, Seed};
     use std::collections::hash_map::DefaultHasher;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(Bip32ECKeyProvider::SECRET_KEY_LENGTH, 32);
+    }
 
     #[test]
     fn bip32_derivation_path_0_produces_a_key_with_correct_address() {

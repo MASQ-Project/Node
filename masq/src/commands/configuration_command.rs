@@ -20,12 +20,16 @@ pub struct ConfigurationCommand {
     pub db_password: Option<String>,
 }
 
+const CONFIGURATION_ABOUT: &str = "Displays a running Node's current configuration.";
+const CONFIGURATION_ARG_HELP: &str =
+    "Password of the database from which the configuration will be read";
+
 pub fn configuration_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("configuration")
-        .about("Displays a running Node's current configuration.")
+        .about(CONFIGURATION_ABOUT)
         .arg(
             Arg::with_name("db-password")
-                .help("Password of the database from which the configuration will be read")
+                .help(CONFIGURATION_ARG_HELP)
                 .index(1)
                 .required(false),
         )
@@ -158,6 +162,18 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
     use masq_lib::utils::AutomapProtocol;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            CONFIGURATION_ABOUT,
+            "Displays a running Node's current configuration."
+        );
+        assert_eq!(
+            CONFIGURATION_ARG_HELP,
+            "Password of the database from which the configuration will be read"
+        );
+    }
 
     #[test]
     fn command_factory_works_with_password() {

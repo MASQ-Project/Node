@@ -356,6 +356,11 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CONTROL_STREAM_PORT, 42511);
+    }
+
+    #[test]
     fn cant_start_with_no_node_ref() {
         let mut holder = FakeStreamHolder::new();
         let mut subject = MockNode::new();

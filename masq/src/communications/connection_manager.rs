@@ -572,6 +572,13 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(COMPONENT_RESPONSE_TIMEOUT_MILLIS, 100);
+        assert_eq!(REDIRECT_TIMEOUT_MILLIS, 500);
+        assert_eq!(FALLBACK_TIMEOUT_MILLIS, 5000);
+    }
+
     struct BroadcastHandleMock {
         send_params: Arc<Mutex<Vec<MessageBody>>>,
     }
