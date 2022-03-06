@@ -5,20 +5,26 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, ArgGroup, SubCommand};
+use itertools::{Either, Itertools};
 use masq_lib::as_any_impl;
-use masq_lib::messages::{UiRecoverWalletsRequest, UiRecoverWalletsResponse};
+use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
 
 #[derive(Debug, PartialEq)]
+pub struct SeedSpec {
+    mnemonic_phrase: Vec<String>,
+    language: String,
+    passphrase_opt: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct RecoverWalletsCommand {
     db_password: String,
-    mnemonic_phrase: Vec<String>,
-    passphrase_opt: Option<String>,
-    language: String,
-    consuming_path: String,
-    earning_wallet: String,
+    seed_spec_opt: Option<SeedSpec>,
+    consuming: Either<String, String>,
+    earning: Either<String, String>,
 }
 
 impl RecoverWalletsCommand {
@@ -28,22 +34,42 @@ impl RecoverWalletsCommand {
             Err(e) => return Err(format!("{}", e)),
         };
 
-        let mnemonic_phrase_str = matches
+        let mnemonic_phrase_opt = matches
             .value_of("mnemonic-phrase")
-            .expect("mnemonic-phrase not properly required")
+            .map(|mpv| mpv.split(' ').map(|x| x.to_string()).collect_vec());
+        let language = matches
+            .value_of("language")
+            .expect("language is not properly defaulted by clap")
             .to_string();
-        let mnemonic_phrase = mnemonic_phrase_str
-            .split(' ')
-            .map(|x| x.to_string())
-            .collect();
-        let earning_wallet_derivation_path = matches.value_of("earning-path");
-        let earning_wallet_address = matches.value_of("earning-address");
-        let earning_wallet: String = match (earning_wallet_derivation_path, earning_wallet_address)
-        {
-            (Some(ewdp), None) => ewdp.to_string(),
-            (None, Some(ewa)) => ewa.to_string(),
+        let passphrase_opt = matches.value_of("passphrase").map(|mp| mp.to_string());
+        let seed_spec_opt = mnemonic_phrase_opt.map(|mnemonic_phrase| SeedSpec {
+            mnemonic_phrase,
+            language,
+            passphrase_opt,
+        });
+        let earning_wallet_derivation_path_opt = matches.value_of("earning-path");
+        let earning_wallet_address_opt = matches.value_of("earning-address");
+        let earning = match (
+            earning_wallet_derivation_path_opt,
+            earning_wallet_address_opt,
+        ) {
+            (Some(ewdp), None) => Either::Right(ewdp.to_string()),
+            (None, Some(ewa)) => Either::Left(ewa.to_string()),
             x => panic!(
                 "Earning-wallet parameters are not properly required by clap: {:?}",
+                x
+            ),
+        };
+        let consuming_wallet_derivation_path_opt = matches.value_of("consuming-path");
+        let consuming_wallet_key_opt = matches.value_of("consuming-key");
+        let consuming = match (
+            consuming_wallet_derivation_path_opt,
+            consuming_wallet_key_opt,
+        ) {
+            (Some(cwdp), None) => Either::Right(cwdp.to_string()),
+            (None, Some(ewpk)) => Either::Left(ewpk.to_string()),
+            x => panic!(
+                "Consuming-wallet parameters are not properly required by clap: {:?}",
                 x
             ),
         };
@@ -53,17 +79,9 @@ impl RecoverWalletsCommand {
                 .value_of("db-password")
                 .expect("db-password not properly required")
                 .to_string(),
-            mnemonic_phrase,
-            language: matches
-                .value_of("language")
-                .expect("language not properly defaulted")
-                .to_string(),
-            passphrase_opt: matches.value_of("passphrase").map(|s| s.to_string()),
-            consuming_path: matches
-                .value_of("consuming-path")
-                .expect("consuming-path not properly defaulted")
-                .to_string(),
-            earning_wallet,
+            seed_spec_opt,
+            consuming,
+            earning,
         })
     }
 }
@@ -72,11 +90,30 @@ impl Command for RecoverWalletsCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiRecoverWalletsRequest {
             db_password: self.db_password.clone(),
-            mnemonic_phrase: self.mnemonic_phrase.clone(),
-            mnemonic_passphrase_opt: self.passphrase_opt.clone(),
-            mnemonic_phrase_language: self.language.clone(),
-            consuming_derivation_path: self.consuming_path.clone(),
-            earning_wallet: self.earning_wallet.clone(),
+            seed_spec_opt: self
+                .seed_spec_opt
+                .as_ref()
+                .map(|seed_spec| UiRecoverSeedSpec {
+                    mnemonic_phrase: seed_spec.mnemonic_phrase.clone(),
+                    mnemonic_phrase_language_opt: Some(seed_spec.language.clone()),
+                    mnemonic_passphrase_opt: seed_spec.passphrase_opt.clone(),
+                }),
+            consuming_derivation_path_opt: match &self.consuming {
+                Either::Left(_) => None,
+                Either::Right(path) => Some(path.clone()),
+            },
+            consuming_private_key_opt: match &self.consuming {
+                Either::Left(key) => Some(key.clone()),
+                Either::Right(_) => None,
+            },
+            earning_derivation_path_opt: match &self.earning {
+                Either::Left(_) => None,
+                Either::Right(path) => Some(path.clone()),
+            },
+            earning_address_opt: match &self.earning {
+                Either::Left(address) => Some(address.clone()),
+                Either::Right(_) => None,
+            },
         };
         let _: UiRecoverWalletsResponse =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
@@ -87,67 +124,120 @@ impl Command for RecoverWalletsCommand {
     as_any_impl!();
 }
 
+const RECOVER_WALLETS_ABOUT: &str =
+    "Recovers a pair of wallets (consuming and earning) for the Node if they haven't been recovered already";
+const DB_PASSWORD_ARG_HELP: &str =
+    "The current database password (a password must be set to use this command)";
+const MNEMONIC_PHRASE_ARG_HELP: &str =
+    "The mnemonic phrase upon which the consuming wallet (and possibly the earning wallet) is based. \
+     Surround with double quotes.";
+const PASSPHRASE_ARG_HELP: &str =
+    "An additional word--any word--to place at the end of the mnemonic phrase to recover the wallet pair";
+const LANGUAGE_ARG_HELP: &str = "The language in which the wallets' mnemonic phrase is written";
+const CONSUMING_PATH_ARG_HELP: &str =
+    "Derivation that was used to generate the consuming wallet from which your bills will be paid. \
+     Remember to put it in double quotes; otherwise the single quotes will cause problems";
+const CONSUMING_KEY_ARG_HELP: &str =
+    "The private key of the consuming wallet. Represent it as a 64-character string of hexadecimal digits.";
+const EARNING_PATH_ARG_HELP: &str =
+    "Derivation path that was used to generate the earning wallet from which your bills will be paid. \
+     Can be the same as consuming-path. Remember to put it in double quotes; otherwise the single \
+     quotes will cause problems";
+const EARNING_ADDRESS_ARG_HELP: &str =
+    "The address of the earning wallet. Represent it as '0x' followed by 40 hexadecimal digits.";
+const LANGUAGE_ARG_POSSIBLE_VALUES: [&str; 8] = [
+    "English",
+    "Chinese",
+    "Traditional Chinese",
+    "French",
+    "Italian",
+    "Japanese",
+    "Korean",
+    "Spanish",
+];
+const LANGUAGE_ARG_DEFAULT_VALUE: &str = "English";
+
 pub fn recover_wallets_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("recover-wallets")
-        .about("Recovers a pair of wallets (consuming and earning) for the Node if they haven't been recovered already")
-        .arg(Arg::with_name ("db-password")
-            .help ("The current database password (a password must be set to use this command)")
-            .long ("db-password")
-            .value_name ("DB-PASSWORD")
-            .required (true)
-            .case_insensitive(false)
-            .takes_value (true)
+        .about(RECOVER_WALLETS_ABOUT)
+        .arg(
+            Arg::with_name("db-password")
+                .help(DB_PASSWORD_ARG_HELP)
+                .long("db-password")
+                .value_name("DB-PASSWORD")
+                .required(true)
+                .case_insensitive(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("mnemonic-phrase")
-            .help ("The mnemonic phrase upon which the consuming wallet (and possibly the earning wallet) is based. Surround with double quotes.")
-            .long ("mnemonic-phrase")
-            .value_name ("MNEMONIC-PHRASE")
-            .required (true)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("mnemonic-phrase")
+                .help(MNEMONIC_PHRASE_ARG_HELP)
+                .long("mnemonic-phrase")
+                .value_name("MNEMONIC-PHRASE")
+                .required(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("passphrase")
-            .help ("An additional word--any word--to place at the end of the mnemonic phrase to recover the wallet pair")
-            .long ("passphrase")
-            .value_name ("PASSPHRASE")
-            .required (false)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("passphrase")
+                .help(PASSPHRASE_ARG_HELP)
+                .long("passphrase")
+                .value_name("PASSPHRASE")
+                .required(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("language")
-            .help ("The language in which the wallets' mnemonic phrase should be generated")
-            .long ("language")
-            .value_name ("LANGUAGE")
-            .required (false)
-            .default_value("English")
-            .takes_value (true)
-            .possible_values(&["English", "Chinese", "Traditional Chinese", "French",
-                "Italian", "Japanese", "Korean", "Spanish"])
+        .arg(
+            Arg::with_name("language")
+                .help(LANGUAGE_ARG_HELP)
+                .long("language")
+                .value_name("LANGUAGE")
+                .required(false)
+                .default_value(LANGUAGE_ARG_DEFAULT_VALUE)
+                .takes_value(true)
+                .possible_values(&LANGUAGE_ARG_POSSIBLE_VALUES),
         )
-        .arg(Arg::with_name ("consuming-path")
-            .help ("Derivation path from which to generate the consuming wallet from which your bills will be paid. Remember to put it in double quotes; otherwise the single quotes will cause problems")
-            .long ("consuming-path")
-            .value_name ("CONSUMING-PATH")
-            .required (true)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("consuming-path")
+                .help(CONSUMING_PATH_ARG_HELP)
+                .long("consuming-path")
+                .value_name("CONSUMING-PATH")
+                .required(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("earning-path")
-            .help ("Derivation path from which to generate the earning wallet from which your bills will be paid. Can be the same as consuming-path. Remember to put it in double quotes; otherwise the single quotes will cause problems")
-            .long ("earning-path")
-            .value_name ("EARNING-PATH")
-            .required (false)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("consuming-key")
+                .help(CONSUMING_KEY_ARG_HELP)
+                .long("consuming-key")
+                .value_name("CONSUMING-KEY")
+                .required(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("earning-address")
-            .help ("Address of earning wallet. Supply this instead of --earning-path if the earning wallet is not derived from the mnemonic phrase")
-            .long ("earning-address")
-            .value_name ("EARNING-ADDRESS")
-            .required (false)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("earning-path")
+                .help(EARNING_PATH_ARG_HELP)
+                .long("earning-path")
+                .value_name("EARNING-PATH")
+                .required(false)
+                .takes_value(true),
         )
-        .group (
+        .arg(
+            Arg::with_name("earning-address")
+                .help(EARNING_ADDRESS_ARG_HELP)
+                .long("earning-address")
+                .value_name("EARNING-ADDRESS")
+                .required(false)
+                .takes_value(true),
+        )
+        .group(
+            ArgGroup::with_name("consuming")
+                .arg("consuming-path")
+                .arg("consuming-key")
+                .required(true),
+        )
+        .group(
             ArgGroup::with_name("earning")
-                .arg ("earning-path")
-                .arg ("earning-address")
-                .required (true)
+                .arg("earning-path")
+                .arg("earning-address")
+                .required(true),
         )
 }
 
@@ -160,7 +250,67 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
-    fn testing_command_factory_with_derivation_path() {
+    fn constants_have_correct_values() {
+        assert_eq!(
+            RECOVER_WALLETS_ABOUT,
+            "Recovers a pair of wallets (consuming and earning) for the Node if they haven't been \
+             recovered already"
+        );
+        assert_eq!(
+            DB_PASSWORD_ARG_HELP,
+            "The current database password (a password must be set to use this command)"
+        );
+        assert_eq!(
+            MNEMONIC_PHRASE_ARG_HELP,
+            "The mnemonic phrase upon which the consuming wallet (and possibly the earning wallet) \
+             is based. Surround with double quotes.");
+        assert_eq!(
+            PASSPHRASE_ARG_HELP,
+            "An additional word--any word--to place at the end of the mnemonic phrase to recover \
+             the wallet pair"
+        );
+        assert_eq!(
+            LANGUAGE_ARG_HELP,
+            "The language in which the wallets' mnemonic phrase is written"
+        );
+        assert_eq!(
+            CONSUMING_PATH_ARG_HELP,
+            "Derivation that was used to generate the consuming wallet from which your bills will \
+             be paid. Remember to put it in double quotes; otherwise the single quotes will cause problems"
+        );
+        assert_eq!(
+            CONSUMING_KEY_ARG_HELP,
+            "The private key of the consuming wallet. Represent it as a 64-character string of \
+             hexadecimal digits."
+        );
+        assert_eq!(
+            EARNING_PATH_ARG_HELP,
+            "Derivation path that was used to generate the earning wallet from which your bills \
+             will be paid. Can be the same as consuming-path. Remember to put it in double quotes; \
+             otherwise the single quotes will cause problems"
+        );
+        assert_eq!(
+            EARNING_ADDRESS_ARG_HELP,
+            "The address of the earning wallet. Represent it as '0x' followed by 40 hexadecimal digits."
+        );
+        assert_eq!(
+            LANGUAGE_ARG_POSSIBLE_VALUES,
+            [
+                "English",
+                "Chinese",
+                "Traditional Chinese",
+                "French",
+                "Italian",
+                "Japanese",
+                "Korean",
+                "Spanish",
+            ]
+        );
+        assert_eq!(LANGUAGE_ARG_DEFAULT_VALUE, "English")
+    }
+
+    #[test]
+    fn testing_command_factory_with_derivation_paths() {
         let subject = CommandFactoryReal::new();
 
         let result = subject
@@ -188,18 +338,20 @@ mod tests {
             recover_wallets_command,
             &RecoverWalletsCommand {
                 db_password: "password".to_string(),
-                mnemonic_phrase: "river message view churn potato cabbage craft luggage tape month observe obvious"
-                    .split (" ").into_iter ().map(|x| x.to_string()).collect(),
-                passphrase_opt: Some("booga".to_string()),
-                language: "English".to_string(),
-                consuming_path: "m/60'/44'/0'/100/0/200".to_string(),
-                earning_wallet: "m/60'/44'/0'/100/0/201".to_string()
+                seed_spec_opt: Some (SeedSpec {
+                    mnemonic_phrase: "river message view churn potato cabbage craft luggage tape month observe obvious"
+                        .split(" ").into_iter().map(|x| x.to_string()).collect(),
+                    passphrase_opt: Some("booga".to_string()),
+                    language: "English".to_string(),
+                }),
+                consuming: Either::Right ("m/60'/44'/0'/100/0/200".to_string()),
+                earning: Either::Right ("m/60'/44'/0'/100/0/201".to_string())
             }
         )
     }
 
     #[test]
-    fn testing_command_factory_with_address() {
+    fn testing_command_factory_with_key_and_address() {
         let subject = CommandFactoryReal::new();
 
         let result = subject
@@ -207,15 +359,8 @@ mod tests {
                 "recover-wallets".to_string(),
                 "--db-password".to_string(),
                 "password".to_string(),
-                "--mnemonic-phrase".to_string(),
-                "river message view churn potato cabbage craft luggage tape month observe obvious"
-                    .to_string(),
-                "--passphrase".to_string(),
-                "booga".to_string(),
-                "--language".to_string(),
-                "English".to_string(),
-                "--consuming-path".to_string(),
-                "m/60'/44'/0'/100/0/200".to_string(),
+                "--consuming-key".to_string(),
+                "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string(),
                 "--earning-address".to_string(),
                 "0x0123456789012345678901234567890123456789".to_string(),
             ])
@@ -227,12 +372,11 @@ mod tests {
             recover_wallets_command,
             &RecoverWalletsCommand {
                 db_password: "password".to_string(),
-                mnemonic_phrase: "river message view churn potato cabbage craft luggage tape month observe obvious"
-                    .split (" ").into_iter ().map(|x| x.to_string()).collect(),
-                passphrase_opt: Some("booga".to_string()),
-                language: "English".to_string(),
-                consuming_path: "m/60'/44'/0'/100/0/200".to_string(),
-                earning_wallet: "0x0123456789012345678901234567890123456789".to_string()
+                seed_spec_opt: None,
+                consuming: Either::Left(
+                    "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string()
+                ),
+                earning: Either::Left("0x0123456789012345678901234567890123456789".to_string()),
             }
         )
     }
@@ -278,11 +422,13 @@ mod tests {
             generate_wallets_command,
             &RecoverWalletsCommand {
                 db_password: "password".to_string(),
-                mnemonic_phrase: vec!["word".to_string()],
-                language: "English".to_string(),
-                passphrase_opt: None,
-                consuming_path: "ooga".to_string(),
-                earning_wallet: "booga".to_string()
+                seed_spec_opt: Some(SeedSpec {
+                    mnemonic_phrase: vec!["word".to_string()],
+                    language: "English".to_string(),
+                    passphrase_opt: None,
+                }),
+                consuming: Either::Right("ooga".to_string()),
+                earning: Either::Right("booga".to_string()),
             }
         )
     }
@@ -350,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn successful_result_is_printed() {
+    fn execute_works_with_derivation_paths() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -359,11 +505,13 @@ mod tests {
         let stderr_arc = context.stderr_arc();
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
-            mnemonic_phrase: vec!["word".to_string()],
-            language: "English".to_string(),
-            passphrase_opt: Some("booga".to_string()),
-            consuming_path: "consuming path".to_string(),
-            earning_wallet: "earning wallet".to_string(),
+            seed_spec_opt: Some(SeedSpec {
+                mnemonic_phrase: vec!["word".to_string()],
+                language: "English".to_string(),
+                passphrase_opt: Some("booga".to_string()),
+            }),
+            consuming: Either::Right("consuming path".to_string()),
+            earning: Either::Right("earning path".to_string()),
         };
 
         let result = subject.execute(&mut context);
@@ -375,11 +523,58 @@ mod tests {
             vec![(
                 UiRecoverWalletsRequest {
                     db_password: "password".to_string(),
-                    mnemonic_phrase: vec!["word".to_string()],
-                    mnemonic_passphrase_opt: Some("booga".to_string()),
-                    mnemonic_phrase_language: "English".to_string(),
-                    consuming_derivation_path: "consuming path".to_string(),
-                    earning_wallet: "earning wallet".to_string()
+                    seed_spec_opt: Some(UiRecoverSeedSpec {
+                        mnemonic_phrase: vec!["word".to_string()],
+                        mnemonic_passphrase_opt: Some("booga".to_string()),
+                        mnemonic_phrase_language_opt: Some("English".to_string()),
+                    }),
+                    consuming_derivation_path_opt: Some("consuming path".to_string()),
+                    consuming_private_key_opt: None,
+                    earning_derivation_path_opt: Some("earning path".to_string()),
+                    earning_address_opt: None,
+                }
+                .tmb(0),
+                1000
+            )]
+        );
+        let stderr = stderr_arc.lock().unwrap();
+        assert_eq!(*stderr.get_string(), String::new());
+        let stdout = stdout_arc.lock().unwrap();
+        assert_eq!(
+            &stdout.get_string(),
+            "Wallets were successfully recovered\n"
+        );
+    }
+
+    #[test]
+    fn execute_works_with_key_and_address() {
+        let transact_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut context = CommandContextMock::new()
+            .transact_params(&transact_params_arc)
+            .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
+        let stdout_arc = context.stdout_arc();
+        let stderr_arc = context.stderr_arc();
+        let subject = RecoverWalletsCommand {
+            db_password: "password".to_string(),
+            seed_spec_opt: None,
+            consuming: Either::Left("consuming private key".to_string()),
+            earning: Either::Left("earning address".to_string()),
+        };
+
+        let result = subject.execute(&mut context);
+
+        assert_eq!(result, Ok(()));
+        let transact_params = transact_params_arc.lock().unwrap();
+        assert_eq!(
+            *transact_params,
+            vec![(
+                UiRecoverWalletsRequest {
+                    db_password: "password".to_string(),
+                    seed_spec_opt: None,
+                    consuming_derivation_path_opt: None,
+                    consuming_private_key_opt: Some("consuming private key".to_string()),
+                    earning_derivation_path_opt: None,
+                    earning_address_opt: Some("earning address".to_string()),
                 }
                 .tmb(0),
                 1000

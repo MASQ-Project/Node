@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{ReceivedPayments, SentPayments};
+use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, SentPayable};
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -22,6 +23,8 @@ lazy_static! {
 pub struct AccountantConfig {
     pub payables_scan_interval: Duration,
     pub receivables_scan_interval: Duration,
+    pub pending_payable_scan_interval: Duration,
+    pub when_pending_too_long_sec: u64,
 }
 
 #[derive(Clone)]
@@ -33,7 +36,9 @@ pub struct AccountantSubs {
     pub report_routing_service_consumed: Recipient<ReportRoutingServiceConsumedMessage>,
     pub report_exit_service_consumed: Recipient<ReportExitServiceConsumedMessage>,
     pub report_new_payments: Recipient<ReceivedPayments>,
-    pub report_sent_payments: Recipient<SentPayments>,
+    pub pending_payable_fingerprint: Recipient<PendingPayableFingerprint>,
+    pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
+    pub report_sent_payments: Recipient<SentPayable>,
     pub ui_message_sub: Recipient<NodeFromUiMessage>,
 }
 
@@ -89,31 +94,31 @@ pub struct FinancialStatisticsMessage {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_utils::recorder::Recorder;
+    use crate::sub_lib::accountant::{DEFAULT_EARNING_WALLET, TEMPORARY_CONSUMING_WALLET};
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
+    use std::str::FromStr;
+
+    #[test]
+    fn constants_have_correct_values() {
+        let default_earning_wallet_expected: Wallet =
+            Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
+        let temporary_consuming_wallet_expected: Wallet =
+            Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
+
+        assert_eq!(*DEFAULT_EARNING_WALLET, default_earning_wallet_expected);
+        assert_eq!(
+            *TEMPORARY_CONSUMING_WALLET,
+            temporary_consuming_wallet_expected
+        )
+    }
 
     #[test]
     fn accountant_subs_debug() {
-        let recorder = Recorder::new().start();
+        let addr = Recorder::new().start();
 
-        let subject = AccountantSubs {
-            bind: recipient!(recorder, BindMessage),
-            start: recipient!(recorder, StartMessage),
-            report_routing_service_provided: recipient!(
-                recorder,
-                ReportRoutingServiceProvidedMessage
-            ),
-            report_exit_service_provided: recipient!(recorder, ReportExitServiceProvidedMessage),
-            report_routing_service_consumed: recipient!(
-                recorder,
-                ReportRoutingServiceConsumedMessage
-            ),
-            report_exit_service_consumed: recipient!(recorder, ReportExitServiceConsumedMessage),
-            report_new_payments: recipient!(recorder, ReceivedPayments),
-            report_sent_payments: recipient!(recorder, SentPayments),
-            ui_message_sub: recipient!(recorder, NodeFromUiMessage),
-        };
+        let subject = make_accountant_subs_from_recorder(&addr);
 
         assert_eq!(format!("{:?}", subject), "AccountantSubs");
     }

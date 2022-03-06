@@ -59,9 +59,14 @@ impl Command for SetConfigurationCommand {
     as_any_impl!();
 }
 
+const SET_CONFIGURATION_ABOUT: &str =
+    "Sets Node configuration parameters being enabled for this operation when the Node is running";
+const START_BLOCK_HELP: &str =
+    "Ordinal number of the Ethereum block where scanning for transactions will start.";
+
 pub fn set_configuration_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("set-configuration")
-        .about("Sets Node configuration parameters being enabled for this operation when the Node is running")
+        .about(SET_CONFIGURATION_ABOUT)
         .arg(
             Arg::with_name("gas-price")
                 .help(&GAS_PRICE_HELP)
@@ -69,23 +74,22 @@ pub fn set_configuration_subcommand() -> App<'static, 'static> {
                 .value_name("GAS-PRICE")
                 .takes_value(true)
                 .required(false)
-                .validator(common_validators::validate_gas_price)
-
+                .validator(common_validators::validate_gas_price),
         )
         .arg(
             Arg::with_name("start-block")
-                .help("Ordinal number of the Ethereum block where scanning for transactions will start.")
+                .help(START_BLOCK_HELP)
                 .long("start-block")
                 .value_name("START-BLOCK")
                 .takes_value(true)
                 .required(false)
-                .validator(validate_start_block)
+                .validator(validate_start_block),
         )
-        .group (
-        ArgGroup::with_name("parameter")
-            .args( &["gas-price","start-block"] )
-            .required (true)
-            )
+        .group(
+            ArgGroup::with_name("parameter")
+                .args(&["gas-price", "start-block"])
+                .required(true),
+        )
 }
 
 #[cfg(test)]
@@ -96,6 +100,18 @@ mod tests {
         ToMessageBody, UiSetConfigurationRequest, UiSetConfigurationResponse,
     };
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            SET_CONFIGURATION_ABOUT,
+            "Sets Node configuration parameters being enabled for this operation when the Node is running"
+        );
+        assert_eq!(
+            START_BLOCK_HELP,
+            "Ordinal number of the Ethereum block where scanning for transactions will start."
+        );
+    }
 
     #[test]
     fn only_one_parameter_at_a_time_is_permitted() {

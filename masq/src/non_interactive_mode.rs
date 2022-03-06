@@ -45,7 +45,7 @@ impl Main {
             .zip(one_item_shifted_forth)
             .enumerate()
             .find(|(_index, (left, right))| Self::both_do_not_start_with_two_dashes(left, right))
-            .map(|(index, _)| args.to_owned().into_iter().skip(index + 1).collect())
+            .map(|(index, _)| args.iter().skip(index + 1).cloned().collect())
     }
 
     fn both_do_not_start_with_two_dashes(

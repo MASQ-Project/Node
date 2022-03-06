@@ -947,12 +947,12 @@ mod tests {
     };
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::cryptde::{PlainData, PublicKey};
+    use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
-    use crate::test_utils::database_utils::bring_db_of_version_0_back_to_life_and_return_connection;
+    use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::{
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
@@ -973,6 +973,11 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CONSOLE_DIAGNOSTICS, false);
+    }
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -1060,11 +1065,7 @@ mod tests {
         config.set_clandestine_port(1234).unwrap();
         config
             .set_wallet_info(
-                &PlainData::new(
-                    b"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
-                )
-                .as_ref(),
-                "m/44'/60'/1'/2/3",
+                "1111111111111111111111111111111111111111111111111111111111111111",
                 "0x0000000000000000000000000000000000000000",
                 "password",
             )
@@ -1804,8 +1805,7 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_does_not_support_database_migration",
         );
-        let conn =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, "0");
@@ -1881,8 +1881,7 @@ mod tests {
             "setup_reporter",
             "run_configuration_suppresses_db_migration_which_is_why_it_refuses_to_initiate_persistent_config",
         );
-        let conn =
-            bring_db_of_version_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         conn.execute("update config set value = 55 where name = 'gas_price'", [])
             .unwrap();
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));

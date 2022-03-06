@@ -104,6 +104,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn constants_have_correct_values() {
+        let host_pattern_expected: Regex =
+            Regex::new(r"^(?:https?://)?([^\s/]+)").expect("bad regex");
+        assert_eq!(HOST_PATTERN.to_string(), host_pattern_expected.to_string());
+    }
+
+    #[test]
     fn knows_its_protocol() {
         let result = HttpProtocolPack {}.proxy_protocol();
 

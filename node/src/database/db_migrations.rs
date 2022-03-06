@@ -1,14 +1,20 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::bip39::Bip39;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
+use crate::db_config::db_encryption_layer::DbEncryptionLayer;
+use crate::db_config::typed_config_layer::decode_bytes;
+use crate::sub_lib::cryptde::PlainData;
+use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
-use rusqlite::Transaction;
+use rusqlite::{Error, Transaction};
 use std::fmt::Debug;
+use tiny_hderive::bip32::ExtendedPrivKey;
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -54,9 +60,11 @@ trait DatabaseMigration: Debug {
 }
 
 trait MigDeclarationUtilities {
+    fn db_password(&self) -> Option<String>;
+    fn transaction(&self) -> &Transaction;
     fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()>;
-
     fn external_parameters(&self) -> &ExternalData;
+    fn logger(&self) -> &Logger;
 }
 
 trait DBMigrationUtilities {
@@ -67,6 +75,7 @@ trait DBMigrationUtilities {
     fn make_mig_declaration_utils<'a>(
         &'a self,
         external: &'a ExternalData,
+        logger: &'a Logger,
     ) -> Box<dyn MigDeclarationUtilities + 'a>;
 
     fn too_high_schema_panics(&self, mismatched_schema: usize);
@@ -116,10 +125,12 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
     fn make_mig_declaration_utils<'b>(
         &'b self,
         external: &'b ExternalData,
+        logger: &'b Logger,
     ) -> Box<dyn MigDeclarationUtilities + 'b> {
         Box::new(MigDeclarationUtilitiesReal::new(
             self.root_transaction_ref(),
             external,
+            logger,
         ))
     }
 
@@ -137,23 +148,41 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
 struct MigDeclarationUtilitiesReal<'a> {
     root_transaction_ref: &'a Transaction<'a>,
     external: &'a ExternalData,
+    logger: &'a Logger,
 }
 
 impl<'a> MigDeclarationUtilitiesReal<'a> {
-    fn new(root_transaction_ref: &'a Transaction<'a>, external: &'a ExternalData) -> Self {
+    fn new(
+        root_transaction_ref: &'a Transaction<'a>,
+        external: &'a ExternalData,
+        logger: &'a Logger,
+    ) -> Self {
         Self {
             root_transaction_ref,
             external,
+            logger,
         }
     }
 }
 
 impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
+    fn db_password(&self) -> Option<String> {
+        self.external.db_password_opt.clone()
+    }
+
+    fn transaction(&self) -> &Transaction {
+        self.root_transaction_ref
+    }
+
     fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()> {
         let transaction = self.root_transaction_ref;
         sql_statements.iter().fold(Ok(()), |so_far, stm| {
             if so_far.is_ok() {
-                transaction.execute(stm, []).map(|_| ())
+                match transaction.execute(stm, []) {
+                    Ok(_) => Ok(()),
+                    Err(e) if e == Error::ExecuteReturnedResults => Ok(()),
+                    Err(e) => Err(e),
+                }
             } else {
                 so_far
             }
@@ -162,6 +191,10 @@ impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
 
     fn external_parameters(&self) -> &ExternalData {
         self.external
+    }
+
+    fn logger(&self) -> &Logger {
+        self.logger
     }
 }
 
@@ -179,9 +212,6 @@ impl DBMigratorInnerConfiguration {
     }
 }
 
-//define a new migration record here and add it to this list: 'list_of_migrations()'
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
 struct Migrate_0_to_1;
@@ -193,7 +223,6 @@ impl DatabaseMigration for Migrate_0_to_1 {
     ) -> rusqlite::Result<()> {
         declaration_utils.execute_upon_transaction(&[
             "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)",
-            //another statement would follow here
         ])
     }
 
@@ -250,6 +279,155 @@ impl DatabaseMigration for Migrate_2_to_3 {
     }
 }
 
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+struct Migrate_3_to_4;
+
+impl DatabaseMigration for Migrate_3_to_4 {
+    fn migrate<'a>(&self, utils: Box<dyn MigDeclarationUtilities + 'a>) -> rusqlite::Result<()> {
+        let transaction = utils.transaction();
+        let mut stmt = transaction
+            .prepare("select name, value from config where name in ('example_encrypted', 'seed', 'consuming_wallet_derivation_path') order by name")
+            .expect("Internal error");
+
+        let rows = stmt
+            .query_map([], |row| {
+                let name = row.get::<usize, String>(0).expect("Internal error");
+                let value_opt = row.get::<usize, Option<String>>(1).expect("Internal error");
+                Ok((name, value_opt))
+            })
+            .expect("Database is corrupt")
+            .map(|r| r.unwrap())
+            .collect::<Vec<(String, Option<String>)>>();
+        if rows.iter().map(|r| r.0.as_str()).collect_vec()
+            != vec![
+                "consuming_wallet_derivation_path",
+                "example_encrypted",
+                "seed",
+            ]
+        {
+            panic!("Database is corrupt");
+        }
+        let consuming_path_opt = rows[0].1.clone();
+        let example_encrypted = rows[1].1.clone();
+        let seed_encrypted = rows[2].1.clone();
+        let private_key_encoded = match (consuming_path_opt, example_encrypted, seed_encrypted) {
+            (Some(consuming_path), Some(example_encrypted), Some(seed_encrypted)) => {
+                let password_opt = utils.db_password();
+                if !DbEncryptionLayer::password_matches(&password_opt, &Some(example_encrypted)) {
+                    panic!("Bad password");
+                }
+                let seed_encoded =
+                    DbEncryptionLayer::decrypt_value(&Some(seed_encrypted), &password_opt, "seed")
+                        .expect("Internal error")
+                        .expect("Internal error");
+                let seed_data = decode_bytes(Some(seed_encoded))
+                    .expect("Internal error")
+                    .expect("Internal error");
+                let extended_private_key =
+                    ExtendedPrivKey::derive(seed_data.as_ref(), consuming_path.as_str())
+                        .expect("Internal error");
+                let private_key_data = PlainData::new(&extended_private_key.secret());
+                Some(
+                    Bip39::encrypt_bytes(
+                        &private_key_data.as_slice(),
+                        password_opt.as_ref().expect("Test-drive me!"),
+                    )
+                    .expect("Internal error: encryption failed"),
+                )
+            }
+            _ => None,
+        };
+        let private_key_column = if let Some(private_key) = private_key_encoded {
+            format!("'{}'", private_key)
+        } else {
+            "null".to_string()
+        };
+        utils.execute_upon_transaction(&[
+            format! ("insert into config (name, value, encrypted) values ('consuming_wallet_private_key', {}, 1)",
+                private_key_column).as_str(),
+            "delete from config where name in ('seed', 'consuming_wallet_derivation_path', 'consuming_wallet_public_key')",
+        ])
+    }
+
+    fn old_version(&self) -> usize {
+        3
+    }
+}
+
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+struct Migrate_4_to_5;
+
+impl DatabaseMigration for Migrate_4_to_5 {
+    fn migrate<'a>(
+        &self,
+        declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
+    ) -> rusqlite::Result<()> {
+        let mut select_statement = declaration_utils
+            .transaction()
+            .prepare("select pending_payment_transaction from payable where pending_payment_transaction is not null")?;
+        let unresolved_pending_transactions: Vec<String> = select_statement
+            .query_map([], |row| {
+                Ok(row
+                    .get::<usize, String>(0)
+                    .expect("select statement was badly prepared"))
+            })?
+            .flatten()
+            .collect();
+        if !unresolved_pending_transactions.is_empty() {
+            warning!(declaration_utils.logger(),"Migration from 4 to 5: database belonging to the chain '{}'; \
+             we discovered possibly abandoned transactions that are said yet to be pending, these are: '{}'; \
+              continuing",declaration_utils.external_parameters().chain.rec().literal_identifier,unresolved_pending_transactions.join("', '") )
+        } else {
+            debug!(
+                declaration_utils.logger(),
+                "Migration from 4 to 5: no previous pending transactions found; continuing"
+            )
+        };
+        let statement_1 = "alter table payable drop column pending_payment_transaction";
+        let statement_2 = "alter table payable add pending_payable_rowid integer null";
+        let statement_3 = "create table pending_payable (\
+                rowid integer primary key, \
+                transaction_hash text not null, \
+                amount integer not null, \
+                payable_timestamp integer not null, \
+                attempt integer not null, \
+                process_error text null\
+            )";
+        let statement_4 =
+            "create unique index pending_payable_hash_idx ON pending_payable (transaction_hash)";
+        let statement_5 = "drop index idx_receivable_wallet_address";
+        let statement_6 = "drop index idx_banned_wallet_address";
+        let statement_7 = "drop index idx_payable_wallet_address";
+        let statement_8 = "alter table config rename to _config_old";
+        let statement_9 = "create table config (\
+                name text primary key,\
+                value text,\
+                encrypted integer not null\
+             )";
+        let statement_10 = "insert into config (name, value, encrypted) select name, value, encrypted from _config_old";
+        let statement_11 = "drop table _config_old";
+        declaration_utils.execute_upon_transaction(&[
+            statement_1,
+            statement_2,
+            statement_3,
+            statement_4,
+            statement_5,
+            statement_6,
+            statement_7,
+            statement_8,
+            statement_9,
+            statement_10,
+            statement_11,
+        ])
+    }
+
+    fn old_version(&self) -> usize {
+        4
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 impl DbMigratorReal {
@@ -261,7 +439,13 @@ impl DbMigratorReal {
     }
 
     fn list_of_migrations<'a>() -> &'a [&'a dyn DatabaseMigration] {
-        &[&Migrate_0_to_1, &Migrate_1_to_2, &Migrate_2_to_3]
+        &[
+            &Migrate_0_to_1,
+            &Migrate_1_to_2,
+            &Migrate_2_to_3,
+            &Migrate_3_to_4,
+            &Migrate_4_to_5,
+        ]
     }
 
     fn initiate_migrations<'a>(
@@ -279,7 +463,8 @@ impl DbMigratorReal {
         );
         for record in migrations_to_process {
             let present_db_version = record.old_version();
-            if let Err(e) = self.migrate_semi_automated(record, &*migration_utilities) {
+            if let Err(e) = self.migrate_semi_automated(record, &*migration_utilities, &self.logger)
+            {
                 return self.dispatch_bad_news(present_db_version, e);
             }
             self.log_success(present_db_version)
@@ -291,8 +476,15 @@ impl DbMigratorReal {
         &self,
         record: &dyn DatabaseMigration,
         migration_utilities: &'a (dyn DBMigrationUtilities + 'a),
+        logger: &'a Logger,
     ) -> rusqlite::Result<()> {
-        record.migrate(migration_utilities.make_mig_declaration_utils(&self.external))?;
+        info!(
+            &self.logger,
+            "Migrating from version {} to version {}",
+            record.old_version(),
+            record.old_version() + 1
+        );
+        record.migrate(migration_utilities.make_mig_declaration_utils(&self.external, logger))?;
         let migrate_to = record.old_version() + 1;
         migration_utilities.update_schema_version(migrate_to)
     }
@@ -356,13 +548,13 @@ impl DbMigratorReal {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct MigratorConfig {
     pub should_be_suppressed: Suppression,
     pub external_dataset: Option<ExternalData>,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Suppression {
     No,
     Yes,
@@ -402,10 +594,11 @@ impl MigratorConfig {
     #[cfg(test)]
     pub fn test_default() -> Self {
         Self {
-            should_be_suppressed: Suppression::No,
+            should_be_suppressed: Suppression::Yes,
             external_dataset: Some(ExternalData {
                 chain: TEST_DEFAULT_CHAIN,
                 neighborhood_mode: NeighborhoodModeLight::Standard,
+                db_password_opt: None,
             }),
         }
     }
@@ -415,13 +608,19 @@ impl MigratorConfig {
 pub struct ExternalData {
     pub chain: Chain,
     pub neighborhood_mode: NeighborhoodModeLight,
+    pub db_password_opt: Option<String>,
 }
 
 impl ExternalData {
-    pub fn new(chain: Chain, neighborhood_mode: NeighborhoodModeLight) -> Self {
+    pub fn new(
+        chain: Chain,
+        neighborhood_mode: NeighborhoodModeLight,
+        db_password_opt: Option<String>,
+    ) -> Self {
         Self {
             chain,
             neighborhood_mode,
+            db_password_opt,
         }
     }
 }
@@ -442,9 +641,27 @@ impl From<(MigratorConfig, bool)> for ExternalData {
     }
 }
 
+#[derive(Debug)]
+struct InterimMigrationPlaceholder(usize);
+
+impl DatabaseMigration for InterimMigrationPlaceholder {
+    fn migrate<'a>(
+        &self,
+        _mig_declaration_utilities: Box<dyn MigDeclarationUtilities + 'a>,
+    ) -> rusqlite::Result<()> {
+        Ok(())
+    }
+
+    fn old_version(&self) -> usize {
+        self.0 - 1
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::blockchain::bip39::Bip39;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+    use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, DATABASE_FILE,
@@ -454,19 +671,38 @@ mod tests {
         ExternalData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, Suppression,
     };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
+    use crate::db_config::db_encryption_layer::DbEncryptionLayer;
+    use crate::db_config::typed_config_layer::encode_bytes;
+    use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::database_utils::retrieve_config_row;
     use crate::test_utils::database_utils::{
-        assurance_query_for_config_table, bring_db_of_version_0_back_to_life_and_return_connection,
+        assert_create_table_statement_contains_all_important_parts,
+        assert_index_statement_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
+        bring_db_0_back_to_life_and_return_connection,
     };
+    use crate::test_utils::make_wallet;
+    use bip39::{Language, Mnemonic, MnemonicType, Seed};
+    use ethereum_types::BigEndianHash;
+    use itertools::Itertools;
     use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::NeighborhoodModeLight;
-    use rusqlite::{Connection, Error, OptionalExtension};
+    use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
+    use rand::Rng;
+    use rusqlite::types::Value::Null;
+    use rusqlite::{Connection, Error, OptionalExtension, ToSql, Transaction};
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
+    use std::iter::once;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
+    use std::time::SystemTime;
+    use tiny_hderive::bip32::ExtendedPrivKey;
+    use web3::types::{H256, U256};
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
@@ -529,6 +765,7 @@ mod tests {
         fn make_mig_declaration_utils<'a>(
             &'a self,
             external: &'a ExternalData,
+            _logger: &'a Logger,
         ) -> Box<dyn MigDeclarationUtilities + 'a> {
             self.make_mig_declaration_utils_params
                 .lock()
@@ -549,11 +786,18 @@ mod tests {
 
     #[derive(Default)]
     struct DBMigrateDeclarationUtilitiesMock {
+        db_password_results: RefCell<Vec<Option<String>>>,
         execute_upon_transaction_params: Arc<Mutex<Vec<Vec<String>>>>,
         execute_upon_transaction_results: RefCell<Vec<rusqlite::Result<()>>>,
     }
 
     impl DBMigrateDeclarationUtilitiesMock {
+        #[allow(dead_code)]
+        pub fn db_password_result(self, result: Option<String>) -> Self {
+            self.db_password_results.borrow_mut().push(result);
+            self
+        }
+
         pub fn execute_upon_transaction_params(
             mut self,
             params: &Arc<Mutex<Vec<Vec<String>>>>,
@@ -571,6 +815,14 @@ mod tests {
     }
 
     impl MigDeclarationUtilities for DBMigrateDeclarationUtilitiesMock {
+        fn db_password(&self) -> Option<String> {
+            self.db_password_results.borrow_mut().remove(0)
+        }
+
+        fn transaction(&self) -> &Transaction {
+            unimplemented!("Not needed so far")
+        }
+
         fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()> {
             self.execute_upon_transaction_params.lock().unwrap().push(
                 sql_statements
@@ -582,7 +834,11 @@ mod tests {
         }
 
         fn external_parameters(&self) -> &ExternalData {
-            unimplemented!()
+            unimplemented!("Not needed so far")
+        }
+
+        fn logger(&self) -> &Logger {
+            unimplemented!("Not needed so far")
         }
     }
 
@@ -590,6 +846,7 @@ mod tests {
         ExternalData {
             chain: TEST_DEFAULT_CHAIN,
             neighborhood_mode: NeighborhoodModeLight::Standard,
+            db_password_opt: None,
         }
     }
 
@@ -736,9 +993,19 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "The list of migrations for the database is not ordered properly")]
-    fn list_validation_check_works() {
+    #[should_panic(expected = "The list of database migrations is not ordered properly")]
+    fn list_validation_check_works_for_badly_ordered_migrations_when_inside() {
         let fake_one = DBMigrationRecordMock::default().old_version_result(6);
+        let fake_two = DBMigrationRecordMock::default().old_version_result(2);
+        let list: &[&dyn DatabaseMigration] = &[&Migrate_0_to_1, &fake_one, &fake_two];
+
+        let _ = list_validation_check(list);
+    }
+
+    #[test]
+    #[should_panic(expected = "The list of database migrations is not ordered properly")]
+    fn list_validation_check_works_for_badly_ordered_migrations_when_at_the_end() {
+        let fake_one = DBMigrationRecordMock::default().old_version_result(1);
         let fake_two = DBMigrationRecordMock::default().old_version_result(3);
         let list: &[&dyn DatabaseMigration] = &[&Migrate_0_to_1, &fake_one, &fake_two];
 
@@ -746,12 +1013,19 @@ mod tests {
     }
 
     fn list_validation_check<'a>(list_of_migrations: &'a [&'a (dyn DatabaseMigration + 'a)]) {
+        let begins_at_version = list_of_migrations[0].old_version();
         let iterator = list_of_migrations.iter();
-        let iterator_shifted = list_of_migrations.iter().skip(1);
+        let ending_sentinel = &DBMigrationRecordMock::default()
+            .old_version_result(begins_at_version + iterator.len())
+            as &dyn DatabaseMigration;
+        let iterator_shifted = list_of_migrations
+            .iter()
+            .skip(1)
+            .chain(once(&ending_sentinel));
         iterator.zip(iterator_shifted).for_each(|(first, second)| {
             assert!(
                 two_numbers_are_sequential(first.old_version(), second.old_version()),
-                "The list of migrations for the database is not ordered properly"
+                "The list of database migrations is not ordered properly"
             )
         });
     }
@@ -789,7 +1063,11 @@ mod tests {
             .update_schema_version_params(&update_schema_version_params_arc);
         let subject = DbMigratorReal::new(make_external_migration_parameters());
 
-        let result = subject.migrate_semi_automated(&mut migration_record, &migration_utilities);
+        let result = subject.migrate_semi_automated(
+            &mut migration_record,
+            &migration_utilities,
+            &Logger::new("test logger"),
+        );
 
         assert_eq!(result, Err(Error::InvalidQuery));
         let update_schema_version_params = update_schema_version_params_arc.lock().unwrap();
@@ -830,6 +1108,56 @@ mod tests {
     }
 
     #[test]
+    fn db_password_works() {
+        let dir_path = ensure_node_home_directory_exists("db_migrations", "db_password_works");
+        let db_path = dir_path.join("test_database.db");
+        let mut connection_wrapper =
+            ConnectionWrapperReal::new(Connection::open(&db_path).unwrap());
+        let utils = DBMigrationUtilitiesReal::new(
+            &mut connection_wrapper,
+            DBMigratorInnerConfiguration {
+                db_configuration_table: "irrelevant".to_string(),
+                current_schema_version: 0,
+            },
+        )
+        .unwrap();
+        let mut external_parameters = make_external_migration_parameters();
+        external_parameters.db_password_opt = Some("booga".to_string());
+        let logger = Logger::new("test_logger");
+        let subject = utils.make_mig_declaration_utils(&external_parameters, &logger);
+
+        let result = subject.db_password();
+
+        assert_eq!(result, Some("booga".to_string()));
+    }
+
+    #[test]
+    fn transaction_works() {
+        let dir_path = ensure_node_home_directory_exists("db_migrations", "transaction_works");
+        let db_path = dir_path.join("test_database.db");
+        let mut connection_wrapper =
+            ConnectionWrapperReal::new(Connection::open(&db_path).unwrap());
+        let utils = DBMigrationUtilitiesReal::new(
+            &mut connection_wrapper,
+            DBMigratorInnerConfiguration {
+                db_configuration_table: "irrelevant".to_string(),
+                current_schema_version: 0,
+            },
+        )
+        .unwrap();
+        let external_parameters = make_external_migration_parameters();
+        let logger = Logger::new("test_logger");
+        let subject = utils.make_mig_declaration_utils(&external_parameters, &logger);
+
+        let result = subject.transaction();
+
+        result
+            .execute("CREATE TABLE IF NOT EXISTS test (column TEXT)", [])
+            .unwrap();
+        // no panic? Test passes!
+    }
+
+    #[test]
     fn execute_upon_transaction_returns_the_first_error_encountered_and_the_transaction_is_canceled(
     ) {
         let dir_path = ensure_node_home_directory_exists("db_migrations","execute_upon_transaction_returns_the_first_error_encountered_and_the_transaction_is_canceled");
@@ -837,16 +1165,17 @@ mod tests {
         let connection = Connection::open(&db_path).unwrap();
         connection
             .execute(
-                "CREATE TABLE IF NOT EXISTS test (
+                "CREATE TABLE test (
             name TEXT,
-            count TEXT
+            count integer
         )",
                 [],
             )
             .unwrap();
-        let correct_statement_1 = "INSERT INTO test (name,count) VALUES ('mushrooms','270')";
-        let erroneous_statement_1 = "INSERT INTO botanic_garden (sun_flowers) VALUES (100)";
-        let erroneous_statement_2 = "UPDATE botanic_garden SET value = 99 WHERE flower = artemisia";
+        let correct_statement_1 = "INSERT INTO test (name,count) VALUES ('mushrooms',270)";
+        let erroneous_statement_1 =
+            "INSERT INTO botanic_garden (name, count) VALUES (sunflowers, 100)";
+        let erroneous_statement_2 = "INSERT INTO milky_way (star) VALUES (just_discovered)";
         let set_of_sql_statements = &[
             correct_statement_1,
             erroneous_statement_1,
@@ -858,7 +1187,7 @@ mod tests {
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
         let result = subject
-            .make_mig_declaration_utils(&external_parameters)
+            .make_mig_declaration_utils(&external_parameters, &Logger::new("test logger"))
             .execute_upon_transaction(set_of_sql_statements);
 
         assert_eq!(
@@ -874,6 +1203,47 @@ mod tests {
             .optional()
             .unwrap();
         assert!(assertion.is_none()) //means no result for this query
+    }
+
+    #[test]
+    fn execute_upon_transaction_handles_also_statements_that_return_something() {
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "execute_upon_transaction_handles_also_statements_that_return_something",
+        );
+        let db_path = dir_path.join("test_database.db");
+        let connection = Connection::open(&db_path).unwrap();
+        connection
+            .execute(
+                "CREATE TABLE botanic_garden (
+            name TEXT,
+            count integer
+        )",
+                [],
+            )
+            .unwrap();
+        let statement_1 = "INSERT INTO botanic_garden (name,count) VALUES ('sun_flowers', 100)";
+        let statement_2 = "ALTER TABLE botanic_garden RENAME TO just_garden"; //this statement returns an overview of the new table on its execution
+        let statement_3 = "COMMIT";
+        let set_of_sql_statements = &[statement_1, statement_2, statement_3];
+        let mut connection_wrapper = ConnectionWrapperReal::new(connection);
+        let config = DBMigratorInnerConfiguration::new();
+        let external_parameters = make_external_migration_parameters();
+        let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
+
+        let result = subject
+            .make_mig_declaration_utils(&external_parameters, &Logger::new("test logger"))
+            .execute_upon_transaction(set_of_sql_statements);
+
+        assert_eq!(result, Ok(()));
+        let connection = Connection::open(&db_path).unwrap();
+        let assertion: Option<(String, i64)> = connection
+            .query_row("SELECT * FROM just_garden", [], |row| {
+                Ok((row.get(0).unwrap(), row.get(1).unwrap()))
+            })
+            .optional()
+            .unwrap();
+        assert!(assertion.is_some()) //means there is a table named 'just_garden' now
     }
 
     fn make_success_mig_record(
@@ -1068,7 +1438,8 @@ mod tests {
             *make_mig_declaration_utils_params,
             vec![ExternalData {
                 chain: TEST_DEFAULT_CHAIN,
-                neighborhood_mode: NeighborhoodModeLight::Standard
+                neighborhood_mode: NeighborhoodModeLight::Standard,
+                db_password_opt: None,
             }]
         )
     }
@@ -1116,40 +1487,31 @@ mod tests {
         let dir_path = ensure_node_home_directory_exists("db_migrations", "0_to_1");
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join(DATABASE_FILE);
-        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
 
         let result = subject.initialize_to_version(
             &dir_path,
             1,
-            true,
+            false,
             MigratorConfig::create_or_migrate(make_external_migration_parameters()),
         );
         let connection = result.unwrap();
-        let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'mapping_protocol'",
-            );
-        let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'schema_version'",
-            );
-        assert_eq!(mp_name, "mapping_protocol".to_string());
+        let (mp_value, mp_encrypted) = retrieve_config_row(connection.as_ref(), "mapping_protocol");
+        let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
         assert_eq!(mp_value, None);
-        assert_eq!(mp_encrypted, 0);
-        assert_eq!(cs_name, "schema_version".to_string());
+        assert_eq!(mp_encrypted, false);
         assert_eq!(cs_value, Some("1".to_string()));
-        assert_eq!(cs_encrypted, 0)
+        assert_eq!(cs_encrypted, false)
     }
 
     #[test]
     fn migration_from_1_to_2_is_properly_set() {
+        init_test_logging();
         let start_at = 1;
         let dir_path = ensure_node_home_directory_exists("db_migrations", "1_to_2");
         let db_path = dir_path.join(DATABASE_FILE);
-        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
         {
             subject
@@ -1165,27 +1527,20 @@ mod tests {
         let result = subject.initialize_to_version(
             &dir_path,
             start_at + 1,
-            true,
+            false,
             MigratorConfig::create_or_migrate(make_external_migration_parameters()),
         );
 
         let connection = result.unwrap();
-        let (chn_name, chn_value, chn_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'chain_name'",
-            );
-        let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'schema_version'",
-            );
-        assert_eq!(chn_name, "chain_name".to_string());
+        let (chn_value, chn_encrypted) = retrieve_config_row(connection.as_ref(), "chain_name");
+        let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
         assert_eq!(chn_value, Some("eth-ropsten".to_string()));
-        assert_eq!(chn_encrypted, 0);
-        assert_eq!(cs_name, "schema_version".to_string());
+        assert_eq!(chn_encrypted, false);
         assert_eq!(cs_value, Some("2".to_string()));
-        assert_eq!(cs_encrypted, 0);
+        assert_eq!(cs_encrypted, false);
+        TestLogHandler::new().exists_log_containing(
+            "DbMigrator: Database successfully migrated from version 1 to 2",
+        );
     }
 
     #[test]
@@ -1193,7 +1548,7 @@ mod tests {
         let start_at = 2;
         let dir_path = ensure_node_home_directory_exists("db_migrations", "2_to_3");
         let db_path = dir_path.join(DATABASE_FILE);
-        let _ = bring_db_of_version_0_back_to_life_and_return_connection(&db_path);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
         {
             subject
@@ -1209,37 +1564,371 @@ mod tests {
         let result = subject.initialize_to_version(
             &dir_path,
             start_at + 1,
-            true,
+            false,
             MigratorConfig::create_or_migrate(ExternalData::new(
                 DEFAULT_CHAIN,
                 NeighborhoodModeLight::ConsumeOnly,
+                None,
             )),
         );
 
         let connection = result.unwrap();
-        let (bchs_name, bchs_value, bchs_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'blockchain_service_url'",
-            );
-        assert_eq!(bchs_name, "blockchain_service_url".to_string());
+        let (bchs_value, bchs_encrypted) =
+            retrieve_config_row(connection.as_ref(), "blockchain_service_url");
         assert_eq!(bchs_value, None);
-        assert_eq!(bchs_encrypted, 0);
-        let (nm_name, nm_value, nm_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'neighborhood_mode'",
-            );
-        assert_eq!(nm_name, "neighborhood_mode".to_string());
+        assert_eq!(bchs_encrypted, false);
+        let (nm_value, nm_encrypted) =
+            retrieve_config_row(connection.as_ref(), "neighborhood_mode");
         assert_eq!(nm_value, Some("consume-only".to_string()));
-        assert_eq!(nm_encrypted, 0);
-        let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
-            assurance_query_for_config_table(
-                connection.as_ref(),
-                "select name, value, encrypted from config where name = 'schema_version'",
-            );
-        assert_eq!(cs_name, "schema_version".to_string());
+        assert_eq!(nm_encrypted, false);
+        let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
         assert_eq!(cs_value, Some("3".to_string()));
-        assert_eq!(cs_encrypted, 0);
+        assert_eq!(cs_encrypted, false);
+    }
+
+    #[test]
+    fn migration_from_3_to_4_with_wallets() {
+        let data_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_3_to_4_with_wallets",
+        );
+        let db_path = data_path.join(DATABASE_FILE);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
+        let password_opt = &Some("password".to_string());
+        let subject = DbInitializerReal::default();
+        let mut migrator_config =
+            MigratorConfig::create_or_migrate(make_external_migration_parameters());
+        migrator_config
+            .external_dataset
+            .as_mut()
+            .unwrap()
+            .db_password_opt = password_opt.clone();
+        let original_private_key = {
+            let schema3_conn = subject
+                .initialize_to_version(&data_path, 3, true, migrator_config.clone())
+                .unwrap();
+            let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
+            let seed = Seed::new(&mnemonic, "booga");
+            let consuming_path = derivation_path(0, 150);
+            let original_private_key =
+                ExtendedPrivKey::derive(seed.as_bytes(), consuming_path.as_str())
+                    .unwrap()
+                    .secret();
+            let seed_plain = PlainData::new(seed.as_bytes());
+            let seed_encoded = encode_bytes(Some(seed_plain)).unwrap().unwrap();
+            let seed_encrypted =
+                DbEncryptionLayer::encrypt_value(&Some(seed_encoded), password_opt, "seed")
+                    .unwrap()
+                    .unwrap();
+            let mut example_data = [0u8; 32];
+            rand::thread_rng().fill(&mut example_data);
+            let example_encrypted =
+                Bip39::encrypt_bytes(&example_data, password_opt.as_ref().unwrap())
+                    .expect("Encryption failed");
+            let updates = vec![
+                ("consuming_wallet_derivation_path", consuming_path, false),
+                ("consuming_wallet_public_key", "booga".to_string(), false),
+                ("example_encrypted", example_encrypted, true),
+                ("seed", seed_encrypted, true),
+            ];
+            updates.into_iter().for_each(|(name, value, flag)| {
+                let mut stmt = schema3_conn
+                    .prepare("update config set value = ?, encrypted = ? where name = ?")
+                    .expect(&format!(
+                        "Couldn't prepare statement to set {} to {}",
+                        name, value
+                    ));
+                let params: &[&dyn ToSql] =
+                    &[&value, &(if flag { 1 } else { 0 }), &name.to_string()];
+                let count = stmt.execute(params).unwrap();
+                if count != 1 {
+                    panic!(
+                        "Updating {} to '{}' should have affected 1 row, but affected {}",
+                        name, value, count
+                    );
+                }
+            });
+            original_private_key.to_vec()
+        };
+
+        let migrated_private_key = {
+            let mut schema4_conn = subject
+                .initialize_to_version(&data_path, 4, false, migrator_config)
+                .unwrap();
+            {
+                let mut stmt = schema4_conn.prepare("select count(*) from config where name in ('consuming_wallet_derivation_path', 'consuming_wallet_public_key', 'seed')").unwrap();
+                let cruft = stmt
+                    .query_row([], |row| Ok(row.get::<usize, u32>(0)))
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(cruft, 0);
+            }
+            let (private_key_encrypted, encrypted) =
+                retrieve_config_row(schema4_conn.as_mut(), "consuming_wallet_private_key");
+            assert_eq!(encrypted, true);
+            let private_key = Bip39::decrypt_bytes(
+                &private_key_encrypted.unwrap(),
+                password_opt.as_ref().unwrap(),
+            )
+            .unwrap();
+            private_key.as_slice().to_vec()
+        };
+
+        assert_eq!(migrated_private_key, original_private_key);
+    }
+
+    #[test]
+    fn migration_from_3_to_4_without_password() {
+        let data_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_3_to_4_without_password",
+        );
+        let db_path = data_path.join(DATABASE_FILE);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
+        let password_opt = &Some("password".to_string());
+        let subject = DbInitializerReal::default();
+        let mut migrator_config =
+            MigratorConfig::create_or_migrate(make_external_migration_parameters());
+        migrator_config
+            .external_dataset
+            .as_mut()
+            .unwrap()
+            .db_password_opt = password_opt.clone();
+
+        let mut schema4_conn = subject
+            .initialize_to_version(&data_path, 4, false, migrator_config)
+            .unwrap();
+
+        {
+            let mut stmt = schema4_conn.prepare("select count(*) from config where name in ('consuming_wallet_derivation_path', 'consuming_wallet_public_key', 'seed')").unwrap();
+            let cruft = stmt
+                .query_row([], |row| Ok(row.get::<usize, u32>(0)))
+                .unwrap()
+                .unwrap();
+            assert_eq!(cruft, 0);
+        }
+        let (private_key_encrypted, encrypted) =
+            retrieve_config_row(schema4_conn.as_mut(), "consuming_wallet_private_key");
+        assert_eq!(private_key_encrypted, None);
+        assert_eq!(encrypted, true);
+    }
+
+    #[test]
+    fn migration_from_4_to_5_without_pending_transactions() {
+        init_test_logging();
+        let start_at = 4;
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_4_to_5_without_pending_transactions",
+        );
+        let db_path = dir_path.join(DATABASE_FILE);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
+        let subject = DbInitializerReal::default();
+        let conn = subject
+            .initialize_to_version(
+                &dir_path,
+                start_at,
+                true,
+                MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+            )
+            .unwrap();
+        let wallet_1 = make_wallet("scotland_yard");
+        prepare_old_fashioned_account_with_pending_transaction_opt(
+            conn.as_ref(),
+            None,
+            &wallet_1,
+            113344,
+            from_time_t(250_000_000),
+        );
+        let config_table_before = fetch_all_from_config_table(conn.as_ref());
+
+        let _ = subject
+            .initialize_to_version(
+                &dir_path,
+                start_at + 1,
+                false,
+                MigratorConfig::create_or_migrate(ExternalData::new(
+                    TEST_DEFAULT_CHAIN,
+                    NeighborhoodModeLight::ConsumeOnly,
+                    Some("password".to_string()),
+                )),
+            )
+            .unwrap();
+
+        let config_table_after = fetch_all_from_config_table(conn.as_ref());
+        assert_eq!(config_table_before, config_table_after);
+        assert_on_schema_5_was_adopted(conn.as_ref());
+        TestLogHandler::new().exists_log_containing("DEBUG: DbMigrator: Migration from 4 to 5: no previous pending transactions found; continuing");
+    }
+
+    fn prepare_old_fashioned_account_with_pending_transaction_opt(
+        conn: &dyn ConnectionWrapper,
+        transaction_hash_opt: Option<H256>,
+        wallet: &Wallet,
+        amount: i64,
+        timestamp: SystemTime,
+    ) {
+        let hash_str = transaction_hash_opt
+            .map(|hash| format!("{:?}", hash))
+            .unwrap_or(String::new());
+        let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?,?,?,?)").unwrap();
+        let params: &[&dyn ToSql] = &[
+            &wallet,
+            &amount,
+            &to_time_t(timestamp),
+            if !hash_str.is_empty() {
+                &hash_str
+            } else {
+                &Null
+            },
+        ];
+        let row_count = stm.execute(params).unwrap();
+        assert_eq!(row_count, 1);
+    }
+
+    #[test]
+    fn migration_from_4_to_5_with_pending_transactions() {
+        init_test_logging();
+        let start_at = 4;
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_4_to_5_with_pending_transactions",
+        );
+        let db_path = dir_path.join(DATABASE_FILE);
+        let conn = bring_db_0_back_to_life_and_return_connection(&db_path);
+        let conn = ConnectionWrapperReal::new(conn);
+        let wallet_1 = make_wallet("james_bond");
+        let transaction_hash_1 = H256::from_uint(&U256::from(45454545));
+        let wallet_2 = make_wallet("robinson_crusoe");
+        let transaction_hash_2 = H256::from_uint(&U256::from(999888));
+        let subject = DbInitializerReal::default();
+        {
+            let _ = subject
+                .initialize_to_version(
+                    &dir_path,
+                    start_at,
+                    true,
+                    MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                )
+                .unwrap();
+        }
+        prepare_old_fashioned_account_with_pending_transaction_opt(
+            &conn,
+            Some(transaction_hash_1),
+            &wallet_1,
+            555555,
+            SystemTime::now(),
+        );
+        prepare_old_fashioned_account_with_pending_transaction_opt(
+            &conn,
+            Some(transaction_hash_2),
+            &wallet_2,
+            1111111,
+            from_time_t(200_000_000),
+        );
+        let config_table_before = fetch_all_from_config_table(&conn);
+
+        let conn_schema5 = subject
+            .initialize_to_version(
+                &dir_path,
+                start_at + 1,
+                false,
+                MigratorConfig::create_or_migrate(ExternalData::new(
+                    TEST_DEFAULT_CHAIN,
+                    NeighborhoodModeLight::ConsumeOnly,
+                    Some("password".to_string()),
+                )),
+            )
+            .unwrap();
+
+        let config_table_after = fetch_all_from_config_table(&conn);
+        assert_eq!(config_table_before, config_table_after);
+        assert_on_schema_5_was_adopted(conn_schema5.as_ref());
+        TestLogHandler::new().exists_log_containing("WARN: DbMigrator: Migration from 4 to 5: database belonging to the chain 'eth-ropsten'; \
+         we discovered possibly abandoned transactions that are said yet to be pending, these are: \
+          '0x0000000000000000000000000000000000000000000000000000000002b594d1', \
+          '0x00000000000000000000000000000000000000000000000000000000000f41d0'; continuing");
+    }
+
+    fn assert_on_schema_5_was_adopted(conn_schema5: &dyn ConnectionWrapper) {
+        let expected_key_words = [
+            ["rowid", "integer", "primary", "key"].as_slice(),
+            ["transaction_hash", "text", "not", "null"].as_slice(),
+            ["amount", "integer", "not", "null"].as_slice(),
+            ["payable_timestamp", "integer", "not", "null"].as_slice(),
+            ["attempt", "integer", "not", "null"].as_slice(),
+            ["process_error", "text", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn_schema5,
+            "pending_payable",
+            expected_key_words.as_slice(),
+        );
+        let expected_key_words = [["transaction_hash"].as_slice()];
+        assert_index_statement_is_coupled_with_right_parameter(
+            conn_schema5,
+            "pending_payable_hash_idx",
+            expected_key_words.as_slice(),
+        );
+        let expected_key_words = [
+            ["wallet_address", "text", "primary", "key"].as_slice(),
+            ["balance", "integer", "not", "null"].as_slice(),
+            ["last_paid_timestamp", "integer", "not", "null"].as_slice(),
+            ["pending_payable_rowid", "integer", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn_schema5,
+            "payable",
+            expected_key_words.as_slice(),
+        );
+        let expected_key_words = [
+            ["name", "text", "primary", "key"].as_slice(),
+            ["value", "text"].as_slice(),
+            ["encrypted", "integer", "not", "null"].as_slice(),
+        ];
+        assert_create_table_statement_contains_all_important_parts(
+            conn_schema5,
+            "config",
+            expected_key_words.as_slice(),
+        );
+        assert_no_index_exists_for_table(conn_schema5, "config");
+        assert_no_index_exists_for_table(conn_schema5, "payable");
+        assert_no_index_exists_for_table(conn_schema5, "receivable");
+        assert_no_index_exists_for_table(conn_schema5, "banned");
+        let error_stm = conn_schema5
+            .prepare("select * from _config_old")
+            .unwrap_err();
+        let error_msg = match error_stm {
+            rusqlite::Error::SqliteFailure(_, Some(msg)) => msg,
+            x => panic!("we expected SqliteFailure but we got: {:?}", x),
+        };
+        assert_eq!(error_msg, "no such table: _config_old".to_string())
+    }
+
+    fn fetch_all_from_config_table(
+        conn: &dyn ConnectionWrapper,
+    ) -> Vec<(String, (Option<String>, bool))> {
+        let mut stmt = conn
+            .prepare("select name, value, encrypted from config")
+            .unwrap();
+        let mut hash_map_of_values = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<usize, String>(0).unwrap(),
+                    (
+                        row.get::<usize, Option<String>>(1).unwrap(),
+                        row.get::<usize, i64>(2)
+                            .map(|encrypted: i64| encrypted > 0)
+                            .unwrap(),
+                    ),
+                ))
+            })
+            .unwrap()
+            .flatten()
+            .collect::<HashMap<String, (Option<String>, bool)>>();
+        hash_map_of_values.remove("schema_version").unwrap();
+        let mut vec_of_values = hash_map_of_values.into_iter().collect_vec();
+        vec_of_values.sort_by_key(|(name, _)| name.clone());
+        vec_of_values
     }
 }

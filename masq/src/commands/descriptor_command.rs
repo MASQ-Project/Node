@@ -14,9 +14,11 @@ use std::fmt::Debug;
 #[derive(Debug)]
 pub struct DescriptorCommand {}
 
+const DESCRIPTOR_SUBCOMMAND_ABOUT: &str =
+    "Displays the Node descriptor of the running MASQNode. Only valid if Node is already running.";
+
 pub fn descriptor_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("descriptor")
-        .about("Displays the Node descriptor of the running MASQNode. Only valid if Node is already running.")
+    SubCommand::with_name("descriptor").about(DESCRIPTOR_SUBCOMMAND_ABOUT)
 }
 
 impl Command for DescriptorCommand {
@@ -75,6 +77,14 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiDescriptorRequest, UiDescriptorResponse};
     use masq_lib::utils::find_free_port;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            DESCRIPTOR_SUBCOMMAND_ABOUT,
+            "Displays the Node descriptor of the running MASQNode. Only valid if Node is already running."
+        );
+    }
 
     #[test]
     fn testing_command_factory_here() {

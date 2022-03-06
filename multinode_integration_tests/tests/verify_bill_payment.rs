@@ -295,7 +295,11 @@ fn verify_bill_payment() {
 }
 
 fn make_migrator_config(chain: Chain) -> MigratorConfig {
-    MigratorConfig::create_or_migrate(ExternalData::new(chain, NeighborhoodModeLight::Standard))
+    MigratorConfig::create_or_migrate(ExternalData::new(
+        chain,
+        NeighborhoodModeLight::Standard,
+        None,
+    ))
 }
 
 fn assert_balances(
@@ -402,9 +406,7 @@ fn expire_payables(path: PathBuf) {
         .initialize(&path, true, MigratorConfig::panic_on_migration())
         .unwrap();
     let mut statement = conn
-        .prepare(
-            "update payable set last_paid_timestamp = 0 where pending_payment_transaction is null",
-        )
+        .prepare("update payable set last_paid_timestamp = 0 where pending_payable_rowid is null")
         .unwrap();
     statement.execute([]).unwrap();
 

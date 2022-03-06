@@ -369,6 +369,11 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(ISOLATED_NODE_GRACE_PERIOD_SECS, 30);
+    }
+
+    #[test]
     fn a_brand_new_database_has_the_expected_contents() {
         let this_node = make_node_record(1234, true);
 
