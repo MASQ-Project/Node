@@ -395,6 +395,11 @@ mod tests {
     use std::time::SystemTime;
     use web3::types::{TransactionReceipt, H160, H256, U256};
 
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "BLOCKCHAINBRIDGE");
+    }
+
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
     }

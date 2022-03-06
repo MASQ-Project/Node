@@ -93,6 +93,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRLF, b"\r\n");
+    }
+
+    #[test]
     pub fn returns_none_if_no_crlf() {
         let data_so_far = b"no crlf in this data";
 

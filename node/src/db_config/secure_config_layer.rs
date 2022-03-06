@@ -213,6 +213,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(EXAMPLE_ENCRYPTED, "example_encrypted");
+    }
+
+    #[test]
     fn secure_config_layer_error_from_config_dao_error() {
         assert_eq!(
             SecureConfigLayerError::from(ConfigDaoError::NotPresent),

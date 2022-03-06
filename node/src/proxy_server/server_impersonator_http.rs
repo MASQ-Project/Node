@@ -95,6 +95,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            ERROR_TEMPLATE,
+            "<html>\n\
+             <body>\n\
+             <h1>Error {status}</h1>\n\
+             <h2>Title: {title}</h2>\n\
+             <h3>Subtitle: {subtitle}</h3>\n\
+             <p>{content}</p>\n\
+             </body>\n\
+             </html>\n"
+        );
+
+        assert_eq!(
+            HTTP_RESPONSE_TEMPLATE,
+            "HTTP/1.1 {status} Routing Error\r\n\
+             Content-Type: text/html\r\n\
+             Content-Length: {length}\r\n\
+             \r\n\
+             {body}"
+        )
+    }
+    #[test]
     fn creates_appropriate_error_page() {
         let result = ServerImpersonatorHttp::make_error_page(
             503,

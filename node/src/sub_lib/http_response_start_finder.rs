@@ -84,6 +84,11 @@ mod tests {
     use crate::sub_lib::http_packet_framer::ChunkProgressState;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(LONGEST_PREFIX_LEN, 13);
+    }
+
+    #[test]
     fn returns_none_if_no_http() {
         let data = b"there is no HTTP followed by a / here";
 

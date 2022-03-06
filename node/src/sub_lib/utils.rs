@@ -258,8 +258,6 @@ pub mod tests {
         assert_eq!(NODE_MAILBOX_CAPACITY, 0)
     }
 
-    const BEGINNING_OF_CRASH_RQ_MESSAGE: &str = "Received a crash request";
-
     #[test]
     fn handle_ui_crash_message_does_not_crash_if_not_crashable() {
         init_test_logging();
@@ -279,8 +277,7 @@ pub mod tests {
         // no panic; test passes
 
         TestLogHandler::new().exists_no_log_containing(&format!(
-            "handle_ui_crash_message_does_not_crash_if_not_crashable: {}",
-            BEGINNING_OF_CRASH_RQ_MESSAGE
+            "handle_ui_crash_message_does_not_crash_if_not_crashable: Received a crash request",
         ));
     }
 
@@ -302,7 +299,7 @@ pub mod tests {
         handle_ui_crash_request(from_ui_message, &logger, false, "CRASHKEY");
         // no panic; test passes
 
-        TestLogHandler::new().exists_log_containing(&format!("handle_ui_crash_message_does_not_crash_if_not_crashable_but_logs_if_receives_a_crash_request_for_it_despite: {} intended for this actor 'CRASHKEY' but not set up to be crashable", BEGINNING_OF_CRASH_RQ_MESSAGE));
+        TestLogHandler::new().exists_log_containing(&format!("handle_ui_crash_message_does_not_crash_if_not_crashable_but_logs_if_receives_a_crash_request_for_it_despite: {} intended for this actor 'CRASHKEY' but not set up to be crashable", "Received a crash request"));
     }
 
     #[test]

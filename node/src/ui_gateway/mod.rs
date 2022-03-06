@@ -204,6 +204,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "UIGATEWAY");
+    }
+
+    #[test]
     fn inbound_ui_message_is_disseminated_properly() {
         // These actors should receive NodeFromUiMessages
         let (accountant, _, accountant_recording_arc) = make_recorder();
