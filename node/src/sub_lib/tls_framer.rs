@@ -103,6 +103,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(PRESERVE_HEADER_LEN, 4);
+    }
+
+    #[test]
     fn constant_values() {
         assert_eq!(PRESERVE_HEADER_LEN, 4);
     }

@@ -29,14 +29,23 @@ impl WalletAddressesCommand {
         })
     }
 }
+
+const WALLET_ADDRESS_SUBCOMMAND_ABOUT: &str =
+    "Provides addresses of consuming and earning wallets.\
+     Only valid if the wallets were successfully generated (generate-wallets) or \
+     recovered (recover-wallets)";
+const DB_PASSWORD_ARG_HELP: &str =
+    "The current database password (a password must be set to use this command)";
+
 pub fn wallet_addresses_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("wallet-addresses")
-        .about("Provides addresses of consuming and earning wallets. Only valid if the wallets were successfully generated (generate-wallets) or recovered (recover-wallets)")
-        .arg(Arg::with_name ("db-password")
-            .help ("The current database password (a password must be set to use this command)")
-            .value_name("DB-PASSWORD")
-            .required (true)
-            .case_insensitive(false)
+        .about(WALLET_ADDRESS_SUBCOMMAND_ABOUT)
+        .arg(
+            Arg::with_name("db-password")
+                .help(DB_PASSWORD_ARG_HELP)
+                .value_name("DB-PASSWORD")
+                .required(true)
+                .case_insensitive(false),
         )
 }
 
@@ -71,6 +80,20 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiWalletAddressesRequest, UiWalletAddressesResponse};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            WALLET_ADDRESS_SUBCOMMAND_ABOUT,
+            "Provides addresses of consuming and earning wallets.\
+             Only valid if the wallets were successfully generated \
+             (generate-wallets) or recovered (recover-wallets)"
+        );
+        assert_eq!(
+            DB_PASSWORD_ARG_HELP,
+            "The current database password (a password must be set to use this command)"
+        );
+    }
 
     #[test]
     fn wallet_addresses_with_password_right() {

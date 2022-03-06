@@ -20,6 +20,12 @@ pub struct ChangePasswordCommand {
     pub new_password: String,
 }
 
+const CHANGE_PASSWORD_ABOUT: &str = "Changes the existing password on the Node database";
+const OLD_DB_PASSWORD_HELP: &str = "The existing password";
+const NEW_DB_PASSWORD_HELP: &str = "The new password to set";
+const SET_PASSWORD_ABOUT: &str = "Sets an initial password on the Node database";
+const SET_PASSWORD_HELP: &str = "Password to be set; must not already exist";
+
 impl ChangePasswordCommand {
     pub fn new_set(pieces: &[String]) -> Result<Self, String> {
         match set_password_subcommand().get_matches_from_safe(pieces) {
@@ -80,10 +86,10 @@ impl Command for ChangePasswordCommand {
 
 pub fn change_password_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("change-password")
-        .about("Changes the existing password on the Node database")
+        .about(CHANGE_PASSWORD_ABOUT)
         .arg(
             Arg::with_name("old-db-password")
-                .help("The existing password")
+                .help(OLD_DB_PASSWORD_HELP)
                 .value_name("OLD-DB-PASSWORD")
                 .index(1)
                 .required(true)
@@ -91,7 +97,7 @@ pub fn change_password_subcommand() -> App<'static, 'static> {
         )
         .arg(
             Arg::with_name("new-db-password")
-                .help("The new password to set")
+                .help(NEW_DB_PASSWORD_HELP)
                 .value_name("NEW-DB-PASSWORD")
                 .index(2)
                 .required(true)
@@ -101,10 +107,10 @@ pub fn change_password_subcommand() -> App<'static, 'static> {
 
 pub fn set_password_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("set-password")
-        .about("Sets an initial password on the Node database")
+        .about(SET_PASSWORD_ABOUT)
         .arg(
             Arg::with_name("new-db-password")
-                .help("Password to be set; must not already exist")
+                .help(SET_PASSWORD_HELP)
                 .index(1)
                 .required(true)
                 .case_insensitive(false),
@@ -118,6 +124,24 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            CHANGE_PASSWORD_ABOUT,
+            "Changes the existing password on the Node database"
+        );
+        assert_eq!(OLD_DB_PASSWORD_HELP, "The existing password");
+        assert_eq!(NEW_DB_PASSWORD_HELP, "The new password to set");
+        assert_eq!(
+            SET_PASSWORD_ABOUT,
+            "Sets an initial password on the Node database"
+        );
+        assert_eq!(
+            SET_PASSWORD_HELP,
+            "Password to be set; must not already exist"
+        );
+    }
 
     #[test]
     fn set_password_command_works_when_changing_from_no_password() {

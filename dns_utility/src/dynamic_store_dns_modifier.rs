@@ -410,6 +410,13 @@ mod tests {
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
 
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(PRIMARY_SERVICE, "PrimaryService");
+        assert_eq!(SERVER_ADDRESSES, "ServerAddresses");
+        assert_eq!(SERVER_ADDRESSES_BAK, "ServerAddressesBak");
+    }
+
     struct StoreWrapperMock {
         get_dictionary_string_cfpl_parameters: Arc<Mutex<Vec<String>>>,
         get_dictionary_string_cfpl_results: RefCell<Vec<Option<HashMap<String, CFPropertyList>>>>,

@@ -43,6 +43,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn constants_have_correct_values() {
+        let tls_internal_error_alert_expected: [u8; 7] = [
+            0x15, // alert
+            0x03, 0x03, // TLS 1.2
+            0x00, 0x02, // packet length
+            0x02, // fatal alert
+            0x50, // internal_error alert
+        ];
+
+        let tls_unrecognized_name_alert_expected: [u8; 7] = [
+            0x15, // alert
+            0x03, 0x03, // TLS 1.2
+            0x00, 0x02, // packet length
+            0x02, // fatal alert
+            0x70, // unrecognized_name alert
+        ];
+
+        assert_eq!(TLS_INTERNAL_ERROR_ALERT, tls_internal_error_alert_expected);
+        assert_eq!(
+            TLS_UNRECOGNIZED_NAME_ALERT,
+            tls_unrecognized_name_alert_expected
+        );
+    }
+
+    #[test]
     fn route_query_failure_response_produces_internal_error_alert() {
         let subject = ServerImpersonatorTls {};
 

@@ -120,6 +120,11 @@ mod tests {
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(STANDARD_COMMAND_TIMEOUT_MILLIS, 1000);
+    }
+
+    #[test]
     fn two_way_transaction_passes_dropped_connection_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));

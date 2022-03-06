@@ -243,6 +243,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(NOT_FOUND, 2);
+    }
+
+    #[test]
     fn get_default_gateway_sees_dhcp_if_both_are_specified() {
         // Many people think this is incorrect behavior, but it seems to be the way Win7+ does things.
         let interface: Box<dyn RegKeyTrait> = Box::new(
