@@ -3,7 +3,7 @@
 use crate::blockchains::chains::Chain;
 use const_format::concatcp;
 
-pub const DEFAULT_CHAIN: Chain = Chain::EthMainnet;
+pub const DEFAULT_CHAIN: Chain = Chain::PolyMainnet;
 
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
 pub const HTTP_PORT: u16 = 80;

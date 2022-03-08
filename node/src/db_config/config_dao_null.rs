@@ -160,9 +160,7 @@ mod tests {
     use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoReal;
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::constants::{
-        ETH_MAINNET_CONTRACT_CREATION_BLOCK,
-    };
+    use masq_lib::constants::{DEFAULT_CHAIN, ETH_MAINNET_CONTRACT_CREATION_BLOCK};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
 
@@ -194,7 +192,7 @@ mod tests {
             subject.get("start_block").unwrap(),
             ConfigDaoRecord::new(
                 "start_block",
-                Some(&ETH_MAINNET_CONTRACT_CREATION_BLOCK.to_string()),
+                Some(&DEFAULT_CHAIN.rec().contract_creation_block.to_string()),
                 false
             )
         );

@@ -404,6 +404,7 @@ pub mod tests {
     use std::cell::RefCell;
     use std::ops::Not;
     use std::sync::{Arc, Mutex};
+    use masq_lib::constants::DEFAULT_CHAIN;
 
     impl<C: Send + 'static> ConfiguredByPrivilege for CrashTestDummy<C> {
         fn initialize_as_privileged(
@@ -828,7 +829,7 @@ pub mod tests {
         assert_eq!(
             *chown_params,
             vec![(
-                PathBuf::from("/home/alice/mock_directory/MASQ/eth-mainnet"),
+                PathBuf::from(format!("/home/alice/mock_directory/MASQ/{}",DEFAULT_CHAIN.rec().literal_identifier)),
                 real_user.clone()
             )]
         );

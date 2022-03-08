@@ -632,7 +632,7 @@ mod tests {
             result,
             ConfiguratorError::required(
                 "neighbors",
-                "Mismatched chains. You are requiring access to 'eth-mainnet' (masq://eth-mainnet:<public key>@<node address>) with descriptor belonging to 'eth-ropsten'"
+                &format!("Mismatched chains. You are requiring access to '{identifier}' (masq://{identifier}:<public key>@<node address>) with descriptor belonging to 'eth-ropsten'",identifier = DEFAULT_CHAIN.rec().literal_identifier)
             )
         )
     }
@@ -648,7 +648,7 @@ mod tests {
                     .param("--ip", "1.2.3.4")
                     .param(
                         "--neighbors",
-                        "masq://eth-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345,masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567",
+                        &format!("masq://{identifier}:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345,masq://{identifier}:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
                     )
                     .into(),
             ))]
@@ -670,12 +670,12 @@ mod tests {
                     vec![
                         NodeDescriptor::try_from((
                             &dummy_cryptde as &dyn CryptDE,
-                            "masq://eth-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345"
+                            format!("masq://{}:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345",DEFAULT_CHAIN.rec().literal_identifier).as_str()
                         ))
                             .unwrap(),
                         NodeDescriptor::try_from((
                             &dummy_cryptde as &dyn CryptDE,
-                            "masq://eth-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567"
+                            format!("masq://{}:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567",DEFAULT_CHAIN.rec().literal_identifier).as_str()
                         ))
                             .unwrap()
                     ],
@@ -695,7 +695,7 @@ mod tests {
                     .param("--neighborhood-mode", "standard")
                     .param(
                         "--neighbors",
-                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://eth-mainnet:VGVk@2.3.4.5:3456/4567",
+                        &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -729,7 +729,7 @@ mod tests {
                     .param("--neighborhood-mode", "originate-only")
                     .param(
                         "--neighbors",
-                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://eth-mainnet:VGVk@2.3.4.5:3456/4567",
+                        &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -751,12 +751,12 @@ mod tests {
                     vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345"
+                            format!("masq://{}:QmlsbA@1.2.3.4:1234/2345",DEFAULT_CHAIN.rec().literal_identifier).as_str()
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:VGVk@2.3.4.5:3456/4567"
+                            format!("masq://{}:VGVk@2.3.4.5:3456/4567",DEFAULT_CHAIN.rec().literal_identifier).as_str()
                         ))
                         .unwrap()
                     ],
@@ -799,7 +799,7 @@ mod tests {
                     .param("--neighborhood-mode", "consume-only")
                     .param(
                         "--neighbors",
-                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://eth-mainnet:VGVk@2.3.4.5:3456/4567",
+                        &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -820,12 +820,12 @@ mod tests {
                 mode: NeighborhoodMode::ConsumeOnly(vec![
                     NodeDescriptor::try_from((
                         main_cryptde(),
-                        "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345"
+                        format!("masq://{}:QmlsbA@1.2.3.4:1234/2345",DEFAULT_CHAIN.rec().literal_identifier).as_str()
                     ))
                     .unwrap(),
                     NodeDescriptor::try_from((
                         main_cryptde(),
-                        "masq://eth-mainnet:VGVk@2.3.4.5:3456/4567"
+                        format!("masq://{}:VGVk@2.3.4.5:3456/4567",DEFAULT_CHAIN.rec().literal_identifier).as_str()
                     ))
                     .unwrap()
                 ],)
@@ -1364,7 +1364,7 @@ mod tests {
             .param("--dns-servers", "12.34.56.78,23.45.67.89")
             .param(
                 "--neighbors",
-                "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://eth-mainnet:VGVk@2.3.4.5:3456/4567",
+                &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
             )
             .param("--ip", "34.56.78.90")
             .param("--clandestine-port", "1234")
@@ -1426,12 +1426,12 @@ mod tests {
                     vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:QmlsbA@1.2.3.4:1234/2345"
+                            format!("masq://{}:QmlsbA@1.2.3.4:1234/2345",DEFAULT_CHAIN.rec().literal_identifier).as_str()
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-mainnet:VGVk@2.3.4.5:3456/4567"
+                            format!("masq://{}:VGVk@2.3.4.5:3456/4567",DEFAULT_CHAIN.rec().literal_identifier).as_str()
                         ))
                         .unwrap(),
                     ],

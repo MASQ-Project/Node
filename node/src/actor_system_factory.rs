@@ -1587,7 +1587,7 @@ mod tests {
     fn validate_database_chain_happy_path() {
         let chain = DEFAULT_CHAIN;
         let persistent_config =
-            PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
+            PersistentConfigurationMock::default().chain_name_result(DEFAULT_CHAIN.rec().literal_identifier.to_string());
 
         let _ =
             ActorSystemFactoryToolsReal::new().validate_database_chain(&persistent_config, chain);
