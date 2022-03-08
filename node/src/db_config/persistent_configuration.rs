@@ -9,6 +9,7 @@ use crate::db_config::typed_config_layer::{
     decode_bytes, decode_combined_params, decode_u64, encode_bytes, encode_u64,
     TypedConfigLayerError,
 };
+use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
@@ -21,7 +22,6 @@ use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
-use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -443,7 +443,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError> {
-        self.combined_params_get_method(|str: &str| PaymentThresholds::try_from(str), "payment_thresholds")
+        self.combined_params_get_method(
+            |str: &str| PaymentThresholds::try_from(str),
+            "payment_thresholds",
+        )
     }
 
     fn set_payment_thresholds(&mut self, curves: String) -> Result<(), PersistentConfigError> {
@@ -1922,7 +1925,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied value missing: payment_thresholds; database is corrupt!")]
+    #[should_panic(
+        expected = "ever-supplied value missing: payment_thresholds; database is corrupt!"
+    )]
     fn payment_thresholds_panics_at_none_value() {
         getter_method_plain_data_does_not_tolerate_none_value!("payment_thresholds");
     }

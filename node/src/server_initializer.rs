@@ -393,6 +393,7 @@ pub mod tests {
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
     use crate::test_utils::unshared_test_utils::make_pre_populated_mocked_directory_wrapper;
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::multi_config::{make_arg_matches_accesible, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
@@ -404,7 +405,6 @@ pub mod tests {
     use std::cell::RefCell;
     use std::ops::Not;
     use std::sync::{Arc, Mutex};
-    use masq_lib::constants::DEFAULT_CHAIN;
 
     impl<C: Send + 'static> ConfiguredByPrivilege for CrashTestDummy<C> {
         fn initialize_as_privileged(
@@ -829,7 +829,10 @@ pub mod tests {
         assert_eq!(
             *chown_params,
             vec![(
-                PathBuf::from(format!("/home/alice/mock_directory/MASQ/{}",DEFAULT_CHAIN.rec().literal_identifier)),
+                PathBuf::from(format!(
+                    "/home/alice/mock_directory/MASQ/{}",
+                    DEFAULT_CHAIN.rec().literal_identifier
+                )),
                 real_user.clone()
             )]
         );

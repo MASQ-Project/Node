@@ -1,5 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::{I64, U64};
+use lazy_static::lazy_static;
 use masq_lib::constants::COMBINED_PARAMETERS_DELIMITER;
 use masq_lib::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
@@ -8,8 +10,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 use std::time::Duration;
-use lazy_static::lazy_static;
-use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::{U64,I64};
 
 lazy_static! {
     pub static ref DEFAULT_PAYMENT_THRESHOLDS: PaymentThresholds = PaymentThresholds {
@@ -305,10 +305,10 @@ impl TryFrom<&str> for ScanIntervals {
     type Error = String;
 
     fn try_from(parameters: &str) -> Result<Self, String> {
-        match CombinedParams::ScanIntervals(None).parse(parameters){
+        match CombinedParams::ScanIntervals(None).parse(parameters) {
             Ok(CombinedParams::ScanIntervals(Some(scan_intervals))) => Ok(scan_intervals),
             Err(e) => Err(e),
-            _ => unreachable()
+            _ => unreachable(),
         }
     }
 }
@@ -332,10 +332,12 @@ impl TryFrom<&str> for PaymentThresholds {
     type Error = String;
 
     fn try_from(parameters: &str) -> Result<Self, String> {
-        match CombinedParams::PaymentThresholds(None).parse(parameters){
-            Ok(CombinedParams::PaymentThresholds(Some(payment_thresholds))) => Ok(payment_thresholds),
+        match CombinedParams::PaymentThresholds(None).parse(parameters) {
+            Ok(CombinedParams::PaymentThresholds(Some(payment_thresholds))) => {
+                Ok(payment_thresholds)
+            }
             Err(e) => Err(e),
-            _ => unreachable()
+            _ => unreachable(),
         }
     }
 }
@@ -357,21 +359,23 @@ impl TryFrom<&str> for RatePack {
     type Error = String;
 
     fn try_from(parameters: &str) -> Result<Self, String> {
-        match CombinedParams::RatePack(None).parse(parameters){
+        match CombinedParams::RatePack(None).parse(parameters) {
             Ok(CombinedParams::RatePack(Some(rate_pack))) => Ok(rate_pack),
             Err(e) => Err(e),
-            _ => unreachable()
+            _ => unreachable(),
         }
     }
 }
 
-fn unreachable() ->!{ unreachable!("technically shouldn't be possible")}
+fn unreachable() -> ! {
+    unreachable!("technically shouldn't be possible")
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::panic::catch_unwind;
     use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::U128;
+    use std::panic::catch_unwind;
 
     #[test]
     fn parse_combined_params_with_delimiters_happy_path() {

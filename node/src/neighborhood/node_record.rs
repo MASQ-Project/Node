@@ -3,6 +3,7 @@
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord};
+use crate::sub_lib::combined_parameters::RatePack;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::node_addr::NodeAddr;
@@ -13,7 +14,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::TryFrom;
-use crate::sub_lib::combined_parameters::RatePack;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -346,6 +346,7 @@ impl NodeRecordMetadata {
 mod tests {
     use super::*;
     use crate::neighborhood::gossip::GossipBuilder;
+    use crate::sub_lib::combined_parameters::ZERO_RATE_PACK;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
@@ -353,7 +354,6 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
-    use crate::sub_lib::combined_parameters::ZERO_RATE_PACK;
 
     #[test]
     fn can_create_a_node_record_from_a_reference() {

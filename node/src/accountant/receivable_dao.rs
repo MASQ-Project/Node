@@ -6,6 +6,7 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
 use crate::db_config::config_dao::{ConfigDaoWrite, ConfigDaoWriteableReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
+use crate::sub_lib::combined_parameters::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use masq_lib::logger::Logger;
@@ -13,7 +14,6 @@ use rusqlite::named_params;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row};
 use std::time::SystemTime;
-use crate::sub_lib::combined_parameters::PaymentThresholds;
 
 #[derive(Debug, PartialEq)]
 pub enum ReceivableDaoError {
@@ -925,11 +925,11 @@ mod tests {
     #[test]
     fn paid_delinquencies() {
         let pcs = PaymentThresholds {
-            maturity_threshold_sec: 0,   // doesn't matter for this test
-            payment_grace_period_sec: 0,  // doesn't matter for this test
-            permanent_debt_allowed_gwei: 0,   // doesn't matter for this test
-            debt_threshold_gwei: 0, // doesn't matter for this test
-            threshold_interval_sec: 0,     // doesn't matter for this test
+            maturity_threshold_sec: 0,      // doesn't matter for this test
+            payment_grace_period_sec: 0,    // doesn't matter for this test
+            permanent_debt_allowed_gwei: 0, // doesn't matter for this test
+            debt_threshold_gwei: 0,         // doesn't matter for this test
+            threshold_interval_sec: 0,      // doesn't matter for this test
             unban_below_gwei: 50,
         };
         let mut paid_delinquent = make_receivable_account(1234, true);
@@ -955,12 +955,12 @@ mod tests {
 
     #[test]
     fn paid_delinquencies_does_not_find_existing_nondelinquencies() {
-        let pcs = PaymentThresholds{
-            maturity_threshold_sec: 0,   // doesn't matter for this test
-            payment_grace_period_sec: 0,  // doesn't matter for this test
-            permanent_debt_allowed_gwei: 0,   // doesn't matter for this test
-            debt_threshold_gwei: 0, // doesn't matter for this test
-            threshold_interval_sec: 0,     // doesn't matter for this test
+        let pcs = PaymentThresholds {
+            maturity_threshold_sec: 0,      // doesn't matter for this test
+            payment_grace_period_sec: 0,    // doesn't matter for this test
+            permanent_debt_allowed_gwei: 0, // doesn't matter for this test
+            debt_threshold_gwei: 0,         // doesn't matter for this test
+            threshold_interval_sec: 0,      // doesn't matter for this test
             unban_below_gwei: 50,
         };
         let mut newly_non_delinquent = make_receivable_account(1234, false);

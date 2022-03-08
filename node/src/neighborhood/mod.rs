@@ -1307,8 +1307,8 @@ mod tests {
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::sub_lib::combined_parameters::DEFAULT_RATE_PACK;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     #[test]
     #[should_panic(

@@ -555,6 +555,7 @@ mod tests {
         start_recorder_refcell_opt,
     };
     use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
+    use crate::sub_lib::combined_parameters::DEFAULT_RATE_PACK;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
@@ -585,7 +586,7 @@ mod tests {
     use automap_lib::control_layer::automap_control::AutomapChange;
     use crossbeam_channel::bounded;
     use log::LevelFilter;
-    use masq_lib::constants::{DEFAULT_CHAIN};
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -602,7 +603,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use crate::sub_lib::combined_parameters::DEFAULT_RATE_PACK;
 
     #[derive(Default)]
     struct ActorSystemFactoryToolsMock {
@@ -1586,8 +1586,8 @@ mod tests {
     #[test]
     fn validate_database_chain_happy_path() {
         let chain = DEFAULT_CHAIN;
-        let persistent_config =
-            PersistentConfigurationMock::default().chain_name_result(DEFAULT_CHAIN.rec().literal_identifier.to_string());
+        let persistent_config = PersistentConfigurationMock::default()
+            .chain_name_result(DEFAULT_CHAIN.rec().literal_identifier.to_string());
 
         let _ =
             ActorSystemFactoryToolsReal::new().validate_database_chain(&persistent_config, chain);

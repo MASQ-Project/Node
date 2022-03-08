@@ -75,7 +75,8 @@ fn verify_bill_payment() {
         permanent_debt_allowed_gwei: 10_000_000,
         unban_when_balance_below_gwei: 10_000_000,
     };
-    let (consuming_config, _) = build_config(&blockchain_server, &seed, payment_thresholds, deriv_path);
+    let (consuming_config, _) =
+        build_config(&blockchain_server, &seed, payment_thresholds, deriv_path);
 
     let (serving_node_1_config, serving_node_1_wallet) = build_config(
         &blockchain_server,

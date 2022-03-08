@@ -15,6 +15,7 @@ use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::bidi_hashmap::BidiHashMap;
+use crate::sub_lib::combined_parameters::{RatePack, DEFAULT_RATE_PACK};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
@@ -51,7 +52,6 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::Duration;
 use tokio::prelude::Future;
-use crate::sub_lib::combined_parameters::{DEFAULT_RATE_PACK, RatePack};
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);

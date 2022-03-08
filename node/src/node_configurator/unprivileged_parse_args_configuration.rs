@@ -5,6 +5,7 @@ use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{AccountantConfig, DEFAULT_EARNING_WALLET};
+use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -24,7 +25,6 @@ use masq_lib::utils::{AutomapProtocol, ExpectValue, WrapResult};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
-use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
 
 pub trait UnprivilegedParseArgsConfiguration {
     // Only initialization that cannot be done with privilege should happen here.
@@ -597,6 +597,9 @@ mod tests {
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+    use crate::sub_lib::combined_parameters::{
+        PaymentThresholds, ScanIntervals, DEFAULT_RATE_PACK,
+    };
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::Wallet;
@@ -606,7 +609,7 @@ mod tests {
         make_persistent_config_real_with_config_dao_null, make_simplified_multi_config,
     };
     use crate::test_utils::{main_cryptde, ArgsBuilder};
-    use masq_lib::constants::{DEFAULT_GAS_PRICE};
+    use masq_lib::constants::DEFAULT_GAS_PRICE;
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -615,7 +618,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use crate::sub_lib::combined_parameters::{DEFAULT_RATE_PACK, PaymentThresholds, ScanIntervals};
 
     #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {
@@ -751,12 +753,20 @@ mod tests {
                     vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            format!("masq://{}:QmlsbA@1.2.3.4:1234/2345",DEFAULT_CHAIN.rec().literal_identifier).as_str()
+                            format!(
+                                "masq://{}:QmlsbA@1.2.3.4:1234/2345",
+                                DEFAULT_CHAIN.rec().literal_identifier
+                            )
+                            .as_str()
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            format!("masq://{}:VGVk@2.3.4.5:3456/4567",DEFAULT_CHAIN.rec().literal_identifier).as_str()
+                            format!(
+                                "masq://{}:VGVk@2.3.4.5:3456/4567",
+                                DEFAULT_CHAIN.rec().literal_identifier
+                            )
+                            .as_str()
                         ))
                         .unwrap()
                     ],
@@ -820,12 +830,20 @@ mod tests {
                 mode: NeighborhoodMode::ConsumeOnly(vec![
                     NodeDescriptor::try_from((
                         main_cryptde(),
-                        format!("masq://{}:QmlsbA@1.2.3.4:1234/2345",DEFAULT_CHAIN.rec().literal_identifier).as_str()
+                        format!(
+                            "masq://{}:QmlsbA@1.2.3.4:1234/2345",
+                            DEFAULT_CHAIN.rec().literal_identifier
+                        )
+                        .as_str()
                     ))
                     .unwrap(),
                     NodeDescriptor::try_from((
                         main_cryptde(),
-                        format!("masq://{}:VGVk@2.3.4.5:3456/4567",DEFAULT_CHAIN.rec().literal_identifier).as_str()
+                        format!(
+                            "masq://{}:VGVk@2.3.4.5:3456/4567",
+                            DEFAULT_CHAIN.rec().literal_identifier
+                        )
+                        .as_str()
                     ))
                     .unwrap()
                 ],)
@@ -1426,12 +1444,20 @@ mod tests {
                     vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            format!("masq://{}:QmlsbA@1.2.3.4:1234/2345",DEFAULT_CHAIN.rec().literal_identifier).as_str()
+                            format!(
+                                "masq://{}:QmlsbA@1.2.3.4:1234/2345",
+                                DEFAULT_CHAIN.rec().literal_identifier
+                            )
+                            .as_str()
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            format!("masq://{}:VGVk@2.3.4.5:3456/4567",DEFAULT_CHAIN.rec().literal_identifier).as_str()
+                            format!(
+                                "masq://{}:VGVk@2.3.4.5:3456/4567",
+                                DEFAULT_CHAIN.rec().literal_identifier
+                            )
+                            .as_str()
                         ))
                         .unwrap(),
                     ],

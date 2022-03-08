@@ -31,6 +31,7 @@ use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
+use crate::sub_lib::combined_parameters::PaymentThresholds;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
@@ -56,7 +57,6 @@ use std::ops::Add;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use web3::types::{TransactionReceipt, H256};
-use crate::sub_lib::combined_parameters::PaymentThresholds;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 
@@ -1166,6 +1166,9 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
+    use crate::sub_lib::combined_parameters::{
+        PaymentThresholds, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
+    };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1192,7 +1195,6 @@ mod tests {
     use std::time::SystemTime;
     use web3::types::U256;
     use web3::types::{TransactionReceipt, H256};
-    use crate::sub_lib::combined_parameters::{DEFAULT_PAYMENT_THRESHOLDS, PaymentThresholds, ScanIntervals};
 
     #[derive(Default)]
     struct PayableThresholdToolsMock {
@@ -1206,7 +1208,10 @@ mod tests {
 
     impl PayableExceedThresholdTools for PayableThresholdToolsMock {
         fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
-            self.is_innocent_age_params.lock().unwrap().push((age, limit));
+            self.is_innocent_age_params
+                .lock()
+                .unwrap()
+                .push((age, limit));
             self.is_innocent_age_results.borrow_mut().remove(0)
         }
 
@@ -3403,7 +3408,9 @@ mod tests {
                     <= custom_payment_thresholds.maturity_threshold_sec as u64,
             )
             .is_innocent_balance_params(&safe_balance_params_arc)
-            .is_innocent_balance_result(balance <= custom_payment_thresholds.permanent_debt_allowed_gwei)
+            .is_innocent_balance_result(
+                balance <= custom_payment_thresholds.permanent_debt_allowed_gwei,
+            )
             .calculate_payout_threshold_params(&calculate_payable_threshold_params_arc)
             .calculate_payout_threshold_result(4567.0); //made up value
         let mut subject = AccountantBuilder::default()

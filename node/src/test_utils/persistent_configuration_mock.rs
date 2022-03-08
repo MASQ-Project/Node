@@ -3,13 +3,13 @@
 #![cfg(test)]
 
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -236,7 +236,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn set_payment_thresholds(&mut self, curves: String) -> Result<(), PersistentConfigError> {
-        self.set_payment_thresholds_params.lock().unwrap().push(curves);
+        self.set_payment_thresholds_params
+            .lock()
+            .unwrap()
+            .push(curves);
         self.set_payment_thresholds_results.borrow_mut().remove(0)
     }
 
@@ -544,7 +547,9 @@ impl PersistentConfigurationMock {
     }
 
     pub fn set_payment_thresholds_result(self, result: Result<(), PersistentConfigError>) -> Self {
-        self.set_payment_thresholds_results.borrow_mut().push(result);
+        self.set_payment_thresholds_results
+            .borrow_mut()
+            .push(result);
         self
     }
 

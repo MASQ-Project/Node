@@ -2,6 +2,7 @@
 
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
+use crate::sub_lib::combined_parameters::{RatePack, ZERO_RATE_PACK};
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -21,9 +22,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::blockchain_records::CHAINS;
 use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
-use masq_lib::constants::{
-    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX,
-};
+use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};
@@ -31,7 +30,6 @@ use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
-use crate::sub_lib::combined_parameters::{RatePack, ZERO_RATE_PACK};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NeighborhoodMode {
@@ -477,6 +475,7 @@ impl fmt::Display for GossipFailure_0v1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::combined_parameters::ZERO_RATE_PACK;
     use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
@@ -485,7 +484,6 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{localhost, NeighborhoodModeLight};
     use std::str::FromStr;
-    use crate::sub_lib::combined_parameters::ZERO_RATE_PACK;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
         RatePack {

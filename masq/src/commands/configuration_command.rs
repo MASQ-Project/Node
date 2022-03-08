@@ -125,36 +125,16 @@ impl ConfigurationCommand {
         let payment_thresholds = Self::preprocess_combined_parameters({
             let p_c = &configuration.payment_thresholds;
             &[
-                (
-                    "Debt threshold:",
-                    &p_c.debt_threshold_gwei,
-                    "Gwei",
-                ),
-                (
-                    "Maturity threshold:",
-                    &p_c.maturity_threshold_sec,
-                    "s",
-                ),
-                (
-                    "Payment grace period:",
-                    &p_c.payment_grace_period_sec,
-                    "s",
-                ),
+                ("Debt threshold:", &p_c.debt_threshold_gwei, "Gwei"),
+                ("Maturity threshold:", &p_c.maturity_threshold_sec, "s"),
+                ("Payment grace period:", &p_c.payment_grace_period_sec, "s"),
                 (
                     "Permanent debt allowed:",
                     &p_c.permanent_debt_allowed_gwei,
                     "Gwei",
                 ),
-                (
-                    "Threshold interval:",
-                    &p_c.threshold_interval_sec,
-                    "s",
-                ),
-                (
-                    "Unban below:",
-                    &p_c.unban_below_gwei,
-                    "Gwei",
-                ),
+                ("Threshold interval:", &p_c.threshold_interval_sec, "s"),
+                ("Unban below:", &p_c.unban_below_gwei, "Gwei"),
             ]
         });
         Self::dump_value_list(stream, "Payment thresholds:", &payment_thresholds);
@@ -318,7 +298,7 @@ mod tests {
                 payment_grace_period_sec: 4578,
                 permanent_debt_allowed_gwei: 11222,
                 maturity_threshold_sec: 3333,
-                unban_below_gwei: 12000
+                unban_below_gwei: 12000,
             },
             rate_pack: UiRatePack {
                 routing_byte_rate: 8,
@@ -416,7 +396,7 @@ mod tests {
                 payment_grace_period_sec: 666,
                 permanent_debt_allowed_gwei: 1200,
                 maturity_threshold_sec: 500,
-                unban_below_gwei: 1400
+                unban_below_gwei: 1400,
             },
             rate_pack: UiRatePack {
                 routing_byte_rate: 15,

@@ -19,6 +19,9 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
 use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
+use crate::sub_lib::combined_parameters::{
+    DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
+};
 use crate::sub_lib::neighborhood::NeighborhoodMode as NeighborhoodModeEnum;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
@@ -26,9 +29,7 @@ use crate::test_utils::main_cryptde;
 use clap::value_t;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain as BlockChain;
-use masq_lib::constants::{
-    DEFAULT_CHAIN
-};
+use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
 use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupResponseValueStatus};
@@ -43,7 +44,6 @@ use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use crate::sub_lib::combined_parameters::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
@@ -1023,6 +1023,7 @@ mod tests {
     };
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
+    use crate::sub_lib::combined_parameters;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
@@ -1034,9 +1035,7 @@ mod tests {
     };
     use crate::test_utils::{assert_string_contains, rate_pack};
     use masq_lib::blockchains::chains::Chain as Blockchain;
-    use masq_lib::constants::{
-        DEFAULT_CHAIN, DEFAULT_GAS_PRICE
-    };
+    use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -1053,7 +1052,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use crate::sub_lib::combined_parameters;
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -1167,7 +1165,7 @@ mod tests {
             .set_past_neighbors(Some(vec![neighbor1, neighbor2]), "password")
             .unwrap();
         let incoming_setup = vec![
-            ("blockchain-service-url","https://well-known-provider.com"),
+            ("blockchain-service-url", "https://well-known-provider.com"),
             ("data-directory", home_dir.to_str().unwrap()),
             ("db-password", "password"),
             ("ip", "4.3.2.1"),
@@ -1191,7 +1189,11 @@ mod tests {
             None => ("".to_string(), Required),
         };
         let expected_result = vec![
-            ("blockchain-service-url", "https://well-known-provider.com", Set),
+            (
+                "blockchain-service-url",
+                "https://well-known-provider.com",
+                Set,
+            ),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
@@ -1676,7 +1678,8 @@ mod tests {
         .into_iter()
         .map(|name| UiSetupRequestValue::clear(name))
         .collect_vec();
-        let existing_setup = setup_cluster_from(vec![
+        let existing_setup =
+            setup_cluster_from(vec![
             ("blockchain-service-url", "https://booga.com", Set),
             ("clandestine-port", "4321", Set),
             (
@@ -3227,7 +3230,10 @@ mod tests {
         assert_eq!(MappingProtocol {}.is_required(&params), false);
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
-        assert_eq!(setup_reporter::PaymentThresholds {}.is_required(&params), true);
+        assert_eq!(
+            setup_reporter::PaymentThresholds {}.is_required(&params),
+            true
+        );
         assert_eq!(ScanIntervals {}.is_required(&params), true);
         assert_eq!(
             crate::daemon::setup_reporter::RealUser::default().is_required(&params),

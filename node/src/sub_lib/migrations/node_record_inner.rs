@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
+use crate::sub_lib::combined_parameters::RatePack;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::migrations::utils::value_to_type;
 use crate::sub_lib::versioned_data::{
@@ -11,7 +12,6 @@ use lazy_static::lazy_static;
 use serde_cbor::Value;
 use std::collections::BTreeSet;
 use std::convert::TryFrom;
-use crate::sub_lib::combined_parameters::RatePack;
 
 lazy_static! {
     pub static ref MIGRATIONS: Migrations = {
@@ -159,10 +159,10 @@ impl NodeRecordInner_0v1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::combined_parameters::DEFAULT_RATE_PACK;
     use crate::sub_lib::versioned_data::DataVersion;
     use serde_derive::{Deserialize, Serialize};
     use std::iter::FromIterator;
-    use crate::sub_lib::combined_parameters::DEFAULT_RATE_PACK;
 
     #[test]
     fn can_migrate_from_the_future() {

@@ -160,6 +160,9 @@ mod tests {
         PersistentConfiguration, PersistentConfigurationReal,
     };
     use crate::db_config::typed_config_layer::encode_bytes;
+    use crate::sub_lib::combined_parameters::{
+        DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
+    };
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
@@ -172,7 +175,6 @@ mod tests {
     use std::fs::File;
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use crate::sub_lib::combined_parameters::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {
@@ -334,7 +336,11 @@ mod tests {
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
             &map,
         );
-        assert_value("paymentThresholds", &DEFAULT_PAYMENT_THRESHOLDS.to_string(), &map);
+        assert_value(
+            "paymentThresholds",
+            &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
+            &map,
+        );
         assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
         assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
         assert!(output.ends_with("\n}\n")) //asserting that there is a blank line at the end
@@ -440,7 +446,11 @@ mod tests {
         let expected_ee_decrypted = Bip39::decrypt_bytes(&expected_ee_entry, "password").unwrap();
         let expected_ee_string = encode_bytes(Some(expected_ee_decrypted)).unwrap().unwrap();
         assert_value("exampleEncrypted", &expected_ee_string, &map);
-        assert_value("paymentThresholds", &DEFAULT_PAYMENT_THRESHOLDS.to_string(), &map);
+        assert_value(
+            "paymentThresholds",
+            &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
+            &map,
+        );
         assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
         assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
     }
@@ -555,7 +565,11 @@ mod tests {
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
             &map,
         );
-        assert_value("paymentThresholds", &DEFAULT_PAYMENT_THRESHOLDS.to_string(), &map);
+        assert_value(
+            "paymentThresholds",
+            &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
+            &map,
+        );
         assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
         assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
     }

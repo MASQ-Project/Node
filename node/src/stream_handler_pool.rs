@@ -11,6 +11,7 @@ use crate::stream_writer_unsorted::StreamWriterUnsorted;
 use crate::sub_lib::channel_wrappers::FuturesChannelFactory;
 use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 use crate::sub_lib::channel_wrappers::SenderWrapper;
+use crate::sub_lib::combined_parameters::ZERO_RATE_PACK;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher;
 use crate::sub_lib::dispatcher::Endpoint;
@@ -42,7 +43,6 @@ use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 use tokio::prelude::Future;
-use crate::sub_lib::combined_parameters::ZERO_RATE_PACK;
 
 // IMPORTANT: Nothing at or below the level of StreamHandlerPool should know about StreamKeys.
 // StreamKeys should exist solely between ProxyServer and ProxyClient. Many of the streams

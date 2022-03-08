@@ -4,14 +4,14 @@ use crate::database::db_initializer::{DbInitializerReal, CURRENT_SCHEMA_VERSION}
 use crate::db_config::config_dao::{
     ConfigDao, ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord, ConfigDaoWrite,
 };
+use crate::sub_lib::combined_parameters::{
+    DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
+};
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{
-    DEFAULT_GAS_PRICE,
-};
+use masq_lib::constants::DEFAULT_GAS_PRICE;
 use rusqlite::Transaction;
 use std::collections::HashMap;
-use crate::sub_lib::combined_parameters::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
 
 /*
 

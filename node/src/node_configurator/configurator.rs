@@ -827,6 +827,7 @@ mod tests {
     use crate::blockchain::bip39::Bip39;
     use crate::blockchain::test_utils::make_meaningless_phrase_words;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
     use crate::sub_lib::cryptde::PublicKey as PK;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::neighborhood::NodeDescriptor;
@@ -842,7 +843,6 @@ mod tests {
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
-    use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
 
     #[test]
     fn constructor_connects_with_database() {
