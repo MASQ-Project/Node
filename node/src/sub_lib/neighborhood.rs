@@ -21,9 +21,8 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::blockchain_records::CHAINS;
 use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
-use masq_lib::combined_parameters::RatePack;
 use masq_lib::constants::{
-    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX, ZERO_RATE_PACK,
+    CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX,
 };
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::NeighborhoodModeLight;
@@ -32,6 +31,7 @@ use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
+use crate::sub_lib::combined_parameters::{RatePack, ZERO_RATE_PACK};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NeighborhoodMode {
@@ -485,6 +485,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{localhost, NeighborhoodModeLight};
     use std::str::FromStr;
+    use crate::sub_lib::combined_parameters::ZERO_RATE_PACK;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
         RatePack {

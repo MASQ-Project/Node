@@ -6,11 +6,11 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use lazy_static::lazy_static;
-use masq_lib::combined_parameters::{PaymentCurves, ScanIntervals};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
+use crate::sub_lib::combined_parameters::{PaymentThresholds, ScanIntervals};
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
@@ -22,7 +22,7 @@ lazy_static! {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct AccountantConfig {
     pub scan_intervals: ScanIntervals,
-    pub payment_curves: PaymentCurves,
+    pub payment_thresholds: PaymentThresholds,
     pub when_pending_too_long_sec: u64,
 }
 

@@ -585,7 +585,7 @@ mod tests {
     use automap_lib::control_layer::automap_control::AutomapChange;
     use crossbeam_channel::bounded;
     use log::LevelFilter;
-    use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_RATE_PACK};
+    use masq_lib::constants::{DEFAULT_CHAIN};
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -602,6 +602,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use crate::sub_lib::combined_parameters::DEFAULT_RATE_PACK;
 
     #[derive(Default)]
     struct ActorSystemFactoryToolsMock {

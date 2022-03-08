@@ -8,9 +8,9 @@ use crate::masq_node_client::MASQNodeClient;
 use crate::masq_node_server::MASQNodeServer;
 use bip39::{Language, Mnemonic, Seed};
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::combined_parameters::{PaymentCurves, RatePack};
+use masq_lib::combined_parameters::{PaymentThresholds, PaymentThresholds, RatePack};
 use masq_lib::constants::{
-    CURRENT_LOGFILE_NAME, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, ZERO_RATE_PACK,
+    CURRENT_LOGFILE_NAME, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, ZERO_RATE_PACK,
 };
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
@@ -119,7 +119,7 @@ pub struct NodeStartupConfig {
     pub earning_wallet_info: EarningWalletInfo,
     pub consuming_wallet_info: ConsumingWalletInfo,
     pub rate_pack: RatePack,
-    pub payment_curves: PaymentCurves,
+    pub payment_thresholds: PaymentThresholds,
     pub firewall_opt: Option<Firewall>,
     pub memory_opt: Option<String>,
     pub fake_public_key_opt: Option<PublicKey>,
@@ -147,7 +147,7 @@ impl NodeStartupConfig {
             earning_wallet_info: EarningWalletInfo::None,
             consuming_wallet_info: ConsumingWalletInfo::None,
             rate_pack: DEFAULT_RATE_PACK,
-            payment_curves: *DEFAULT_PAYMENT_CURVES,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             firewall_opt: None,
             memory_opt: None,
             fake_public_key_opt: None,
@@ -188,8 +188,8 @@ impl NodeStartupConfig {
         args.push(DATA_DIRECTORY.to_string());
         args.push("--rate-pack".to_string());
         args.push(format!("\"{}\"", self.rate_pack));
-        args.push("--payment-curves".to_string());
-        args.push(format!("\"{}\"", self.payment_curves));
+        args.push("--payment-thresholds".to_string());
+        args.push(format!("\"{}\"", self.payment_thresholds));
         if let EarningWalletInfo::Address(ref address) = self.earning_wallet_info {
             args.push("--earning-wallet".to_string());
             args.push(address.to_string());
@@ -377,7 +377,7 @@ pub struct NodeStartupConfigBuilder {
     earning_wallet_info: EarningWalletInfo,
     consuming_wallet_info: ConsumingWalletInfo,
     rate_pack: RatePack,
-    payment_curves: PaymentCurves,
+    payment_thresholds: PaymentThresholds,
     firewall: Option<Firewall>,
     memory: Option<String>,
     fake_public_key: Option<PublicKey>,
@@ -399,7 +399,7 @@ impl NodeStartupConfigBuilder {
             earning_wallet_info: EarningWalletInfo::None,
             consuming_wallet_info: ConsumingWalletInfo::None,
             rate_pack: ZERO_RATE_PACK,
-            payment_curves: *DEFAULT_PAYMENT_CURVES,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             firewall: None,
             memory: None,
             fake_public_key: None,
@@ -425,7 +425,7 @@ impl NodeStartupConfigBuilder {
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
             ),
             rate_pack: ZERO_RATE_PACK,
-            payment_curves: *DEFAULT_PAYMENT_CURVES,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             firewall: None,
             memory: None,
             fake_public_key: None,
@@ -451,7 +451,7 @@ impl NodeStartupConfigBuilder {
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
             ),
             rate_pack: DEFAULT_RATE_PACK,
-            payment_curves: *DEFAULT_PAYMENT_CURVES,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             firewall: None,
             memory: None,
             fake_public_key: None,
@@ -473,7 +473,7 @@ impl NodeStartupConfigBuilder {
             earning_wallet_info: EarningWalletInfo::None,
             consuming_wallet_info: ConsumingWalletInfo::None,
             rate_pack: DEFAULT_RATE_PACK,
-            payment_curves: *DEFAULT_PAYMENT_CURVES,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             firewall: None,
             memory: None,
             fake_public_key: None,
@@ -495,7 +495,7 @@ impl NodeStartupConfigBuilder {
             earning_wallet_info: config.earning_wallet_info.clone(),
             consuming_wallet_info: config.consuming_wallet_info.clone(),
             rate_pack: config.rate_pack,
-            payment_curves: config.payment_curves,
+            payment_thresholds: config.payment_thresholds,
             firewall: config.firewall_opt.clone(),
             memory: config.memory_opt.clone(),
             fake_public_key: config.fake_public_key_opt.clone(),
@@ -576,8 +576,8 @@ impl NodeStartupConfigBuilder {
         self
     }
 
-    pub fn payment_curves(mut self, value: PaymentCurves) -> Self {
-        self.payment_curves = value;
+    pub fn payment_thresholds(mut self, value: PaymentThresholds) -> Self {
+        self.payment_thresholds = value;
         self
     }
 
@@ -627,7 +627,7 @@ impl NodeStartupConfigBuilder {
             earning_wallet_info: self.earning_wallet_info,
             consuming_wallet_info: self.consuming_wallet_info,
             rate_pack: self.rate_pack,
-            payment_curves: self.payment_curves,
+            payment_thresholds: self.payment_thresholds,
             firewall_opt: self.firewall,
             memory_opt: self.memory,
             fake_public_key_opt: self.fake_public_key,
@@ -1317,8 +1317,8 @@ mod tests {
                 exit_byte_rate: 30,
                 exit_service_rate: 40,
             },
-            payment_curves: PaymentCurves {
-                balance_decreases_for_sec: 10,
+            payment_thresholds: PaymentThresholds {
+                threshold_interval_sec: 10,
                 balance_to_decrease_from_gwei: 20,
                 payment_grace_before_ban_sec: 30,
                 payment_suggested_after_sec: 40,
@@ -1393,9 +1393,9 @@ mod tests {
         );
         assert_eq!(result.db_password_opt, Some("booga".to_string()));
         assert_eq!(
-            result.payment_curves,
-            PaymentCurves {
-                balance_decreases_for_sec: 10,
+            result.payment_thresholds,
+            PaymentThresholds {
+                threshold_interval_sec: 10,
                 balance_to_decrease_from_gwei: 20,
                 payment_grace_before_ban_sec: 30,
                 payment_suggested_after_sec: 40,
@@ -1425,8 +1425,8 @@ mod tests {
             exit_byte_rate: 3,
             exit_service_rate: 250,
         };
-        let payment_curves = PaymentCurves {
-            balance_decreases_for_sec: 2592000,
+        let payment_thresholds = PaymentThresholds {
+            threshold_interval_sec: 2592000,
             balance_to_decrease_from_gwei: 10000000000,
             payment_grace_before_ban_sec: 1200,
             payment_suggested_after_sec: 1200,
@@ -1440,7 +1440,7 @@ mod tests {
             .neighbor(one_neighbor.clone())
             .neighbor(another_neighbor.clone())
             .rate_pack(rate_pack)
-            .payment_curves(payment_curves)
+            .payment_thresholds(payment_thresholds)
             .consuming_wallet_info(default_consuming_wallet_info())
             .build();
 
@@ -1461,7 +1461,7 @@ mod tests {
                 DATA_DIRECTORY,
                 "--rate-pack",
                 "\"1|90|3|250\"",
-                "--payment-curves",
+                "--payment-thresholds",
                 "\"2592000|10000000000|1200|1200|490000000|490000000\"",
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",

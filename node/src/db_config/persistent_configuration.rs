@@ -12,7 +12,6 @@ use crate::db_config::typed_config_layer::{
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
-use masq_lib::combined_parameters::{PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
@@ -22,6 +21,7 @@ use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
+use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -136,8 +136,8 @@ pub trait PersistentConfiguration {
         earning_wallet_address: &str,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
-    fn payment_curves(&self) -> Result<PaymentCurves, PersistentConfigError>;
-    fn set_payment_curves(&mut self, curves: String) -> Result<(), PersistentConfigError>;
+    fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError>;
+    fn set_payment_thresholds(&mut self, curves: String) -> Result<(), PersistentConfigError>;
     fn rate_pack(&self) -> Result<RatePack, PersistentConfigError>;
     fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError>;
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError>;
@@ -442,12 +442,12 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(writer.commit()?)
     }
 
-    fn payment_curves(&self) -> Result<PaymentCurves, PersistentConfigError> {
-        self.combined_params_get_method(|str: &str| PaymentCurves::try_from(str), "payment_curves")
+    fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError> {
+        self.combined_params_get_method(|str: &str| PaymentThresholds::try_from(str), "payment_thresholds")
     }
 
-    fn set_payment_curves(&mut self, curves: String) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("payment_curves", curves)
+    fn set_payment_thresholds(&mut self, curves: String) -> Result<(), PersistentConfigError> {
+        self.simple_set_method("payment_thresholds", curves)
     }
 
     fn rate_pack(&self) -> Result<RatePack, PersistentConfigError> {
@@ -1898,33 +1898,33 @@ mod tests {
     }
 
     #[test]
-    fn payment_curves_get_method_works() {
+    fn payment_thresholds_get_method_works() {
         persistent_config_plain_data_assertions_for_simple_get_method!(
-            "payment_curves",
+            "payment_thresholds",
             "1000|100000|1000|1000|20000|20000",
-            PaymentCurves {
-                balance_decreases_for_sec: 1000,
-                balance_to_decrease_from_gwei: 100000,
-                payment_grace_before_ban_sec: 1000,
-                payment_suggested_after_sec: 1000,
+            PaymentThresholds {
+                threshold_interval_sec: 1000,
+                debt_threshold_gwei: 100000,
+                payment_grace_period_sec: 1000,
+                maturity_threshold_sec: 1000,
                 permanent_debt_allowed_gwei: 20000,
-                unban_when_balance_below_gwei: 20000,
+                unban_below_gwei: 20000,
             }
         );
     }
 
     #[test]
-    fn payment_curves_set_method_works() {
+    fn payment_thresholds_set_method_works() {
         persistent_config_plain_data_assertions_for_simple_set_method!(
-            "payment_curves",
+            "payment_thresholds",
             "1050|100050|1050|1050|20040|20040".to_string()
         );
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied value missing: payment_curves; database is corrupt!")]
-    fn payment_curves_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("payment_curves");
+    #[should_panic(expected = "ever-supplied value missing: payment_thresholds; database is corrupt!")]
+    fn payment_thresholds_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("payment_thresholds");
     }
 
     fn list_of_config_parameters() -> Vec<String> {

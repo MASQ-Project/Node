@@ -8,7 +8,6 @@ use crate::db_config::typed_config_layer::decode_bytes;
 use crate::sub_lib::cryptde::PlainData;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
 use masq_lib::logger::Logger;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -16,6 +15,7 @@ use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use rusqlite::{Error, Transaction};
 use std::fmt::Debug;
 use tiny_hderive::bip32::ExtendedPrivKey;
+use crate::sub_lib::combined_parameters::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -439,8 +439,8 @@ impl DatabaseMigration for Migrate_5_to_6 {
         declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()> {
         let statement_1 = Self::make_initialization_statement(
-            "payment_curves",
-            &DEFAULT_PAYMENT_CURVES.to_string(),
+            "payment_thresholds",
+            &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
         );
         let statement_2 =
             Self::make_initialization_statement("rate_pack", &DEFAULT_RATE_PACK.to_string());
@@ -728,7 +728,7 @@ mod tests {
     use ethereum_types::BigEndianHash;
     use itertools::Itertools;
     use masq_lib::constants::{
-        DEFAULT_CHAIN, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
+        DEFAULT_CHAIN,
     };
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -747,6 +747,7 @@ mod tests {
     use std::time::SystemTime;
     use tiny_hderive::bip32::ExtendedPrivKey;
     use web3::types::{H256, U256};
+    use crate::sub_lib::combined_parameters::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
@@ -2015,9 +2016,9 @@ mod tests {
         );
 
         let connection = result.unwrap();
-        let (payment_curves, encrypted) =
-            retrieve_config_row(connection.as_ref(), "payment_curves");
-        assert_eq!(payment_curves, Some(DEFAULT_PAYMENT_CURVES.to_string()));
+        let (payment_thresholds, encrypted) =
+            retrieve_config_row(connection.as_ref(), "payment_thresholds");
+        assert_eq!(payment_thresholds, Some(DEFAULT_PAYMENT_THRESHOLDS.to_string()));
         assert_eq!(encrypted, false);
         let (rate_pack, encrypted) = retrieve_config_row(connection.as_ref(), "rate_pack");
         assert_eq!(rate_pack, Some(DEFAULT_RATE_PACK.to_string()));

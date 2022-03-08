@@ -5,7 +5,7 @@ use crate::database::db_migrations::{
 };
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use masq_lib::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
+    DEFAULT_GAS_PRICE,
     HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
 use masq_lib::logger::Logger;
@@ -19,6 +19,7 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use tokio::net::TcpListener;
+use crate::sub_lib::combined_parameters::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: usize = 6;
@@ -257,10 +258,10 @@ impl DbInitializerReal {
         );
         Self::set_config_value(
             conn,
-            "payment_curves",
-            Some(&DEFAULT_PAYMENT_CURVES.to_string()),
+            "payment_thresholds",
+            Some(&DEFAULT_PAYMENT_THRESHOLDS.to_string()),
             false,
-            "payment curves",
+            "payment thresholds",
         );
         Self::set_config_value(
             conn,
@@ -940,8 +941,8 @@ mod tests {
         verify(&mut config_vec, "past_neighbors", None, true);
         verify(
             &mut config_vec,
-            "payment_curves",
-            Some(&DEFAULT_PAYMENT_CURVES.to_string()),
+            "payment_thresholds",
+            Some(&DEFAULT_PAYMENT_THRESHOLDS.to_string()),
             false,
         );
         verify(&mut config_vec, "preexisting", Some("yes"), false); // making sure we opened the preexisting database

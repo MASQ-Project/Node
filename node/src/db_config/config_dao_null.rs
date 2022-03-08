@@ -7,10 +7,11 @@ use crate::db_config::config_dao::{
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
+    DEFAULT_GAS_PRICE,
 };
 use rusqlite::Transaction;
 use std::collections::HashMap;
+use crate::sub_lib::combined_parameters::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
 
 /*
 
@@ -137,8 +138,8 @@ impl Default for ConfigDaoNull {
             (Some(format!("{}", CURRENT_SCHEMA_VERSION)), false),
         );
         data.insert(
-            "payment_curves".to_string(),
-            (Some(DEFAULT_PAYMENT_CURVES.to_string()), false),
+            "payment_thresholds".to_string(),
+            (Some(DEFAULT_PAYMENT_THRESHOLDS.to_string()), false),
         );
         data.insert(
             "rate_pack".to_string(),
@@ -160,7 +161,7 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoReal;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{
-        DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, ETH_MAINNET_CONTRACT_CREATION_BLOCK,
+        ETH_MAINNET_CONTRACT_CREATION_BLOCK,
     };
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
@@ -203,10 +204,10 @@ mod tests {
             ConfigDaoRecord::new("consuming_wallet_private_key", None, true)
         );
         assert_eq!(
-            subject.get("payment_curves").unwrap(),
+            subject.get("payment_thresholds").unwrap(),
             ConfigDaoRecord::new(
-                "payment_curves",
-                Some(&DEFAULT_PAYMENT_CURVES.to_string()),
+                "payment_thresholds",
+                Some(&DEFAULT_PAYMENT_THRESHOLDS.to_string()),
                 false
             )
         );

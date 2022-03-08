@@ -363,7 +363,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
     .arg(real_user_arg())
     .arg(common_parameter_with_separate_u64_values("scan-intervals"))
     .arg(common_parameter_with_separate_u64_values("rate-pack"))
-    .arg(common_parameter_with_separate_u64_values("payment-curves"))
+    .arg(common_parameter_with_separate_u64_values("payment-thresholds"))
 }
 
 pub mod common_validators {

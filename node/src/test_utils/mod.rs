@@ -37,7 +37,6 @@ use crate::sub_lib::wallet::Wallet;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
-use masq_lib::combined_parameters::RatePack;
 use masq_lib::constants::HTTP_PORT;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use regex::Regex;
@@ -59,6 +58,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use web3::types::{Address, U256};
+use crate::sub_lib::combined_parameters::RatePack;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
@@ -515,7 +515,6 @@ pub mod unshared_test_utils {
     use actix::{Actor, Addr, Context, Handler, System};
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{Receiver, Sender};
-    use masq_lib::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -527,6 +526,7 @@ pub mod unshared_test_utils {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use crate::sub_lib::combined_parameters::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
         let mut app_args = vec!["MASQNode".to_string()];
@@ -582,7 +582,7 @@ pub mod unshared_test_utils {
         persistent_config_mock: PersistentConfigurationMock,
     ) -> PersistentConfigurationMock {
         persistent_config_mock
-            .payment_curves_result(Ok(*DEFAULT_PAYMENT_CURVES))
+            .payment_thresholds_result(Ok(*DEFAULT_PAYMENT_THRESHOLDS))
             .scan_intervals_result(Ok(*DEFAULT_SCAN_INTERVALS))
     }
 
@@ -593,7 +593,7 @@ pub mod unshared_test_utils {
     pub fn make_populated_accountant_config_with_defaults() -> AccountantConfig {
         AccountantConfig {
             scan_intervals: *DEFAULT_SCAN_INTERVALS,
-            payment_curves: *DEFAULT_PAYMENT_CURVES,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         }
     }
@@ -601,7 +601,7 @@ pub mod unshared_test_utils {
     pub fn make_accountant_config_null() -> AccountantConfig {
         AccountantConfig {
             scan_intervals: Default::default(),
-            payment_curves: Default::default(),
+            payment_thresholds: Default::default(),
             when_pending_too_long_sec: Default::default(),
         }
     }

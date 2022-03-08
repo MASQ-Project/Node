@@ -45,3 +45,4 @@ pub mod ttl_hashmap;
 pub mod udp_socket_wrapper;
 pub mod ui_gateway;
 pub mod wallet;
+pub mod combined_parameters;

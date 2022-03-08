@@ -8,7 +8,7 @@ use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
     UiCheckPasswordRequest, UiCheckPasswordResponse, UiConfigurationRequest,
     UiConfigurationResponse, UiGenerateSeedSpec, UiGenerateWalletsRequest,
-    UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiPaymentCurves, UiRatePack,
+    UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiPaymentThresholds, UiRatePack,
     UiRecoverWalletsRequest, UiRecoverWalletsResponse, UiScanIntervals, UiSetConfigurationRequest,
     UiSetConfigurationResponse, UiWalletAddressesRequest, UiWalletAddressesResponse,
 };
@@ -592,8 +592,8 @@ impl Configurator {
         let rate_pack = Self::value_required(persistent_config.rate_pack(), "ratePack")?;
         let scan_intervals =
             Self::value_required(persistent_config.scan_intervals(), "scanIntervals")?;
-        let payment_curves =
-            Self::value_required(persistent_config.payment_curves(), "paymentCurves")?;
+        let payment_thresholds =
+            Self::value_required(persistent_config.payment_thresholds(), "paymentThresholds")?;
         let routing_byte_rate = rate_pack.routing_byte_rate;
         let routing_service_rate = rate_pack.routing_service_rate;
         let exit_byte_rate = rate_pack.exit_byte_rate;
@@ -601,12 +601,12 @@ impl Configurator {
         let pending_payable_sec = scan_intervals.pending_payable_scan_interval.as_secs();
         let payable_sec = scan_intervals.payable_scan_interval.as_secs();
         let receivable_sec = scan_intervals.receivable_scan_interval.as_secs();
-        let balance_decreases_for_sec = payment_curves.balance_decreases_for_sec;
-        let balance_to_decrease_from_gwei = payment_curves.balance_to_decrease_from_gwei;
-        let payment_grace_before_ban_sec = payment_curves.payment_grace_before_ban_sec;
-        let payment_suggested_after_sec = payment_curves.payment_suggested_after_sec;
-        let permanent_debt_allowed_gwei = payment_curves.permanent_debt_allowed_gwei;
-        let unban_when_balance_below_gwei = payment_curves.unban_when_balance_below_gwei;
+        let threshold_interval_sec = payment_thresholds.threshold_interval_sec;
+        let debt_threshold_gwei = payment_thresholds.debt_threshold_gwei;
+        let payment_grace_period_sec = payment_thresholds.payment_grace_period_sec;
+        let maturity_threshold_sec = payment_thresholds.maturity_threshold_sec;
+        let permanent_debt_allowed_gwei = payment_thresholds.permanent_debt_allowed_gwei;
+        let unban_below_gwei = payment_thresholds.unban_below_gwei;
         let response = UiConfigurationResponse {
             blockchain_service_url_opt,
             current_schema_version,
@@ -619,13 +619,13 @@ impl Configurator {
             earning_wallet_address_opt,
             port_mapping_protocol_opt,
             past_neighbors,
-            payment_curves: UiPaymentCurves {
-                balance_decreases_for_sec,
-                balance_to_decrease_from_gwei,
-                payment_suggested_after_sec,
-                payment_grace_before_ban_sec,
+            payment_thresholds: UiPaymentThresholds {
+                threshold_interval_sec,
+                debt_threshold_gwei,
+                maturity_threshold_sec,
+                payment_grace_period_sec,
                 permanent_debt_allowed_gwei,
-                unban_when_balance_below_gwei,
+                unban_below_gwei,
             },
             rate_pack: UiRatePack {
                 routing_byte_rate,
@@ -806,7 +806,7 @@ mod tests {
     use actix::System;
     use masq_lib::messages::{
         ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
-        UiGenerateSeedSpec, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiPaymentCurves,
+        UiGenerateSeedSpec, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiPaymentThresholds,
         UiRatePack, UiRecoverSeedSpec, UiScanIntervals, UiStartOrder, UiWalletAddressesRequest,
         UiWalletAddressesResponse,
     };
@@ -837,12 +837,12 @@ mod tests {
     };
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::combined_parameters::{PaymentCurves, RatePack, ScanIntervals};
     use masq_lib::constants::MISSING_DATA;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
+    use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
 
     #[test]
     fn constructor_connects_with_database() {
@@ -2194,7 +2194,7 @@ mod tests {
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
             .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
             .start_block_result(Ok(3456));
-        let persistent_config = payment_curves_scan_intervals_rate_pack(persistent_config);
+        let persistent_config = payment_thresholds_scan_intervals_rate_pack(persistent_config);
         let mut subject = make_subject(Some(persistent_config));
 
         let (configuration, context_id) =
@@ -2221,13 +2221,13 @@ mod tests {
                 earning_wallet_address_opt: Some(earning_wallet_address),
                 port_mapping_protocol_opt: Some("IGDP".to_string()),
                 past_neighbors: vec![],
-                payment_curves: UiPaymentCurves {
-                    balance_decreases_for_sec: 10_000,
-                    balance_to_decrease_from_gwei: 5_000_000,
-                    payment_suggested_after_sec: 1200,
-                    payment_grace_before_ban_sec: 1000,
+                payment_thresholds: UiPaymentThresholds {
+                    threshold_interval_sec: 10_000,
+                    debt_threshold_gwei: 5_000_000,
+                    maturity_threshold_sec: 1200,
+                    payment_grace_period_sec: 1000,
                     permanent_debt_allowed_gwei: 20_000,
-                    unban_when_balance_below_gwei: 20_000
+                    unban_below_gwei: 20_000
                 },
                 rate_pack: UiRatePack {
                     routing_byte_rate: 6,
@@ -2245,7 +2245,7 @@ mod tests {
         );
     }
 
-    fn payment_curves_scan_intervals_rate_pack(
+    fn payment_thresholds_scan_intervals_rate_pack(
         persistent_config: PersistentConfigurationMock,
     ) -> PersistentConfigurationMock {
         persistent_config
@@ -2260,13 +2260,13 @@ mod tests {
                 payable_scan_interval: Duration::from_secs(125),
                 receivable_scan_interval: Duration::from_secs(128),
             }))
-            .payment_curves_result(Ok(PaymentCurves {
-                balance_decreases_for_sec: 10000,
-                balance_to_decrease_from_gwei: 5000000,
-                payment_grace_before_ban_sec: 1000,
-                payment_suggested_after_sec: 1200,
+            .payment_thresholds_result(Ok(PaymentThresholds {
+                threshold_interval_sec: 10000,
+                debt_threshold_gwei: 5000000,
+                payment_grace_period_sec: 1000,
+                maturity_threshold_sec: 1200,
                 permanent_debt_allowed_gwei: 20000,
-                unban_when_balance_below_gwei: 20000,
+                unban_below_gwei: 20000,
             }))
     }
 
@@ -2324,7 +2324,7 @@ mod tests {
             .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
             .start_block_result(Ok(3456))
             .start_block_result(Ok(3456));
-        let persistent_config = payment_curves_scan_intervals_rate_pack(persistent_config);
+        let persistent_config = payment_thresholds_scan_intervals_rate_pack(persistent_config);
         let mut subject = make_subject(Some(persistent_config));
 
         let (configuration, context_id) =
@@ -2351,13 +2351,13 @@ mod tests {
                 earning_wallet_address_opt: Some(earning_wallet_address),
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp.to_string()),
                 past_neighbors: vec![node_descriptor.to_string(main_cryptde())],
-                payment_curves: UiPaymentCurves {
-                    balance_decreases_for_sec: 10_000,
-                    balance_to_decrease_from_gwei: 5_000_000,
-                    payment_suggested_after_sec: 1200,
-                    payment_grace_before_ban_sec: 1000,
+                payment_thresholds: UiPaymentThresholds {
+                    threshold_interval_sec: 10_000,
+                    debt_threshold_gwei: 5_000_000,
+                    maturity_threshold_sec: 1200,
+                    payment_grace_period_sec: 1000,
                     permanent_debt_allowed_gwei: 20_000,
-                    unban_when_balance_below_gwei: 20_000
+                    unban_below_gwei: 20_000
                 },
                 rate_pack: UiRatePack {
                     routing_byte_rate: 6,

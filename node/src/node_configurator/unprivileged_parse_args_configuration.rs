@@ -14,7 +14,6 @@ use crate::sub_lib::wallet::Wallet;
 use clap::value_t;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::combined_parameters::{PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::make_arg_matches_accesible;
@@ -25,6 +24,7 @@ use masq_lib::utils::{AutomapProtocol, ExpectValue, WrapResult};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
+use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
 
 pub trait UnprivilegedParseArgsConfiguration {
     // Only initialization that cannot be done with privilege should happen here.
@@ -487,13 +487,13 @@ fn configure_accountant_config(
             |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
             |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
         )?,
-        payment_curves: process_combined_params(
-            "payment-curves",
+        payment_thresholds: process_combined_params(
+            "payment-thresholds",
             multi_config,
             persist_config,
-            |str: &str| PaymentCurves::try_from(str),
-            |pc: &dyn PersistentConfiguration| pc.payment_curves(),
-            |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_curves(curves),
+            |str: &str| PaymentThresholds::try_from(str),
+            |pc: &dyn PersistentConfiguration| pc.payment_thresholds(),
+            |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_thresholds(curves),
         )?,
         when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
     };
@@ -606,8 +606,7 @@ mod tests {
         make_persistent_config_real_with_config_dao_null, make_simplified_multi_config,
     };
     use crate::test_utils::{main_cryptde, ArgsBuilder};
-    use masq_lib::combined_parameters::ScanIntervals;
-    use masq_lib::constants::{DEFAULT_GAS_PRICE, DEFAULT_RATE_PACK};
+    use masq_lib::constants::{DEFAULT_GAS_PRICE};
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -616,6 +615,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use crate::sub_lib::combined_parameters::{DEFAULT_RATE_PACK, PaymentThresholds, ScanIntervals};
 
     #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {
@@ -1660,13 +1660,13 @@ mod tests {
     ) {
         running_test();
         let set_scan_intervals_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_payment_curves_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_payment_thresholds_params_arc = Arc::new(Mutex::new(vec![]));
         let args = [
             "--ip",
             "1.2.3.4",
             "--scan-intervals",
             "180|150|130",
-            "--payment-curves",
+            "--payment-thresholds",
             "1000|10000|1000|10000|20000|20000",
         ];
         let mut config = BootstrapperConfig::new();
@@ -1677,18 +1677,18 @@ mod tests {
                 payable_scan_interval: Duration::from_secs(101),
                 receivable_scan_interval: Duration::from_secs(102),
             }))
-            .payment_curves_result(Ok(PaymentCurves {
-                balance_decreases_for_sec: 3000,
-                balance_to_decrease_from_gwei: 30000,
-                payment_grace_before_ban_sec: 3000,
-                payment_suggested_after_sec: 30000,
+            .payment_thresholds_result(Ok(PaymentThresholds {
+                threshold_interval_sec: 3000,
+                debt_threshold_gwei: 30000,
+                payment_grace_period_sec: 3000,
+                maturity_threshold_sec: 30000,
                 permanent_debt_allowed_gwei: 30000,
-                unban_when_balance_below_gwei: 30000,
+                unban_below_gwei: 30000,
             }))
             .set_scan_intervals_params(&set_scan_intervals_params_arc)
             .set_scan_intervals_result(Ok(()))
-            .set_payment_curves_params(&set_payment_curves_params_arc)
-            .set_payment_curves_result(Ok(()));
+            .set_payment_thresholds_params(&set_payment_thresholds_params_arc)
+            .set_payment_thresholds_result(Ok(()));
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
@@ -1707,22 +1707,22 @@ mod tests {
                 payable_scan_interval: Duration::from_secs(150),
                 receivable_scan_interval: Duration::from_secs(130),
             },
-            payment_curves: PaymentCurves {
-                balance_decreases_for_sec: 1000,
-                balance_to_decrease_from_gwei: 10000,
-                payment_grace_before_ban_sec: 1000,
-                payment_suggested_after_sec: 10000,
+            payment_thresholds: PaymentThresholds {
+                threshold_interval_sec: 1000,
+                debt_threshold_gwei: 10000,
+                payment_grace_period_sec: 1000,
+                maturity_threshold_sec: 10000,
                 permanent_debt_allowed_gwei: 20000,
-                unban_when_balance_below_gwei: 20000,
+                unban_below_gwei: 20000,
             },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         assert_eq!(actual_accountant_config, expected_accountant_config);
         let set_scan_intervals_params = set_scan_intervals_params_arc.lock().unwrap();
         assert_eq!(*set_scan_intervals_params, vec!["180|150|130".to_string()]);
-        let set_payment_curves_params = set_payment_curves_params_arc.lock().unwrap();
+        let set_payment_thresholds_params = set_payment_thresholds_params_arc.lock().unwrap();
         assert_eq!(
-            *set_payment_curves_params,
+            *set_payment_thresholds_params,
             vec!["1000|10000|1000|10000|20000|20000".to_string()]
         )
     }
@@ -1736,7 +1736,7 @@ mod tests {
             "1.2.3.4",
             "--scan-intervals",
             "180|150|130",
-            "--payment-curves",
+            "--payment-thresholds",
             "1000|100000|1000|1000|20000|20000",
         ];
         let mut config = BootstrapperConfig::new();
@@ -1747,13 +1747,13 @@ mod tests {
                 payable_scan_interval: Duration::from_secs(150),
                 receivable_scan_interval: Duration::from_secs(130),
             }))
-            .payment_curves_result(Ok(PaymentCurves {
-                balance_decreases_for_sec: 1000,
-                balance_to_decrease_from_gwei: 100000,
-                payment_grace_before_ban_sec: 1000,
-                payment_suggested_after_sec: 1000,
+            .payment_thresholds_result(Ok(PaymentThresholds {
+                threshold_interval_sec: 1000,
+                debt_threshold_gwei: 100000,
+                payment_grace_period_sec: 1000,
+                maturity_threshold_sec: 1000,
                 permanent_debt_allowed_gwei: 20000,
-                unban_when_balance_below_gwei: 20000,
+                unban_below_gwei: 20000,
             }));
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
@@ -1773,13 +1773,13 @@ mod tests {
                 payable_scan_interval: Duration::from_secs(150),
                 receivable_scan_interval: Duration::from_secs(130),
             },
-            payment_curves: PaymentCurves {
-                balance_decreases_for_sec: 1000,
-                balance_to_decrease_from_gwei: 100000,
-                payment_grace_before_ban_sec: 1000,
-                payment_suggested_after_sec: 1000,
+            payment_thresholds: PaymentThresholds {
+                threshold_interval_sec: 1000,
+                debt_threshold_gwei: 100000,
+                payment_grace_period_sec: 1000,
+                maturity_threshold_sec: 1000,
                 permanent_debt_allowed_gwei: 20000,
-                unban_when_balance_below_gwei: 20000,
+                unban_below_gwei: 20000,
             },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };

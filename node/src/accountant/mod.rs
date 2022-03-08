@@ -42,7 +42,6 @@ use actix::Handler;
 use actix::Message;
 use actix::Recipient;
 use itertools::Itertools;
-use masq_lib::combined_parameters::PaymentCurves;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
@@ -57,6 +56,7 @@ use std::ops::Add;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use web3::types::{TransactionReceipt, H256};
+use crate::sub_lib::combined_parameters::PaymentThresholds;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 
@@ -386,7 +386,7 @@ impl Accountant {
         debug!(self.logger, "Scanning for delinquencies");
         let now = SystemTime::now();
         self.receivable_dao
-            .new_delinquencies(now, &self.config.payment_curves)
+            .new_delinquencies(now, &self.config.payment_thresholds)
             .into_iter()
             .for_each(|account| {
                 self.banned_dao.ban(&account.wallet);
@@ -400,7 +400,7 @@ impl Accountant {
                 )
             });
         self.receivable_dao
-            .paid_delinquencies(&self.config.payment_curves)
+            .paid_delinquencies(&self.config.payment_thresholds)
             .into_iter()
             .for_each(|account| {
                 self.banned_dao.unban(&account.wallet);
@@ -482,23 +482,23 @@ impl Accountant {
             .expect("Internal error")
             .as_secs();
 
-        if self.payable_threshold_tools.is_tolerable_age(
+        if self.payable_threshold_tools.is_innocent_age(
             time_since_last_paid,
-            self.config.payment_curves.payment_suggested_after_sec as u64,
+            self.config.payment_thresholds.maturity_threshold_sec as u64,
         ) {
             return None;
         }
 
-        if self.payable_threshold_tools.is_tolerable_balance(
+        if self.payable_threshold_tools.is_innocent_balance(
             payable.balance,
-            self.config.payment_curves.permanent_debt_allowed_gwei,
+            self.config.payment_thresholds.permanent_debt_allowed_gwei,
         ) {
             return None;
         }
 
         let threshold = self
             .payable_threshold_tools
-            .calculate_payout_threshold(self.config.payment_curves, time_since_last_paid);
+            .calculate_payout_threshold(self.config.payment_thresholds, time_since_last_paid);
         if payable.balance as f64 > threshold {
             Some(threshold as u64)
         } else {
@@ -1114,29 +1114,29 @@ impl From<&PendingPayableFingerprint> for PendingPayableId {
 
 //TODO the data types should change with GH-497 (including signed => unsigned)
 trait PayableExceedThresholdTools {
-    fn is_tolerable_age(&self, age: u64, limit: u64) -> bool;
-    fn is_tolerable_balance(&self, balance: i64, limit: i64) -> bool;
-    fn calculate_payout_threshold(&self, payment_curves: PaymentCurves, x: u64) -> f64;
+    fn is_innocent_age(&self, age: u64, limit: u64) -> bool;
+    fn is_innocent_balance(&self, balance: i64, limit: i64) -> bool;
+    fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> f64;
 }
 
 struct PayableExceedThresholdToolsReal {}
 
 impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
-    fn is_tolerable_age(&self, age: u64, limit: u64) -> bool {
+    fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
         age <= limit
     }
 
-    fn is_tolerable_balance(&self, balance: i64, limit: i64) -> bool {
+    fn is_innocent_balance(&self, balance: i64, limit: i64) -> bool {
         balance <= limit
     }
 
-    fn calculate_payout_threshold(&self, payment_curves: PaymentCurves, x: u64) -> f64 {
-        let m = -((payment_curves.balance_to_decrease_from_gwei as f64
-            - payment_curves.permanent_debt_allowed_gwei as f64)
-            / (payment_curves.balance_decreases_for_sec as f64
-                - payment_curves.payment_suggested_after_sec as f64));
-        let b = payment_curves.balance_to_decrease_from_gwei as f64
-            - m * payment_curves.payment_suggested_after_sec as f64;
+    fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> f64 {
+        let m = -((payment_thresholds.debt_threshold_gwei as f64
+            - payment_thresholds.permanent_debt_allowed_gwei as f64)
+            / (payment_thresholds.threshold_interval_sec as f64
+                - payment_thresholds.maturity_threshold_sec as f64));
+        let b = payment_thresholds.debt_threshold_gwei as f64
+            - m * payment_thresholds.maturity_threshold_sec as f64;
         m * x as f64 + b
     }
 }
@@ -1179,8 +1179,6 @@ mod tests {
     use actix::{Arbiter, System};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
-    use masq_lib::combined_parameters::ScanIntervals;
-    use masq_lib::constants::DEFAULT_PAYMENT_CURVES;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::ui_gateway::MessagePath::Conversation;
@@ -1194,36 +1192,37 @@ mod tests {
     use std::time::SystemTime;
     use web3::types::U256;
     use web3::types::{TransactionReceipt, H256};
+    use crate::sub_lib::combined_parameters::{DEFAULT_PAYMENT_THRESHOLDS, PaymentThresholds, ScanIntervals};
 
     #[derive(Default)]
     struct PayableThresholdToolsMock {
-        safe_age_params: Arc<Mutex<Vec<(u64, u64)>>>,
-        safe_age_results: RefCell<Vec<bool>>,
-        safe_balance_params: Arc<Mutex<Vec<(i64, i64)>>>,
-        safe_balance_results: RefCell<Vec<bool>>,
-        calculate_payout_threshold_params: Arc<Mutex<Vec<(PaymentCurves, u64)>>>,
+        is_innocent_age_params: Arc<Mutex<Vec<(u64, u64)>>>,
+        is_innocent_age_results: RefCell<Vec<bool>>,
+        is_innocent_balance_params: Arc<Mutex<Vec<(i64, i64)>>>,
+        is_innocent_balance_results: RefCell<Vec<bool>>,
+        calculate_payout_threshold_params: Arc<Mutex<Vec<(PaymentThresholds, u64)>>>,
         calculate_payout_threshold_results: RefCell<Vec<f64>>,
     }
 
     impl PayableExceedThresholdTools for PayableThresholdToolsMock {
-        fn is_tolerable_age(&self, age: u64, limit: u64) -> bool {
-            self.safe_age_params.lock().unwrap().push((age, limit));
-            self.safe_age_results.borrow_mut().remove(0)
+        fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
+            self.is_innocent_age_params.lock().unwrap().push((age, limit));
+            self.is_innocent_age_results.borrow_mut().remove(0)
         }
 
-        fn is_tolerable_balance(&self, balance: i64, limit: i64) -> bool {
-            self.safe_balance_params
+        fn is_innocent_balance(&self, balance: i64, limit: i64) -> bool {
+            self.is_innocent_balance_params
                 .lock()
                 .unwrap()
                 .push((balance, limit));
-            self.safe_balance_results.borrow_mut().remove(0)
+            self.is_innocent_balance_results.borrow_mut().remove(0)
         }
 
-        fn calculate_payout_threshold(&self, payment_curves: PaymentCurves, x: u64) -> f64 {
+        fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> f64 {
             self.calculate_payout_threshold_params
                 .lock()
                 .unwrap()
-                .push((payment_curves, x));
+                .push((payment_thresholds, x));
             self.calculate_payout_threshold_results
                 .borrow_mut()
                 .remove(0)
@@ -1231,29 +1230,29 @@ mod tests {
     }
 
     impl PayableThresholdToolsMock {
-        fn safe_age_params(mut self, params: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
-            self.safe_age_params = params.clone();
+        fn is_innocent_age_params(mut self, params: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
+            self.is_innocent_age_params = params.clone();
             self
         }
 
-        fn safe_age_result(self, result: bool) -> Self {
-            self.safe_age_results.borrow_mut().push(result);
+        fn is_innocent_age_result(self, result: bool) -> Self {
+            self.is_innocent_age_results.borrow_mut().push(result);
             self
         }
 
-        fn safe_balance_params(mut self, params: &Arc<Mutex<Vec<(i64, i64)>>>) -> Self {
-            self.safe_balance_params = params.clone();
+        fn is_innocent_balance_params(mut self, params: &Arc<Mutex<Vec<(i64, i64)>>>) -> Self {
+            self.is_innocent_balance_params = params.clone();
             self
         }
 
-        fn safe_balance_result(self, result: bool) -> Self {
-            self.safe_balance_results.borrow_mut().push(result);
+        fn is_innocent_balance_result(self, result: bool) -> Self {
+            self.is_innocent_balance_results.borrow_mut().push(result);
             self
         }
 
         fn calculate_payout_threshold_params(
             mut self,
-            params: &Arc<Mutex<Vec<(PaymentCurves, u64)>>>,
+            params: &Arc<Mutex<Vec<(PaymentThresholds, u64)>>>,
         ) -> Self {
             self.calculate_payout_threshold_params = params.clone();
             self
@@ -1589,20 +1588,20 @@ mod tests {
         let accounts = vec![
             PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 55,
+                balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 55,
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now())
-                        - DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec
+                        - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
                         - 5,
                 ),
                 pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("foo"),
-                balance: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 66,
+                balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 66,
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now())
-                        - DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec
+                        - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
                         - 500,
                 ),
                 pending_payable_opt: None,
@@ -1753,7 +1752,7 @@ mod tests {
                     receivable_scan_interval: Duration::from_secs(100),
                     pending_payable_scan_interval: Duration::from_millis(100), //except here, where we use it to stop the system
                 },
-                payment_curves: *DEFAULT_PAYMENT_CURVES,
+                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("buy"),
@@ -1818,10 +1817,10 @@ mod tests {
             captured_timestamp < SystemTime::now()
                 && captured_timestamp >= from_time_t(to_time_t(SystemTime::now()) - 5)
         );
-        assert_eq!(captured_curves, *DEFAULT_PAYMENT_CURVES);
+        assert_eq!(captured_curves, *DEFAULT_PAYMENT_THRESHOLDS);
         let paid_delinquencies_params = paid_delinquencies_params_arc.lock().unwrap();
         assert_eq!(paid_delinquencies_params.len(), 1);
-        assert_eq!(paid_delinquencies_params[0], *DEFAULT_PAYMENT_CURVES);
+        assert_eq!(paid_delinquencies_params[0], *DEFAULT_PAYMENT_THRESHOLDS);
     }
 
     #[test]
@@ -1841,7 +1840,7 @@ mod tests {
                     pending_payable_scan_interval: Duration::from_secs(100),
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                payment_curves: *DEFAULT_PAYMENT_CURVES,
+                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             },
             earning_wallet.clone(),
         );
@@ -1912,7 +1911,7 @@ mod tests {
             ]
         );
         //sadly I cannot effectively assert on the exact params
-        //they are a) real timestamp of now, b) constant payment_curves
+        //they are a) real timestamp of now, b) constant payment_thresholds
         //the Rust type system gives me enough support to be okay with counting occurrences
         let new_delinquencies_params = new_delinquencies_params_arc.lock().unwrap();
         assert_eq!(new_delinquencies_params.len(), 3); //the third one is the signal to shut the system down
@@ -1945,7 +1944,7 @@ mod tests {
                     receivable_scan_interval: Duration::from_secs(100),
                     pending_payable_scan_interval: Duration::from_millis(98),
                 },
-                payment_curves: *DEFAULT_PAYMENT_CURVES,
+                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("hi"),
@@ -2031,7 +2030,7 @@ mod tests {
                     pending_payable_scan_interval: Duration::from_secs(100),
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                payment_curves: *DEFAULT_PAYMENT_CURVES,
+                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             },
             make_wallet("hi"),
         );
@@ -2039,9 +2038,9 @@ mod tests {
         // slightly above minimum balance, to the right of the curve (time intersection)
         let account = PayableAccount {
             wallet: make_wallet("wallet"),
-            balance: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 5,
+            balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 5,
             last_paid_timestamp: from_time_t(
-                now - DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec - 10,
+                now - DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10,
             ),
             pending_payable_opt: None,
         };
@@ -2102,39 +2101,39 @@ mod tests {
         let accountant_config = make_populated_accountant_config_with_defaults();
         let config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
         let now = to_time_t(SystemTime::now());
-        let payment_curves = PaymentCurves {
-            balance_decreases_for_sec: 2_592_000,
-            balance_to_decrease_from_gwei: 1_000_000_000,
-            payment_grace_before_ban_sec: 86_400,
-            payment_suggested_after_sec: 86_400,
+        let payment_thresholds = PaymentThresholds {
+            threshold_interval_sec: 2_592_000,
+            debt_threshold_gwei: 1_000_000_000,
+            payment_grace_period_sec: 86_400,
+            maturity_threshold_sec: 86_400,
             permanent_debt_allowed_gwei: 10_000_000,
-            unban_when_balance_below_gwei: 10_000_000,
+            unban_below_gwei: 10_000_000,
         };
         let accounts = vec![
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: payment_curves.permanent_debt_allowed_gwei - 1,
+                balance: payment_thresholds.permanent_debt_allowed_gwei - 1,
                 last_paid_timestamp: from_time_t(
-                    now - payment_curves.balance_decreases_for_sec - 10,
+                    now - payment_thresholds.threshold_interval_sec - 10,
                 ),
                 pending_payable_opt: None,
             },
             // above balance intersection, to the left of minimum time (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: payment_curves.balance_to_decrease_from_gwei + 1,
+                balance: payment_thresholds.debt_threshold_gwei + 1,
                 last_paid_timestamp: from_time_t(
-                    now - payment_curves.payment_suggested_after_sec + 10,
+                    now - payment_thresholds.maturity_threshold_sec + 10,
                 ),
                 pending_payable_opt: None,
             },
             // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
             PayableAccount {
                 wallet: make_wallet("wallet2"),
-                balance: payment_curves.balance_to_decrease_from_gwei - 1000,
+                balance: payment_thresholds.debt_threshold_gwei - 1000,
                 last_paid_timestamp: from_time_t(
-                    now - payment_curves.payment_suggested_after_sec - 1,
+                    now - payment_thresholds.maturity_threshold_sec - 1,
                 ),
                 pending_payable_opt: None,
             },
@@ -2154,7 +2153,7 @@ mod tests {
             .payable_dao(payable_dao)
             .build();
         subject.report_accounts_payable_sub = Some(report_accounts_payable_sub);
-        subject.config.payment_curves = payment_curves;
+        subject.config.payment_thresholds = payment_thresholds;
 
         subject.scan_for_payables();
 
@@ -2174,7 +2173,7 @@ mod tests {
                     payable_scan_interval: Duration::from_millis(100),
                     receivable_scan_interval: Duration::from_secs(50_000),
                 },
-                payment_curves: DEFAULT_PAYMENT_CURVES.clone(),
+                payment_thresholds: DEFAULT_PAYMENT_THRESHOLDS.clone(),
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("mine"),
@@ -2184,18 +2183,18 @@ mod tests {
             // slightly above minimum balance, to the right of the curve (time intersection)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: DEFAULT_PAYMENT_CURVES.permanent_debt_allowed_gwei + 1,
+                balance: DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei + 1,
                 last_paid_timestamp: from_time_t(
-                    now - DEFAULT_PAYMENT_CURVES.balance_decreases_for_sec - 10,
+                    now - DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10,
                 ),
                 pending_payable_opt: None,
             },
             // slightly above the curve (balance intersection), to the right of minimum time
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 1,
+                balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1,
                 last_paid_timestamp: from_time_t(
-                    now - DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec - 10,
+                    now - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec - 10,
                 ),
                 pending_payable_opt: None,
             },
@@ -2277,16 +2276,16 @@ mod tests {
 
         subject.scan_for_delinquencies();
 
-        let new_delinquencies_parameters: MutexGuard<Vec<(SystemTime, PaymentCurves)>> =
+        let new_delinquencies_parameters: MutexGuard<Vec<(SystemTime, PaymentThresholds)>> =
             new_delinquencies_parameters_arc.lock().unwrap();
         assert_eq!(
-            DEFAULT_PAYMENT_CURVES.clone(),
+            DEFAULT_PAYMENT_THRESHOLDS.clone(),
             new_delinquencies_parameters[0].1
         );
-        let paid_delinquencies_parameters: MutexGuard<Vec<PaymentCurves>> =
+        let paid_delinquencies_parameters: MutexGuard<Vec<PaymentThresholds>> =
             paid_delinquencies_parameters_arc.lock().unwrap();
         assert_eq!(
-            DEFAULT_PAYMENT_CURVES.clone(),
+            DEFAULT_PAYMENT_THRESHOLDS.clone(),
             paid_delinquencies_parameters[0]
         );
         let ban_parameters = ban_parameters_arc.lock().unwrap();
@@ -3327,28 +3326,28 @@ mod tests {
     #[test]
     fn payables_debug_summary_prints_pretty_summary() {
         let now = to_time_t(SystemTime::now());
-        let payment_curves = PaymentCurves {
-            balance_decreases_for_sec: 2_592_000,
-            balance_to_decrease_from_gwei: 1_000_000_000,
-            payment_grace_before_ban_sec: 86_400,
-            payment_suggested_after_sec: 86_400,
+        let payment_thresholds = PaymentThresholds {
+            threshold_interval_sec: 2_592_000,
+            debt_threshold_gwei: 1_000_000_000,
+            payment_grace_period_sec: 86_400,
+            maturity_threshold_sec: 86_400,
             permanent_debt_allowed_gwei: 10_000_000,
-            unban_when_balance_below_gwei: 10_000_000,
+            unban_below_gwei: 10_000_000,
         };
         let qualified_payables = &[
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: payment_curves.permanent_debt_allowed_gwei + 1000,
+                balance: payment_thresholds.permanent_debt_allowed_gwei + 1000,
                 last_paid_timestamp: from_time_t(
-                    now - payment_curves.balance_decreases_for_sec - 1234,
+                    now - payment_thresholds.threshold_interval_sec - 1234,
                 ),
                 pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: payment_curves.permanent_debt_allowed_gwei + 1,
+                balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
                 last_paid_timestamp: from_time_t(
-                    now - payment_curves.balance_decreases_for_sec - 1,
+                    now - payment_thresholds.threshold_interval_sec - 1,
                 ),
                 pending_payable_opt: None,
             },
@@ -3358,7 +3357,7 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .build();
-        subject.config.payment_curves = payment_curves;
+        subject.config.payment_thresholds = payment_thresholds;
 
         let result = subject.payables_debug_summary(qualified_payables);
 
@@ -3370,7 +3369,7 @@ mod tests {
     }
 
     #[test]
-    fn threshold_calculation_depends_on_user_defined_payment_curves() {
+    fn threshold_calculation_depends_on_user_defined_payment_thresholds() {
         let safe_age_params_arc = Arc::new(Mutex::new(vec![]));
         let safe_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let calculate_payable_threshold_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3383,28 +3382,28 @@ mod tests {
             last_paid_timestamp,
             pending_payable_opt: None,
         };
-        let custom_payment_curves = PaymentCurves {
-            payment_suggested_after_sec: 1111,
-            payment_grace_before_ban_sec: 2222,
+        let custom_payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 1111,
+            payment_grace_period_sec: 2222,
             permanent_debt_allowed_gwei: 3333,
-            balance_to_decrease_from_gwei: 4444,
-            balance_decreases_for_sec: 5555,
-            unban_when_balance_below_gwei: 3333,
+            debt_threshold_gwei: 4444,
+            threshold_interval_sec: 5555,
+            unban_below_gwei: 3333,
         };
         let mut bootstrapper_config = BootstrapperConfig::default();
         bootstrapper_config.accountant_config_opt = Some(AccountantConfig {
             scan_intervals: Default::default(),
-            payment_curves: custom_payment_curves,
+            payment_thresholds: custom_payment_thresholds,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         });
         let payable_thresholds_tools = PayableThresholdToolsMock::default()
-            .safe_age_params(&safe_age_params_arc)
-            .safe_age_result(
+            .is_innocent_age_params(&safe_age_params_arc)
+            .is_innocent_age_result(
                 how_far_in_past.as_secs()
-                    <= custom_payment_curves.payment_suggested_after_sec as u64,
+                    <= custom_payment_thresholds.maturity_threshold_sec as u64,
             )
-            .safe_balance_params(&safe_balance_params_arc)
-            .safe_balance_result(balance <= custom_payment_curves.permanent_debt_allowed_gwei)
+            .is_innocent_balance_params(&safe_balance_params_arc)
+            .is_innocent_balance_result(balance <= custom_payment_thresholds.permanent_debt_allowed_gwei)
             .calculate_payout_threshold_params(&calculate_payable_threshold_params_arc)
             .calculate_payout_threshold_result(4567.0); //made up value
         let mut subject = AccountantBuilder::default()
@@ -3425,26 +3424,26 @@ mod tests {
         );
         assert_eq!(
             curve_derived_time,
-            custom_payment_curves.payment_suggested_after_sec as u64
+            custom_payment_thresholds.maturity_threshold_sec as u64
         );
         let safe_balance_params = safe_balance_params_arc.lock().unwrap();
         assert_eq!(
             *safe_balance_params,
             vec![(
                 payable_account.balance,
-                custom_payment_curves.permanent_debt_allowed_gwei
+                custom_payment_thresholds.permanent_debt_allowed_gwei
             )]
         );
         let mut calculate_payable_curves_params =
             calculate_payable_threshold_params_arc.lock().unwrap();
         let calculate_payable_curves_single_params = calculate_payable_curves_params.remove(0);
         assert_eq!(*calculate_payable_curves_params, vec![]);
-        let (payment_curves, time_elapsed) = calculate_payable_curves_single_params;
+        let (payment_thresholds, time_elapsed) = calculate_payable_curves_single_params;
         assert!(
             (how_far_in_past.as_secs() - 3) < time_elapsed
                 && time_elapsed < (how_far_in_past.as_secs() + 3)
         );
-        assert_eq!(payment_curves, custom_payment_curves)
+        assert_eq!(payment_thresholds, custom_payment_thresholds)
     }
 
     #[test]
@@ -3474,15 +3473,15 @@ mod tests {
         let rowid_for_account_2 = 5;
         let now = SystemTime::now();
         let past_payable_timestamp_1 = now.sub(Duration::from_secs(
-            (DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec + 555) as u64,
+            (DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 555) as u64,
         ));
         let past_payable_timestamp_2 = now.sub(Duration::from_secs(
-            (DEFAULT_PAYMENT_CURVES.payment_suggested_after_sec + 50) as u64,
+            (DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 50) as u64,
         ));
         let this_payable_timestamp_1 = now;
         let this_payable_timestamp_2 = now.add(Duration::from_millis(50));
-        let payable_account_balance_1 = DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 10;
-        let payable_account_balance_2 = DEFAULT_PAYMENT_CURVES.balance_to_decrease_from_gwei + 666;
+        let payable_account_balance_1 = DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 10;
+        let payable_account_balance_2 = DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 666;
         let transaction_receipt_tx_2_first_round = TransactionReceipt::default();
         let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
         let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
@@ -3550,7 +3549,7 @@ mod tests {
                         pending_payable_scan_interval,
                     ),
                 },
-                payment_curves: *DEFAULT_PAYMENT_CURVES,
+                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
             make_wallet("some_wallet_address"),

@@ -8,10 +8,10 @@ use crate::sub_lib::versioned_data::{
 };
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
-use masq_lib::combined_parameters::RatePack;
 use serde_cbor::Value;
 use std::collections::BTreeSet;
 use std::convert::TryFrom;
+use crate::sub_lib::combined_parameters::RatePack;
 
 lazy_static! {
     pub static ref MIGRATIONS: Migrations = {
@@ -160,10 +160,9 @@ impl NodeRecordInner_0v1 {
 mod tests {
     use super::*;
     use crate::sub_lib::versioned_data::DataVersion;
-    use masq_lib::combined_parameters::RatePack;
-    use masq_lib::constants::DEFAULT_RATE_PACK;
     use serde_derive::{Deserialize, Serialize};
     use std::iter::FromIterator;
+    use crate::sub_lib::combined_parameters::DEFAULT_RATE_PACK;
 
     #[test]
     fn can_migrate_from_the_future() {

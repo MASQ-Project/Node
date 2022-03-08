@@ -18,7 +18,6 @@ pub mod blockchains;
 pub mod command;
 #[macro_use]
 pub mod constants;
-pub mod combined_parameters;
 pub mod crash_point;
 pub mod shared_schema;
 pub mod test_utils;

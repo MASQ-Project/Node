@@ -5,11 +5,11 @@
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
-use masq_lib::combined_parameters::{PaymentCurves, RatePack, ScanIntervals};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -54,9 +54,9 @@ pub struct PersistentConfigurationMock {
     start_block_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
     set_start_block_params: Arc<Mutex<Vec<u64>>>,
     set_start_block_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    payment_curves_results: RefCell<Vec<Result<PaymentCurves, PersistentConfigError>>>,
-    set_payment_curves_params: Arc<Mutex<Vec<String>>>,
-    set_payment_curves_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    payment_thresholds_results: RefCell<Vec<Result<PaymentThresholds, PersistentConfigError>>>,
+    set_payment_thresholds_params: Arc<Mutex<Vec<String>>>,
+    set_payment_thresholds_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     rate_pack_results: RefCell<Vec<Result<RatePack, PersistentConfigError>>>,
     set_rate_pack_params: Arc<Mutex<Vec<String>>>,
     set_rate_pack_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
@@ -231,13 +231,13 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_wallet_info_results.borrow_mut().remove(0)
     }
 
-    fn payment_curves(&self) -> Result<PaymentCurves, PersistentConfigError> {
-        self.payment_curves_results.borrow_mut().remove(0)
+    fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError> {
+        self.payment_thresholds_results.borrow_mut().remove(0)
     }
 
-    fn set_payment_curves(&mut self, curves: String) -> Result<(), PersistentConfigError> {
-        self.set_payment_curves_params.lock().unwrap().push(curves);
-        self.set_payment_curves_results.borrow_mut().remove(0)
+    fn set_payment_thresholds(&mut self, curves: String) -> Result<(), PersistentConfigError> {
+        self.set_payment_thresholds_params.lock().unwrap().push(curves);
+        self.set_payment_thresholds_results.borrow_mut().remove(0)
     }
 
     fn rate_pack(&self) -> Result<RatePack, PersistentConfigError> {
@@ -530,21 +530,21 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn payment_curves_result(
+    pub fn payment_thresholds_result(
         self,
-        result: Result<PaymentCurves, PersistentConfigError>,
+        result: Result<PaymentThresholds, PersistentConfigError>,
     ) -> Self {
-        self.payment_curves_results.borrow_mut().push(result);
+        self.payment_thresholds_results.borrow_mut().push(result);
         self
     }
 
-    pub fn set_payment_curves_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
-        self.set_payment_curves_params = params.clone();
+    pub fn set_payment_thresholds_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.set_payment_thresholds_params = params.clone();
         self
     }
 
-    pub fn set_payment_curves_result(self, result: Result<(), PersistentConfigError>) -> Self {
-        self.set_payment_curves_results.borrow_mut().push(result);
+    pub fn set_payment_thresholds_result(self, result: Result<(), PersistentConfigError>) -> Self {
+        self.set_payment_thresholds_results.borrow_mut().push(result);
         self
     }
 

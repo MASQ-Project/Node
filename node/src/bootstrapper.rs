@@ -2075,7 +2075,6 @@ mod tests {
             config: BootstrapperConfig,
             _actor_factory: Box<dyn ActorFactory>,
             _persist_config: &dyn PersistentConfiguration,
-            // _tools: &dyn ActorSystemFactoryTools,
         ) -> StreamHandlerPoolSubs {
             let mut parameter_guard = self.dnss.lock().unwrap();
             let parameter_ref = parameter_guard.deref_mut();

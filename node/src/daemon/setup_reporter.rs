@@ -27,7 +27,7 @@ use clap::value_t;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain as BlockChain;
 use masq_lib::constants::{
-    DEFAULT_CHAIN, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
+    DEFAULT_CHAIN
 };
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
@@ -43,6 +43,7 @@ use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use crate::sub_lib::combined_parameters::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
@@ -86,7 +87,7 @@ impl SetupReporter for SetupReporterReal {
                 };
             });
         //TODO investigate this, not sure if the right way to solve the issue
-        //answers an attempt to blank out chain beyond an error resulting in chain different from data_dir
+        //answers an attempt to blank out 'chain' behind an error resulting in chain different from data_dir
         let _ = blanked_out_former_values.remove("chain");
         let mut incoming_setup = incoming_setup
             .into_iter()
@@ -852,10 +853,10 @@ impl ValueRetriever for Neighbors {
     }
 }
 
-struct PaymentCurves {}
-impl ValueRetriever for PaymentCurves {
+struct PaymentThresholds {}
+impl ValueRetriever for PaymentThresholds {
     fn value_name(&self) -> &'static str {
-        "payment-curves"
+        "payment-thresholds"
     }
 
     fn computed_default(
@@ -864,8 +865,8 @@ impl ValueRetriever for PaymentCurves {
         pc: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        let pc_value = pc.payment_curves().expectv("payment-curves");
-        payment_curves_rate_pack_and_scan_intervals(pc_value, *DEFAULT_PAYMENT_CURVES)
+        let pc_value = pc.payment_thresholds().expectv("payment-thresholds");
+        payment_thresholds_rate_pack_and_scan_intervals(pc_value, *DEFAULT_PAYMENT_THRESHOLDS)
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -891,7 +892,7 @@ impl ValueRetriever for RatePack {
             _ => return None,
         }
         let pc_value = pc.rate_pack().expectv("rate-pack");
-        payment_curves_rate_pack_and_scan_intervals(pc_value, DEFAULT_RATE_PACK)
+        payment_thresholds_rate_pack_and_scan_intervals(pc_value, DEFAULT_RATE_PACK)
     }
 
     fn is_required(&self, params: &SetupCluster) -> bool {
@@ -916,7 +917,7 @@ impl ValueRetriever for ScanIntervals {
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let pc_value = pc.scan_intervals().expectv("scan-intervals");
-        payment_curves_rate_pack_and_scan_intervals(pc_value, *DEFAULT_SCAN_INTERVALS)
+        payment_thresholds_rate_pack_and_scan_intervals(pc_value, *DEFAULT_SCAN_INTERVALS)
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -924,7 +925,7 @@ impl ValueRetriever for ScanIntervals {
     }
 }
 
-fn payment_curves_rate_pack_and_scan_intervals<T>(
+fn payment_thresholds_rate_pack_and_scan_intervals<T>(
     persistent_config_value: T,
     default: T,
 ) -> Option<(String, UiSetupResponseValueStatus)>
@@ -999,7 +1000,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(MappingProtocol {}),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
-        Box::new(PaymentCurves {}),
+        Box::new(PaymentThresholds {}),
         Box::new(RatePack {}),
         Box::new(ScanIntervals {}),
         #[cfg(not(target_os = "windows"))]
@@ -1033,10 +1034,8 @@ mod tests {
     };
     use crate::test_utils::{assert_string_contains, rate_pack};
     use masq_lib::blockchains::chains::Chain as Blockchain;
-    use masq_lib::combined_parameters;
     use masq_lib::constants::{
-        DEFAULT_CHAIN, DEFAULT_GAS_PRICE, DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK,
-        DEFAULT_SCAN_INTERVALS,
+        DEFAULT_CHAIN, DEFAULT_GAS_PRICE
     };
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -1054,6 +1053,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use crate::sub_lib::combined_parameters;
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -1167,6 +1167,7 @@ mod tests {
             .set_past_neighbors(Some(vec![neighbor1, neighbor2]), "password")
             .unwrap();
         let incoming_setup = vec![
+            ("blockchain-service-url","https://well-known-provider.com"),
             ("data-directory", home_dir.to_str().unwrap()),
             ("db-password", "password"),
             ("ip", "4.3.2.1"),
@@ -1190,7 +1191,7 @@ mod tests {
             None => ("".to_string(), Required),
         };
         let expected_result = vec![
-            ("blockchain-service-url", "", Required),
+            ("blockchain-service-url", "https://well-known-provider.com", Set),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
@@ -1211,8 +1212,8 @@ mod tests {
                 Configured,
             ),
             (
-                "payment-curves",
-                &DEFAULT_PAYMENT_CURVES.to_string(),
+                "payment-thresholds",
+                &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
                 Default,
             ),
             ("rate-pack", &DEFAULT_RATE_PACK.to_string(), Default),
@@ -1269,7 +1270,7 @@ mod tests {
             ("mapping-protocol", "pmp", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
-            ("payment-curves","1234|50000|1000|1000|20000|20000",Set),
+            ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
@@ -1297,7 +1298,7 @@ mod tests {
             ("mapping-protocol", "pmp", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
-            ("payment-curves","1234|50000|1000|1000|20000|20000",Set),
+            ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
@@ -1335,7 +1336,7 @@ mod tests {
             ("mapping-protocol", "igdp"),
             ("neighborhood-mode", "originate-only"),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
-            ("payment-curves","1234|50000|1000|1000|15000|15000"),
+            ("payment-thresholds","1234|50000|1000|1000|15000|15000"),
             ("rate-pack","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga"),
@@ -1367,7 +1368,7 @@ mod tests {
             ("mapping-protocol", "igdp", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
-            ("payment-curves","1234|50000|1000|1000|15000|15000",Set),
+            ("payment-thresholds","1234|50000|1000|1000|15000|15000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
@@ -1406,7 +1407,7 @@ mod tests {
             ("MASQ_MAPPING_PROTOCOL", "pmp"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
             ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
-            ("MASQ_PAYMENT_CURVES","1234|50000|1000|1234|19000|20000"),
+            ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1234|19000|20000"),
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
@@ -1436,7 +1437,7 @@ mod tests {
             ("mapping-protocol", "pmp", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
-            ("payment-curves","1234|50000|1000|1234|19000|20000",Configured),
+            ("payment-thresholds","1234|50000|1000|1234|19000|20000",Configured),
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
@@ -1493,7 +1494,7 @@ mod tests {
                 .unwrap();
             config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();
             config_file
-                .write_all(b"payment-curves = \"33|55|33|646|999|999\"\n")
+                .write_all(b"payment-thresholds = \"33|55|33|646|999|999\"\n")
                 .unwrap();
             config_file
                 .write_all(b"scan-intervals = \"111|100|99\"\n")
@@ -1536,7 +1537,7 @@ mod tests {
                 .write_all(b"rate-pack = \"55|50|60|61\"\n")
                 .unwrap();
             config_file
-                .write_all(b"payment-curves = \"1000|1000|3000|3333|10000|20000\"\n")
+                .write_all(b"payment-thresholds = \"1000|1000|3000|3333|10000|20000\"\n")
                 .unwrap();
             config_file
                 .write_all(b"scan-intervals = \"555|555|555\"\n")
@@ -1593,7 +1594,7 @@ mod tests {
             ("neighborhood-mode", "zero-hop", Configured),
             ("neighbors", "", Blank),
             (
-                "payment-curves",
+                "payment-thresholds",
                 "1000|1000|3000|3333|10000|20000",
                 Configured,
             ),
@@ -1624,7 +1625,6 @@ mod tests {
     }
 
     #[test]
-    //TODO we should change the name of this test - these are including the requireds, maybe 'all but fundamentals'?
     fn get_modified_setup_database_nonexistent_all_but_requireds_cleared() {
         let _guard = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
@@ -1632,22 +1632,19 @@ mod tests {
             "get_modified_setup_database_nonexistent_all_but_requireds_cleared",
         );
         vec![
-            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("MASQ_CRASH_POINT", "Panic"),
             ("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
-            ("MASQ_DB_PASSWORD", "password"),
             ("MASQ_DNS_SERVERS", "8.8.8.8"),
             ("MASQ_EARNING_WALLET", "0x0123456789012345678901234567890123456789"),
             ("MASQ_GAS_PRICE", "50"),
-            ("MASQ_IP", "4.3.2.1"),
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_MAPPING_PROTOCOL", "pcp"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
             ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
-            ("MASQ_PAYMENT_CURVES","1234|50000|1000|1000|20000|20000"),
+            ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1000|20000|20000"),
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
@@ -1670,7 +1667,7 @@ mod tests {
             "mapping-protocol",
             "neighborhood-mode",
             "neighbors",
-            "payment-curves",
+            "payment-thresholds",
             "rate-pack",
             #[cfg(not(target_os = "windows"))]
             "real-user",
@@ -1706,7 +1703,7 @@ mod tests {
                 "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@9.10.11.12:9101",
                 Set,
             ),
-            ("payment-curves", "4321|66666|777|987|123456|124444", Set),
+            ("payment-thresholds", "4321|66666|777|987|123456|124444", Set),
             ("rate-pack", "10|30|13|28", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "6666:6666:agoob", Set),
@@ -1718,14 +1715,14 @@ mod tests {
         let result = subject.get_modified_setup(existing_setup, params).unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "https://example.com", Configured),
+            ("blockchain-service-url", "", Required),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
             ("crash-point", "Panic", Configured),
             ("data-directory", home_dir.to_str().unwrap(), Configured),
-            ("db-password", "password", Configured),
+            ("db-password", "",Required),
             ("dns-servers", "8.8.8.8", Configured),
             (
                 "earning-wallet",
@@ -1733,12 +1730,12 @@ mod tests {
                 Configured,
             ),
             ("gas-price", "50", Configured),
-            ("ip", "4.3.2.1", Configured),
+            ("ip","", Blank),
             ("log-level", "error", Configured),
             ("mapping-protocol", "pcp", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
-            ("payment-curves","1234|50000|1000|1000|20000|20000",Configured),
+            ("payment-thresholds","1234|50000|1000|1000|20000|20000",Configured),
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
@@ -1876,7 +1873,6 @@ mod tests {
 
     #[test]
     fn get_modified_setup_data_directory_trying_to_blank_chain_out_on_error() {
-        //by blanking the original chain the default value is set to its place
         let _guard = EnvironmentGuard::new();
         let base_dir = ensure_node_home_directory_exists(
             "setup_reporter",
@@ -3052,25 +3048,25 @@ mod tests {
     }
 
     #[test]
-    fn payment_curves_computed_default_when_persistent_config_like_default() {
+    fn payment_thresholds_computed_default_when_persistent_config_like_default() {
         assert_computed_default_when_persistent_config_like_default(
-            &PaymentCurves {},
-            DEFAULT_PAYMENT_CURVES.to_string(),
+            &PaymentThresholds {},
+            DEFAULT_PAYMENT_THRESHOLDS.to_string(),
         )
     }
 
     #[test]
-    fn payment_curves_computed_default_persistent_config_unequal_to_default() {
-        let mut payment_curves = *DEFAULT_PAYMENT_CURVES;
-        payment_curves.payment_suggested_after_sec += 12;
-        payment_curves.unban_when_balance_below_gwei -= 11;
-        payment_curves.balance_to_decrease_from_gwei += 1111;
+    fn payment_thresholds_computed_default_persistent_config_unequal_to_default() {
+        let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
+        payment_thresholds.maturity_threshold_sec += 12;
+        payment_thresholds.unban_below_gwei -= 11;
+        payment_thresholds.debt_threshold_gwei += 1111;
 
         assert_computed_default_when_persistent_config_unequal_to_default(
-            &PaymentCurves {},
-            payment_curves,
-            &|p_c: PersistentConfigurationMock, value: combined_parameters::PaymentCurves| {
-                p_c.payment_curves_result(Ok(value))
+            &PaymentThresholds {},
+            payment_thresholds,
+            &|p_c: PersistentConfigurationMock, value: combined_parameters::PaymentThresholds| {
+                p_c.payment_thresholds_result(Ok(value))
             },
         )
     }
@@ -3231,7 +3227,7 @@ mod tests {
         assert_eq!(MappingProtocol {}.is_required(&params), false);
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
-        assert_eq!(setup_reporter::PaymentCurves {}.is_required(&params), true);
+        assert_eq!(setup_reporter::PaymentThresholds {}.is_required(&params), true);
         assert_eq!(ScanIntervals {}.is_required(&params), true);
         assert_eq!(
             crate::daemon::setup_reporter::RealUser::default().is_required(&params),
@@ -3260,8 +3256,8 @@ mod tests {
         assert_eq!(NeighborhoodMode {}.value_name(), "neighborhood-mode");
         assert_eq!(Neighbors {}.value_name(), "neighbors");
         assert_eq!(
-            setup_reporter::PaymentCurves {}.value_name(),
-            "payment-curves"
+            setup_reporter::PaymentThresholds {}.value_name(),
+            "payment-thresholds"
         );
         assert_eq!(setup_reporter::RatePack {}.value_name(), "rate-pack");
         assert_eq!(ScanIntervals {}.value_name(), "scan-intervals");

@@ -16,7 +16,7 @@ use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::iter::once;
 
-const COLUMN_WIDTH: usize = 34;
+const COLUMN_WIDTH: usize = 33;
 
 #[derive(Debug, PartialEq)]
 pub struct ConfigurationCommand {
@@ -122,27 +122,22 @@ impl ConfigurationCommand {
             &configuration.start_block.to_string(),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
-        let payment_curves = Self::preprocess_combined_parameters({
-            let p_c = &configuration.payment_curves;
+        let payment_thresholds = Self::preprocess_combined_parameters({
+            let p_c = &configuration.payment_thresholds;
             &[
                 (
-                    "Balance decreases for:",
-                    &p_c.balance_decreases_for_sec,
-                    "s",
-                ),
-                (
-                    "Balance to decrease from:",
-                    &p_c.balance_to_decrease_from_gwei,
+                    "Debt threshold:",
+                    &p_c.debt_threshold_gwei,
                     "Gwei",
                 ),
                 (
-                    "Payment grace before ban:",
-                    &p_c.payment_grace_before_ban_sec,
+                    "Maturity threshold:",
+                    &p_c.maturity_threshold_sec,
                     "s",
                 ),
                 (
-                    "Payment suggested after:",
-                    &p_c.payment_suggested_after_sec,
+                    "Payment grace period:",
+                    &p_c.payment_grace_period_sec,
                     "s",
                 ),
                 (
@@ -151,13 +146,18 @@ impl ConfigurationCommand {
                     "Gwei",
                 ),
                 (
-                    "Unban when balance below:",
-                    &p_c.unban_when_balance_below_gwei,
+                    "Threshold interval:",
+                    &p_c.threshold_interval_sec,
+                    "s",
+                ),
+                (
+                    "Unban below:",
+                    &p_c.unban_below_gwei,
                     "Gwei",
                 ),
             ]
         });
-        Self::dump_value_list(stream, "Payment curves:", &payment_curves);
+        Self::dump_value_list(stream, "Payment thresholds:", &payment_thresholds);
         let rate_pack = Self::preprocess_combined_parameters({
             let r_p = &configuration.rate_pack;
             &[
@@ -230,7 +230,7 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{
-        ToMessageBody, UiConfigurationResponse, UiPaymentCurves, UiRatePack, UiScanIntervals,
+        ToMessageBody, UiConfigurationResponse, UiPaymentThresholds, UiRatePack, UiScanIntervals,
     };
     use masq_lib::utils::AutomapProtocol;
     use std::sync::{Arc, Mutex};
@@ -312,13 +312,13 @@ mod tests {
             earning_wallet_address_opt: Some("earning address".to_string()),
             port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
             past_neighbors: vec!["neighbor 1".to_string(), "neighbor 2".to_string()],
-            payment_curves: UiPaymentCurves {
-                balance_decreases_for_sec: 11111,
-                balance_to_decrease_from_gwei: 1212,
-                payment_grace_before_ban_sec: 4578,
-                payment_suggested_after_sec: 3333,
+            payment_thresholds: UiPaymentThresholds {
+                threshold_interval_sec: 11111,
+                debt_threshold_gwei: 1212,
+                payment_grace_period_sec: 4578,
                 permanent_debt_allowed_gwei: 11222,
-                unban_when_balance_below_gwei: 12000,
+                maturity_threshold_sec: 3333,
+                unban_below_gwei: 12000
             },
             rate_pack: UiRatePack {
                 routing_byte_rate: 8,
@@ -360,35 +360,35 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
             format!(
                 "\
-|NAME                               VALUE\n\
-|Blockchain service URL:            https://infura.io/ID\n\
-|Chain:                             ropsten\n\
-|Clandestine port:                  1234\n\
-|Consuming wallet private key:      consuming wallet private key\n\
-|Current schema version:            schema version\n\
-|Earning wallet address:            earning address\n\
-|Gas price:                         2345\n\
-|Neighborhood mode:                 standard\n\
-|Port mapping protocol:             PCP\n\
-|Start block:                       3456\n\
-|Past neighbors:                    neighbor 1\n\
-|                                   neighbor 2\n\
-|Payment curves:                    \n\
-|                                   Balance decreases for:             11111 s\n\
-|                                   Balance to decrease from:          1212 Gwei\n\
-|                                   Payment grace before ban:          4578 s\n\
-|                                   Payment suggested after:           3333 s\n\
-|                                   Permanent debt allowed:            11222 Gwei\n\
-|                                   Unban when balance below:          12000 Gwei\n\
-|Rate pack:                         \n\
-|                                   Routing byte rate:                 8 Gwei\n\
-|                                   Routing service rate:              9 Gwei\n\
-|                                   Exit byte rate:                    12 Gwei\n\
-|                                   Exit service rate:                 14 Gwei\n\
-|Scan intervals:                    \n\
-|                                   Pending payable:                   150 s\n\
-|                                   Payable:                           155 s\n\
-|                                   Receivable:                        250 s\n"
+|NAME                              VALUE\n\
+|Blockchain service URL:           https://infura.io/ID\n\
+|Chain:                            ropsten\n\
+|Clandestine port:                 1234\n\
+|Consuming wallet private key:     consuming wallet private key\n\
+|Current schema version:           schema version\n\
+|Earning wallet address:           earning address\n\
+|Gas price:                        2345\n\
+|Neighborhood mode:                standard\n\
+|Port mapping protocol:            PCP\n\
+|Start block:                      3456\n\
+|Past neighbors:                   neighbor 1\n\
+|                                  neighbor 2\n\
+|Payment thresholds:               \n\
+|                                  Debt threshold:                   1212 Gwei\n\
+|                                  Maturity threshold:               3333 s\n\
+|                                  Payment grace period:             4578 s\n\
+|                                  Permanent debt allowed:           11222 Gwei\n\
+|                                  Threshold interval:               11111 s\n\
+|                                  Unban below:                      12000 Gwei\n\
+|Rate pack:                        \n\
+|                                  Routing byte rate:                8 Gwei\n\
+|                                  Routing service rate:             9 Gwei\n\
+|                                  Exit byte rate:                   12 Gwei\n\
+|                                  Exit service rate:                14 Gwei\n\
+|Scan intervals:                   \n\
+|                                  Pending payable:                  150 s\n\
+|                                  Payable:                          155 s\n\
+|                                  Receivable:                       250 s\n"
             )
             .replace('|', "")
         );
@@ -410,13 +410,13 @@ mod tests {
             earning_wallet_address_opt: Some("earning wallet".to_string()),
             port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
             past_neighbors: vec![],
-            payment_curves: UiPaymentCurves {
-                balance_decreases_for_sec: 1000,
-                balance_to_decrease_from_gwei: 2500,
-                payment_suggested_after_sec: 500,
-                payment_grace_before_ban_sec: 666,
+            payment_thresholds: UiPaymentThresholds {
+                threshold_interval_sec: 1000,
+                debt_threshold_gwei: 2500,
+                payment_grace_period_sec: 666,
                 permanent_debt_allowed_gwei: 1200,
-                unban_when_balance_below_gwei: 1400,
+                maturity_threshold_sec: 500,
+                unban_below_gwei: 1400
             },
             rate_pack: UiRatePack {
                 routing_byte_rate: 15,
@@ -456,34 +456,34 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
             format!(
                 "\
-|NAME                               VALUE\n\
-|Blockchain service URL:            https://infura.io/ID\n\
-|Chain:                             mumbai\n\
-|Clandestine port:                  1234\n\
-|Consuming wallet private key:      [?]\n\
-|Current schema version:            schema version\n\
-|Earning wallet address:            earning wallet\n\
-|Gas price:                         2345\n\
-|Neighborhood mode:                 zero-hop\n\
-|Port mapping protocol:             PCP\n\
-|Start block:                       3456\n\
-|Past neighbors:                    [?]\n\
-|Payment curves:                    \n\
-|                                   Balance decreases for:             1000 s\n\
-|                                   Balance to decrease from:          2500 Gwei\n\
-|                                   Payment grace before ban:          666 s\n\
-|                                   Payment suggested after:           500 s\n\
-|                                   Permanent debt allowed:            1200 Gwei\n\
-|                                   Unban when balance below:          1400 Gwei\n\
-|Rate pack:                         \n\
-|                                   Routing byte rate:                 15 Gwei\n\
-|                                   Routing service rate:              17 Gwei\n\
-|                                   Exit byte rate:                    20 Gwei\n\
-|                                   Exit service rate:                 30 Gwei\n\
-|Scan intervals:                    \n\
-|                                   Pending payable:                   1000 s\n\
-|                                   Payable:                           1000 s\n\
-|                                   Receivable:                        1000 s\n",
+|NAME                              VALUE\n\
+|Blockchain service URL:           https://infura.io/ID\n\
+|Chain:                            mumbai\n\
+|Clandestine port:                 1234\n\
+|Consuming wallet private key:     [?]\n\
+|Current schema version:           schema version\n\
+|Earning wallet address:           earning wallet\n\
+|Gas price:                        2345\n\
+|Neighborhood mode:                zero-hop\n\
+|Port mapping protocol:            PCP\n\
+|Start block:                      3456\n\
+|Past neighbors:                   [?]\n\
+|Payment thresholds:               \n\
+|                                  Debt threshold:                   2500 Gwei\n\
+|                                  Maturity threshold:               500 s\n\
+|                                  Payment grace period:             666 s\n\
+|                                  Permanent debt allowed:           1200 Gwei\n\
+|                                  Threshold interval:               1000 s\n\
+|                                  Unban below:                      1400 Gwei\n\
+|Rate pack:                        \n\
+|                                  Routing byte rate:                15 Gwei\n\
+|                                  Routing service rate:             17 Gwei\n\
+|                                  Exit byte rate:                   20 Gwei\n\
+|                                  Exit service rate:                30 Gwei\n\
+|Scan intervals:                   \n\
+|                                  Pending payable:                  1000 s\n\
+|                                  Payable:                          1000 s\n\
+|                                  Receivable:                       1000 s\n",
             )
             .replace('|', "")
         );

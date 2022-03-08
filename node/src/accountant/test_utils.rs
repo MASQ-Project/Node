@@ -11,7 +11,7 @@ use crate::accountant::pending_payable_dao::{
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::{Accountant, PaymentCurves, PendingPayableId};
+use crate::accountant::{Accountant, PendingPayableId};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::Transaction;
@@ -32,6 +32,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use crate::sub_lib::combined_parameters::PaymentThresholds;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -446,9 +447,9 @@ pub struct ReceivableDaoMock {
     more_money_received_parameters: Arc<Mutex<Vec<Vec<Transaction>>>>,
     more_money_received_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     receivables_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-    new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentCurves)>>>,
+    new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentThresholds)>>>,
     new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-    paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentCurves>>>,
+    paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentThresholds>>>,
     paid_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
     top_records_results: RefCell<Vec<Vec<ReceivableAccount>>>,
@@ -492,12 +493,12 @@ impl ReceivableDao for ReceivableDaoMock {
     fn new_delinquencies(
         &self,
         now: SystemTime,
-        payment_curves: &PaymentCurves,
+        payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
         self.new_delinquencies_parameters
             .lock()
             .unwrap()
-            .push((now, payment_curves.clone()));
+            .push((now, payment_thresholds.clone()));
         if self.new_delinquencies_results.borrow().is_empty()
             && self.have_new_delinquencies_shutdown_the_system
         {
@@ -507,11 +508,11 @@ impl ReceivableDao for ReceivableDaoMock {
         self.new_delinquencies_results.borrow_mut().remove(0)
     }
 
-    fn paid_delinquencies(&self, payment_curves: &PaymentCurves) -> Vec<ReceivableAccount> {
+    fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount> {
         self.paid_delinquencies_parameters
             .lock()
             .unwrap()
-            .push(payment_curves.clone());
+            .push(payment_thresholds.clone());
         self.paid_delinquencies_results.borrow_mut().remove(0)
     }
 
@@ -561,7 +562,7 @@ impl ReceivableDaoMock {
 
     pub fn new_delinquencies_parameters(
         mut self,
-        parameters: &Arc<Mutex<Vec<(SystemTime, PaymentCurves)>>>,
+        parameters: &Arc<Mutex<Vec<(SystemTime, PaymentThresholds)>>>,
     ) -> Self {
         self.new_delinquencies_parameters = parameters.clone();
         self
@@ -574,7 +575,7 @@ impl ReceivableDaoMock {
 
     pub fn paid_delinquencies_parameters(
         mut self,
-        parameters: &Arc<Mutex<Vec<PaymentCurves>>>,
+        parameters: &Arc<Mutex<Vec<PaymentThresholds>>>,
     ) -> Self {
         self.paid_delinquencies_parameters = parameters.clone();
         self

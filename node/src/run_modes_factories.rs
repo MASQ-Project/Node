@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "value for 'node_lib::run_modes_factories::ClusteredParams' badly prepared"
+        expected = "value for 'node_lib::run_modes_factories::DIClusteredParams' badly prepared"
     )]
     fn incorrect_value_in_expect_is_reasonably_displayed() {
         let cluster_params_ref_opt: RefCell<Option<DIClusteredParams>> = RefCell::new(None);

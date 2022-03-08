@@ -33,7 +33,6 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
-use masq_lib::constants::ZERO_RATE_PACK;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::localhost;
@@ -43,6 +42,7 @@ use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 use tokio::prelude::Future;
+use crate::sub_lib::combined_parameters::ZERO_RATE_PACK;
 
 // IMPORTANT: Nothing at or below the level of StreamHandlerPool should know about StreamKeys.
 // StreamKeys should exist solely between ProxyServer and ProxyClient. Many of the streams

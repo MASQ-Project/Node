@@ -1,34 +1,68 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::combined_parameters::CombinedParamsDataTypes::{I64, U64};
-use crate::constants::COMBINED_PARAMETERS_DELIMITER;
-use crate::utils::ExpectValue;
+use masq_lib::constants::COMBINED_PARAMETERS_DELIMITER;
+use masq_lib::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 use std::time::Duration;
+use lazy_static::lazy_static;
+use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::{U64,I64};
+
+lazy_static! {
+    pub static ref DEFAULT_PAYMENT_THRESHOLDS: PaymentThresholds = PaymentThresholds {
+        threshold_interval_sec: 2_592_000,
+        debt_threshold_gwei: 10_000_000_000,
+        payment_grace_period_sec: 1200,
+        maturity_threshold_sec: 1200,
+        permanent_debt_allowed_gwei: 500_000_000,
+        unban_below_gwei: 500_000_000,
+    };
+}
+
+pub const DEFAULT_RATE_PACK: RatePack = RatePack {
+    routing_byte_rate: 1,
+    routing_service_rate: 100,
+    exit_byte_rate: 3,
+    exit_service_rate: 300,
+};
+
+pub const ZERO_RATE_PACK: RatePack = RatePack {
+    routing_byte_rate: 0,
+    routing_service_rate: 0,
+    exit_byte_rate: 0,
+    exit_service_rate: 0,
+};
+
+lazy_static! {
+    pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
+        pending_payable_scan_interval: Duration::from_secs(600),
+        payable_scan_interval: Duration::from_secs(600),
+        receivable_scan_interval: Duration::from_secs(600)
+    };
+}
 
 //please, alphabetical order
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
-pub struct PaymentCurves {
-    pub balance_decreases_for_sec: i64,
-    pub balance_to_decrease_from_gwei: i64,
-    pub payment_grace_before_ban_sec: i64,
-    pub payment_suggested_after_sec: i64,
+pub struct PaymentThresholds {
+    pub threshold_interval_sec: i64,
+    pub debt_threshold_gwei: i64,
+    pub payment_grace_period_sec: i64,
+    pub maturity_threshold_sec: i64,
     pub permanent_debt_allowed_gwei: i64,
-    pub unban_when_balance_below_gwei: i64,
+    pub unban_below_gwei: i64,
 }
 
 //this code is used in tests in Accountant
-impl PaymentCurves {
+impl PaymentThresholds {
     pub fn sugg_and_grace(&self, now: i64) -> i64 {
-        now - self.payment_suggested_after_sec - self.payment_grace_before_ban_sec
+        now - self.maturity_threshold_sec - self.payment_grace_period_sec
     }
 
     pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
-        self.sugg_and_grace(now) - self.balance_decreases_for_sec
+        self.sugg_and_grace(now) - self.threshold_interval_sec
     }
 }
 
@@ -101,7 +135,7 @@ impl CombinedParamsValueRetriever {
 #[derive(Debug)]
 enum CombinedParams {
     RatePack(Option<RatePack>),
-    PaymentCurves(Option<PaymentCurves>),
+    PaymentThresholds(Option<PaymentThresholds>),
     ScanIntervals(Option<ScanIntervals>),
 }
 
@@ -171,12 +205,12 @@ impl CombinedParams {
                     "exit_service_rate",
                 ),
             })),
-            Self::PaymentCurves(None) => Self::PaymentCurves(Some(PaymentCurves {
-                payment_suggested_after_sec: CombinedParamsValueRetriever::get_value(
+            Self::PaymentThresholds(None) => Self::PaymentThresholds(Some(PaymentThresholds {
+                maturity_threshold_sec: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "payment_suggested_after_sec",
                 ),
-                payment_grace_before_ban_sec: CombinedParamsValueRetriever::get_value(
+                payment_grace_period_sec: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "payment_grace_before_ban_sec",
                 ),
@@ -184,15 +218,15 @@ impl CombinedParams {
                     &parsed_values,
                     "permanent_debt_allowed_gwei",
                 ),
-                balance_to_decrease_from_gwei: CombinedParamsValueRetriever::get_value(
+                debt_threshold_gwei: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "balance_to_decrease_from_gwei",
                 ),
-                balance_decreases_for_sec: CombinedParamsValueRetriever::get_value(
+                threshold_interval_sec: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
-                    "balance_decreases_for_sec",
+                    "threshold_interval_sec",
                 ),
-                unban_when_balance_below_gwei: CombinedParamsValueRetriever::get_value(
+                unban_below_gwei: CombinedParamsValueRetriever::get_value(
                     &parsed_values,
                     "unban_when_balance_below_gwei",
                 ),
@@ -234,8 +268,8 @@ impl From<&CombinedParams> for &[(&str, CombinedParamsDataTypes)] {
                 ("exit_byte_rate", U64),
                 ("exit_service_rate", U64),
             ],
-            CombinedParams::PaymentCurves(None) => &[
-                ("balance_decreases_for_sec", I64),
+            CombinedParams::PaymentThresholds(None) => &[
+                ("threshold_interval_sec", I64),
                 ("balance_to_decrease_from_gwei", I64),
                 ("payment_grace_before_ban_sec", I64),
                 ("payment_suggested_after_sec", I64),
@@ -271,41 +305,37 @@ impl TryFrom<&str> for ScanIntervals {
     type Error = String;
 
     fn try_from(parameters: &str) -> Result<Self, String> {
-        if let CombinedParams::ScanIntervals(Some(scan_intervals)) =
-            CombinedParams::ScanIntervals(None).parse(parameters)?
-        {
-            Ok(scan_intervals)
-        } else {
-            unreachable!("technically should never happen")
+        match CombinedParams::ScanIntervals(None).parse(parameters){
+            Ok(CombinedParams::ScanIntervals(Some(scan_intervals))) => Ok(scan_intervals),
+            Err(e) => Err(e),
+            _ => unreachable()
         }
     }
 }
 
-impl Display for PaymentCurves {
+impl Display for PaymentThresholds {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}|{}|{}|{}|{}|{}",
-            self.balance_decreases_for_sec,
-            self.balance_to_decrease_from_gwei,
-            self.payment_grace_before_ban_sec,
-            self.payment_suggested_after_sec,
+            self.threshold_interval_sec,
+            self.debt_threshold_gwei,
+            self.payment_grace_period_sec,
+            self.maturity_threshold_sec,
             self.permanent_debt_allowed_gwei,
-            self.unban_when_balance_below_gwei
+            self.unban_below_gwei
         )
     }
 }
 
-impl TryFrom<&str> for PaymentCurves {
+impl TryFrom<&str> for PaymentThresholds {
     type Error = String;
 
     fn try_from(parameters: &str) -> Result<Self, String> {
-        if let CombinedParams::PaymentCurves(Some(payment_curves)) =
-            CombinedParams::PaymentCurves(None).parse(parameters)?
-        {
-            Ok(payment_curves)
-        } else {
-            unreachable!("technically should never happen")
+        match CombinedParams::PaymentThresholds(None).parse(parameters){
+            Ok(CombinedParams::PaymentThresholds(Some(payment_thresholds))) => Ok(payment_thresholds),
+            Err(e) => Err(e),
+            _ => unreachable()
         }
     }
 }
@@ -327,22 +357,21 @@ impl TryFrom<&str> for RatePack {
     type Error = String;
 
     fn try_from(parameters: &str) -> Result<Self, String> {
-        if let CombinedParams::RatePack(Some(rate_pack)) =
-            CombinedParams::RatePack(None).parse(parameters)?
-        {
-            Ok(rate_pack)
-        } else {
-            unreachable!("technically should never happen")
+        match CombinedParams::RatePack(None).parse(parameters){
+            Ok(CombinedParams::RatePack(Some(rate_pack))) => Ok(rate_pack),
+            Err(e) => Err(e),
+            _ => unreachable()
         }
     }
 }
 
+fn unreachable() ->!{ unreachable!("technically shouldn't be possible")}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::combined_parameters::CombinedParamsDataTypes::U128;
-    use crate::constants::{DEFAULT_PAYMENT_CURVES, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS};
     use std::panic::catch_unwind;
+    use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::U128;
 
     #[test]
     fn parse_combined_params_with_delimiters_happy_path() {
@@ -418,7 +447,7 @@ mod tests {
     }
 
     #[test]
-    fn combined_params_can_be_converted_to_type_arrays() {
+    fn combined_params_can_be_converted_to_collection_of_typed_parametres() {
         let rate_pack: &[(&str, CombinedParamsDataTypes)] =
             (&CombinedParams::RatePack(None)).into();
         assert_eq!(
@@ -440,12 +469,12 @@ mod tests {
                 ("receivable_scan_interval", U64),
             ]
         );
-        let payment_curves: &[(&str, CombinedParamsDataTypes)] =
-            (&CombinedParams::PaymentCurves(None)).into();
+        let payment_thresholds: &[(&str, CombinedParamsDataTypes)] =
+            (&CombinedParams::PaymentThresholds(None)).into();
         assert_eq!(
-            payment_curves,
+            payment_thresholds,
             &[
-                ("balance_decreases_for_sec", I64),
+                ("threshold_interval_sec", I64),
                 ("balance_to_decrease_from_gwei", I64),
                 ("payment_grace_before_ban_sec", I64),
                 ("payment_suggested_after_sec", I64),
@@ -474,7 +503,7 @@ mod tests {
 
         let panic_2 = catch_unwind(|| {
             let _: &[(&str, CombinedParamsDataTypes)] =
-                (&CombinedParams::PaymentCurves(Some(*DEFAULT_PAYMENT_CURVES))).into();
+                (&CombinedParams::PaymentThresholds(Some(*DEFAULT_PAYMENT_THRESHOLDS))).into();
         })
         .unwrap_err();
         let panic_2_msg = panic_2.downcast_ref::<String>().unwrap();
@@ -482,8 +511,8 @@ mod tests {
         assert_eq!(
             panic_2_msg,
             &format!(
-                "should be called only on uninitialized object, not: PaymentCurves(Some({:?}))",
-                *DEFAULT_PAYMENT_CURVES
+                "should be called only on uninitialized object, not: PaymentThresholds(Some({:?}))",
+                *DEFAULT_PAYMENT_THRESHOLDS
             )
         );
 
@@ -520,7 +549,7 @@ mod tests {
         );
 
         let panic_2 = catch_unwind(|| {
-            (&CombinedParams::PaymentCurves(Some(*DEFAULT_PAYMENT_CURVES)))
+            (&CombinedParams::PaymentThresholds(Some(*DEFAULT_PAYMENT_THRESHOLDS)))
                 .initiate_objects(HashMap::new());
         })
         .unwrap_err();
@@ -529,8 +558,8 @@ mod tests {
         assert_eq!(
             panic_2_msg,
             &format!(
-                "should be called only on uninitialized object, not: PaymentCurves(Some({:?}))",
-                *DEFAULT_PAYMENT_CURVES
+                "should be called only on uninitialized object, not: PaymentThresholds(Some({:?}))",
+                *DEFAULT_PAYMENT_THRESHOLDS
             )
         );
 
@@ -611,36 +640,36 @@ mod tests {
     }
 
     #[test]
-    fn payment_curves_from_combined_params() {
-        let payment_curves_str = "10020|5000010|100|120|20000|18000";
+    fn payment_thresholds_from_combined_params() {
+        let payment_thresholds_str = "10020|5000010|100|120|20000|18000";
 
-        let result = PaymentCurves::try_from(payment_curves_str).unwrap();
+        let result = PaymentThresholds::try_from(payment_thresholds_str).unwrap();
 
         assert_eq!(
             result,
-            PaymentCurves {
-                balance_decreases_for_sec: 10020,
-                balance_to_decrease_from_gwei: 5000010,
-                payment_grace_before_ban_sec: 100,
-                payment_suggested_after_sec: 120,
+            PaymentThresholds {
+                threshold_interval_sec: 10020,
+                debt_threshold_gwei: 5000010,
+                payment_grace_period_sec: 100,
+                maturity_threshold_sec: 120,
                 permanent_debt_allowed_gwei: 20000,
-                unban_when_balance_below_gwei: 18000
+                unban_below_gwei: 18000
             }
         )
     }
 
     #[test]
-    fn payment_curves_to_combined_params() {
-        let payment_curves = PaymentCurves {
-            balance_decreases_for_sec: 30020,
-            balance_to_decrease_from_gwei: 5000010,
-            payment_grace_before_ban_sec: 123,
-            payment_suggested_after_sec: 120,
+    fn payment_thresholds_to_combined_params() {
+        let payment_thresholds = PaymentThresholds {
+            threshold_interval_sec: 30020,
+            debt_threshold_gwei: 5000010,
+            payment_grace_period_sec: 123,
+            maturity_threshold_sec: 120,
             permanent_debt_allowed_gwei: 20000,
-            unban_when_balance_below_gwei: 111,
+            unban_below_gwei: 111,
         };
 
-        let result = payment_curves.to_string();
+        let result = payment_thresholds.to_string();
 
         assert_eq!(result, "30020|5000010|123|120|20000|111".to_string());
     }

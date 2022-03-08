@@ -1,10 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchains::chains::Chain;
-use crate::combined_parameters::{PaymentCurves, RatePack, ScanIntervals};
 use const_format::concatcp;
-use lazy_static::lazy_static;
-use std::time::Duration;
 
 pub const DEFAULT_CHAIN: Chain = Chain::EthMainnet;
 
@@ -24,41 +21,6 @@ pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
 pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
 pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
 pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 24_638_838;
-
-//payment curves, rate pack, scan intervals
-
-lazy_static! {
-    pub static ref DEFAULT_PAYMENT_CURVES: PaymentCurves = PaymentCurves {
-        balance_decreases_for_sec: 2_592_000,
-        balance_to_decrease_from_gwei: 10_000_000_000,
-        payment_grace_before_ban_sec: 1200,
-        payment_suggested_after_sec: 1200,
-        permanent_debt_allowed_gwei: 500_000_000,
-        unban_when_balance_below_gwei: 500_000_000,
-    };
-}
-
-pub const DEFAULT_RATE_PACK: RatePack = RatePack {
-    routing_byte_rate: 1,
-    routing_service_rate: 100,
-    exit_byte_rate: 3,
-    exit_service_rate: 300,
-};
-
-pub const ZERO_RATE_PACK: RatePack = RatePack {
-    routing_byte_rate: 0,
-    routing_service_rate: 0,
-    exit_byte_rate: 0,
-    exit_service_rate: 0,
-};
-
-lazy_static! {
-    pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
-        pending_payable_scan_interval: Duration::from_secs(600),
-        payable_scan_interval: Duration::from_secs(600),
-        receivable_scan_interval: Duration::from_secs(600)
-    };
-}
 
 //error codes
 ////////////////////////////////////////////////////////////////////////////////////////////////////

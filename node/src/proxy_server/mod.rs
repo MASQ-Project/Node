@@ -43,8 +43,6 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
-use masq_lib::combined_parameters::RatePack;
-use masq_lib::constants::DEFAULT_RATE_PACK;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use pretty_hex::PrettyHex;
@@ -53,6 +51,7 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::Duration;
 use tokio::prelude::Future;
+use crate::sub_lib::combined_parameters::{DEFAULT_RATE_PACK, RatePack};
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);

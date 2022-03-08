@@ -1268,7 +1268,7 @@ mod tests {
     use serde_cbor;
     use tokio::prelude::Future;
 
-    use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_RATE_PACK, TLS_PORT};
+    use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
@@ -1308,6 +1308,7 @@ mod tests {
 
     use super::*;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::sub_lib::combined_parameters::DEFAULT_RATE_PACK;
 
     #[test]
     #[should_panic(

@@ -500,8 +500,8 @@ pub struct UiConfigurationResponse {
     pub consuming_wallet_address_opt: Option<String>,
     #[serde(rename = "pastNeighbors")]
     pub past_neighbors: Vec<String>,
-    #[serde(rename = "paymentCurves")]
-    pub payment_curves: UiPaymentCurves,
+    #[serde(rename = "paymentThresholds")]
+    pub payment_thresholds: UiPaymentThresholds,
     #[serde(rename = "ratePack")]
     pub rate_pack: UiRatePack,
     #[serde(rename = "scanIntervals")]
@@ -533,19 +533,19 @@ pub struct UiScanIntervals {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct UiPaymentCurves {
-    #[serde(rename = "balanceDecreasesForSec")]
-    pub balance_decreases_for_sec: i64,
-    #[serde(rename = "balanceToDecreaseFromGwei")]
-    pub balance_to_decrease_from_gwei: i64,
-    #[serde(rename = "paymentGraceBeforeBanSec")]
-    pub payment_grace_before_ban_sec: i64,
-    #[serde(rename = "paymentSuggestedAfterSec")]
-    pub payment_suggested_after_sec: i64,
+pub struct UiPaymentThresholds {
+    #[serde(rename = "thresholdIntervalSec")]
+    pub threshold_interval_sec: i64,
+    #[serde(rename = "debtThresholdGwei")]
+    pub debt_threshold_gwei: i64,
+    #[serde(rename = "paymentGracePeriodSec")]
+    pub payment_grace_period_sec: i64,
+    #[serde(rename = "maturityThresholdSec")]
+    pub maturity_threshold_sec: i64,
     #[serde(rename = "permanentDebtAllowedGwei")]
     pub permanent_debt_allowed_gwei: i64,
-    #[serde(rename = "unbanWhenBalanceBelowGwei")]
-    pub unban_when_balance_below_gwei: i64,
+    #[serde(rename = "unbanBelowGwei")]
+    pub unban_below_gwei: i64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
