@@ -8,7 +8,7 @@ use websocket::{ClientBuilder, OwnedMessage, WebSocketError};
 use websocket::sync::Client;
 
 use masq_lib::messages::NODE_UI_PROTOCOL;
-use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage};
+use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::utils::plus;
 

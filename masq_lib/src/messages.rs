@@ -628,9 +628,16 @@ conversation_message!(UiRecoverWalletsRequest, "recoverWallets");
 pub struct UiRecoverWalletsResponse {}
 conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+pub enum ScanType {
+    Receivables,
+    Payables,
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiScanRequest {
-    pub name: String,
+    #[serde(rename = "scanType")]
+    pub scan_type: ScanType,
 }
 conversation_message!(UiScanRequest, "scan");
 

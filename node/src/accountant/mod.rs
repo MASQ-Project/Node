@@ -35,7 +35,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
+use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiFinancialsRequest, UiScanRequest};
 use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
@@ -44,6 +44,8 @@ use receivable_dao::ReceivableDao;
 use std::ops::Add;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
+use chrono::format::Numeric::Timestamp;
+use crate::database::db_initializer::DbInitializerReal;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PAYABLES_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -146,6 +148,10 @@ impl Handler<StartMessage> for Accountant {
                 "Started with --scans off; declining to begin database and blockchain scans"
             );
         } else {
+            debug!(
+                &self.logger,
+                "Started with --scans on; starting database and blockchain scans"
+            );
             ctx.notify(ScanForPayables { repeat: true });
             ctx.notify(ScanForReceivables { repeat: true });
         }
@@ -243,8 +249,10 @@ impl Handler<NodeFromUiMessage> for Accountant {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let Ok((body, context_id)) = UiFinancialsRequest::fmb(msg.clone().body) {
+        if let Ok((body, context_id)) = UiFinancialsRequest::fmb(msg.body.clone()) {
             self.handle_financials(client_id, context_id, body);
+        } else if let Ok((body, context_id)) = UiScanRequest::fmb(msg.body.clone()) {
+            self.handle_externally_triggered_scan (body.scan_type, context_id);
         } else {
             handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
@@ -741,6 +749,15 @@ impl Accountant {
             .expect("UiGateway is dead");
     }
 
+    fn handle_externally_triggered_scan (&self, scan_type: ScanType, context_id: u64) {
+        match scan_type {
+            ScanType::Receivables => {
+                self.
+            },
+            ScanType::Payables => todo! (),
+        }
+    }
+
     pub fn dao_factory(data_directory: &Path) -> DaoFactoryReal {
         DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
     }
@@ -788,10 +805,12 @@ pub mod tests {
     use std::rc::Rc;
     use std::sync::Mutex;
     use std::sync::{Arc, MutexGuard};
+    use std::thread;
     use std::time::Duration;
     use std::time::SystemTime;
     use web3::types::H256;
     use web3::types::U256;
+    use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
@@ -956,6 +975,7 @@ pub mod tests {
         more_money_receivable_results: RefCell<Vec<Result<(), PaymentError>>>,
         more_money_received_parameters: Arc<Mutex<Vec<Vec<Transaction>>>>,
         more_money_received_results: RefCell<Vec<Result<(), PaymentError>>>,
+        receivables_parameters: Arc<Mutex<Vec<()>>>,
         receivables_results: RefCell<Vec<Vec<ReceivableAccount>>>,
         new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentCurves)>>>,
         new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
@@ -1070,6 +1090,16 @@ pub mod tests {
 
         fn more_money_received_result(self, result: Result<(), PaymentError>) -> Self {
             self.more_money_received_results.borrow_mut().push(result);
+            self
+        }
+
+        fn receivables_parameters(mut self, parameters: &Arc<Mutex<Vec<()>>>) -> Self {
+            self.receivables_parameters = parameters.clone();
+            self
+        }
+
+        fn receivables_result(self, result: Vec<ReceivableAccount>) -> Self {
+            self.receivables_results.borrow_mut().push (result);
             self
         }
 
@@ -1360,6 +1390,58 @@ pub mod tests {
                 total_receivable: 98765432
             }
         );
+    }
+
+    #[test]
+    fn scan_receivables_request() {
+        let subject = make_subject(
+            Some(bc_from_ac_plus_earning_wallet(
+                AccountantConfig {
+                    payables_scan_interval: Duration::from_millis(10_000),
+                    receivables_scan_interval: Duration::from_millis(10_000),
+                    suppress_initial_scans: true,
+                },
+                make_wallet("some_wallet_address"),
+            )),
+            None,
+            None,
+            None,
+        );
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder()
+            .ui_gateway(ui_gateway)
+            .accountant(accountant)
+            .build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let ui_message = NodeFromUiMessage {
+            client_id: 1234,
+            body: UiScanRequest {scan_type: ScanType::Receivables}.tmb(4321),
+        };
+        let join_handle = thread::spawn (move || {
+            let system = System::new("test");
+
+            subject_addr.try_send(ui_message).unwrap();
+
+            system.run();
+        });
+        accountant_awaiter.await_message_count (1);
+        System::current().stop();
+        join_handle.join().unwrap();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(
+            accountant_recording.get_record::<ScanForReceivables> (0),
+            &ScanForReceivables { repeat: false }
+        );
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(
+            ui_gateway_recording.get_record::<NodeToUiMessage> (0),
+            &NodeToUiMessage {
+                target: MessageTarget::ClientId(1234),
+                body: UiScanResponse {}.tmb (4321),
+            }
+        )
     }
 
     #[test]

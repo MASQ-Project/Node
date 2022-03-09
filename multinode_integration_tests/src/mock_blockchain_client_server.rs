@@ -1,16 +1,18 @@
 // Copyright (c) 2022, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
-use lazy_static::lazy_static;
-use masq_lib::utils::localhost;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
+
+use crossbeam_channel::{Receiver, Sender, unbounded};
+use lazy_static::lazy_static;
+use regex::Regex;
+use serde::{Serialize};
+
+use masq_lib::utils::localhost;
 
 lazy_static! {
     static ref CONTENT_LENGTH_DETECTOR: Regex =
@@ -23,6 +25,7 @@ pub struct MBCSBuilder {
     port: u16,
     response_batch_opt: Option<Vec<String>>,
     responses: Vec<String>,
+    notifier: Sender<()>,
 }
 
 impl MBCSBuilder {
@@ -31,6 +34,7 @@ impl MBCSBuilder {
             port,
             response_batch_opt: None,
             responses: vec![],
+            notifier: unbounded().0,
         }
     }
 
@@ -76,6 +80,11 @@ impl MBCSBuilder {
         self.store_response_string(body)
     }
 
+    pub fn notifier(mut self, notifier: Sender<()>) -> Self {
+        self.notifier = notifier;
+        self
+    }
+
     pub fn start(self) -> MockBlockchainClientServer {
         let requests = Arc::new(Mutex::new(vec![]));
         let mut server = MockBlockchainClientServer {
@@ -83,6 +92,7 @@ impl MBCSBuilder {
             thread_info_opt: None,
             requests_arc: requests,
             responses: self.responses,
+            notifier: self.notifier,
         };
         server.start();
         server
@@ -107,6 +117,7 @@ pub struct MockBlockchainClientServer {
     thread_info_opt: Option<MBCSThreadInfo>,
     requests_arc: Arc<Mutex<Vec<String>>>,
     responses: Vec<String>,
+    notifier: Sender<()>,
 }
 
 impl Drop for MockBlockchainClientServer {
@@ -140,6 +151,7 @@ impl MockBlockchainClientServer {
         let requests_arc = self.requests_arc.clone();
         let mut responses: Vec<String> = self.responses.drain(..).collect();
         let (stopper_tx, stopper_rx) = unbounded();
+        let notifier = self.notifier.clone();
         let join_handle = thread::spawn(move || {
             let (conn, _) = listener.accept().unwrap();
             drop(listener);
@@ -151,7 +163,8 @@ impl MockBlockchainClientServer {
                 request_stage: RequestStage::Unparsed,
                 request_accumulator: "".to_string(),
             };
-            Self::thread_guts(&mut conn_state, &requests_arc, &mut responses, &stopper_rx);
+            Self::thread_guts(&mut conn_state, &requests_arc, &mut responses,
+                              &stopper_rx, notifier);
         });
         self.thread_info_opt = Some(MBCSThreadInfo {
             stopper: stopper_tx,
@@ -164,6 +177,7 @@ impl MockBlockchainClientServer {
         requests_arc: &Arc<Mutex<Vec<String>>>,
         responses: &mut Vec<String>,
         stopper_rx: &Receiver<()>,
+        notifier_tx: Sender<()>,
     ) {
         loop {
             if stopper_rx.try_recv().is_ok() {
@@ -180,6 +194,7 @@ impl MockBlockchainClientServer {
                     }
                     let response = responses.remove(0);
                     Self::send_body(conn_state, response);
+                    notifier_tx.send (()).unwrap();
                 }
                 None => (),
             };
@@ -314,12 +329,15 @@ struct ConnectionState {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use masq_lib::utils::{find_free_port, localhost};
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpStream};
     use std::ops::Add;
     use std::time::{Duration, Instant};
+    use serde_derive::Deserialize;
+
+    use masq_lib::utils::{find_free_port, localhost};
+
+    use super::*;
 
     #[derive(Serialize, Deserialize)]
     struct Person {

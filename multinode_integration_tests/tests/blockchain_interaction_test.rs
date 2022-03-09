@@ -1,24 +1,29 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::time::Duration;
+
+use crossbeam_channel::unbounded;
+use log::Level;
+use regex::escape;
+use serde_derive::Serialize;
+
+use masq_lib::messages::{ToMessageBody, UiConfigurationRequest, UiScanRequest};
+use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::MASQNodeUtils;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{ConsumingWalletInfo, NodeStartupConfig, NodeStartupConfigBuilder};
-use regex::escape;
-use std::time::Duration;
-use masq_lib::messages::{ToMessageBody, UiScanRequest};
-use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
 use multinode_integration_tests_lib::utils::{config_dao, database_conn, receivable_dao};
 use node_lib::accountant::PAYMENT_CURVES;
-use serde_derive::Serialize;
 
 #[test]
 fn debtors_are_credited_once_but_not_twice() {
     let mbcs_port = find_free_port();
     let ui_port = find_free_port();
+    let (tx, response_sent_rx) = unbounded();
     // Create and initialize mock blockchain client: prepare a receivable at block 2000
-    let blockchain_client = MBCSBuilder::new (mbcs_port)
+    let blockchain_client_server = MBCSBuilder::new (mbcs_port)
         .response (
             vec![
                 LogObject {
@@ -27,7 +32,7 @@ fn debtors_are_credited_once_but_not_twice() {
                     transaction_index: Some("0x30".to_string()),
                     transaction_hash: Some("0x2222222222222222222222222222222222222222222222222222222222222222".to_string()),
                     block_hash: Some("0x1111111111111111111111111111111111111111111111111111111111111111".to_string()),
-                    block_number: Some("0x2000".to_string()),
+                    block_number: Some("0x7D0".to_string()), // 2000 decimal
                     address: "0x3333333333333333333333333333333333333333".to_string(),
                     data: "0x000000000000000000000000000000000000000000000000000000003b5dc100".to_string(),
                     topics: vec![
@@ -37,44 +42,60 @@ fn debtors_are_credited_once_but_not_twice() {
             ],
             1
         )
+        .notifier(tx)
         .start();
     // Start a real Node pointing at the mock blockchain client with a start block of 1000
     let mut cluster = MASQNodeCluster::start().unwrap();
     let node = cluster.start_real_node (NodeStartupConfigBuilder::standard()
-        .start_block (0x1000)
+        .log_level (Level::Debug)
         .scans (false)
         .blockchain_service_url(format!("http://{}:{}", MASQNodeCluster::host_ip_addr(), mbcs_port))
         .ui_port (ui_port)
         .build()
     );
-    // Get the config DAO
-    let config_dao = config_dao (&node);
     // Get direct access to the RECEIVABLE table
-    let conn = database_conn(&node);
-    // Create a receivable record to match the client receivable
-    let mut stmt = conn.prepare (
-        "insert into receivable (\
-            wallet_address, \
-            balance, \
-            last_received_timestamp\
-        ) values (\
-            '0x3333333333333333333333333333333333333333',
-            1000000,
-            '2001-09-11'
-        )").unwrap();
-    stmt.execute([]).unwrap();
-    // Command a scan log
+    {
+        let conn = database_conn(&node);
+        // Create a receivable record to match the client receivable
+        let mut stmt = conn.prepare(
+            "insert into receivable (\
+                wallet_address, \
+                balance, \
+                last_received_timestamp\
+            ) values (\
+                '0x3333333333333333333333333333333333333333',
+                1000000,
+                '2001-09-11'
+            )").unwrap();
+        stmt.execute([]).unwrap();
+    }
+    {
+        // Use the config DAO to set the start block to 1000
+        let mut config_dao = config_dao (&node);
+        let xactn = config_dao.start_transaction().unwrap();
+        xactn.set ("start_block", Some ("1000".to_string())).unwrap();
+    }
     let ui_client = node.make_ui(ui_port);
+    // Command a scan log
     ui_client.send_request (UiScanRequest {
         name: "receivables".to_string()
-    }.tmb(1234));
-    let _ = ui_client.wait_for_response (1234).payload.unwrap();
+    }.tmb(1235));
+    let _ = ui_client.wait_for_response (1235).payload.unwrap();
+    let _ = response_sent_rx.recv_timeout (Duration::from_secs(5));
     // Kill the real Node
-
-    let receivable_dao = receivable_dao (&node);
+    node.kill_node();
     // Use the receivable DAO to verify that the receivable's balance has been adjusted
-    // Use the config DAO to verify that the start block has been advanced to 2001
-    todo!("Complete me");
+    {
+        let receivable_dao = receivable_dao(&node);
+        let receivable_accounts = receivable_dao.receivables();
+        assert_eq!(receivable_accounts.len(), 1);
+        assert_eq!(receivable_accounts[0].balance, 1234); // this will probably fail
+    }
+    {
+        // Use the config DAO to verify that the start block has been advanced to 2001
+        let config_dao = config_dao (&node);
+        assert_eq! (config_dao.get("start_block").unwrap().value_opt.unwrap(), "2001");
+    }
 }
 
 #[test]

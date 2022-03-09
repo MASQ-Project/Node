@@ -40,7 +40,18 @@ impl Command {
     pub fn stdout_or_stderr(&mut self) -> Result<String, String> {
         match self.wait_for_exit() {
             0 => Ok(self.stdout_as_string()),
-            _ => Err(self.stderr_as_string()),
+            _ => Err(self.diagnosis()),
+        }
+    }
+
+    fn diagnosis(&self) -> String {
+        let stdout = self.stdout_as_string();
+        let stderr = self.stderr_as_string();
+        if stdout.len() > stderr.len() {
+            format! ("{} (stdout: '{}')", stderr, stdout)
+        }
+        else {
+            stderr
         }
     }
 

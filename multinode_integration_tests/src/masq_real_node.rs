@@ -32,6 +32,8 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::thread;
 use std::time::Duration;
+use log::Level;
+use masq_lib::logger::Logger;
 use crate::masq_node_ui_client::MASQNodeUIClient;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
@@ -126,8 +128,8 @@ pub struct NodeStartupConfig {
     pub blockchain_service_url_opt: Option<String>,
     pub chain: Chain,
     pub db_password_opt: Option<String>,
-    pub start_block_opt: Option<u64>,
     pub scans_opt: Option<bool>,
+    pub log_level_opt: Option<Level>,
     pub ui_port_opt: Option<u16>,
 }
 
@@ -156,8 +158,8 @@ impl NodeStartupConfig {
             blockchain_service_url_opt: None,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
             db_password_opt: Some("password".to_string()),
-            start_block_opt: None,
             scans_opt: None,
+            log_level_opt: None,
             ui_port_opt: None,
         }
     }
@@ -215,14 +217,20 @@ impl NodeStartupConfig {
             args.push(db_password.to_string());
         }
 
-        if let Some(ref start_block) = self.start_block_opt {
-            args.push("--start-block".to_string());
-            args.push(start_block.to_string());
-        }
-
         if let Some(ref scans) = self.scans_opt {
             args.push("--scans".to_string());
             args.push(if *scans {"on".to_string()} else {"off".to_string()});
+        }
+
+        if let Some(ref level) = self.log_level_opt {
+            args.push("--log-level".to_string());
+            args.push(match level {
+                Level::Error => "error",
+                Level::Warn => "warn",
+                Level::Info => "info",
+                Level::Debug => "debug",
+                Level::Trace => "trace",
+            }.to_string());
         }
 
         if let Some(ref ui_port) = self.ui_port_opt {
@@ -398,91 +406,43 @@ pub struct NodeStartupConfigBuilder {
     fake_public_key: Option<PublicKey>,
     blockchain_service_url: Option<String>,
     chain: Chain,
-    start_block_opt: Option<u64>,
     scans_opt: Option<bool>,
+    log_level_opt: Option<Level>,
     ui_port_opt: Option<u16>,
     db_password: Option<String>,
 }
 
 impl NodeStartupConfigBuilder {
     pub fn zero_hop() -> Self {
-        Self {
-            neighborhood_mode: "zero-hop".to_string(),
-            ip_info: LocalIpInfo::ZeroHop,
-            dns_servers_opt: None,
-            neighbors: vec![],
-            clandestine_port_opt: None,
-            dns_target: localhost(),
-            dns_port: 53,
-            earning_wallet_info: EarningWalletInfo::None,
-            consuming_wallet_info: ConsumingWalletInfo::None,
-            rate_pack: ZERO_RATE_PACK.clone(),
-            firewall: None,
-            memory: None,
-            fake_public_key: None,
-            blockchain_service_url: None,
-            chain: TEST_DEFAULT_MULTINODE_CHAIN,
-            start_block_opt: None,
-            scans_opt: None,
-            ui_port_opt: None,
-            db_password: None,
-        }
+        let mut builder = Self::standard();
+        builder.neighborhood_mode = "zero-hop".to_string();
+        builder.ip_info = LocalIpInfo::ZeroHop;
+        builder.rate_pack = ZERO_RATE_PACK.clone();
+        return builder
     }
 
     pub fn consume_only() -> Self {
-        Self {
-            neighborhood_mode: "consume-only".to_string(),
-            ip_info: LocalIpInfo::DistributedUnknown,
-            dns_servers_opt: None,
-            neighbors: vec![],
-            clandestine_port_opt: None,
-            dns_target: localhost(),
-            dns_port: 53,
-            earning_wallet_info: EarningWalletInfo::Address(
-                "0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string(),
-            ),
-            consuming_wallet_info: ConsumingWalletInfo::PrivateKey(
-                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
-            ),
-            rate_pack: ZERO_RATE_PACK.clone(),
-            firewall: None,
-            memory: None,
-            fake_public_key: None,
-            blockchain_service_url: None,
-            chain: TEST_DEFAULT_MULTINODE_CHAIN,
-            start_block_opt: None,
-            scans_opt: None,
-            ui_port_opt: None,
-            db_password: Some("password".to_string()),
-        }
+        let mut builder = Self::standard();
+        builder.neighborhood_mode = "consume-only".to_string();
+        builder.earning_wallet_info = EarningWalletInfo::Address(
+            "0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string(),
+        );
+        builder.consuming_wallet_info = ConsumingWalletInfo::PrivateKey(
+            "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
+        );
+        return builder
     }
 
     pub fn originate_only() -> Self {
-        Self {
-            neighborhood_mode: "originate-only".to_string(),
-            ip_info: LocalIpInfo::DistributedUnknown,
-            dns_servers_opt: None,
-            neighbors: vec![],
-            clandestine_port_opt: None,
-            dns_target: localhost(),
-            dns_port: 53,
-            earning_wallet_info: EarningWalletInfo::Address(
-                "0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string(),
-            ),
-            consuming_wallet_info: ConsumingWalletInfo::PrivateKey(
-                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
-            ),
-            rate_pack: DEFAULT_RATE_PACK.clone(),
-            firewall: None,
-            memory: None,
-            fake_public_key: None,
-            blockchain_service_url: None,
-            chain: TEST_DEFAULT_MULTINODE_CHAIN,
-            start_block_opt: None,
-            scans_opt: None,
-            ui_port_opt: None,
-            db_password: Some("password".to_string()),
-        }
+        let mut builder = Self::standard();
+        builder.neighborhood_mode = "originate-only".to_string();
+        builder.earning_wallet_info = EarningWalletInfo::Address(
+            "0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string(),
+        );
+        builder.consuming_wallet_info = ConsumingWalletInfo::PrivateKey(
+            "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
+        );
+        return builder
     }
 
     pub fn standard() -> Self {
@@ -502,8 +462,8 @@ impl NodeStartupConfigBuilder {
             fake_public_key: None,
             blockchain_service_url: None,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
-            start_block_opt: None,
             scans_opt: None,
+            log_level_opt: None,
             ui_port_opt: None,
             db_password: Some("password".to_string()),
         }
@@ -526,8 +486,8 @@ impl NodeStartupConfigBuilder {
             fake_public_key: config.fake_public_key_opt.clone(),
             blockchain_service_url: config.blockchain_service_url_opt.clone(),
             chain: config.chain,
-            start_block_opt: config.start_block_opt,
             scans_opt: config.scans_opt,
+            log_level_opt: config.log_level_opt,
             ui_port_opt: config.ui_port_opt,
             db_password: config.db_password_opt.clone(),
         }
@@ -633,13 +593,13 @@ impl NodeStartupConfigBuilder {
         self
     }
 
-    pub fn start_block(mut self, start_block: u64) -> Self {
-        self.start_block_opt = Some (start_block);
+    pub fn scans(mut self, scans: bool) -> Self {
+        self.scans_opt = Some (scans);
         self
     }
 
-    pub fn scans(mut self, scans: bool) -> Self {
-        self.scans_opt = Some (scans);
+    pub fn log_level(mut self, level: Level) -> Self {
+        self.log_level_opt = Some (level);
         self
     }
 
@@ -671,8 +631,8 @@ impl NodeStartupConfigBuilder {
             blockchain_service_url_opt: self.blockchain_service_url,
             chain: self.chain,
             db_password_opt: self.db_password,
-            start_block_opt: self.start_block_opt,
             scans_opt: None,
+            log_level_opt: None,
             ui_port_opt: None,
         }
     }
@@ -1369,8 +1329,8 @@ mod tests {
             blockchain_service_url_opt: None,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
             db_password_opt: Some("booga".to_string()),
-            start_block_opt: Some (12345),
             scans_opt: Some (false),
+            log_level_opt: Some (Level::Info),
             ui_port_opt: Some (4321),
         };
         let neighborhood_mode = "standard".to_string();
@@ -1431,8 +1391,8 @@ mod tests {
             Some(PublicKey::new(&[1, 2, 3, 4]))
         );
         assert_eq!(result.db_password_opt, Some("booga".to_string()));
-        assert_eq!(result.start_block_opt, Some(12345));
         assert_eq!(result.scans_opt, Some (false));
+        assert_eq!(result.log_level_opt, Some (Level::Info));
         assert_eq!(result.ui_port_opt, Some(4321));
     }
 
