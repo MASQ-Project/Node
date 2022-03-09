@@ -537,18 +537,13 @@ pub mod unshared_test_utils {
         MultiConfig::new_test_only(arg_matches)
     }
 
-    const BASE: u32 = 0b0000_0001;
-    const MAPPING_PROTOCOL: u32 = 0b0000_0010;
-    const ACCOUNTANT_CONFIG_PARAMS: u32 = 0b0000_0100;
-    const RATE_PACK: u32 = 0b0000_1000;
+    pub const ZERO: u32 = 0b0;
+    pub const MAPPING_PROTOCOL: u32 = 0b000010;
+    pub const ACCOUNTANT_CONFIG_PARAMS: u32 = 0b000100;
+    pub const RATE_PACK: u32 = 0b001000;
 
     pub fn configure_default_persistent_config(bit_flag: u32) -> PersistentConfigurationMock {
-        let config = PersistentConfigurationMock::new();
-        let config = if (bit_flag & BASE) == BASE {
-            default_persistent_config_just_base(config)
-        } else {
-            config
-        };
+        let config = default_persistent_config_just_base(PersistentConfigurationMock::new());
         let config = if (bit_flag & MAPPING_PROTOCOL) == MAPPING_PROTOCOL {
             config.mapping_protocol_result(Ok(None))
         } else {

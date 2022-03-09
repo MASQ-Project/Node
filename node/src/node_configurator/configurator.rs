@@ -834,7 +834,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::unshared_test_utils::{
-        configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up,
+        configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
@@ -1795,7 +1795,7 @@ mod tests {
         };
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
-            configure_default_persistent_config(0b0000_0001)
+            configure_default_persistent_config(ZERO)
                 .check_password_result(Ok(true))
                 .set_wallet_info_params(&set_wallet_info_params_arc)
                 .set_wallet_info_result(Ok(())),
@@ -1821,9 +1821,8 @@ mod tests {
             earning_derivation_path_opt: None,
             earning_address_opt: Some("0x0123456789012345678901234567890123456789".to_string()),
         };
-        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
-            configure_default_persistent_config(0b0000_0001).check_password_result(Ok(true)),
-        );
+        let mut persistent_config: Box<dyn PersistentConfiguration> =
+            Box::new(configure_default_persistent_config(ZERO).check_password_result(Ok(true)));
 
         let result =
             Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
@@ -1847,9 +1846,8 @@ mod tests {
             earning_derivation_path_opt: None,
             earning_address_opt: Some(earning_address),
         };
-        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
-            configure_default_persistent_config(0b0000_0001).check_password_result(Ok(true)),
-        );
+        let mut persistent_config: Box<dyn PersistentConfiguration> =
+            Box::new(configure_default_persistent_config(ZERO).check_password_result(Ok(true)));
 
         let result =
             Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
@@ -1874,9 +1872,8 @@ mod tests {
             earning_derivation_path_opt: None,
             earning_address_opt: None,
         };
-        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
-            configure_default_persistent_config(0b0000_0001).check_password_result(Ok(true)),
-        );
+        let mut persistent_config: Box<dyn PersistentConfiguration> =
+            Box::new(configure_default_persistent_config(ZERO).check_password_result(Ok(true)));
 
         let result =
             Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
@@ -1900,7 +1897,7 @@ mod tests {
             earning_address_opt: Some("0x0123456789012345678901234567890123456789".to_string()),
         };
         let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
-            configure_default_persistent_config(0b0000_0001)
+            configure_default_persistent_config(ZERO)
                 .check_password_result(Ok(true))
                 .set_wallet_info_result(Ok(())),
         );
