@@ -24,14 +24,13 @@ use crate::db_config::config_dao::ConfigDaoFactory;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-use crate::sub_lib::combined_parameters::PaymentThresholds;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
@@ -1164,11 +1163,10 @@ mod tests {
     use crate::database::dao_utils::to_time_t;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
-    use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
-    use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::combined_parameters::{
-        PaymentThresholds, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
+    use crate::sub_lib::accountant::{
+        ReportRoutingServiceConsumedMessage, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
     };
+    use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;

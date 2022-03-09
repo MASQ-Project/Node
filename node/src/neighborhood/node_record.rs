@@ -3,9 +3,8 @@
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord};
-use crate::sub_lib::combined_parameters::RatePack;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
-use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
@@ -346,8 +345,8 @@ impl NodeRecordMetadata {
 mod tests {
     use super::*;
     use crate::neighborhood::gossip::GossipBuilder;
-    use crate::sub_lib::combined_parameters::ZERO_RATE_PACK;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
     use crate::test_utils::{assert_contains, main_cryptde, rate_pack};

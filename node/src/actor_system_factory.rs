@@ -555,13 +555,12 @@ mod tests {
         start_recorder_refcell_opt,
     };
     use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
-    use crate::sub_lib::combined_parameters::DEFAULT_RATE_PACK;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
-    use crate::sub_lib::neighborhood::NeighborhoodConfig;
     use crate::sub_lib::neighborhood::NeighborhoodMode;
     use crate::sub_lib::neighborhood::NodeDescriptor;
+    use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;

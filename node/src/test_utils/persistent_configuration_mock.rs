@@ -3,8 +3,8 @@
 #![cfg(test)]
 
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
-use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
-use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
+use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;

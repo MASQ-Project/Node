@@ -4,12 +4,15 @@ use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
-use crate::sub_lib::accountant::{AccountantConfig, DEFAULT_EARNING_WALLET};
-use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
+use crate::sub_lib::accountant::{
+    AccountantConfig, PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET,
+};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
-use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
+use crate::sub_lib::neighborhood::{
+    NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, RatePack,
+};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use clap::value_t;
@@ -597,10 +600,8 @@ mod tests {
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
-    use crate::sub_lib::combined_parameters::{
-        PaymentThresholds, ScanIntervals, DEFAULT_RATE_PACK,
-    };
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
+    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -1702,7 +1703,7 @@ mod tests {
             "--scan-intervals",
             "180|150|130",
             "--payment-thresholds",
-            "1000|10000|1000|10000|20000|20000",
+            "10000|10000|1000|20000|1000|20000",
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
@@ -1759,7 +1760,7 @@ mod tests {
         let set_payment_thresholds_params = set_payment_thresholds_params_arc.lock().unwrap();
         assert_eq!(
             *set_payment_thresholds_params,
-            vec!["1000|10000|1000|10000|20000|20000".to_string()]
+            vec!["10000|10000|1000|20000|1000|20000".to_string()]
         )
     }
 
@@ -1773,7 +1774,7 @@ mod tests {
             "--scan-intervals",
             "180|150|130",
             "--payment-thresholds",
-            "1000|100000|1000|1000|20000|20000",
+            "100000|1000|1000|20000|1000|20000",
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);

@@ -9,9 +9,9 @@ use crate::db_config::typed_config_layer::{
     decode_bytes, decode_combined_params, decode_u64, encode_bytes, encode_u64,
     TypedConfigLayerError,
 };
-use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
+use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
@@ -1904,7 +1904,7 @@ mod tests {
     fn payment_thresholds_get_method_works() {
         persistent_config_plain_data_assertions_for_simple_get_method!(
             "payment_thresholds",
-            "1000|100000|1000|1000|20000|20000",
+            "100000|1000|1000|20000|1000|20000",
             PaymentThresholds {
                 threshold_interval_sec: 1000,
                 debt_threshold_gwei: 100000,

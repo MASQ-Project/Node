@@ -1,84 +1,38 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::{I64, U64};
-use lazy_static::lazy_static;
+use crate::sub_lib::neighborhood::RatePack;
 use masq_lib::constants::COMBINED_PARAMETERS_DELIMITER;
 use masq_lib::utils::ExpectValue;
-use serde_derive::{Deserialize, Serialize};
+use paste::paste;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 use std::time::Duration;
 
-lazy_static! {
-    pub static ref DEFAULT_PAYMENT_THRESHOLDS: PaymentThresholds = PaymentThresholds {
-        threshold_interval_sec: 2_592_000,
-        debt_threshold_gwei: 10_000_000_000,
-        payment_grace_period_sec: 1200,
-        maturity_threshold_sec: 1200,
-        permanent_debt_allowed_gwei: 500_000_000,
-        unban_below_gwei: 500_000_000,
+macro_rules! initiate_struct{
+    ($struct_type: ident, $hash_map: expr, $($field:literal),+) =>{
+        paste!{
+            $struct_type{
+                $([<$field>]: CombinedParamsValueRetriever::get_value(
+                        $hash_map,
+                        $field
+                )),+
+            }
+        }
     };
-}
-
-pub const DEFAULT_RATE_PACK: RatePack = RatePack {
-    routing_byte_rate: 1,
-    routing_service_rate: 100,
-    exit_byte_rate: 3,
-    exit_service_rate: 300,
-};
-
-pub const ZERO_RATE_PACK: RatePack = RatePack {
-    routing_byte_rate: 0,
-    routing_service_rate: 0,
-    exit_byte_rate: 0,
-    exit_service_rate: 0,
-};
-
-lazy_static! {
-    pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
-        pending_payable_scan_interval: Duration::from_secs(600),
-        payable_scan_interval: Duration::from_secs(600),
-        receivable_scan_interval: Duration::from_secs(600)
-    };
-}
-
-//please, alphabetical order
-#[derive(PartialEq, Debug, Clone, Copy, Default)]
-pub struct PaymentThresholds {
-    pub threshold_interval_sec: i64,
-    pub debt_threshold_gwei: i64,
-    pub payment_grace_period_sec: i64,
-    pub maturity_threshold_sec: i64,
-    pub permanent_debt_allowed_gwei: i64,
-    pub unban_below_gwei: i64,
-}
-
-//this code is used in tests in Accountant
-impl PaymentThresholds {
-    pub fn sugg_and_grace(&self, now: i64) -> i64 {
-        now - self.maturity_threshold_sec - self.payment_grace_period_sec
+    ($struct_type: ident, $hash_map: expr,  $value_convertor: expr, $($field:literal),+) =>{
+        paste!{
+            $struct_type{
+                $([<$field>]: $value_convertor(CombinedParamsValueRetriever::get_value(
+                        $hash_map,
+                        $field
+                ))),+
+            }
+        }
     }
-
-    pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
-        self.sugg_and_grace(now) - self.threshold_interval_sec
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct RatePack {
-    pub routing_byte_rate: u64,
-    pub routing_service_rate: u64,
-    pub exit_byte_rate: u64,
-    pub exit_service_rate: u64,
-}
-
-#[derive(PartialEq, Debug, Clone, Copy, Default)]
-pub struct ScanIntervals {
-    pub pending_payable_scan_interval: Duration,
-    pub payable_scan_interval: Duration,
-    pub receivable_scan_interval: Duration,
 }
 
 #[derive(PartialEq, Debug)]
@@ -187,70 +141,32 @@ impl CombinedParams {
         parsed_values: HashMap<String, CombinedParamsValueRetriever>,
     ) -> Self {
         match self {
-            Self::RatePack(None) => Self::RatePack(Some(RatePack {
-                routing_byte_rate: CombinedParamsValueRetriever::get_value(
-                    &parsed_values,
-                    "routing_byte_rate",
-                ),
-                routing_service_rate: CombinedParamsValueRetriever::get_value(
-                    &parsed_values,
-                    "routing_service_rate",
-                ),
-                exit_byte_rate: CombinedParamsValueRetriever::get_value(
-                    &parsed_values,
-                    "exit_byte_rate",
-                ),
-                exit_service_rate: CombinedParamsValueRetriever::get_value(
-                    &parsed_values,
-                    "exit_service_rate",
-                ),
-            })),
-            Self::PaymentThresholds(None) => Self::PaymentThresholds(Some(PaymentThresholds {
-                maturity_threshold_sec: CombinedParamsValueRetriever::get_value(
-                    &parsed_values,
-                    "payment_suggested_after_sec",
-                ),
-                payment_grace_period_sec: CombinedParamsValueRetriever::get_value(
-                    &parsed_values,
-                    "payment_grace_before_ban_sec",
-                ),
-                permanent_debt_allowed_gwei: CombinedParamsValueRetriever::get_value(
-                    &parsed_values,
-                    "permanent_debt_allowed_gwei",
-                ),
-                debt_threshold_gwei: CombinedParamsValueRetriever::get_value(
-                    &parsed_values,
-                    "balance_to_decrease_from_gwei",
-                ),
-                threshold_interval_sec: CombinedParamsValueRetriever::get_value(
-                    &parsed_values,
-                    "threshold_interval_sec",
-                ),
-                unban_below_gwei: CombinedParamsValueRetriever::get_value(
-                    &parsed_values,
-                    "unban_when_balance_below_gwei",
-                ),
-            })),
-            Self::ScanIntervals(None) => Self::ScanIntervals(Some(ScanIntervals {
-                pending_payable_scan_interval: Duration::from_secs(
-                    CombinedParamsValueRetriever::get_value(
-                        &parsed_values,
-                        "pending_payable_scan_interval",
-                    ),
-                ),
-                payable_scan_interval: Duration::from_secs(
-                    CombinedParamsValueRetriever::get_value(
-                        &parsed_values,
-                        "payable_scan_interval",
-                    ),
-                ),
-                receivable_scan_interval: Duration::from_secs(
-                    CombinedParamsValueRetriever::get_value(
-                        &parsed_values,
-                        "receivable_scan_interval",
-                    ),
-                ),
-            })),
+            Self::RatePack(None) => Self::RatePack(Some(initiate_struct!(
+                RatePack,
+                &parsed_values,
+                "routing_byte_rate",
+                "routing_service_rate",
+                "exit_byte_rate",
+                "exit_service_rate"
+            ))),
+            Self::PaymentThresholds(None) => Self::PaymentThresholds(Some(initiate_struct!(
+                PaymentThresholds,
+                &parsed_values,
+                "maturity_threshold_sec",
+                "payment_grace_period_sec",
+                "permanent_debt_allowed_gwei",
+                "debt_threshold_gwei",
+                "threshold_interval_sec",
+                "unban_below_gwei"
+            ))),
+            Self::ScanIntervals(None) => Self::ScanIntervals(Some(initiate_struct!(
+                ScanIntervals,
+                &parsed_values,
+                Duration::from_secs,
+                "pending_payable_scan_interval",
+                "payable_scan_interval",
+                "receivable_scan_interval"
+            ))),
             _ => panic!(
                 "should be called only on uninitialized object, not: {:?}",
                 self
@@ -269,12 +185,12 @@ impl From<&CombinedParams> for &[(&str, CombinedParamsDataTypes)] {
                 ("exit_service_rate", U64),
             ],
             CombinedParams::PaymentThresholds(None) => &[
-                ("threshold_interval_sec", I64),
-                ("balance_to_decrease_from_gwei", I64),
-                ("payment_grace_before_ban_sec", I64),
-                ("payment_suggested_after_sec", I64),
+                ("debt_threshold_gwei", I64),
+                ("maturity_threshold_sec", I64),
+                ("payment_grace_period_sec", I64),
                 ("permanent_debt_allowed_gwei", I64),
-                ("unban_when_balance_below_gwei", I64),
+                ("threshold_interval_sec", I64),
+                ("unban_below_gwei", I64),
             ],
             CombinedParams::ScanIntervals(None) => &[
                 ("pending_payable_scan_interval", U64),
@@ -318,11 +234,11 @@ impl Display for PaymentThresholds {
         write!(
             f,
             "{}|{}|{}|{}|{}|{}",
-            self.threshold_interval_sec,
             self.debt_threshold_gwei,
-            self.payment_grace_period_sec,
             self.maturity_threshold_sec,
+            self.payment_grace_period_sec,
             self.permanent_debt_allowed_gwei,
+            self.threshold_interval_sec,
             self.unban_below_gwei
         )
     }
@@ -374,7 +290,9 @@ fn unreachable() -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
     use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::U128;
+    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use std::panic::catch_unwind;
 
     #[test]
@@ -478,12 +396,12 @@ mod tests {
         assert_eq!(
             payment_thresholds,
             &[
-                ("threshold_interval_sec", I64),
-                ("balance_to_decrease_from_gwei", I64),
-                ("payment_grace_before_ban_sec", I64),
-                ("payment_suggested_after_sec", I64),
+                ("debt_threshold_gwei", I64),
+                ("maturity_threshold_sec", I64),
+                ("payment_grace_period_sec", I64),
                 ("permanent_debt_allowed_gwei", I64),
-                ("unban_when_balance_below_gwei", I64)
+                ("threshold_interval_sec", I64),
+                ("unban_below_gwei", I64)
             ]
         );
     }
@@ -645,18 +563,18 @@ mod tests {
 
     #[test]
     fn payment_thresholds_from_combined_params() {
-        let payment_thresholds_str = "10020|5000010|100|120|20000|18000";
+        let payment_thresholds_str = "5000010|120|100|20000|10020|18000";
 
         let result = PaymentThresholds::try_from(payment_thresholds_str).unwrap();
 
         assert_eq!(
             result,
             PaymentThresholds {
-                threshold_interval_sec: 10020,
                 debt_threshold_gwei: 5000010,
-                payment_grace_period_sec: 100,
                 maturity_threshold_sec: 120,
+                payment_grace_period_sec: 100,
                 permanent_debt_allowed_gwei: 20000,
+                threshold_interval_sec: 10020,
                 unban_below_gwei: 18000
             }
         )
@@ -675,6 +593,6 @@ mod tests {
 
         let result = payment_thresholds.to_string();
 
-        assert_eq!(result, "30020|5000010|123|120|20000|111".to_string());
+        assert_eq!(result, "5000010|120|123|20000|30020|111".to_string());
     }
 }

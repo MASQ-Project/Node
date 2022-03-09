@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, SentPayable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::sub_lib::combined_parameters::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -11,12 +10,61 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
+use std::time::Duration;
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
     // TODO: The consuming wallet should never be defaulted; it should always come in from a
     // (possibly-complicated) command-line parameter, or the bidirectional GUI.
     pub static ref TEMPORARY_CONSUMING_WALLET: Wallet = Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
+}
+
+lazy_static! {
+    pub static ref DEFAULT_PAYMENT_THRESHOLDS: PaymentThresholds = PaymentThresholds {
+        threshold_interval_sec: 2_592_000,
+        debt_threshold_gwei: 10_000_000_000,
+        payment_grace_period_sec: 1200,
+        maturity_threshold_sec: 1200,
+        permanent_debt_allowed_gwei: 500_000_000,
+        unban_below_gwei: 500_000_000,
+    };
+}
+
+lazy_static! {
+    pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
+        pending_payable_scan_interval: Duration::from_secs(600),
+        payable_scan_interval: Duration::from_secs(600),
+        receivable_scan_interval: Duration::from_secs(600)
+    };
+}
+
+//please, alphabetical order
+#[derive(PartialEq, Debug, Clone, Copy, Default)]
+pub struct PaymentThresholds {
+    pub debt_threshold_gwei: i64,
+    pub maturity_threshold_sec: i64,
+    pub payment_grace_period_sec: i64,
+    pub permanent_debt_allowed_gwei: i64,
+    pub threshold_interval_sec: i64,
+    pub unban_below_gwei: i64,
+}
+
+//this code is used in tests in Accountant
+impl PaymentThresholds {
+    pub fn sugg_and_grace(&self, now: i64) -> i64 {
+        now - self.maturity_threshold_sec - self.payment_grace_period_sec
+    }
+
+    pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
+        self.sugg_and_grace(now) - self.threshold_interval_sec
+    }
+}
+
+#[derive(PartialEq, Debug, Clone, Copy, Default)]
+pub struct ScanIntervals {
+    pub pending_payable_scan_interval: Duration,
+    pub payable_scan_interval: Duration,
+    pub receivable_scan_interval: Duration,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]

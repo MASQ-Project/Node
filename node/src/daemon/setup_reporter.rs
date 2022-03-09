@@ -19,11 +19,9 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
 use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
-use crate::sub_lib::combined_parameters::{
-    DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, DEFAULT_SCAN_INTERVALS,
-};
-use crate::sub_lib::neighborhood::NeighborhoodMode as NeighborhoodModeEnum;
+use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::neighborhood::{NeighborhoodMode as NeighborhoodModeEnum, DEFAULT_RATE_PACK};
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
 use clap::value_t;
@@ -1023,10 +1021,10 @@ mod tests {
     };
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::combined_parameters;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
+    use crate::sub_lib::{accountant, neighborhood};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
@@ -2942,7 +2940,7 @@ mod tests {
     }
 
     fn assert_rate_pack_computed_default_advanced_evaluation_regarding_specific_neighborhood(
-        neighborhood_mode: fn(rate_pack: combined_parameters::RatePack) -> NeighborhoodModeEnum,
+        neighborhood_mode: fn(rate_pack: neighborhood::RatePack) -> NeighborhoodModeEnum,
     ) {
         let subject = RatePack {};
         let mut bootstrapper_config = BootstrapperConfig::new();
@@ -2972,7 +2970,7 @@ mod tests {
         assert_computed_default_when_persistent_config_unequal_to_default(
             &RatePack {},
             rate_pack,
-            &|p_c: PersistentConfigurationMock, value: combined_parameters::RatePack| {
+            &|p_c: PersistentConfigurationMock, value: neighborhood::RatePack| {
                 p_c.rate_pack_result(Ok(value))
             },
         )
@@ -3004,7 +3002,7 @@ mod tests {
     #[test]
     fn rate_pack_standard_mode_goes_on_with_further_evaluation() {
         assert_rate_pack_computed_default_advanced_evaluation_regarding_specific_neighborhood(
-            |rate_pack: combined_parameters::RatePack| {
+            |rate_pack: neighborhood::RatePack| {
                 NeighborhoodModeEnum::Standard(
                     NodeAddr::new(&IpAddr::from_str("4.5.6.7").unwrap(), &[44444]),
                     vec![],
@@ -3017,7 +3015,7 @@ mod tests {
     #[test]
     fn rate_pack_originate_only_mode_goes_on_with_further_evaluation() {
         assert_rate_pack_computed_default_advanced_evaluation_regarding_specific_neighborhood(
-            |rate_pack: combined_parameters::RatePack| {
+            |rate_pack: neighborhood::RatePack| {
                 NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack)
             },
         );
@@ -3044,7 +3042,7 @@ mod tests {
         assert_computed_default_when_persistent_config_unequal_to_default(
             &ScanIntervals {},
             scan_intervals,
-            &|p_c: PersistentConfigurationMock, value: combined_parameters::ScanIntervals| {
+            &|p_c: PersistentConfigurationMock, value: accountant::ScanIntervals| {
                 p_c.scan_intervals_result(Ok(value))
             },
         )
@@ -3068,7 +3066,7 @@ mod tests {
         assert_computed_default_when_persistent_config_unequal_to_default(
             &PaymentThresholds {},
             payment_thresholds,
-            &|p_c: PersistentConfigurationMock, value: combined_parameters::PaymentThresholds| {
+            &|p_c: PersistentConfigurationMock, value: accountant::PaymentThresholds| {
                 p_c.payment_thresholds_result(Ok(value))
             },
         )

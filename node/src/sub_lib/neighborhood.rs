@@ -2,7 +2,6 @@
 
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
-use crate::sub_lib::combined_parameters::{RatePack, ZERO_RATE_PACK};
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -30,6 +29,28 @@ use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
+
+pub const DEFAULT_RATE_PACK: RatePack = RatePack {
+    routing_byte_rate: 1,
+    routing_service_rate: 100,
+    exit_byte_rate: 3,
+    exit_service_rate: 300,
+};
+
+pub const ZERO_RATE_PACK: RatePack = RatePack {
+    routing_byte_rate: 0,
+    routing_service_rate: 0,
+    exit_byte_rate: 0,
+    exit_service_rate: 0,
+};
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct RatePack {
+    pub routing_byte_rate: u64,
+    pub routing_service_rate: u64,
+    pub exit_byte_rate: u64,
+    pub exit_service_rate: u64,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NeighborhoodMode {
@@ -475,7 +496,6 @@ impl fmt::Display for GossipFailure_0v1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::combined_parameters::ZERO_RATE_PACK;
     use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;

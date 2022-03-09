@@ -827,10 +827,10 @@ mod tests {
     use crate::blockchain::bip39::Bip39;
     use crate::blockchain::test_utils::make_meaningless_phrase_words;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::sub_lib::combined_parameters::{PaymentThresholds, RatePack, ScanIntervals};
+    use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::cryptde::PublicKey as PK;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
-    use crate::sub_lib::neighborhood::NodeDescriptor;
+    use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::unshared_test_utils::{
