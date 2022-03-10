@@ -110,6 +110,11 @@ mod tests {
     use tokio;
     use trust_dns::op::ResponseCode;
 
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DNS_PORT, 53);
+    }
+
     struct UdpSocketWrapperMockGuts {
         log: Vec<String>,
         buf: [u8; 12],

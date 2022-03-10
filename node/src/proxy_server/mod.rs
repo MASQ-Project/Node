@@ -1000,6 +1000,12 @@ mod tests {
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::thread;
 
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "PROXYSERVER");
+        assert_eq!(RETURN_ROUTE_TTL, Duration::from_secs(120));
+    }
+
     const STANDARD_CONSUMING_WALLET_BALANCE: i64 = 0;
 
     impl Default for ProxyServerOutSubs {

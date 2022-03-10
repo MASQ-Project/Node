@@ -141,8 +141,43 @@ pub struct FinancialStatisticsMessage {
 
 #[cfg(test)]
 mod tests {
+    use crate::sub_lib::accountant::{
+        PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
+        DEFAULT_SCAN_INTERVALS, TEMPORARY_CONSUMING_WALLET,
+    };
+    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
+    use std::str::FromStr;
+    use std::time::Duration;
+
+    #[test]
+    fn constants_have_correct_values() {
+        let default_earning_wallet_expected: Wallet =
+            Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
+        let temporary_consuming_wallet_expected: Wallet =
+            Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
+        let payment_thresholds_expected = PaymentThresholds {
+            debt_threshold_gwei: 10_000_000_000,
+            maturity_threshold_sec: 1200,
+            payment_grace_period_sec: 1200,
+            permanent_debt_allowed_gwei: 500_000_000,
+            threshold_interval_sec: 2_592_000,
+            unban_below_gwei: 500_000_000,
+        };
+        let scan_intervals_expected = ScanIntervals {
+            pending_payable_scan_interval: Duration::from_secs(600),
+            payable_scan_interval: Duration::from_secs(600),
+            receivable_scan_interval: Duration::from_secs(600),
+        };
+        assert_eq!(*DEFAULT_SCAN_INTERVALS, scan_intervals_expected);
+        assert_eq!(*DEFAULT_PAYMENT_THRESHOLDS, payment_thresholds_expected);
+        assert_eq!(*DEFAULT_EARNING_WALLET, default_earning_wallet_expected);
+        assert_eq!(
+            *TEMPORARY_CONSUMING_WALLET,
+            temporary_consuming_wallet_expected
+        )
+    }
 
     #[test]
     fn accountant_subs_debug() {

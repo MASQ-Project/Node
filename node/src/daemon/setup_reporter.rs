@@ -1051,6 +1051,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CONSOLE_DIAGNOSTICS, false);
+    }
+
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
     }

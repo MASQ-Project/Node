@@ -19,9 +19,11 @@ use std::io::Write;
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 
+const SETUP_COMMAND_ABOUT: &str =
+    "Establishes (if Node is not already running) and displays startup parameters for MASQNode.";
+
 pub fn setup_subcommand() -> App<'static, 'static> {
-    shared_app(SubCommand::with_name("setup")
-        .about("Establishes (if Node is not already running) and displays startup parameters for MASQNode."))
+    shared_app(SubCommand::with_name("setup").about(SETUP_COMMAND_ABOUT))
 }
 
 #[derive(Debug, PartialEq)]
@@ -143,6 +145,15 @@ mod tests {
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(SETUP_COMMAND_TIMEOUT_MILLIS, 30000);
+        assert_eq!(
+            SETUP_COMMAND_ABOUT,
+            "Establishes (if Node is not already running) and displays startup parameters for MASQNode."
+         );
+    }
 
     #[test]
     fn setup_command_with_syntax_error() {

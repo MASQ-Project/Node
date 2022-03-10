@@ -149,6 +149,11 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(NodeAddr::PORTS_SEPARATOR, "/");
+    }
+
+    #[test]
     fn can_create_from_socket_addr() {
         let subject = NodeAddr::from(&SocketAddr::from_str("9.8.7.6:543").unwrap());
 

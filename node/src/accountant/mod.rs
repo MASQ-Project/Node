@@ -1270,6 +1270,12 @@ mod tests {
     }
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "ACCOUNTANT");
+        assert_eq!(DEFAULT_PENDING_TOO_LONG_SEC, 21_600);
+    }
+
+    #[test]
     fn new_calls_factories_properly() {
         let mut config = BootstrapperConfig::new();
         config.accountant_config_opt = Some(make_accountant_config_null());

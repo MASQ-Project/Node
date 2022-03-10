@@ -612,8 +612,234 @@ impl ConfiguratorError {
 #[cfg(test)]
 mod tests {
 
+    use super::*;
     use crate::blockchains::chains::Chain;
     use crate::shared_schema::{common_validators, official_chain_names};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            BLOCKCHAIN_SERVICE_HELP,
+            "The Ethereum client you wish to use to provide Blockchain \
+             exit services from your MASQ Node (e.g. http://localhost:8545, \
+             https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+             https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID"
+        );
+        assert_eq!(
+            CHAIN_HELP,
+            "The blockchain network MASQ Node will configure itself to use. You must ensure the \
+             Ethereum client specified by --blockchain-service-url communicates with the same blockchain network."
+        );
+        assert_eq!(
+            CONFIG_FILE_HELP,
+            "Optional TOML file containing configuration that doesn't often change. Should contain only \
+             scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
+             they replace (except no '--' prefix). If you specify a relative path, or no path, the Node will \
+             look for your config file starting in the --data-directory. If you specify an absolute path, \
+             --data-directory will be ignored when searching for the config file. A few parameters \
+             (such as --config-file, --generate-wallet, and --recover-wallet) must not be specified in a config file."
+        );
+        assert_eq!(
+            CONSUMING_PRIVATE_KEY_HELP,
+            "The private key for the Ethereum wallet from which you wish to pay \
+             other Nodes for routing and exit services. Mostly this is used for testing; be careful using it for real \
+             traffic, because this value is very sensitive: anyone who sees it can use it to drain your consuming wallet. \
+             If you use it, don't put it on the command line (the environment is good, the config file is less so), \
+             make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
+             supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
+             hexadecimal digits."
+        );
+        assert_eq!(
+            DATA_DIRECTORY_HELP,
+            "Directory in which the Node will store its persistent state, including at \
+             least its database and by default its configuration file as well."
+        );
+        assert_eq!(
+            DB_PASSWORD_HELP,
+            "A password or phrase to decrypt the encrypted material in the database, to include your \
+             mnemonic seed (if applicable) and your list of previous neighbors. If you don't provide this \
+             password, none of the encrypted data in your database will be used. This is a secret;\
+             providing it on the command line or in a config file may be insecure"
+        );
+        assert_eq!(
+            DNS_SERVERS_HELP,
+            "IP addresses of DNS Servers for host name look-up while providing exit \
+             services for other MASQ Nodes (e.g. 1.0.0.1,1.1.1.1,8.8.8.8,9.9.9.9, etc.)"
+        );
+        assert_eq!(
+            EARNING_WALLET_HELP,
+            "An Ethereum wallet address. Addresses must begin with 0x followed by 40 hexadecimal digits \
+             (case-insensitive). If you already have a derivation-path earning wallet, don't supply this. \
+             If you have supplied an earning wallet address before, either don't supply it again or be \
+             careful to supply exactly the same one you supplied before."
+        );
+        assert_eq!(
+            IP_ADDRESS_HELP,
+            "The public IP address of your MASQ Node: that is, the IPv4 \
+             address at which other Nodes can contact yours. If you're running your Node behind \
+             a router, this will be the IP address of the router. If this IP address starts with 192.168 or 10.0, \
+             it's a local address rather than a public address, and other Nodes won't be able to see yours. \
+             --ip is meaningless except in --neighborhood-mode standard."
+        );
+        assert_eq!(
+            LOG_LEVEL_HELP,
+            "The minimum severity of the logs that should appear in the Node's logfile. You should probably not specify \
+             a level lower than the default unless you're doing testing or forensics: a Node at the 'trace' log level \
+             generates a lot of log traffic. This will both consume your disk space and degrade your Node's performance. \
+             You should probably not specify a level higher than the default unless you have security concerns about \
+             persistent logs being kept on your computer: if your Node crashes, it's good to know why.");
+        assert_eq!(
+            NEIGHBORS_HELP,
+            "One or more Node descriptors for running Nodes in the MASQ \
+             One or more Node descriptors for active Nodes in the MASQ Network to which you'd like your Node to connect \
+             on startup. A Node descriptor looks similar to one of these:\n\n\
+                  masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
+                  masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
+                  masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+                  masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+             Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
+             and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
+             a configuration with multiple clandestine ports.\n\n\
+             If you have more than one descriptor, separate them with commas. Whether single or multiple descriptors, they \
+             should be enclosed by quotes. No default value is available; \
+             if you don't specify a neighbor, your Node will start without being connected to any MASQ \
+             Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
+             --neighbors is meaningless in --neighborhood-mode zero-hop."
+        );
+        assert_eq!(
+            NEIGHBORHOOD_MODE_HELP,
+            "This configures the way the Node relates to other Nodes.\n\n\
+             zero-hop means that your Node will operate as its own MASQ Network and will not communicate with any \
+             other Nodes. --ip, --neighbors, and --clandestine-port are incompatible with --neighborhood_mode \
+             zero-hop.\n\n\
+             originate-only means that your Node will not accept connections from any other Node; it \
+             will only originate connections to other Nodes. This will reduce your Node's opportunity to route \
+             data (it will only ever have two neighbors, so the number of routes it can participate in is limited), \
+             it will reduce redundancy in the MASQ Network, and it will prevent your Node from acting as \
+             a connection point for other Nodes to get on the Network; but it will enable your Node to operate in \
+             an environment where your network hookup is preventing you from accepting connections, and it means \
+             that you don't have to forward any incoming ports through your router. --ip and --clandestine_port \
+             are incompatible with --neighborhood_mode originate-only.\n\n\
+             consume-only means that your Node will not accept connections from or route data for any other Node; \
+             it will only consume services from the MASQ Network. This mode is appropriate for devices that \
+             cannot maintain a constant IP address or stay constantly on the Network. --ip and --clandestine_port \
+             are incompatible with --neighborhood_mode consume-only.\n\n\
+             standard means that your Node will operate fully unconstrained, both originating and accepting \
+             connections, both consuming and providing services, and when you operate behind a router, it \
+             requires that you forward your clandestine port through that router to your Node's machine."
+        );
+        assert_eq!(
+            MAPPING_PROTOCOL_HELP,
+            "The Node can speak three protocols to your router to make it allow outside Nodes to connect inward \
+             through it to your machine. These three protocols are pcp, pmp, and igdp. The Node can try them one \
+             by one to determine which your router supports, but if you happen to know already, you can supply the \
+             name of the protocol here. If you've taken care of port mapping in some other way, \
+             and you don't need Node to negotiate with your router, say 'none' here and be sure to specify your \
+             public IP address with the --ip parameter. If the Node communicates successfully with your router, \
+             it will remember the protocol it used, and on its next run it will try that protocol first, unless \
+             you specify a different protocol on the command line."
+        );
+        assert_eq!(
+            REAL_USER_HELP,
+            "The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
+             run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
+             you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
+             like <uid>:<gid>:<home directory>."
+        );
+
+        assert_eq!(
+            DEFAULT_UI_PORT_VALUE.to_string(),
+            DEFAULT_UI_PORT.to_string()
+        );
+        assert_eq!(
+            UI_PORT_HELP.to_string(),
+            format!(
+                "The port at which user interfaces will connect to the Node. Best to accept the default unless \
+                 you know what you're doing. Must be between {} and {}.",
+                LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
+            )
+        );
+        assert_eq!(
+            CLANDESTINE_PORT_HELP.to_string(),
+            format!(
+                "The port this Node will advertise to other Nodes at which clandestine traffic will be \
+                 received. If you don't specify a clandestine port, the Node will choose an unused \
+                 one at random on first startup, then use that one for every subsequent run unless \
+                 you change it by specifying a different clandestine port here. --clandestine-port is \
+                 meaningless except in --neighborhood-mode standard. \
+                 Must be between {} and {} [default: last used port]",
+                LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
+            )
+        );
+        assert_eq!(
+            GAS_PRICE_HELP.to_string(),
+            format!(
+                "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
+                 If left unspecified, MASQ Node will use the previously stored value (Default {}).",
+                DEFAULT_GAS_PRICE
+            )
+        );
+        assert_eq!(
+            RATE_PACK_HELP,
+            "These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
+             services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
+             together, delimited by vertical bars and in the right order.\n\n\
+             1. Routing Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+             while the Node is a common relay Node.\n\n\
+             2. Routing Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking \
+             and repacking 1 CORES package, while the Node is a common relay Node.\n\n\
+             3. Exit Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+             while the Node acts as the exit Node.\n\n\
+             4. Exit Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking and \
+             repacking 1 CORES package, while the Node acts as the exit Node."
+        );
+        assert_eq!(
+            PAYMENT_THRESHOLDS_HELP,
+            "These are parameters that define thresholds to determine when and how much to pay other Nodes for routing and \
+             exit services and the expectations the Node should have for receiving payments from other Nodes for routing and \
+             exit services. The thresholds are also used to determine whether to offer services to other Nodes or enact a ban \
+             since they have not paid mature debts. These are ever present values, no matter if the user's set any value, as \
+             they have defaults. The parameters must be always supplied together, delimited by vertical bars and in the right order.\n\n\
+             1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
+             upon passing the Maturity Threshold Sec age. Payables lower than this can stay unpaid longer. Receivables higher than \
+             this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
+             + Payment Grace Period Sec age. Receivables lower than this will survive longer without banning.\n\n\
+             2. Maturity Threshold Sec: Large payables can get this old -- in seconds -- before the Accountant's scanner suggests \
+             that it be paid.\n\n\
+             3. Payment Grace Period Sec: A large receivable can get as old as Maturity Threshold Sec + Payment Grace Period Sec \
+             -- in seconds -- before the Node that owes it will be banned.\n\n\
+             4. Permanent Debt Allowed Gwei: Receivables this small and smaller -- in Gwei of MASQ -- will not cause bans no \
+             matter how old they get.\n\n\
+             5. Threshold Interval Sec: This interval -- in seconds -- begins after Maturity Threshold Sec for payables and after \
+             Maturity Threshold Sec + Payment Grace Period Sec for receivables. During the interval, the amount of a payable that is \
+             allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold Gwei \
+             to Permanent Debt Allowed Gwei or Unban Below Gwei.\n\n\
+             6. Unban Below Gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
+             below this level -- in Gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
+             as Permanent Debt Allowed Gwei."
+        );
+        assert_eq!(
+            SCAN_INTERVALS_HELP,
+            "These three intervals describe the length of three different scan cycles running automatically in the background \
+             since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete 3-hop \
+             route. Each parameter can be set independently, but by default are all the same which currently is most desirable \
+             for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower \
+             limit for the minimum of time you can set; two scans of the same sort would never run at the same time but the \
+             next one is always scheduled not earlier than the end of the previous one. These are ever present values, no matter \
+             if the user's set any value, they have defaults. The parameters must be always supplied together, delimited by vertical \
+             bars and in the right order.\n\n\
+             1. Pending Payable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments that are \
+             marked as currently pending; the payments were sent to pay our debts, the payable. The purpose of this process is to \
+             confirm the status of the pending payment; either the payment transaction was written on blockchain as successful or \
+             failed.\n\n\
+             2. Payable Scan Interval: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts \
+             of that meet the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If \
+             they meet the Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.\n\n\
+             3. Receivable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments on the \
+             blockchain that have been sent by our creditors to us, which are credited against receivables recorded for services \
+             provided."
+        )
+    }
 
     #[test]
     fn validate_private_key_requires_a_key_that_is_64_characters_long() {

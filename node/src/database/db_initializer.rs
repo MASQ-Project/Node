@@ -633,6 +633,12 @@ mod tests {
     use tokio::net::TcpListener;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DATABASE_FILE, "node-data.db");
+        assert_eq!(CURRENT_SCHEMA_VERSION, 6);
+    }
+
+    #[test]
     fn db_initialize_does_not_create_if_directed_not_to_and_directory_does_not_exist() {
         let home_dir = ensure_node_home_directory_does_not_exist(
             "db_initializer",

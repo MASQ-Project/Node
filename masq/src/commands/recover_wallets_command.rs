@@ -124,80 +124,120 @@ impl Command for RecoverWalletsCommand {
     as_any_impl!();
 }
 
+const RECOVER_WALLETS_ABOUT: &str =
+    "Recovers a pair of wallets (consuming and earning) for the Node if they haven't been recovered already";
+const DB_PASSWORD_ARG_HELP: &str =
+    "The current database password (a password must be set to use this command)";
+const MNEMONIC_PHRASE_ARG_HELP: &str =
+    "The mnemonic phrase upon which the consuming wallet (and possibly the earning wallet) is based. \
+     Surround with double quotes.";
+const PASSPHRASE_ARG_HELP: &str =
+    "An additional word--any word--to place at the end of the mnemonic phrase to recover the wallet pair";
+const LANGUAGE_ARG_HELP: &str = "The language in which the wallets' mnemonic phrase is written";
+const CONSUMING_PATH_ARG_HELP: &str =
+    "Derivation that was used to generate the consuming wallet from which your bills will be paid. \
+     Remember to put it in double quotes; otherwise the single quotes will cause problems";
+const CONSUMING_KEY_ARG_HELP: &str =
+    "The private key of the consuming wallet. Represent it as a 64-character string of hexadecimal digits.";
+const EARNING_PATH_ARG_HELP: &str =
+    "Derivation path that was used to generate the earning wallet from which your bills will be paid. \
+     Can be the same as consuming-path. Remember to put it in double quotes; otherwise the single \
+     quotes will cause problems";
+const EARNING_ADDRESS_ARG_HELP: &str =
+    "The address of the earning wallet. Represent it as '0x' followed by 40 hexadecimal digits.";
+const LANGUAGE_ARG_POSSIBLE_VALUES: [&str; 8] = [
+    "English",
+    "Chinese",
+    "Traditional Chinese",
+    "French",
+    "Italian",
+    "Japanese",
+    "Korean",
+    "Spanish",
+];
+const LANGUAGE_ARG_DEFAULT_VALUE: &str = "English";
+
 pub fn recover_wallets_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("recover-wallets")
-        .about("Recovers a pair of wallets (consuming and earning) for the Node if they haven't been recovered already")
-        .arg(Arg::with_name ("db-password")
-            .help ("The current database password (a password must be set to use this command)")
-            .long ("db-password")
-            .value_name ("DB-PASSWORD")
-            .required (true)
-            .case_insensitive(false)
-            .takes_value (true)
+        .about(RECOVER_WALLETS_ABOUT)
+        .arg(
+            Arg::with_name("db-password")
+                .help(DB_PASSWORD_ARG_HELP)
+                .long("db-password")
+                .value_name("DB-PASSWORD")
+                .required(true)
+                .case_insensitive(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("mnemonic-phrase")
-            .help ("The mnemonic phrase upon which the consuming wallet (and possibly the earning wallet) is based. Surround with double quotes.")
-            .long ("mnemonic-phrase")
-            .value_name ("MNEMONIC-PHRASE")
-            .required (false)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("mnemonic-phrase")
+                .help(MNEMONIC_PHRASE_ARG_HELP)
+                .long("mnemonic-phrase")
+                .value_name("MNEMONIC-PHRASE")
+                .required(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("passphrase")
-            .help ("An additional word--any word--to place at the end of the mnemonic phrase to recover the wallet pair")
-            .long ("passphrase")
-            .value_name ("PASSPHRASE")
-            .required (false)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("passphrase")
+                .help(PASSPHRASE_ARG_HELP)
+                .long("passphrase")
+                .value_name("PASSPHRASE")
+                .required(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("language")
-            .help ("The language in which the wallets' mnemonic phrase is written")
-            .long ("language")
-            .value_name ("LANGUAGE")
-            .required (false)
-            .default_value("English")
-            .takes_value (true)
-            .possible_values(&["English", "Chinese", "Traditional Chinese", "French",
-                "Italian", "Japanese", "Korean", "Spanish"])
+        .arg(
+            Arg::with_name("language")
+                .help(LANGUAGE_ARG_HELP)
+                .long("language")
+                .value_name("LANGUAGE")
+                .required(false)
+                .default_value(LANGUAGE_ARG_DEFAULT_VALUE)
+                .takes_value(true)
+                .possible_values(&LANGUAGE_ARG_POSSIBLE_VALUES),
         )
-        .arg(Arg::with_name ("consuming-path")
-            .help ("Derivation that was used to generate the consuming wallet from which your bills will be paid. Remember to put it in double quotes; otherwise the single quotes will cause problems")
-            .long ("consuming-path")
-            .value_name ("CONSUMING-PATH")
-            .required (false)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("consuming-path")
+                .help(CONSUMING_PATH_ARG_HELP)
+                .long("consuming-path")
+                .value_name("CONSUMING-PATH")
+                .required(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("consuming-key")
-            .help ("The private key of the consuming wallet. Represent it as a 64-character string of hexadecimal digits.")
-            .long ("consuming-key")
-            .value_name ("CONSUMING-KEY")
-            .required (false)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("consuming-key")
+                .help(CONSUMING_KEY_ARG_HELP)
+                .long("consuming-key")
+                .value_name("CONSUMING-KEY")
+                .required(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("earning-path")
-            .help ("Derivation path that was used to generate the earning wallet from which your bills will be paid. Can be the same as consuming-path. Remember to put it in double quotes; otherwise the single quotes will cause problems")
-            .long ("earning-path")
-            .value_name ("EARNING-PATH")
-            .required (false)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("earning-path")
+                .help(EARNING_PATH_ARG_HELP)
+                .long("earning-path")
+                .value_name("EARNING-PATH")
+                .required(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("earning-address")
-            .help ("The address of the earning wallet. Represent it as '0x' followed by 40 hexadecimal digits.")
-            .long ("earning-address")
-            .value_name ("EARNING-ADDRESS")
-            .required (false)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("earning-address")
+                .help(EARNING_ADDRESS_ARG_HELP)
+                .long("earning-address")
+                .value_name("EARNING-ADDRESS")
+                .required(false)
+                .takes_value(true),
         )
-        .group (
+        .group(
             ArgGroup::with_name("consuming")
-                .arg ("consuming-path")
-                .arg ("consuming-key")
-                .required (true)
+                .arg("consuming-path")
+                .arg("consuming-key")
+                .required(true),
         )
-        .group (
+        .group(
             ArgGroup::with_name("earning")
-                .arg ("earning-path")
-                .arg ("earning-address")
-                .required (true)
+                .arg("earning-path")
+                .arg("earning-address")
+                .required(true),
         )
 }
 
@@ -208,6 +248,66 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            RECOVER_WALLETS_ABOUT,
+            "Recovers a pair of wallets (consuming and earning) for the Node if they haven't been \
+             recovered already"
+        );
+        assert_eq!(
+            DB_PASSWORD_ARG_HELP,
+            "The current database password (a password must be set to use this command)"
+        );
+        assert_eq!(
+            MNEMONIC_PHRASE_ARG_HELP,
+            "The mnemonic phrase upon which the consuming wallet (and possibly the earning wallet) \
+             is based. Surround with double quotes.");
+        assert_eq!(
+            PASSPHRASE_ARG_HELP,
+            "An additional word--any word--to place at the end of the mnemonic phrase to recover \
+             the wallet pair"
+        );
+        assert_eq!(
+            LANGUAGE_ARG_HELP,
+            "The language in which the wallets' mnemonic phrase is written"
+        );
+        assert_eq!(
+            CONSUMING_PATH_ARG_HELP,
+            "Derivation that was used to generate the consuming wallet from which your bills will \
+             be paid. Remember to put it in double quotes; otherwise the single quotes will cause problems"
+        );
+        assert_eq!(
+            CONSUMING_KEY_ARG_HELP,
+            "The private key of the consuming wallet. Represent it as a 64-character string of \
+             hexadecimal digits."
+        );
+        assert_eq!(
+            EARNING_PATH_ARG_HELP,
+            "Derivation path that was used to generate the earning wallet from which your bills \
+             will be paid. Can be the same as consuming-path. Remember to put it in double quotes; \
+             otherwise the single quotes will cause problems"
+        );
+        assert_eq!(
+            EARNING_ADDRESS_ARG_HELP,
+            "The address of the earning wallet. Represent it as '0x' followed by 40 hexadecimal digits."
+        );
+        assert_eq!(
+            LANGUAGE_ARG_POSSIBLE_VALUES,
+            [
+                "English",
+                "Chinese",
+                "Traditional Chinese",
+                "French",
+                "Italian",
+                "Japanese",
+                "Korean",
+                "Spanish",
+            ]
+        );
+        assert_eq!(LANGUAGE_ARG_DEFAULT_VALUE, "English")
+    }
 
     #[test]
     fn testing_command_factory_with_derivation_paths() {

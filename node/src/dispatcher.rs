@@ -24,7 +24,7 @@ use std::net::{IpAddr, Ipv4Addr};
 
 pub const CRASH_KEY: &str = "DISPATCHER";
 lazy_static! {
-    static ref NULL_IP_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
+    static ref NULL_IP_ADDRESS: IpAddr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));  // tested
 }
 
 struct DispatcherOutSubs {
@@ -232,6 +232,15 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::str::FromStr;
     use std::thread;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "DISPATCHER");
+        assert_eq!(
+            NULL_IP_ADDRESS.to_string(),
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)).to_string()
+        );
+    }
 
     lazy_static! {
         static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::try_from((

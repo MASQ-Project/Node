@@ -164,6 +164,11 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "HOPPER");
+    }
+
+    #[test]
     #[should_panic(expected = "Hopper unbound: no RoutingService")]
     fn panics_if_routing_service_is_unbound() {
         let main_cryptde = main_cryptde();

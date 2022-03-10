@@ -325,14 +325,20 @@ enum DescriptorParsingError<'a> {
 impl Display for DescriptorParsingError<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self{
-            Self::CentralDelimiterProbablyMissing(descriptor) => write!(f, "Delimiter '@' probably missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
-            Self::CentralDelimOrNodeAddr(descriptor,tail) => write!(f, "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as '{}'", descriptor,tail),
-            Self::CentralDelimOrIdentifier(descriptor) => write!(f, "Either '@' delimiter position or format of chain identifier is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
-            Self::ChainIdentifierDelimiter(descriptor) => write!(f, "Chain identifier delimiter mismatch. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
-            Self::PrefixMissing(descriptor) => write!(f,"Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'",descriptor),
-            Self::WrongChainIdentifier(identifier) => write!(f, "Chain identifier '{}' is not valid; possible values are '{}' while formatted as 'masq://<chain identifier>:<public key>@<node address>'",
-                                                             identifier,
-                                                             CHAINS.iter().map(|record|record.literal_identifier).filter(|identifier|*identifier != "dev").join("', '")
+            Self::CentralDelimiterProbablyMissing(descriptor) =>
+                write!(f, "Delimiter '@' probably missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
+            Self::CentralDelimOrNodeAddr(descriptor,tail) =>
+                write!(f, "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as '{}'", descriptor,tail),
+            Self::CentralDelimOrIdentifier(descriptor) =>
+                write!(f, "Either '@' delimiter position or format of chain identifier is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
+            Self::ChainIdentifierDelimiter(descriptor) =>
+                write!(f, "Chain identifier delimiter mismatch. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
+            Self::PrefixMissing(descriptor) =>
+                write!(f,"Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'",descriptor),
+            Self::WrongChainIdentifier(identifier) =>
+                write!(f, "Chain identifier '{}' is not valid; possible values are '{}' while formatted as 'masq://<chain identifier>:<public key>@<node address>'",
+                                             identifier,
+                                             CHAINS.iter().map(|record|record.literal_identifier).filter(|identifier|*identifier != "dev").join("', '")
             )
         }
     }
@@ -504,6 +510,28 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{localhost, NeighborhoodModeLight};
     use std::str::FromStr;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            DEFAULT_RATE_PACK,
+            RatePack {
+                routing_byte_rate: 1,
+                routing_service_rate: 100,
+                exit_byte_rate: 3,
+                exit_service_rate: 300,
+            }
+        );
+        assert_eq!(
+            ZERO_RATE_PACK,
+            RatePack {
+                routing_byte_rate: 0,
+                routing_service_rate: 0,
+                exit_byte_rate: 0,
+                exit_service_rate: 0,
+            }
+        );
+    }
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
         RatePack {

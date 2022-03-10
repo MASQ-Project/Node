@@ -170,6 +170,11 @@ mod tests {
     use tokio::io::ErrorKind;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CONNECT_TIMEOUT_MS, 5000);
+    }
+
+    #[test]
     fn stream_connector_can_fail_to_connect() {
         init_test_logging();
         let dead_port = find_free_port();
