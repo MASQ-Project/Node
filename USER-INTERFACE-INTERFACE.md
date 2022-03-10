@@ -513,7 +513,7 @@ greater than 64 bits long will cause undefined behavior.
             "wallet": <string>,
             "age": <nonnegative integer>,
             "amount": <nonnegative integer>,
-            "pendingTransaction": <optional string>
+            "pendingPayableHashOpt": <optional string>
         },
         < ... >
     ],
@@ -545,9 +545,9 @@ on the associated account. The value will not be less than zero or longer than 6
 The `amount` fields contain the total amount in gwei owed to or due from the associated account at the time the
 request was received. The value will not be less than zero or longer than 64 bits.
 
-The `pendingTransaction` fields, if present, indicate that an obligation has been paid, but the payment is not
+The `pendingPayableHashOpt` fields, if present, indicate that an obligation has been paid, but the payment is not
 yet confirmed on the blockchain. If they appear, they will be standard 64-digit hexadecimal transaction numbers,
-prefixed by "0x". If no `pendingTransaction` is given, then there were no pending payments on that account
+prefixed by "0x". If no `pendingPayableHashOpt` is given, then there were no pending payments on that account
 at the time the request was received.
 
 The `payables` and `receivables` arrays are not in any particular order.

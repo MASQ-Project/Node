@@ -462,6 +462,17 @@ mod tests {
     use super::*;
     use serde_cbor::Value;
 
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            FUTURE_VERSION,
+            DataVersion {
+                major: 0xFFFF,
+                minor: 0xFFFF,
+            }
+        );
+    }
+
     #[derive(Serialize, Deserialize, Debug, PartialEq)]
     struct PersonV44 {
         name: String,

@@ -601,6 +601,11 @@ mod tests {
     use std::thread;
     use tokio::prelude::Async;
 
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "STREAMHANDLERPOOL");
+    }
+
     struct TrafficAnalyzerMock {}
 
     impl TrafficAnalyzer for TrafficAnalyzerMock {

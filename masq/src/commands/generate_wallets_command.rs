@@ -48,6 +48,36 @@ pub struct GenerateWalletsCommand {
     earning_path_opt: Option<String>,
 }
 
+const GENERATE_WALLET_SUBCOMMAND_ABOUT: &str =
+    "Generates a pair of wallets (consuming and earning) for the Node if they haven't \
+         been generated already.";
+const DB_PASSWORD_ARG_HELP: &str =
+    "The current database password (a password must be set to use this command).";
+const WORD_COUNT_ARG_HELP: &str =
+    "The number of words that should be generated for the wallets' mnemonic phrase, \
+             if you're supplying a derivation path.";
+const LANGUAGE_ARG_HELP: &str =
+    "The language in which the wallets' mnemonic phrase should be generated, \
+             if you're supplying a derivation path.";
+const PASSPHRASE_ARG_HELP: &str =
+    "An optional additional word (it can be any word) that the wallet-recovery \
+             process should require at the end of the mnemonic phrase, if you're supplying a \
+             derivation path.";
+
+const WORD_COUNT_ARG_POSSIBLE_VALUES: [&str; 5] = ["12", "15", "18", "21", "24"];
+const LANGUAGE_ARG_POSSIBLE_VALUES: [&str; 8] = [
+    "English",
+    "Chinese",
+    "Traditional Chinese",
+    "French",
+    "Italian",
+    "Japanese",
+    "Korean",
+    "Spanish",
+];
+const WORD_COUNT_ARG_DEFAULT_VALUE: &str = "12";
+const LANGUAGE_ARG_DEFAULT_VALUE: &str = "English";
+
 impl GenerateWalletsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match generate_wallets_subcommand().get_matches_from_safe(pieces) {
@@ -143,59 +173,59 @@ impl Command for GenerateWalletsCommand {
 
 pub fn generate_wallets_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("generate-wallets")
-        .about("Generates a pair of wallets (consuming and earning) for the Node if they haven't \
-        been generated already.")
-        .arg(Arg::with_name("db-password")
-            .help("The current database password (a password must be set to use this command).")
-            .long("db-password")
-            .value_name("DB-PASSWORD")
-            .required(true)
-            .case_insensitive(false)
-            .takes_value(true)
+        .about(GENERATE_WALLET_SUBCOMMAND_ABOUT)
+        .arg(
+            Arg::with_name("db-password")
+                .help(DB_PASSWORD_ARG_HELP)
+                .long("db-password")
+                .value_name("DB-PASSWORD")
+                .required(true)
+                .case_insensitive(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("word-count")
-            .help("The number of words that should be generated for the wallets' mnemonic phrase, \
-            if you're supplying a derivation path.")
-            .long("word-count")
-            .value_name("WORD-COUNT")
-            .required(false)
-            .default_value("12")
-            .takes_value(true)
-            .possible_values(&["12", "15", "18", "21", "24"])
+        .arg(
+            Arg::with_name("word-count")
+                .help(WORD_COUNT_ARG_HELP)
+                .long("word-count")
+                .value_name("WORD-COUNT")
+                .required(false)
+                .default_value(WORD_COUNT_ARG_DEFAULT_VALUE)
+                .takes_value(true)
+                .possible_values(&WORD_COUNT_ARG_POSSIBLE_VALUES),
         )
-        .arg(Arg::with_name("language")
-            .help("The language in which the wallets' mnemonic phrase should be generated, \
-            if you're supplying a derivation path.")
-            .long("language")
-            .value_name("LANGUAGE")
-            .required(false)
-            .default_value("English")
-            .takes_value(true)
-            .possible_values(&["English", "Chinese", "Traditional Chinese", "French",
-                "Italian", "Japanese", "Korean", "Spanish"])
+        .arg(
+            Arg::with_name("language")
+                .help(LANGUAGE_ARG_HELP)
+                .long("language")
+                .value_name("LANGUAGE")
+                .required(false)
+                .default_value(LANGUAGE_ARG_DEFAULT_VALUE)
+                .takes_value(true)
+                .possible_values(&LANGUAGE_ARG_POSSIBLE_VALUES),
         )
-        .arg(Arg::with_name("passphrase")
-            .help("An optional additional word (it can be any word) that the wallet-recovery \
-            process should require at the end of the mnemonic phrase, if you're supplying a \
-            derivation path.")
-            .long("passphrase")
-            .value_name("PASSPHRASE")
-            .required(false)
-            .takes_value(true)
+        .arg(
+            Arg::with_name("passphrase")
+                .help(PASSPHRASE_ARG_HELP)
+                .long("passphrase")
+                .value_name("PASSPHRASE")
+                .required(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("consuming-path")
-            .help (CONSUMING_PATH_HELP.as_str())
-            .long ("consuming-path")
-            .value_name ("CONSUMING-PATH")
-            .required (false)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("consuming-path")
+                .help(CONSUMING_PATH_HELP.as_str())
+                .long("consuming-path")
+                .value_name("CONSUMING-PATH")
+                .required(false)
+                .takes_value(true),
         )
-        .arg(Arg::with_name ("earning-path")
-            .help (EARNING_PATH_HELP.as_str())
-            .long ("earning-path")
-            .value_name ("EARNING-PATH")
-            .required (false)
-            .takes_value (true)
+        .arg(
+            Arg::with_name("earning-path")
+                .help(EARNING_PATH_HELP.as_str())
+                .long("earning-path")
+                .value_name("EARNING-PATH")
+                .required(false)
+                .takes_value(true),
         )
 }
 
@@ -212,6 +242,76 @@ mod tests {
 
     use super::*;
     use crate::command_context::ContextError;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            CONSUMING_PATH_HELP.to_string(),
+            format!(
+                "Derivation path from which to generate the \
+                 consuming wallet from which your bills will be paid. Remember to put it in double \
+                 quotes; otherwise the single quotes will cause problems. (Use \"{}\" if you don't have \
+                 a different value.) Leave this out to generate a consuming private key instead.",
+                DEFAULT_CONSUMING_DERIVATION_PATH.as_str()
+            )
+        );
+        assert_eq!(
+            EARNING_PATH_HELP.to_string(),
+            format!(
+                "Derivation path from which to generate the \
+                 earning wallet from which your bills will be paid. Can be the same as consuming-path. \
+                 Remember to put it in double quotes; otherwise the single quotes will cause problems. \
+                 (Use \"{}\" if you don't have a different value.)  Leave this out to generate an \
+                 earning address instead.",
+                DEFAULT_EARNING_DERIVATION_PATH.as_str()
+            )
+        );
+        assert_eq!(
+            GENERATE_WALLET_SUBCOMMAND_ABOUT,
+            "Generates a pair of wallets (consuming and earning) for the Node if they haven't \
+         been generated already."
+        );
+        assert_eq!(
+            DB_PASSWORD_ARG_HELP,
+            "The current database password (a password must be set to use this command)."
+        );
+        assert_eq!(
+            WORD_COUNT_ARG_HELP,
+            "The number of words that should be generated for the wallets' mnemonic phrase, \
+             if you're supplying a derivation path."
+        );
+        assert_eq!(
+            LANGUAGE_ARG_HELP,
+            "The language in which the wallets' mnemonic phrase should be generated, \
+             if you're supplying a derivation path."
+        );
+        assert_eq!(
+            PASSPHRASE_ARG_HELP,
+            "An optional additional word (it can be any word) that the wallet-recovery \
+             process should require at the end of the mnemonic phrase, if you're supplying a \
+             derivation path."
+        );
+
+        assert_eq!(
+            WORD_COUNT_ARG_POSSIBLE_VALUES,
+            ["12", "15", "18", "21", "24"]
+        );
+        assert_eq!(
+            LANGUAGE_ARG_POSSIBLE_VALUES,
+            [
+                "English",
+                "Chinese",
+                "Traditional Chinese",
+                "French",
+                "Italian",
+                "Japanese",
+                "Korean",
+                "Spanish",
+            ]
+        );
+        assert_eq!(WORD_COUNT_ARG_DEFAULT_VALUE, "12");
+        assert_eq!(LANGUAGE_ARG_DEFAULT_VALUE, "English");
+    }
 
     #[test]
     fn command_factory_works_with_earning_path_and_consuming_path_with_no_defaults() {

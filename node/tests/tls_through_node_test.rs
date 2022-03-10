@@ -29,8 +29,8 @@ fn tls_through_node_integration() {
         let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap())
             .expect("Could not connect to 127.0.0.1:443");
         stream
-            .set_read_timeout(Some(Duration::from_millis(200)))
-            .expect("Could not set read timeout to 200ms");
+            .set_read_timeout(Some(Duration::from_millis(1000)))
+            .expect("Could not set read timeout to 1000ms");
         let connector = TlsConnector::new().expect("Could not build TlsConnector");
         match connector.connect(
             "example.com",

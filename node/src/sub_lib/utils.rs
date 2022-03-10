@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use actix::{Message, SpawnHandle};
 use clap::App;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{FromMessageBody, UiCrashRequest};
@@ -8,7 +9,8 @@ use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::type_name_of;
 use std::io::ErrorKind;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::marker::PhantomData;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
@@ -85,13 +87,6 @@ pub fn to_string_s(data: &[u8]) -> String {
     }
 }
 
-pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
-    let mut result = vec![];
-    result.append(&mut source);
-    result.push(item);
-    result
-}
-
 pub fn make_new_multi_config<'a>(
     schema: &App<'a, 'a>,
     vcls: Vec<Box<dyn VirtualCommandLine>>,
@@ -134,6 +129,60 @@ fn crash_request_analyzer(
         Err(_) => None,
         Ok((msg, _)) if msg.actor == crash_key => Some(msg),
         Ok((_, _)) => None,
+    }
+}
+
+pub trait NotifyLaterHandle<T> {
+    fn notify_later<'a>(
+        &'a self,
+        msg: T,
+        interval: Duration,
+        closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
+    ) -> SpawnHandle;
+}
+
+pub struct NotifyLaterHandleReal<T> {
+    phantom: PhantomData<T>,
+}
+
+impl<T: Message + 'static> Default for Box<dyn NotifyLaterHandle<T>> {
+    fn default() -> Self {
+        Box::new(NotifyLaterHandleReal {
+            phantom: PhantomData::default(),
+        })
+    }
+}
+
+impl<T: Message> NotifyLaterHandle<T> for NotifyLaterHandleReal<T> {
+    fn notify_later<'a>(
+        &'a self,
+        msg: T,
+        interval: Duration,
+        mut closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
+    ) -> SpawnHandle {
+        closure(msg, interval)
+    }
+}
+
+pub trait NotifyHandle<T> {
+    fn notify<'a>(&'a self, msg: T, closure: Box<dyn FnMut(T) + 'a>);
+}
+
+impl<T: Message + 'static> Default for Box<dyn NotifyHandle<T>> {
+    fn default() -> Self {
+        Box::new(NotifyHandleReal {
+            phantom: PhantomData::default(),
+        })
+    }
+}
+
+pub struct NotifyHandleReal<T> {
+    phantom: PhantomData<T>,
+}
+
+impl<T: Message> NotifyHandle<T> for NotifyHandleReal<T> {
+    fn notify<'a>(&'a self, msg: T, mut closure: Box<dyn FnMut(T) + 'a>) {
+        closure(msg)
     }
 }
 
@@ -209,8 +258,6 @@ pub mod tests {
         assert_eq!(NODE_MAILBOX_CAPACITY, 0)
     }
 
-    const BEGINNING_OF_CRASH_RQ_MESSAGE: &str = "Received a crash request";
-
     #[test]
     fn handle_ui_crash_message_does_not_crash_if_not_crashable() {
         init_test_logging();
@@ -230,8 +277,7 @@ pub mod tests {
         // no panic; test passes
 
         TestLogHandler::new().exists_no_log_containing(&format!(
-            "handle_ui_crash_message_does_not_crash_if_not_crashable: {}",
-            BEGINNING_OF_CRASH_RQ_MESSAGE
+            "handle_ui_crash_message_does_not_crash_if_not_crashable: Received a crash request",
         ));
     }
 
@@ -253,7 +299,7 @@ pub mod tests {
         handle_ui_crash_request(from_ui_message, &logger, false, "CRASHKEY");
         // no panic; test passes
 
-        TestLogHandler::new().exists_log_containing(&format!("handle_ui_crash_message_does_not_crash_if_not_crashable_but_logs_if_receives_a_crash_request_for_it_despite: {} intended for this actor 'CRASHKEY' but not set up to be crashable", BEGINNING_OF_CRASH_RQ_MESSAGE));
+        TestLogHandler::new().exists_log_containing(&format!("handle_ui_crash_message_does_not_crash_if_not_crashable_but_logs_if_receives_a_crash_request_for_it_despite: {} intended for this actor 'CRASHKEY' but not set up to be crashable", "Received a crash request"));
     }
 
     #[test]

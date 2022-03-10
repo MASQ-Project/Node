@@ -79,6 +79,16 @@ mod tests {
     use crate::sub_lib::http_packet_framer::PacketProgressState;
 
     #[test]
+    fn constants_have_correct_values() {
+        let methods_expected: &[&[u8]] = &[
+            b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"CONNECT", b"OPTIONS", b"TRACE", b"PATCH",
+        ];
+
+        assert_eq!(METHODS, methods_expected);
+        assert_eq!(LONGEST_METHOD_LEN, 7);
+    }
+
+    #[test]
     fn discriminator_factory_duplicate_works() {
         let subject = HttpRequestDiscriminatorFactory::new();
 

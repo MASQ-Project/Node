@@ -203,6 +203,14 @@ mod tests {
     use websocket::server::sync::Server;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DELAY_FOR_RESPONSE_MS, 10000);
+        assert_eq!(RESPONSE_CHECK_INTERVAL_MS, 250);
+        assert_eq!(DELAY_FOR_DEATH_MS, 1000);
+        assert_eq!(DEATH_CHECK_INTERVAL_MS, 250);
+    }
+
+    #[test]
     fn detects_successful_launch_after_two_attempts() {
         let can_connect_to_ui_gateway_params_arc = Arc::new(Mutex::new(vec![]));
         let delay_params_arc = Arc::new(Mutex::new(vec![]));

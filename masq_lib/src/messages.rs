@@ -520,8 +520,8 @@ pub struct UiPayableAccount {
     pub wallet: String,
     pub age: u64,
     pub amount: u64,
-    #[serde(rename = "pendingTransaction")]
-    pub pending_transaction: Option<String>,
+    #[serde(rename = "pendingPayableHashOpt")]
+    pub pending_payable_hash_opt: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -689,6 +689,11 @@ mod tests {
     use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(NODE_UI_PROTOCOL, "MASQNode-UIv2");
+    }
+
+    #[test]
     fn ui_message_errors_are_displayable() {
         assert_eq!(
             UnexpectedMessage(MessageBody {
@@ -754,7 +759,7 @@ mod tests {
                 wallet: "wallet".to_string(),
                 age: 3456,
                 amount: 4567,
-                pending_transaction: Some("5678".to_string()),
+                pending_payable_hash_opt: Some("Oxab45c6e2c3d1f6c231".to_string()),
             }],
             total_payable: 1234,
             receivables: vec![UiReceivableAccount {
@@ -867,7 +872,7 @@ mod tests {
                     "wallet": "wallet",
                     "age": 3456,
                     "amount": 4567,
-                    "pendingTransaction": "transaction"
+                    "pendingPayableHashOpt": "Oxab45c6e2c3d1f6c231"
                 }],
                 "totalPayable": 1234,
                 "receivables": [{
@@ -896,7 +901,7 @@ mod tests {
                         wallet: "wallet".to_string(),
                         age: 3456,
                         amount: 4567,
-                        pending_transaction: Some("transaction".to_string())
+                        pending_payable_hash_opt: Some("Oxab45c6e2c3d1f6c231".to_string())
                     }],
                     total_payable: 1234,
                     receivables: vec![UiReceivableAccount {

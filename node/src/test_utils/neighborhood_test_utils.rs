@@ -11,6 +11,7 @@ use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDes
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;
+use ethereum_types::H160;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use std::convert::TryFrom;
@@ -139,9 +140,7 @@ impl NodeRecord {
         let key_slice = public_key.as_slice();
         data[64 - key_slice.len()..].copy_from_slice(key_slice);
         match ethsign::PublicKey::from_slice(&data) {
-            Ok(public) => Some(Wallet::from(ethereum_types::Address {
-                0: *public.address(),
-            })),
+            Ok(public) => Some(Wallet::from(H160(*public.address()))),
             Err(_) => None,
         }
     }

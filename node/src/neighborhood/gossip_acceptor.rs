@@ -1129,6 +1129,11 @@ mod tests {
     use std::convert::TryInto;
     use std::str::FromStr;
 
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(MAX_DEGREE, 5);
+    }
+
     #[derive(Clone, Copy, Debug, PartialEq)]
     enum Mode {
         Standard,

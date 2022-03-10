@@ -95,6 +95,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CHILD_WAIT_FAILURE_PREFIX, "Child wait failure: ");
+    }
+
+    #[test]
     fn recognizes_wait_failure() {
         let subject = CrashNotification {
             process_id: 0,

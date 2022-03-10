@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::jackass_unsigned_to_signed;
+use crate::accountant::unsigned_to_signed;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
@@ -12,7 +12,7 @@ use std::time::SystemTime;
 pub fn to_time_t(system_time: SystemTime) -> i64 {
     match system_time.duration_since(SystemTime::UNIX_EPOCH) {
         Err(e) => unimplemented!("{}", e),
-        Ok(d) => jackass_unsigned_to_signed(d.as_secs()).expect("MASQNode has expired"),
+        Ok(d) => unsigned_to_signed(d.as_secs()).expect("MASQNode has expired"),
     }
 }
 
