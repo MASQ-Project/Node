@@ -120,16 +120,6 @@ impl AccountantBuilder {
         self
     }
 
-    pub fn config_dao(mut self, persistent_config_dao: ConfigDaoMock) -> Self {
-        self.config_dao_factory = Some(Box::new(ConfigDaoFactoryMock::new(persistent_config_dao)));
-        self
-    }
-
-    pub fn persistent_config(mut self, persistent_config: PersistentConfigurationMock) -> Self {
-        self.persistent_configuration = Some(persistent_config);
-        self
-    }
-
     pub fn build(self) -> Accountant {
         let config = self.config.unwrap_or(Default::default());
         let payable_dao_factory = self
@@ -146,23 +136,13 @@ impl AccountantBuilder {
         let banned_dao_factory = self
             .banned_dao_factory
             .unwrap_or(Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new())));
-        let (config_dao_factory, persistent_config_opt) = match (self.config_dao_factory,self.persistent_configuration){
-            (Some(_),Some(_)) => panic!("you probably don't want to specify config_dao and persistent_config at the same time"),
-            (Some(config_dao),None) => (config_dao,None),
-            (None,Some(persistent_config)) => (Box::new(ConfigDaoFactoryMock::new(ConfigDaoMock::new())) as Box<dyn ConfigDaoFactory>,Some(persistent_config)),
-            (None,None) => (Box::new(ConfigDaoFactoryMock::new(ConfigDaoMock::new()))as Box<dyn ConfigDaoFactory>,None)
-        };
         let mut accountant = Accountant::new(
             &config,
             payable_dao_factory,
             receivable_dao_factory,
             pending_payable_dao_factory,
             banned_dao_factory,
-            config_dao_factory,
         );
-        if let Some(persistent_config) = persistent_config_opt {
-            accountant.persistent_configuration = Box::new(persistent_config)
-        };
         accountant
     }
 }

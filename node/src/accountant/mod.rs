@@ -1,12 +1,30 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod payable_dao;
-pub mod pending_payable_dao;
-pub mod receivable_dao;
-pub mod tools;
+use std::default::Default;
+use std::ops::Add;
+use std::path::Path;
+use std::time::{Duration, SystemTime};
 
-#[cfg(test)]
-pub mod test_utils;
+use actix::Actor;
+use actix::Addr;
+use actix::AsyncContext;
+use actix::Context;
+use actix::Handler;
+use actix::Message;
+use actix::Recipient;
+use itertools::Itertools;
+use lazy_static::lazy_static;
+use web3::types::{H256, TransactionReceipt};
+
+use masq_lib::crash_point::CrashPoint;
+use masq_lib::logger::Logger;
+use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiFinancialsRequest, UiScanRequest};
+use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
+use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::ui_gateway::MessageTarget::ClientId;
+use masq_lib::utils::{ExpectValue, plus};
+use payable_dao::PayableDao;
+use receivable_dao::ReceivableDao;
 
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
@@ -30,31 +48,14 @@ use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-use actix::Actor;
-use actix::Addr;
-use actix::AsyncContext;
-use actix::Context;
-use actix::Handler;
-use actix::Message;
-use actix::Recipient;
-use itertools::Itertools;
-use lazy_static::lazy_static;
-use masq_lib::crash_point::CrashPoint;
-use masq_lib::logger::Logger;
-use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiFinancialsRequest, UiScanRequest};
-use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
-use masq_lib::ui_gateway::MessageTarget::ClientId;
-use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::{plus, ExpectValue};
-use payable_dao::PayableDao;
-use receivable_dao::ReceivableDao;
-use std::default::Default;
-use std::ops::Add;
-use std::path::Path;
-use std::time::{Duration, SystemTime};
-use chrono::format::Numeric::Timestamp;
-use crate::database::db_initializer::DbInitializerReal;
-use web3::types::{TransactionReceipt, H256};
+
+pub mod payable_dao;
+pub mod pending_payable_dao;
+pub mod receivable_dao;
+pub mod tools;
+
+#[cfg(test)]
+pub mod test_utils;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TRANSACTION_SCAN_INTERVAL: u64 = 3600;
@@ -95,6 +96,11 @@ impl PaymentCurves {
         self.sugg_and_grace(now) - self.balance_decreases_for_sec
     }
 }
+//
+// #[derive(PartialEq, Debug, Clone, Copy)]
+// pub enum PaymentError {
+//     SignConversion(u64),
+// }
 
 pub struct Accountant {
     config: AccountantConfig,
@@ -107,7 +113,6 @@ pub struct Accountant {
     crashable: bool,
     scanners: Scanners,
     tools: TransactionConfirmationTools,
-    persistent_configuration: Box<dyn PersistentConfiguration>,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
@@ -180,7 +185,7 @@ macro_rules! notify_later_assertable {
         let closure =
             Box::new(|msg: $message_type, interval: Duration| $ctx.notify_later(msg, interval));
         let _ = $self.tools.$notify_later_handle_field.notify_later(
-            $message_type {},
+            $message_type {repeat: true},
             $self.config.$scan_interval_field,
             closure,
         );
@@ -195,18 +200,18 @@ impl Handler<ReceivedPayments> for Accountant {
     }
 }
 
-impl Handler<SentPayments> for Accountant {
+impl Handler<SentPayable> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: SentPayments, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_sent_payments(msg);
+    fn handle(&mut self, msg: SentPayable, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_sent_payable(msg);
     }
 }
 
 impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, _msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         self.scanners.payables.scan(self);
         if msg.repeat {
             notify_later_assertable!(
@@ -223,7 +228,7 @@ impl Handler<ScanForPayables> for Accountant {
 impl Handler<ScanForPendingPayable> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, _msg: ScanForPendingPayable, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ScanForPendingPayable, ctx: &mut Self::Context) -> Self::Result {
         self.scanners.pending_payable.scan(self);
         if msg.repeat {
             notify_later_assertable!(
@@ -240,7 +245,7 @@ impl Handler<ScanForPendingPayable> for Accountant {
 impl Handler<ScanForReceivables> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, _msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
         self.scanners.receivables.scan(self);
         if msg.repeat {
             notify_later_assertable!(
@@ -251,14 +256,6 @@ impl Handler<ScanForReceivables> for Accountant {
                 receivables_scan_interval
             );
         }
-    }
-}
-
-impl Handler<SentPayable> for Accountant {
-    type Result = ();
-
-    fn handle(&mut self, msg: SentPayable, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_sent_payable(msg);
     }
 }
 
@@ -913,14 +910,10 @@ impl Accountant {
     fn handle_externally_triggered_scan (&self, scan_type: ScanType, context_id: u64) {
         match scan_type {
             ScanType::Receivables => {
-                self.
+
             },
             ScanType::Payables => todo! (),
         }
-    }
-
-    pub fn dao_factory(data_directory: &Path) -> DaoFactoryReal {
-        DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
     }
 
     fn handle_cancel_pending_transaction(&self, msg: CancelFailedPendingTransaction) {
@@ -1199,13 +1192,32 @@ impl From<&PendingPayableFingerprint> for PendingPayableId {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::cell::RefCell;
+    use std::ops::Sub;
+    use std::rc::Rc;
+    use std::sync::{Arc, MutexGuard};
+    use std::sync::Mutex;
+    use std::thread;
+    use std::time::Duration;
+    use std::time::SystemTime;
+
+    use actix::{Arbiter, System};
+    use ethereum_types::{BigEndianHash, U64};
+    use ethsign_crypto::Keccak256;
+    use web3::types::U256;
+
+    use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
+    use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+    use masq_lib::ui_gateway::MessagePath::Conversation;
+
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::test_utils::{
-        bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
-        make_receivable_account, BannedDaoFactoryMock, ConfigDaoFactoryMock, PayableDaoFactoryMock,
+        BannedDaoFactoryMock, bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets,
+        make_pending_payable_fingerprint, make_receivable_account, PayableDaoFactoryMock,
         PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
         ReceivableDaoFactoryMock, ReceivableDaoMock,
     };
@@ -1218,384 +1230,20 @@ mod tests {
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
-    use crate::db_config::mocks::ConfigDaoMock;
-    use crate::db_config::persistent_configuration::PersistentConfigError;
+    use crate::db_config::config_dao::{ConfigDaoFactory};
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::make_wallet;
+    use crate::test_utils::{make_paying_wallet, make_wallet};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::{
-        prove_that_crash_request_handler_is_hooked_up, SystemKillerActor, CleanUpMessage, DummyActor,
-        NotifyHandleMock, NotifyLaterHandleMock,
+        CleanUpMessage, DummyActor, NotifyHandleMock, NotifyLaterHandleMock,
+        prove_that_crash_request_handler_is_hooked_up, SystemKillerActor,
     };
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::{make_paying_wallet, make_wallet};
-    use actix::{Arbiter, System};
-    use ethereum_types::{BigEndianHash, U64};
-    use ethsign_crypto::Keccak256;
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::ui_gateway::MessagePath::Conversation;
-    use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
-    use std::cell::RefCell;
-    use std::ops::Sub;
-    use std::rc::Rc;
-    use std::sync::Mutex;
-    use std::sync::{Arc, MutexGuard};
-    use std::thread;
-    use std::time::Duration;
-    use std::time::SystemTime;
-    use web3::types::U256;
-    use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
-    use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 
-    #[derive(Debug, Default)]
-    pub struct PayableDaoMock {
-        account_status_parameters: Arc<Mutex<Vec<Wallet>>>,
-        account_status_results: RefCell<Vec<Option<PayableAccount>>>,
-        more_money_payable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
-        more_money_payable_results: RefCell<Vec<Result<(), PaymentError>>>,
-        non_pending_payables_params: Arc<Mutex<Vec<()>>>,
-        non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
-        payment_sent_parameters: Arc<Mutex<Vec<Payment>>>,
-        payment_sent_results: RefCell<Vec<Result<(), PaymentError>>>,
-        top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
-        top_records_results: RefCell<Vec<Vec<PayableAccount>>>,
-        total_results: RefCell<Vec<u64>>,
-        have_non_pending_payables_shut_down_the_system: bool,
-    }
-
-    impl PayableDao for PayableDaoMock {
-        fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError> {
-            self.more_money_payable_parameters
-                .lock()
-                .unwrap()
-                .push((wallet.clone(), amount));
-            self.more_money_payable_results.borrow_mut().remove(0)
-        }
-
-        fn payment_sent(&self, sent_payment: &Payment) -> Result<(), PaymentError> {
-            self.payment_sent_parameters
-                .lock()
-                .unwrap()
-                .push(sent_payment.clone());
-            self.payment_sent_results.borrow_mut().remove(0)
-        }
-
-        fn payment_confirmed(
-            &self,
-            _wallet: &Wallet,
-            _amount: u64,
-            _confirmation_noticed_timestamp: SystemTime,
-            _transaction_hash: H256,
-        ) -> Result<(), PaymentError> {
-            unimplemented!("SC-925: TODO")
-        }
-
-        fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount> {
-            self.account_status_parameters
-                .lock()
-                .unwrap()
-                .push(wallet.clone());
-            self.account_status_results.borrow_mut().remove(0)
-        }
-
-        fn non_pending_payables(&self) -> Vec<PayableAccount> {
-            self.non_pending_payables_params.lock().unwrap().push(());
-            if self.have_non_pending_payables_shut_down_the_system
-                && self.non_pending_payables_results.borrow().is_empty()
-            {
-                System::current().stop();
-                return vec![];
-            }
-            self.non_pending_payables_results.borrow_mut().remove(0)
-        }
-
-        fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
-            self.top_records_parameters
-                .lock()
-                .unwrap()
-                .push((minimum_amount, maximum_age));
-            self.top_records_results.borrow_mut().remove(0)
-        }
-
-        fn total(&self) -> u64 {
-            self.total_results.borrow_mut().remove(0)
-        }
-    }
-
-    impl PayableDaoMock {
-        pub fn new() -> PayableDaoMock {
-            PayableDaoMock::default()
-        }
-
-        fn more_money_payable_parameters(
-            mut self,
-            parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
-        ) -> Self {
-            self.more_money_payable_parameters = parameters;
-            self
-        }
-
-        fn more_money_payable_result(self, result: Result<(), PaymentError>) -> Self {
-            self.more_money_payable_results.borrow_mut().push(result);
-            self
-        }
-
-        fn non_pending_payables_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-            self.non_pending_payables_params = params.clone();
-            self
-        }
-
-        pub fn non_pending_payables_result(self, result: Vec<PayableAccount>) -> Self {
-            self.non_pending_payables_results.borrow_mut().push(result);
-            self
-        }
-
-        fn payment_sent_parameters(mut self, parameters: Arc<Mutex<Vec<Payment>>>) -> Self {
-            self.payment_sent_parameters = parameters;
-            self
-        }
-
-        fn payment_sent_result(self, result: Result<(), PaymentError>) -> Self {
-            self.payment_sent_results.borrow_mut().push(result);
-            self
-        }
-
-        fn top_records_parameters(mut self, parameters: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
-            self.top_records_parameters = parameters.clone();
-            self
-        }
-
-        fn top_records_result(self, result: Vec<PayableAccount>) -> Self {
-            self.top_records_results.borrow_mut().push(result);
-            self
-        }
-
-        fn total_result(self, result: u64) -> Self {
-            self.total_results.borrow_mut().push(result);
-            self
-        }
-    }
-
-    pub struct PayableDaoFactoryMock {
-        called: Rc<RefCell<bool>>,
-        mock: RefCell<Option<PayableDaoMock>>,
-    }
-
-    impl PayableDaoFactory for PayableDaoFactoryMock {
-        fn make(&self) -> Box<dyn PayableDao> {
-            *self.called.borrow_mut() = true;
-            Box::new(self.mock.borrow_mut().take().unwrap())
-        }
-    }
-
-    impl PayableDaoFactoryMock {
-        fn new(mock: PayableDaoMock) -> Self {
-            Self {
-                called: Rc::new(RefCell::new(false)),
-                mock: RefCell::new(Some(mock)),
-            }
-        }
-
-        fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
-            self.called = called.clone();
-            self
-        }
-    }
-
-    #[derive(Debug, Default)]
-    pub struct ReceivableDaoMock {
-        account_status_parameters: Arc<Mutex<Vec<Wallet>>>,
-        account_status_results: RefCell<Vec<Option<ReceivableAccount>>>,
-        more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
-        more_money_receivable_results: RefCell<Vec<Result<(), PaymentError>>>,
-        more_money_received_parameters: Arc<Mutex<Vec<Vec<Transaction>>>>,
-        more_money_received_results: RefCell<Vec<Result<(), PaymentError>>>,
-        receivables_parameters: Arc<Mutex<Vec<()>>>,
-        receivables_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-        new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentCurves)>>>,
-        new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-        paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentCurves>>>,
-        paid_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-        top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
-        top_records_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-        total_results: RefCell<Vec<u64>>,
-        have_new_delinquencies_shut_down_the_system: bool,
-    }
-
-    impl ReceivableDao for ReceivableDaoMock {
-        fn more_money_receivable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError> {
-            self.more_money_receivable_parameters
-                .lock()
-                .unwrap()
-                .push((wallet.clone(), amount));
-            self.more_money_receivable_results.borrow_mut().remove(0)
-        }
-
-        fn more_money_received(&mut self, transactions: Vec<Transaction>) {
-            self.more_money_received_parameters
-                .lock()
-                .unwrap()
-                .push(transactions);
-        }
-
-        fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
-            self.account_status_parameters
-                .lock()
-                .unwrap()
-                .push(wallet.clone());
-
-            self.account_status_results.borrow_mut().remove(0)
-        }
-
-        fn receivables(&self) -> Vec<ReceivableAccount> {
-            self.receivables_results.borrow_mut().remove(0)
-        }
-
-        fn new_delinquencies(
-            &self,
-            now: SystemTime,
-            payment_curves: &PaymentCurves,
-        ) -> Vec<ReceivableAccount> {
-            self.new_delinquencies_parameters
-                .lock()
-                .unwrap()
-                .push((now, payment_curves.clone()));
-            if self.new_delinquencies_results.borrow().is_empty()
-                && self.have_new_delinquencies_shut_down_the_system
-            {
-                System::current().stop();
-                vec![]
-            } else if self.new_delinquencies_results.borrow().is_empty() {
-                vec![]
-            } else {
-                self.new_delinquencies_results.borrow_mut().remove(0)
-            }
-        }
-
-        fn paid_delinquencies(&self, payment_curves: &PaymentCurves) -> Vec<ReceivableAccount> {
-            self.paid_delinquencies_parameters
-                .lock()
-                .unwrap()
-                .push(payment_curves.clone());
-            if self.paid_delinquencies_results.borrow().is_empty() {
-                vec![]
-            } else {
-                self.paid_delinquencies_results.borrow_mut().remove(0)
-            }
-        }
-
-        fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
-            self.top_records_parameters
-                .lock()
-                .unwrap()
-                .push((minimum_amount, maximum_age));
-            self.top_records_results.borrow_mut().remove(0)
-        }
-
-        fn total(&self) -> u64 {
-            self.total_results.borrow_mut().remove(0)
-        }
-    }
-
-    impl ReceivableDaoMock {
-        pub fn new() -> ReceivableDaoMock {
-            Self::default()
-        }
-
-        fn more_money_receivable_parameters(
-            mut self,
-            parameters: &Arc<Mutex<Vec<(Wallet, u64)>>>,
-        ) -> Self {
-            self.more_money_receivable_parameters = parameters.clone();
-            self
-        }
-
-        fn more_money_receivable_result(self, result: Result<(), PaymentError>) -> Self {
-            self.more_money_receivable_results.borrow_mut().push(result);
-            self
-        }
-
-        fn more_money_received_parameters(
-            mut self,
-            parameters: &Arc<Mutex<Vec<Vec<Transaction>>>>,
-        ) -> Self {
-            self.more_money_received_parameters = parameters.clone();
-            self
-        }
-
-        fn more_money_received_result(self, result: Result<(), PaymentError>) -> Self {
-            self.more_money_received_results.borrow_mut().push(result);
-            self
-        }
-
-        fn receivables_parameters(mut self, parameters: &Arc<Mutex<Vec<()>>>) -> Self {
-            self.receivables_parameters = parameters.clone();
-            self
-        }
-
-        fn receivables_result(self, result: Vec<ReceivableAccount>) -> Self {
-            self.receivables_results.borrow_mut().push (result);
-            self
-        }
-
-        fn new_delinquencies_parameters(
-            mut self,
-            parameters: &Arc<Mutex<Vec<(SystemTime, PaymentCurves)>>>,
-        ) -> Self {
-            self.new_delinquencies_parameters = parameters.clone();
-            self
-        }
-
-        fn new_delinquencies_result(self, result: Vec<ReceivableAccount>) -> ReceivableDaoMock {
-            self.new_delinquencies_results.borrow_mut().push(result);
-            self
-        }
-
-        fn paid_delinquencies_parameters(
-            mut self,
-            parameters: &Arc<Mutex<Vec<PaymentCurves>>>,
-        ) -> Self {
-            self.paid_delinquencies_parameters = parameters.clone();
-            self
-        }
-
-        fn paid_delinquencies_result(self, result: Vec<ReceivableAccount>) -> ReceivableDaoMock {
-            self.paid_delinquencies_results.borrow_mut().push(result);
-            self
-        }
-
-        fn top_records_parameters(mut self, parameters: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
-            self.top_records_parameters = parameters.clone();
-            self
-        }
-
-        fn top_records_result(self, result: Vec<ReceivableAccount>) -> Self {
-            self.top_records_results.borrow_mut().push(result);
-            self
-        }
-
-        fn total_result(self, result: u64) -> Self {
-            self.total_results.borrow_mut().push(result);
-            self
-        }
-    }
-
-    pub struct ReceivableDaoFactoryMock {
-        called: Rc<RefCell<bool>>,
-        mock: RefCell<Option<ReceivableDaoMock>>,
-    }
-
-    impl ReceivableDaoFactory for ReceivableDaoFactoryMock {
-        fn make(&self) -> Box<dyn ReceivableDao> {
-            *self.called.borrow_mut() = true;
-            Box::new(self.mock.borrow_mut().take().unwrap())
-        }
-    }
+    use super::*;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1615,107 +1263,6 @@ mod tests {
         assert_eq!(SECONDS_PER_DAY, 86_400);
         assert_eq!(DEFAULT_PENDING_TOO_LONG_SEC, 21_600);
         assert_eq!(*PAYMENT_CURVES, payment_curves_expected);
-    }
-
-    #[derive(Debug, Default)]
-    struct BannedDaoMock {
-        ban_list_parameters: Arc<Mutex<Vec<()>>>,
-        ban_list_results: RefCell<Vec<Vec<Wallet>>>,
-        ban_parameters: Arc<Mutex<Vec<Wallet>>>,
-        unban_parameters: Arc<Mutex<Vec<Wallet>>>,
-    }
-
-    impl BannedDao for BannedDaoMock {
-        fn ban_list(&self) -> Vec<Wallet> {
-            self.ban_list_parameters.lock().unwrap().push(());
-            self.ban_list_results.borrow_mut().remove(0)
-        }
-
-        fn ban(&self, wallet: &Wallet) {
-            self.ban_parameters.lock().unwrap().push(wallet.clone());
-        }
-
-        fn unban(&self, wallet: &Wallet) {
-            self.unban_parameters.lock().unwrap().push(wallet.clone());
-        }
-    }
-
-    impl BannedDaoMock {
-        pub fn new() -> Self {
-            Self {
-                ban_list_parameters: Arc::new(Mutex::new(vec![])),
-                ban_list_results: RefCell::new(vec![]),
-                ban_parameters: Arc::new(Mutex::new(vec![])),
-                unban_parameters: Arc::new(Mutex::new(vec![])),
-            }
-        }
-
-        pub fn ban_list_result(self, result: Vec<Wallet>) -> Self {
-            self.ban_list_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn ban_parameters(mut self, parameters: &Arc<Mutex<Vec<Wallet>>>) -> Self {
-            self.ban_parameters = parameters.clone();
-            self
-        }
-
-        pub fn unban_parameters(mut self, parameters: &Arc<Mutex<Vec<Wallet>>>) -> Self {
-            self.unban_parameters = parameters.clone();
-            self
-        }
-    }
-
-    pub struct BannedDaoFactoryMock {
-        called: Rc<RefCell<bool>>,
-        mock: RefCell<Option<BannedDaoMock>>,
-    }
-
-    impl BannedDaoFactory for BannedDaoFactoryMock {
-        fn make(&self) -> Box<dyn BannedDao> {
-            *self.called.borrow_mut() = true;
-            Box::new(self.mock.borrow_mut().take().unwrap())
-        }
-    }
-
-    impl BannedDaoFactoryMock {
-        fn new(mock: BannedDaoMock) -> Self {
-            Self {
-                called: Rc::new(RefCell::new(false)),
-                mock: RefCell::new(Some(mock)),
-            }
-        }
-
-        fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
-            self.called = called.clone();
-            self
-        }
-    }
-
-    pub struct ConfigDaoFactoryMock {
-        called: Rc<RefCell<bool>>,
-        mock: RefCell<Option<ConfigDaoMock>>,
-    }
-
-    impl ConfigDaoFactory for ConfigDaoFactoryMock {
-        fn make(&self) -> Box<dyn ConfigDao> {
-            *self.called.borrow_mut() = true;
-            Box::new(self.mock.borrow_mut().take().unwrap())
-        }
-    }
-
-    impl ConfigDaoFactoryMock {
-        fn new(mock: ConfigDaoMock) -> Self {
-            Self {
-                called: Rc::new(RefCell::new(false)),
-                mock: RefCell::new(Some(mock)),
-            }
-        }
-
-        fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
-            self.called = called.clone();
-            self
-        }
     }
 
     #[test]
@@ -1879,19 +1426,16 @@ mod tests {
 
     #[test]
     fn scan_receivables_request() {
-        let subject = make_subject(
-            Some(bc_from_ac_plus_earning_wallet(
-                AccountantConfig {
-                    payables_scan_interval: Duration::from_millis(10_000),
-                    receivables_scan_interval: Duration::from_millis(10_000),
-                    suppress_initial_scans: true,
-                },
-                make_wallet("some_wallet_address"),
-            )),
-            None,
-            None,
-            None,
-        );
+        let config = bc_from_ac_plus_earning_wallet (AccountantConfig {
+            payables_scan_interval: Duration::from_millis(10_000),
+            receivables_scan_interval: Duration::from_millis(10_000),
+            pending_payable_scan_interval: Duration::from_secs(100),
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+            suppress_initial_scans: true,
+        }, make_wallet("some_wallet_address"));
+        let subject = AccountantBuilder::default()
+            .bootstrapper_config(config)
+            .build();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -2229,6 +1773,7 @@ mod tests {
                     receivables_scan_interval: Duration::from_secs(10_000),
                     pending_payable_scan_interval: Duration::from_secs(10_000),
                     when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+                    suppress_initial_scans: false,
                 },
                 earning_wallet.clone(),
             ))
@@ -2260,7 +1805,6 @@ mod tests {
         let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let new_delinquencies_params_arc = Arc::new(Mutex::new(vec![]));
         let paid_delinquencies_params_arc = Arc::new(Mutex::new(vec![]));
-        let start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, _) = make_recorder();
         let system = System::new("accountant_scans_after_startup");
         let config = bc_from_ac_plus_wallets(
@@ -2269,6 +1813,7 @@ mod tests {
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payable_scan_interval: Duration::from_millis(100), //except here, where we use it to stop the system
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+                suppress_initial_scans: false,
             },
             make_wallet("buy"),
             make_wallet("hi"),
@@ -2285,15 +1830,11 @@ mod tests {
         let payable_dao = PayableDaoMock::new()
             .non_pending_payables_params(&non_pending_payables_params_arc)
             .non_pending_payables_result(vec![]);
-        let persistent_config = PersistentConfigurationMock::default()
-            .start_block_params(&start_block_params_arc)
-            .start_block_result(Ok(123456));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(payable_dao)
             .receivable_dao(receivable_dao)
             .pending_payable_dao(pending_payable_dao)
-            .persistent_config(persistent_config)
             .build();
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
@@ -2321,9 +1862,6 @@ mod tests {
         //proof of calling a piece of scan_for_payable()
         let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
         assert_eq!(*non_pending_payables_params, vec![()]);
-        //proof of calling a piece of scan_for_receivable()
-        let start_block_params = start_block_params_arc.lock().unwrap();
-        assert_eq!(*start_block_params, vec![()]);
         //proof of calling pieces of scan_for_delinquencies()
         let mut new_delinquencies_params = new_delinquencies_params_arc.lock().unwrap();
         let (captured_timestamp, captured_curves) = new_delinquencies_params.remove(0);
@@ -2353,7 +1891,6 @@ mod tests {
                 receivables_scan_interval: Duration::from_millis(99),
                 pending_payable_scan_interval: Duration::from_secs(100),
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                receivables_scan_interval: Duration::from_millis(100),
                 suppress_initial_scans: false,
             },
             earning_wallet.clone(),
@@ -2375,15 +1912,10 @@ mod tests {
             .paid_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![]);
         receivable_dao.have_new_delinquencies_shutdown_the_system = true;
-        let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Ok(5))
-            .start_block_result(Ok(8))
-            .start_block_result(Ok(10));
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .receivable_dao(receivable_dao)
             .banned_dao(banned_dao)
-            .persistent_config(persistent_config)
             .build();
         subject.scanners.pending_payable = Box::new(NullScanner);
         subject.scanners.payables = Box::new(NullScanner);
@@ -2432,9 +1964,9 @@ mod tests {
         assert_eq!(
             *notify_later_receivable_params,
             vec![
-                (ScanForReceivables {}, Duration::from_millis(99)),
-                (ScanForReceivables {}, Duration::from_millis(99)),
-                (ScanForReceivables {}, Duration::from_millis(99))
+                (ScanForReceivables {repeat: true}, Duration::from_millis(99)),
+                (ScanForReceivables {repeat: true}, Duration::from_millis(99)),
+                (ScanForReceivables {repeat: true}, Duration::from_millis(99))
             ]
         )
     }
@@ -2462,7 +1994,7 @@ mod tests {
         let pending_payable_fingerprint_record = PendingPayableFingerprint {
             rowid_opt: Some(45454),
             timestamp: SystemTime::now(),
-            hash: H256::from_uint(&U256::from(565)),
+            hash: H256::from_uint(&U256::from(565u64)),
             attempt_opt: Some(1),
             amount: 4589,
             process_error: None,
@@ -2475,12 +2007,9 @@ mod tests {
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();
-        let persistent_config =
-            PersistentConfigurationMock::default().start_block_result(Ok(123456));
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .pending_payable_dao(pending_payable_dao)
-            .persistent_config(persistent_config)
             .build();
         subject.scanners.receivables = Box::new(NullScanner); //skipping
         subject.scanners.payables = Box::new(NullScanner); //skipping
@@ -2516,9 +2045,9 @@ mod tests {
         assert_eq!(
             *notify_later_pending_payable_params,
             vec![
-                (ScanForPendingPayable {}, Duration::from_millis(98)),
-                (ScanForPendingPayable {}, Duration::from_millis(98)),
-                (ScanForPendingPayable {}, Duration::from_millis(98))
+                (ScanForPendingPayable {repeat: true}, Duration::from_millis(98)),
+                (ScanForPendingPayable {repeat: true}, Duration::from_millis(98)),
+                (ScanForPendingPayable {repeat: true}, Duration::from_millis(98))
             ]
         )
     }
@@ -2590,9 +2119,9 @@ mod tests {
         assert_eq!(
             *notify_later_payables_params,
             vec![
-                (ScanForPayables {}, Duration::from_millis(97)),
-                (ScanForPayables {}, Duration::from_millis(97)),
-                (ScanForPayables {}, Duration::from_millis(97))
+                (ScanForPayables {repeat: true}, Duration::from_millis(97)),
+                (ScanForPayables {repeat: true}, Duration::from_millis(97)),
+                (ScanForPayables {repeat: true}, Duration::from_millis(97))
             ]
         )
     }
@@ -2605,6 +2134,8 @@ mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_millis(1),
                 receivables_scan_interval: Duration::from_secs(1),
+                pending_payable_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: true,
             },
             make_wallet("hi"),
@@ -2612,7 +2143,11 @@ mod tests {
         let payable_dao = PayableDaoMock::new(); // No payables: demanding one would cause a panic
         let receivable_dao = ReceivableDaoMock::new(); // No delinquencies: demanding one would cause a panic
         let peer_actors = peer_actors_builder().build();
-        let subject = make_subject(Some(config), Some(payable_dao), Some(receivable_dao), None);
+        let subject = AccountantBuilder::default()
+            .bootstrapper_config(config)
+            .payable_dao(payable_dao)
+            .receivable_dao(receivable_dao)
+            .build();
         let subject_addr = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         send_bind_message!(subject_subs, peer_actors);
@@ -2628,48 +2163,14 @@ mod tests {
     }
 
     #[test]
-    fn accountant_scans_after_startup() {
-        init_test_logging();
-        let (blockchain_bridge, _, _) = make_recorder();
-        let system = System::new("accountant_scans_after_startup");
-        let config = bc_from_ac_plus_wallets(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(1000),
-                receivables_scan_interval: Duration::from_secs(1000),
-                suppress_initial_scans: false,
-            },
-            make_wallet("buy"),
-            make_wallet("hi"),
-        );
-        let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
-        let subject = make_subject(Some(config), Some(payable_dao), None, None);
-        let peer_actors = peer_actors_builder()
-            .blockchain_bridge(blockchain_bridge)
-            .build();
-        let subject_addr = subject.start();
-        let subject_subs = Accountant::make_subs_from(&subject_addr);
-        send_bind_message!(subject_subs, peer_actors);
-
-        send_start_message!(subject_subs);
-
-        System::current().stop();
-        system.run();
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("INFO: Accountant: Scanning for payables");
-        tlh.exists_log_containing(&format!(
-            "INFO: Accountant: Scanning for payments to {}",
-            make_wallet("hi")
-        ));
-        tlh.exists_log_containing("INFO: Accountant: Scanning for delinquencies");
-    }
-
-    #[test]
     fn scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve() {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
                 payables_scan_interval: Duration::from_secs(100),
                 receivables_scan_interval: Duration::from_secs(1000),
+                pending_payable_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: false,
             },
             make_wallet("mine"),
@@ -2799,6 +2300,8 @@ mod tests {
             AccountantConfig {
                 payables_scan_interval: Duration::from_millis(1),
                 receivables_scan_interval: Duration::from_millis(1),
+                pending_payable_scan_interval: Duration::from_secs(100),
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: false,
             },
             make_wallet("mine"),
@@ -2812,7 +2315,10 @@ mod tests {
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();
-        let subject = make_subject(Some(config), Some(payable_dao), None, None);
+        let subject = AccountantBuilder::default()
+            .bootstrapper_config(config)
+            .payable_dao(payable_dao)
+            .build();
         let earning_wallet = subject.earning_wallet.clone();
         let subject_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&subject_addr);
@@ -2839,21 +2345,6 @@ mod tests {
         assert_eq!(blockchain_bridge_recordings.len(), 1); // Sent exactly one, no more
         let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
         assert_eq!(*non_pending_payables_params, vec![()]); // Exactly once, no more
-    }
-
-    #[test]
-    fn scan_for_received_payments_handles_error_retrieving_start_block() {
-        init_test_logging();
-        let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Err(PersistentConfigError::NotPresent));
-        let subject = AccountantBuilder::default()
-            .persistent_config(persistent_config)
-            .build();
-
-        subject.scan_for_received_payments();
-
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("ERROR: Accountant: Could not retrieve start block: NotPresent - aborting received-payment scan");
     }
 
     #[test]
@@ -2943,7 +2434,7 @@ mod tests {
         let payable_fingerprint_1 = PendingPayableFingerprint {
             rowid_opt: Some(555),
             timestamp: from_time_t(210_000_000),
-            hash: H256::from_uint(&U256::from(45678)),
+            hash: H256::from_uint(&U256::from(45678u64)),
             attempt_opt: Some(0),
             amount: 4444,
             process_error: None,
@@ -2951,7 +2442,7 @@ mod tests {
         let payable_fingerprint_2 = PendingPayableFingerprint {
             rowid_opt: Some(550),
             timestamp: from_time_t(210_000_100),
-            hash: H256::from_uint(&U256::from(112233)),
+            hash: H256::from_uint(&U256::from(112233u64)),
             attempt_opt: Some(0),
             amount: 7999,
             process_error: None,
@@ -2967,6 +2458,7 @@ mod tests {
                 receivables_scan_interval: Duration::from_secs(100),
                 pending_payable_scan_interval: Duration::from_secs(100),
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+                suppress_initial_scans: false,
             },
             make_wallet("mine"),
         );
@@ -2980,7 +2472,7 @@ mod tests {
             Some(blockchain_bridge_addr.recipient());
         let account_addr = subject.start();
 
-        let _ = account_addr.try_send(ScanForPendingPayable {}).unwrap();
+        let _ = account_addr.try_send(ScanForPendingPayable {repeat: true}).unwrap();
 
         let dummy_actor = DummyActor::new(None);
         let dummy_addr = dummy_actor.start();
@@ -4072,8 +3564,8 @@ mod tests {
         let notify_confirm_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_confirm_transaction_params_arc_cloned =
             notify_confirm_transaction_params_arc.clone(); //because it moves into a closure
-        let pending_tx_hash_1 = H256::from_uint(&U256::from(123));
-        let pending_tx_hash_2 = H256::from_uint(&U256::from(567));
+        let pending_tx_hash_1 = H256::from_uint(&U256::from(123u64));
+        let pending_tx_hash_2 = H256::from_uint(&U256::from(567u64));
         let rowid_for_account_1 = 3;
         let rowid_for_account_2 = 5;
         let payable_timestamp_1 = SystemTime::now().sub(Duration::from_secs(
@@ -4088,13 +3580,13 @@ mod tests {
         let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
         let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_1_third_round = TransactionReceipt::default();
-        transaction_receipt_tx_1_third_round.status = Some(U64::from(0)); //failure
+        transaction_receipt_tx_1_third_round.status = Some(U64::from(0u64)); //failure
         let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
-        transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
+        transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1u64)); // confirmed
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_transaction_count_result(Ok(web3::types::U256::from(1)))
-            .get_transaction_count_result(Ok(web3::types::U256::from(2)))
+            .get_transaction_count_result(Ok(web3::types::U256::from(1u64)))
+            .get_transaction_count_result(Ok(web3::types::U256::from(2u64)))
             //because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
             //there is one component missing in this wholesome test - the part where we send a request for
             //a fingerprint of that payable in the DB - this happens inside send_raw_transaction()
@@ -4149,6 +3641,7 @@ mod tests {
                 pending_payable_scan_interval: Duration::from_millis(pending_payable_scan_interval),
                 when_pending_too_long_sec: (PAYMENT_CURVES.payment_suggested_after_sec + 1000)
                     as u64,
+                suppress_initial_scans: false,
             },
             make_wallet("some_wallet_address"),
         );
@@ -4316,7 +3809,7 @@ mod tests {
             vec![fingerprint_2_fourth_round.clone()]
         );
         let expected_scan_pending_payable_msg_and_interval = (
-            ScanForPendingPayable {},
+            ScanForPendingPayable {repeat: true},
             Duration::from_millis(pending_payable_scan_interval),
         );
         let mut notify_later_check_for_confirmation =
@@ -4717,44 +4210,26 @@ mod tests {
         assert_eq!(result, Err(attempt));
     }
 
-    fn bc_from_ac_plus_earning_wallet(
-        ac: AccountantConfig,
-        earning_wallet: Wallet,
-    ) -> BootstrapperConfig {
-        let mut bc = BootstrapperConfig::new();
-        bc.accountant_config = ac;
-        bc.earning_wallet = earning_wallet;
-        bc
-    }
-
-    fn bc_from_ac_plus_wallets(
-        ac: AccountantConfig,
-        consuming_wallet: Wallet,
-        earning_wallet: Wallet,
-    ) -> BootstrapperConfig {
-        let mut bc = BootstrapperConfig::new();
-        bc.accountant_config = ac;
-        bc.consuming_wallet_opt = Some(consuming_wallet);
-        bc.earning_wallet = earning_wallet;
-        bc
-    }
-
     fn make_subject(
         config_opt: Option<BootstrapperConfig>,
         payable_dao_opt: Option<PayableDaoMock>,
         receivable_dao_opt: Option<ReceivableDaoMock>,
+        pending_payable_dao_opt: Option<PendingPayableDaoMock>,
         banned_dao_opt: Option<BannedDaoMock>,
     ) -> Accountant {
         let payable_dao_factory =
             PayableDaoFactoryMock::new(payable_dao_opt.unwrap_or(PayableDaoMock::new()));
         let receivable_dao_factory =
             ReceivableDaoFactoryMock::new(receivable_dao_opt.unwrap_or(ReceivableDaoMock::new()));
+        let pending_payable_dao_factory =
+            PendingPayableDaoFactoryMock::new (pending_payable_dao_opt.unwrap_or (PendingPayableDaoMock::default()));
         let banned_dao_factory =
             BannedDaoFactoryMock::new(banned_dao_opt.unwrap_or(BannedDaoMock::new()));
         let subject = Accountant::new(
-            &config_opt.unwrap_or(BootstrapperConfig::new()),
+            &config_opt.unwrap_or(BootstrapperConfig::default()),
             Box::new(payable_dao_factory),
             Box::new(receivable_dao_factory),
+            Box::new (pending_payable_dao_factory),
             Box::new(banned_dao_factory),
         );
         subject

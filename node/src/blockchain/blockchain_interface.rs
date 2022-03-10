@@ -77,7 +77,7 @@ impl Display for BlockchainError {
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
 pub type Balance = BlockchainResult<web3::types::U256>;
 pub type Nonce = BlockchainResult<web3::types::U256>;
-pub type Transactions = BlockchainResult<Vec<Transaction>>;
+// pub type Transactions = BlockchainResult<Vec<Transaction>>;
 pub type Receipt = BlockchainResult<Option<TransactionReceipt>>;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -89,7 +89,7 @@ pub struct RetrievedTransactions {
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
 
-    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions;
+    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Result<RetrievedTransactions, BlockchainError>;
 
     fn send_transaction(
         &self,
@@ -143,7 +143,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         self.chain.rec().contract
     }
 
-    fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> Transactions {
+    fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> Result<RetrievedTransactions, BlockchainError> {
         let msg = "Can't retrieve transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
         Err(BlockchainError::QueryFailed(msg))
@@ -222,7 +222,7 @@ where
         self.chain.rec().contract
     }
 
-    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
+    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Result<RetrievedTransactions, BlockchainError> {
         debug!(
             self.logger,
             "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
