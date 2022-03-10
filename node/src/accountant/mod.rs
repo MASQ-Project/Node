@@ -513,7 +513,7 @@ impl Accountant {
     }
 
     fn scan_for_pending_payable(&self) {
-        debug!(self.logger, "Scanning for pending payable");
+        info!(self.logger, "Scanning for pending payable");
         let filtered_pending_payable = self.pending_payable_dao.return_all_fingerprints();
         if filtered_pending_payable.is_empty() {
             debug!(self.logger, "No pending payable found during last scan")
@@ -1537,10 +1537,11 @@ mod tests {
         let accountant = AccountantBuilder::default()
             .pending_payable_dao(pending_payable_dao)
             .build();
+        let hash = H256::from_uint(&U256::from(12345));
         let sent_payable = SentPayable {
             payable: vec![Err(BlockchainError::TransactionFailed {
                 msg: "SQLite migraine".to_string(),
-                hash_opt: Some(H256::from_uint(&U256::from(12345))),
+                hash_opt: Some(hash),
             })],
         };
         let subject = accountant.start();
@@ -1553,10 +1554,10 @@ mod tests {
         system.run();
         let log_handler = TestLogHandler::new();
         log_handler.exists_no_log_containing(
-            "DEBUG: Accountant: Deleting an existing backup for a failed transaction",
+            &format!("DEBUG: Accountant: Deleting an existing backup for a failed transaction {:?}", hash),
         );
-        log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error at this end: 'TransactionFailed \
-         { msg: \"SQLite migraine\", hash_opt: Some(0x0000000000000000000000000000000000000000000000000000000000003039) }'");
+        log_handler.exists_log_containing(&format!("WARN: Accountant: Encountered transaction error at this end: 'TransactionFailed \
+         {{ msg: \"SQLite migraine\", hash_opt: Some({:?}) }}'", hash));
         log_handler.exists_log_containing(
             r#"WARN: Accountant: Failed transaction with a hash '0x0000…3039' but without the record - thrown out"#,
         );
@@ -1847,13 +1848,13 @@ mod tests {
 
         system.run();
         let tlh = TestLogHandler::new();
-        tlh.await_log_containing("DEBUG: Accountant: Scanning for payables", 1000u64);
+        tlh.await_log_containing("INFO: Accountant: Scanning for payables", 1000u64);
         tlh.exists_log_containing(&format!(
-            "DEBUG: Accountant: Scanning for receivables to {}",
+            "INFO: Accountant: Scanning for receivables to {}",
             make_wallet("hi")
         ));
-        tlh.exists_log_containing("DEBUG: Accountant: Scanning for delinquencies");
-        tlh.exists_log_containing("DEBUG: Accountant: Scanning for pending payable");
+        tlh.exists_log_containing("INFO: Accountant: Scanning for delinquencies");
+        tlh.exists_log_containing("INFO: Accountant: Scanning for pending payable");
         //some more weak proofs but still good enough
         //proof of calling a piece of scan_for_pending_payable
         let return_all_fingerprints_params = return_all_fingerprints_params_arc.lock().unwrap();
@@ -2294,7 +2295,7 @@ mod tests {
     }
 
     #[test]
-    fn non_repeating_scan_for_payables_does_not_repeat() {
+    fn non_repeating_scan_requests_does_not_repeat() {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
@@ -2310,6 +2311,9 @@ mod tests {
         let payable_dao = PayableDaoMock::default()
             .non_pending_payables_params(&non_pending_payables_params_arc)
             .non_pending_payables_result(vec![]);
+        let receivable_dao = ReceivableDaoMock::default()
+            .new_delinquencies_result(vec![])
+            .paid_delinquencies_result(vec![]);
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let system = System::new("non_repeating_scan_for_payables_does_not_repeat");
         let peer_actors = peer_actors_builder()
@@ -2318,6 +2322,7 @@ mod tests {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(payable_dao)
+            .receivable_dao(receivable_dao)
             .build();
         let earning_wallet = subject.earning_wallet.clone();
         let subject_addr = subject.start();
@@ -3987,7 +3992,7 @@ mod tests {
         let result = subject.interpret_transaction_receipt(
             tx_receipt,
             fingerprint.clone(),
-            &Logger::new("receipt_check_logger"),
+            &Logger::new("none_within_waiting"),
         );
 
         assert_eq!(
@@ -3995,8 +4000,8 @@ mod tests {
             PendingTransactionStatus::StillPending(PendingPayableId { hash, rowid })
         );
         TestLogHandler::new().exists_log_containing(
-            "INFO: receipt_check_logger: Pending \
-         transaction '0x0000…0237' couldn't be confirmed at attempt 1 at 100ms after its sending",
+            "INFO: none_within_waiting: Pending \
+         transaction '0x0000…0237' couldn't be confirmed at attempt 1 at ",
         );
     }
 
@@ -4208,30 +4213,5 @@ mod tests {
         let result = unsigned_to_signed((i64::MAX as u64) + 1);
 
         assert_eq!(result, Err(attempt));
-    }
-
-    fn make_subject(
-        config_opt: Option<BootstrapperConfig>,
-        payable_dao_opt: Option<PayableDaoMock>,
-        receivable_dao_opt: Option<ReceivableDaoMock>,
-        pending_payable_dao_opt: Option<PendingPayableDaoMock>,
-        banned_dao_opt: Option<BannedDaoMock>,
-    ) -> Accountant {
-        let payable_dao_factory =
-            PayableDaoFactoryMock::new(payable_dao_opt.unwrap_or(PayableDaoMock::new()));
-        let receivable_dao_factory =
-            ReceivableDaoFactoryMock::new(receivable_dao_opt.unwrap_or(ReceivableDaoMock::new()));
-        let pending_payable_dao_factory =
-            PendingPayableDaoFactoryMock::new (pending_payable_dao_opt.unwrap_or (PendingPayableDaoMock::default()));
-        let banned_dao_factory =
-            BannedDaoFactoryMock::new(banned_dao_opt.unwrap_or(BannedDaoMock::new()));
-        let subject = Accountant::new(
-            &config_opt.unwrap_or(BootstrapperConfig::default()),
-            Box::new(payable_dao_factory),
-            Box::new(receivable_dao_factory),
-            Box::new (pending_payable_dao_factory),
-            Box::new(banned_dao_factory),
-        );
-        subject
     }
 }
