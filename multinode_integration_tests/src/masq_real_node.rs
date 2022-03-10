@@ -8,17 +8,17 @@ use crate::masq_node_client::MASQNodeClient;
 use crate::masq_node_server::MASQNodeServer;
 use bip39::{Language, Mnemonic, Seed};
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::combined_parameters::{PaymentThresholds, PaymentThresholds, RatePack};
-use masq_lib::constants::{
-    CURRENT_LOGFILE_NAME, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_RATE_PACK, ZERO_RATE_PACK,
-};
+use masq_lib::constants::CURRENT_LOGFILE_NAME;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;
-use node_lib::sub_lib::accountant::DEFAULT_EARNING_WALLET;
+use node_lib::sub_lib::accountant::{
+    PaymentThresholds, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
+};
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
+use node_lib::sub_lib::neighborhood::{RatePack, DEFAULT_RATE_PACK, ZERO_RATE_PACK};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
@@ -1318,12 +1318,12 @@ mod tests {
                 exit_service_rate: 40,
             },
             payment_thresholds: PaymentThresholds {
-                threshold_interval_sec: 10,
-                balance_to_decrease_from_gwei: 20,
-                payment_grace_before_ban_sec: 30,
-                payment_suggested_after_sec: 40,
+                debt_threshold_gwei: 20,
+                maturity_threshold_sec: 40,
+                payment_grace_period_sec: 30,
                 permanent_debt_allowed_gwei: 50,
-                unban_when_balance_below_gwei: 60,
+                threshold_interval_sec: 10,
+                unban_below_gwei: 60,
             },
             firewall_opt: Some(Firewall {
                 ports_to_open: vec![HTTP_PORT, TLS_PORT],
@@ -1395,12 +1395,12 @@ mod tests {
         assert_eq!(
             result.payment_thresholds,
             PaymentThresholds {
+                debt_threshold_gwei: 20,
+                maturity_threshold_sec: 40,
                 threshold_interval_sec: 10,
-                balance_to_decrease_from_gwei: 20,
-                payment_grace_before_ban_sec: 30,
-                payment_suggested_after_sec: 40,
+                payment_grace_period_sec: 30,
                 permanent_debt_allowed_gwei: 50,
-                unban_when_balance_below_gwei: 60
+                unban_below_gwei: 60
             }
         )
     }
@@ -1426,12 +1426,12 @@ mod tests {
             exit_service_rate: 250,
         };
         let payment_thresholds = PaymentThresholds {
-            threshold_interval_sec: 2592000,
-            balance_to_decrease_from_gwei: 10000000000,
-            payment_grace_before_ban_sec: 1200,
-            payment_suggested_after_sec: 1200,
+            debt_threshold_gwei: 10000000000,
+            maturity_threshold_sec: 1200,
             permanent_debt_allowed_gwei: 490000000,
-            unban_when_balance_below_gwei: 490000000,
+            payment_grace_period_sec: 1200,
+            threshold_interval_sec: 2592000,
+            unban_below_gwei: 490000000,
         };
 
         let subject = NodeStartupConfigBuilder::standard()
@@ -1462,7 +1462,7 @@ mod tests {
                 "--rate-pack",
                 "\"1|90|3|250\"",
                 "--payment-thresholds",
-                "\"2592000|10000000000|1200|1200|490000000|490000000\"",
+                "\"10000000000|1200|1200|490000000|2592000|490000000\"",
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
                 "--chain",

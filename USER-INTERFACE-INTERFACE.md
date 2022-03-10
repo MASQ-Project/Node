@@ -343,13 +343,13 @@ Another reason the secrets might be missing is that there are not yet any secret
         <string>,
         <string>, ...
     ],
-    "paymentCurves": {
-        "balanceDecreasesForSec": <number>,
-        "balanceToDegreaseFromGwei": <number>,
-        "paymentGraceBeforeBanSec": <number>,
-        "paymentSuggestedAfterSec": <number>,
+    "PaymentThresholds": {
+        "debtThresholdGwei": <number>,
+        "maturityThresholdSec": <number>,
+        "paymentGracePeriodSec": <number>,
         "permanentDebtAllowedGwei": <number>,
-        "unban_when_balance_below_gwei": <number>
+        "thresholdIntervalSec": <number>
+        "unbanBelowGwei": <number>
     },
     "ratePack": {
         "routingByteRate": <number>,
@@ -456,9 +456,8 @@ database password. If you want to know whether the password you have is the corr
   3-hop route. Each parameter can be set independently, but by default are all the same which currently is most desirable
   for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower limit 
   for the minimum of time you can set; two scans of the same sort would never run at the same time but the next one is
-  always scheduled not earlier than the end of the previous one (but the time elapsed may be a bit longer due to placing
-  another, different task in between, because that could be created during the waiting period, and thus it factually
-  goes before the second scan). These are ever present values, no matter if the user's set any value, they have defaults.
+  always scheduled not earlier than the end of the previous one. These are ever present values, no matter if the user's
+  set any value, because defaults are prepared.
 
 * `pendingPayableSec`: Amount of seconds between two sequential cycles of scanning for payments that are marked as currently
   pending; the payments were sent to pay our debts, the payable. The purpose of this process is to confirm the status of

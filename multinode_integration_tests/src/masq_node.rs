@@ -2,14 +2,13 @@
 use crate::command::Command;
 use base64::URL_SAFE_NO_PAD;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::combined_parameters::RatePack;
 use masq_lib::constants::{
     CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT,
     MASQ_URL_PREFIX,
 };
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::neighborhood::NodeDescriptor;
+use node_lib::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
