@@ -2,7 +2,6 @@
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::combined_parameters::PaymentThresholds;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::command::Command;
@@ -31,6 +30,7 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
 use web3::Web3;
+use node_lib::sub_lib::accountant::PaymentThresholds;
 
 #[test]
 fn verify_bill_payment() {
@@ -69,11 +69,11 @@ fn verify_bill_payment() {
     );
     let payment_thresholds = PaymentThresholds {
         threshold_interval_sec: 2_592_000,
-        balance_to_decrease_from_gwei: 1_000_000_000,
-        payment_grace_before_ban_sec: 86_400,
-        payment_suggested_after_sec: 86_400,
+        debt_threshold_gwei: 1_000_000_000,
+        payment_grace_period_sec: 86_400,
+        maturity_threshold_sec: 86_400,
         permanent_debt_allowed_gwei: 10_000_000,
-        unban_when_balance_below_gwei: 10_000_000,
+        unban_below_gwei: 10_000_000,
     };
     let (consuming_config, _) =
         build_config(&blockchain_server, &seed, payment_thresholds, deriv_path);
