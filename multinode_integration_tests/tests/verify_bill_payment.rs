@@ -19,6 +19,7 @@ use node_lib::blockchain::blockchain_interface::{
 };
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::database::db_migrations::{ExternalData, MigratorConfig};
+use node_lib::sub_lib::accountant::PaymentThresholds;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use rustc_hex::{FromHex, ToHex};
@@ -30,7 +31,6 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
 use web3::Web3;
-use node_lib::sub_lib::accountant::PaymentThresholds;
 
 #[test]
 fn verify_bill_payment() {
