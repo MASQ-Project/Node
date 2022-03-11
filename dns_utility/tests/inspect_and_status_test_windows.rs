@@ -7,6 +7,7 @@ mod utils;
 use dns_utility_lib::win_dns_modifier::WinDnsModifier;
 use utils::TestCommand;
 
+#[ignore]
 #[test]
 // Any integration tests that should be run without root should have names ending in '_user_integration'
 fn winreg_inspect_and_status_user_integration() {
