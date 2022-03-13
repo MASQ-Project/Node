@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::{Payable, PayableAccount};
-use crate::accountant::{ReceivedPayments, SentPayable};
+use crate::accountant::{ReceivedPayments, ResponseSkeleton, SentPayable};
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
@@ -89,6 +89,7 @@ impl Handler<BindMessage> for BlockchainBridge {
 #[derive(Debug, Eq, PartialEq, Message, Clone)]
 pub struct RetrieveTransactions {
     pub recipient: Wallet,
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl Handler<RetrieveTransactions> for BlockchainBridge {
@@ -217,7 +218,7 @@ impl BlockchainBridge {
                 self.sent_payable_subs_opt
                     .as_ref()
                     .expect("Accountant is unbound")
-                    .try_send(SentPayable { payable: payments })
+                    .try_send(SentPayable { payable: payments, response_skeleton_opt: None })
                     .expect("Accountant is dead");
             }
             Err(e) => warning!(self.logger, "{}", e),
@@ -264,6 +265,7 @@ impl BlockchainBridge {
                     .expect("Accountant is unbound")
                     .try_send(ReceivedPayments {
                         payments: transactions.transactions,
+                        response_skeleton_opt: None,
                     })
                     .expect("Accountant is dead.")
             }
@@ -304,6 +306,7 @@ impl BlockchainBridge {
                 .expect("Accountant is unbound")
                 .try_send(ReportTransactionReceipts {
                     fingerprints_with_receipts: pairs,
+                    response_skeleton_opt: None,
                 })
                 .expect("Accountant is dead");
         }
@@ -510,6 +513,7 @@ mod tests {
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
+            response_skeleton_opt: None,
         };
         let (accountant, _, _) = make_recorder();
         let backup_recipient = accountant.start().recipient();
@@ -545,6 +549,7 @@ mod tests {
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
+            response_skeleton_opt: None,
         };
 
         let result = subject.handle_report_accounts_payable_inner(request);
@@ -605,6 +610,7 @@ mod tests {
                         pending_payable_opt: None,
                     },
                 ],
+                response_skeleton_opt: None,
             })
             .unwrap();
 
@@ -678,6 +684,7 @@ mod tests {
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
+            response_skeleton_opt: None,
         };
 
         let _ = subject.handle_report_accounts_payable(request);
@@ -721,6 +728,7 @@ mod tests {
                 pending_payable_fingerprint_1.clone(),
                 pending_payable_fingerprint_2.clone(),
             ],
+            response_skeleton_opt: None,
         };
 
         let _ = addr.try_send(msg).unwrap();
@@ -740,7 +748,8 @@ mod tests {
                         pending_payable_fingerprint_1
                     ),
                     (None, pending_payable_fingerprint_2),
-                ]
+                ],
+                response_skeleton_opt: None,
             }
         );
         let get_transaction_receipt_params = get_transaction_receipt_params_arc.lock().unwrap();
@@ -762,6 +771,7 @@ mod tests {
         );
         let msg = RetrieveTransactions {
             recipient: make_wallet("blah"),
+            response_skeleton_opt: None,
         };
 
         let _ = subject.handle_retrieve_transactions(msg);
@@ -838,6 +848,7 @@ mod tests {
                 fingerprint_3,
                 fingerprint_4,
             ],
+            response_skeleton_opt: None,
         };
 
         let _ = subject.handle_request_transaction_receipts(msg);
@@ -900,6 +911,7 @@ mod tests {
             .report_transaction_receipts_sub_opt = None;
         let msg = RequestTransactionReceipts {
             pending_payable: vec![fingerprint_1, fingerprint_2],
+            response_skeleton_opt: None,
         };
 
         let _ = subject.handle_request_transaction_receipts(msg);
@@ -954,6 +966,7 @@ mod tests {
         send_bind_message!(subject_subs, peer_actors);
         let retrieve_transactions = RetrieveTransactions {
             recipient: earning_wallet.clone(),
+            response_skeleton_opt: None,
         };
 
         let _ = addr.try_send(retrieve_transactions).unwrap();
@@ -970,7 +983,8 @@ mod tests {
         assert_eq!(
             received_payments,
             &ReceivedPayments {
-                payments: expected_transactions.transactions
+                payments: expected_transactions.transactions,
+                response_skeleton_opt: None,
             }
         );
     }
@@ -996,6 +1010,7 @@ mod tests {
         );
         let retrieve_transactions = RetrieveTransactions {
             recipient: make_wallet("somewallet"),
+            response_skeleton_opt: None,
         };
 
         let _ = subject.handle_retrieve_transactions(retrieve_transactions);
@@ -1022,6 +1037,7 @@ mod tests {
         );
         let retrieve_transactions = RetrieveTransactions {
             recipient: make_wallet("somewallet"),
+            response_skeleton_opt: None,
         };
 
         let _ = subject.handle_retrieve_transactions(retrieve_transactions);
@@ -1053,6 +1069,7 @@ mod tests {
         );
         let retrieve_transactions = RetrieveTransactions {
             recipient: make_wallet("somewallet"),
+            response_skeleton_opt: None,
         };
 
         let _ = subject.handle_retrieve_transactions(retrieve_transactions);

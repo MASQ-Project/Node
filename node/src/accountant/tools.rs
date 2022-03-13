@@ -1,10 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub(in crate::accountant) mod accountant_tools {
-    use crate::accountant::{
-        Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction,
-        RequestTransactionReceipts, ScanForPayables, ScanForPendingPayable, ScanForReceivables,
-    };
+    use crate::accountant::{Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables, ScanForReceivables};
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use actix::Recipient;
     #[cfg(test)]
@@ -27,7 +24,7 @@ pub(in crate::accountant) mod accountant_tools {
     }
 
     pub trait Scanner {
-        fn scan(&self, accountant: &Accountant);
+        fn scan(&self, accountant: &Accountant, response_skeleton_opt: Option<ResponseSkeleton>);
         as_any_dcl!();
     }
 
@@ -35,8 +32,8 @@ pub(in crate::accountant) mod accountant_tools {
     pub struct PendingPaymentsScanner;
 
     impl Scanner for PendingPaymentsScanner {
-        fn scan(&self, accountant: &Accountant) {
-            accountant.scan_for_pending_payable()
+        fn scan(&self, accountant: &Accountant, response_skeleton_opt: Option<ResponseSkeleton>) {
+            accountant.scan_for_pending_payable(response_skeleton_opt)
         }
         as_any_impl!();
     }
@@ -45,8 +42,8 @@ pub(in crate::accountant) mod accountant_tools {
     pub struct PayablesScanner;
 
     impl Scanner for PayablesScanner {
-        fn scan(&self, accountant: &Accountant) {
-            accountant.scan_for_payables()
+        fn scan(&self, accountant: &Accountant, response_skeleton_opt: Option<ResponseSkeleton>) {
+            accountant.scan_for_payables(response_skeleton_opt)
         }
         as_any_impl!();
     }
@@ -55,8 +52,9 @@ pub(in crate::accountant) mod accountant_tools {
     pub struct ReceivablesScanner;
 
     impl Scanner for ReceivablesScanner {
-        fn scan(&self, accountant: &Accountant) {
-            accountant.scan_for_received_payments();
+        fn scan(&self, accountant: &Accountant, response_skeleton_opt: Option<ResponseSkeleton>) {
+            // TODO: Figure out how to combine the results of these two into a single response to the UI
+            accountant.scan_for_received_payments(response_skeleton_opt);
             accountant.scan_for_delinquencies()
         }
         as_any_impl!();
@@ -67,14 +65,14 @@ pub(in crate::accountant) mod accountant_tools {
     pub struct NullScanner;
 
     impl Scanner for NullScanner {
-        fn scan(&self, _accountant: &Accountant) {}
+        fn scan(&self, _accountant: &Accountant, _response_skeleton_opt: Option<ResponseSkeleton>) {}
         as_any_impl!();
     }
 
     #[derive(Default)]
     pub struct TransactionConfirmationTools {
         pub notify_later_handle_scan_for_pending_payable:
-            Box<dyn NotifyLaterHandle<ScanForPendingPayable>>,
+            Box<dyn NotifyLaterHandle<ScanForPendingPayables>>,
         pub notify_later_handle_scan_for_payable: Box<dyn NotifyLaterHandle<ScanForPayables>>,
         pub notify_later_handle_scan_for_receivable: Box<dyn NotifyLaterHandle<ScanForReceivables>>,
         pub request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,

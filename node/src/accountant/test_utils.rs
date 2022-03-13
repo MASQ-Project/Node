@@ -23,7 +23,6 @@ use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
 use rusqlite::{Connection, Error, OptionalExtension};
@@ -74,8 +73,6 @@ pub struct AccountantBuilder {
     receivable_dao_factory: Option<Box<dyn ReceivableDaoFactory>>,
     pending_payable_dao_factory: Option<Box<dyn PendingPayableDaoFactory>>,
     banned_dao_factory: Option<Box<dyn BannedDaoFactory>>,
-    config_dao_factory: Option<Box<dyn ConfigDaoFactory>>,
-    persistent_configuration: Option<PersistentConfigurationMock>,
 }
 
 impl Default for AccountantBuilder {
@@ -86,8 +83,6 @@ impl Default for AccountantBuilder {
             receivable_dao_factory: None,
             pending_payable_dao_factory: None,
             banned_dao_factory: None,
-            config_dao_factory: None,
-            persistent_configuration: None,
         }
     }
 }
@@ -136,7 +131,7 @@ impl AccountantBuilder {
         let banned_dao_factory = self
             .banned_dao_factory
             .unwrap_or(Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new())));
-        let mut accountant = Accountant::new(
+        let accountant = Accountant::new(
             &config,
             payable_dao_factory,
             receivable_dao_factory,

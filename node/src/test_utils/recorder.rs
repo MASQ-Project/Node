@@ -1,7 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
-    ReceivedPayments, RequestTransactionReceipts, ScanForPayables, ScanForReceivables, SentPayable,
+    ReceivedPayments, RequestTransactionReceipts, ScanForPayables, ScanForReceivables,
+    ScanForPendingPayables, SentPayable,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
@@ -136,6 +137,7 @@ recorder_message_handler!(ReportTransactionReceipts);
 recorder_message_handler!(ReportAccountsPayable);
 recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
+recorder_message_handler!(ScanForPendingPayables);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
