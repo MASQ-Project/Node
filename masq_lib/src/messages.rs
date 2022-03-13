@@ -630,8 +630,9 @@ conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 pub enum ScanType {
-    Receivables,
     Payables,
+    Receivables,
+    PendingPayables,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

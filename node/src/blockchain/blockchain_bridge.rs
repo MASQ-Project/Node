@@ -212,13 +212,17 @@ impl BlockchainBridge {
     }
 
     fn handle_report_accounts_payable(&self, creditors_msg: ReportAccountsPayable) {
+        let skeleton = creditors_msg.response_skeleton_opt.clone();
         let processed_payments = self.handle_report_accounts_payable_inner(creditors_msg);
         match processed_payments {
             Ok(payments) => {
                 self.sent_payable_subs_opt
                     .as_ref()
                     .expect("Accountant is unbound")
-                    .try_send(SentPayable { payable: payments, response_skeleton_opt: None })
+                    .try_send(SentPayable {
+                        payable: payments,
+                        response_skeleton_opt: skeleton,
+                    })
                     .expect("Accountant is dead");
             }
             Err(e) => warning!(self.logger, "{}", e),
@@ -258,14 +262,13 @@ impl BlockchainBridge {
                 };
                 if transactions.transactions.is_empty() {
                     debug!(self.logger, "No new receivable detected");
-                    return;
                 }
                 self.received_payments_subs_opt
                     .as_ref()
                     .expect("Accountant is unbound")
                     .try_send(ReceivedPayments {
                         payments: transactions.transactions,
-                        response_skeleton_opt: None,
+                        response_skeleton_opt: msg.response_skeleton_opt,
                     })
                     .expect("Accountant is dead.")
             }
@@ -306,7 +309,7 @@ impl BlockchainBridge {
                 .expect("Accountant is unbound")
                 .try_send(ReportTransactionReceipts {
                     fingerprints_with_receipts: pairs,
-                    response_skeleton_opt: None,
+                    response_skeleton_opt: msg.response_skeleton_opt,
                 })
                 .expect("Accountant is dead");
         }
@@ -409,6 +412,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
     use web3::types::{TransactionReceipt, H160, H256, U256};
+    use automap_lib::protocols::utils::Direction::Response;
 
     #[test]
     fn constants_have_correct_values() {
@@ -610,7 +614,7 @@ mod tests {
                         pending_payable_opt: None,
                     },
                 ],
-                response_skeleton_opt: None,
+                response_skeleton_opt: Some(ResponseSkeleton{client_id: 1234, context_id: 4321}),
             })
             .unwrap();
 
@@ -644,9 +648,8 @@ mod tests {
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
         let sent_payments_msg = accountant_received_payment.get_record::<SentPayable>(0);
-        assert_eq!(
-            sent_payments_msg.payable,
-            vec![
+        assert_eq!(*sent_payments_msg, SentPayable {
+            payable: vec![
                 Ok(Payable {
                     to: make_wallet("blah"),
                     amount: 420,
@@ -659,8 +662,9 @@ mod tests {
                     timestamp: from_time_t(160_000_000),
                     tx_hash: H256::from("someothertransactionhash".keccak256())
                 })
-            ]
-        );
+            ],
+            response_skeleton_opt: Some(ResponseSkeleton {client_id: 1234, context_id: 4321})
+        });
     }
 
     #[test]
@@ -728,7 +732,7 @@ mod tests {
                 pending_payable_fingerprint_1.clone(),
                 pending_payable_fingerprint_2.clone(),
             ],
-            response_skeleton_opt: None,
+            response_skeleton_opt: Some (ResponseSkeleton {client_id: 1234, context_id: 4321}),
         };
 
         let _ = addr.try_send(msg).unwrap();
@@ -749,7 +753,7 @@ mod tests {
                     ),
                     (None, pending_payable_fingerprint_2),
                 ],
-                response_skeleton_opt: None,
+                response_skeleton_opt: Some (ResponseSkeleton {client_id: 1234, context_id: 4321}),
             }
         );
         let get_transaction_receipt_params = get_transaction_receipt_params_arc.lock().unwrap();
@@ -848,7 +852,7 @@ mod tests {
                 fingerprint_3,
                 fingerprint_4,
             ],
-            response_skeleton_opt: None,
+            response_skeleton_opt: Some (ResponseSkeleton {client_id: 1234, context_id: 4321}),
         };
 
         let _ = subject.handle_request_transaction_receipts(msg);
@@ -863,13 +867,13 @@ mod tests {
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
         let report_receipts_msg = accountant_recording.get_record::<ReportTransactionReceipts>(0);
-        assert_eq!(
-            report_receipts_msg.fingerprints_with_receipts,
-            vec![
+        assert_eq!(*report_receipts_msg, ReportTransactionReceipts {
+            fingerprints_with_receipts: vec![
                 (None, fingerprint_1),
                 (Some(transaction_receipt), fingerprint_2)
-            ]
-        );
+            ],
+            response_skeleton_opt: Some(ResponseSkeleton { client_id: 1234, context_id: 4321 }),
+        });
         TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; request of a transaction receipt \
          for '0x000000000000000000000000000000000000000000000000000000000001348d' failed due to 'QueryFailed(\"bad bad bad\")'");
     }
@@ -966,7 +970,7 @@ mod tests {
         send_bind_message!(subject_subs, peer_actors);
         let retrieve_transactions = RetrieveTransactions {
             recipient: earning_wallet.clone(),
-            response_skeleton_opt: None,
+            response_skeleton_opt: Some (ResponseSkeleton {client_id: 1234, context_id: 4321}),
         };
 
         let _ = addr.try_send(retrieve_transactions).unwrap();
@@ -984,13 +988,13 @@ mod tests {
             received_payments,
             &ReceivedPayments {
                 payments: expected_transactions.transactions,
-                response_skeleton_opt: None,
+                response_skeleton_opt: Some (ResponseSkeleton {client_id: 1234, context_id: 4321}),
             }
         );
     }
 
     #[test]
-    fn processing_of_received_payments_does_not_continue_if_no_payments_detected() {
+    fn processing_of_received_payments_continues_even_if_no_payments_are_detected() {
         init_test_logging();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(Ok(RetrievedTransactions {
@@ -1002,24 +1006,41 @@ mod tests {
             .start_block_result(Ok(6))
             .set_start_block_params(&set_start_block_params_arc)
             .set_start_block_result(Ok(()));
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let system =
+            System::new("processing_of_received_payments_continues_even_if_no_payments_are_detected");
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_config),
             false,
             None, //not needed in this test
         );
+        let addr = subject.start();
+        let subject_subs = BlockchainBridge::make_subs_from(&addr);
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        send_bind_message!(subject_subs, peer_actors);
         let retrieve_transactions = RetrieveTransactions {
             recipient: make_wallet("somewallet"),
-            response_skeleton_opt: None,
+            response_skeleton_opt: Some (ResponseSkeleton {client_id: 1234, context_id: 4321}),
         };
 
-        let _ = subject.handle_retrieve_transactions(retrieve_transactions);
+        let _ = addr.try_send(retrieve_transactions).unwrap();
 
+        System::current().stop();
+        system.run();
         let set_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*set_start_block_params, vec![7]);
+        let accountant_received_payment = accountant_recording_arc.lock().unwrap();
+        let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
+        assert_eq!(
+            received_payments,
+            &ReceivedPayments {
+                payments: vec![],
+                response_skeleton_opt: Some (ResponseSkeleton {client_id: 1234, context_id: 4321}),
+            }
+        );
         TestLogHandler::new()
             .exists_log_containing("DEBUG: BlockchainBridge: No new receivable detected");
-        //the test did not panic, meaning we did not try to send the actor message
     }
 
     #[test]
