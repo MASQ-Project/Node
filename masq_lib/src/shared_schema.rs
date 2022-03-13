@@ -113,7 +113,7 @@ pub const REAL_USER_HELP: &str =
 pub const RATE_PACK_HELP: &str = "\
      These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
      services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
-     together, delimited by vertical bars and in the right order.\n\n\
+     all together, delimited by vertical bars and in the right order.\n\n\
      1. Routing Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
      while the Node is a common relay Node.\n\n\
      2. Routing Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking \
@@ -127,7 +127,8 @@ pub const PAYMENT_THRESHOLDS_HELP: &str = "\
      exit services and the expectations the Node should have for receiving payments from other Nodes for routing and \
      exit services. The thresholds are also used to determine whether to offer services to other Nodes or enact a ban \
      since they have not paid mature debts. These are ever present values, no matter if the user's set any value, as \
-     they have defaults. The parameters must be always supplied together, delimited by vertical bars and in the right order.\n\n\
+     they have defaults. The parameters must be always supplied all together, delimited by vertical bars and in the right \
+     order.\n\n\
      1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
      upon passing the Maturity Threshold Sec age. Payables lower than this can stay unpaid longer. Receivables higher than \
      this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
@@ -152,7 +153,7 @@ pub const SCAN_INTERVALS_HELP:&str = "\
      for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower \
      limit for the minimum of time you can set; two scans of the same sort would never run at the same time but the \
      next one is always scheduled not earlier than the end of the previous one. These are ever present values, no matter \
-     if the user's set any value, they have defaults. The parameters must be always supplied together, delimited by vertical \
+     if the user's set any value, they have defaults. The parameters must be always supplied all together, delimited by vertical \
      bars and in the right order.\n\n\
      1. Pending Payable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments that are \
      marked as currently pending; the payments were sent to pay our debts, the payable. The purpose of this process is to \
@@ -552,7 +553,7 @@ pub mod common_validators {
             segment
                 .parse::<u64>()
                 .map_err(|_| {
-                    "Wrong format, supply numeric values separated by | like 111|222|333"
+                    "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
                         .to_string()
                 })
                 .map(|_| ())
@@ -783,7 +784,7 @@ mod tests {
             RATE_PACK_HELP,
             "These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
              services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
-             together, delimited by vertical bars and in the right order.\n\n\
+             all together, delimited by vertical bars and in the right order.\n\n\
              1. Routing Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
              while the Node is a common relay Node.\n\n\
              2. Routing Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking \
@@ -799,7 +800,7 @@ mod tests {
              exit services and the expectations the Node should have for receiving payments from other Nodes for routing and \
              exit services. The thresholds are also used to determine whether to offer services to other Nodes or enact a ban \
              since they have not paid mature debts. These are ever present values, no matter if the user's set any value, as \
-             they have defaults. The parameters must be always supplied together, delimited by vertical bars and in the right order.\n\n\
+             they have defaults. The parameters must be always supplied all together, delimited by vertical bars and in the right order.\n\n\
              1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
              upon passing the Maturity Threshold Sec age. Payables lower than this can stay unpaid longer. Receivables higher than \
              this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
@@ -826,8 +827,8 @@ mod tests {
              for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower \
              limit for the minimum of time you can set; two scans of the same sort would never run at the same time but the \
              next one is always scheduled not earlier than the end of the previous one. These are ever present values, no matter \
-             if the user's set any value, they have defaults. The parameters must be always supplied together, delimited by vertical \
-             bars and in the right order.\n\n\
+             if the user's set any value, they have defaults. The parameters must be always supplied all together, delimited by \
+             vertical bars and in the right order.\n\n\
              1. Pending Payable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments that are \
              marked as currently pending; the payments were sent to pay our debts, the payable. The purpose of this process is to \
              confirm the status of the pending payment; either the payment transaction was written on blockchain as successful or \
@@ -998,7 +999,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Wrong format, supply numeric values separated by | like 111|222|333"
+                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1010,7 +1011,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Wrong format, supply numeric values separated by | like 111|222|333"
+                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1022,7 +1023,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Wrong format, supply numeric values separated by | like 111|222|333"
+                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
