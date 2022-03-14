@@ -2,15 +2,16 @@
 
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
-use crate::communications::{
-    handle_node_is_dead_while_f_f_on_the_way_broadcast, handle_unrecognized_broadcast,
+use crate::communications::broadcasts::broadcasts::{
+    handle_node_is_dead_while_f_f_on_the_way_broadcast, handle_ui_log_broadcast,
+    handle_unrecognized_broadcast,
 };
 use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
-    FromMessageBody, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
-    UiUndeliveredFireAndForget,
+    FromMessageBody, UiLogBroadcast, UiNewPasswordBroadcast, UiNodeCrashedBroadcast,
+    UiSetupBroadcast, UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::ExpectValue;
@@ -106,6 +107,8 @@ impl BroadcastHandlerReal {
                         stdout,
                         terminal_interface,
                     );
+                } else if let Ok((body, _)) = UiLogBroadcast::fmb(message_body.clone()) {
+                    handle_ui_log_broadcast(body, stdout, terminal_interface)
                 } else {
                     handle_unrecognized_broadcast(message_body, stderr, terminal_interface)
                 }
@@ -148,7 +151,9 @@ mod tests {
         TerminalPassiveMock, TestStreamFactory,
     };
     use crossbeam_channel::{bounded, unbounded, Receiver};
-    use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
+    use masq_lib::messages::{
+        CrashReason, SerializableLogLevel, ToMessageBody, UiLogBroadcast, UiNodeCrashedBroadcast,
+    };
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
     use std::sync::Arc;
@@ -178,6 +183,34 @@ mod tests {
             stdout
         );
 
+        assert_eq!(
+            handle.stderr_so_far(),
+            "".to_string(),
+            "stderr: '{}'",
+            stdout
+        );
+    }
+
+    #[test]
+    fn broadcast_of_ui_log_was_successful() {
+        let (factory, handle) = TestStreamFactory::new();
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
+            TerminalPassiveMock::new(),
+        ))))
+        .start(Box::new(factory));
+        let message = masq_lib::messages::UiLogBroadcast {
+            msg: "Empty. No Nodes to report to; continuing".to_string(),
+            log_level: SerializableLogLevel::Info,
+        }
+        .tmb(0);
+
+        subject.send(message);
+
+        let stdout = handle.stdout_so_far();
+        assert_eq!(
+            stdout,
+            "\nInfo: Empty. No Nodes to report to; continuing\n\n",
+        );
         assert_eq!(
             handle.stderr_so_far(),
             "".to_string(),
@@ -448,9 +481,21 @@ Cannot handle crash request: Node is not running.
         )
     }
 
+    #[test]
+    fn ui_log_broadcast_handle_has_a_synchronizer_correctly_implemented() {
+        let ui_log_broadcast = UiLogBroadcast {
+            msg: "Empty. No Nodes to report to; continuing".to_string(),
+            log_level: SerializableLogLevel::Info,
+        };
+
+        let broadcast_output = "\nInfo: Empty. No Nodes to report to; continuing\n\n";
+
+        assertion_for_handle_broadcast(handle_ui_log_broadcast, ui_log_broadcast, broadcast_output)
+    }
+
     fn assertion_for_handle_broadcast<F, U>(
         broadcast_handler: F,
-        broadcast_message_body: U,
+        broadcast_body: U,
         broadcast_desired_output: &str,
     ) where
         F: FnOnce(U, &mut dyn Write, &TerminalWrapper) + Copy,
@@ -470,7 +515,7 @@ Cannot handle crash request: Node is not running.
             Box::new(stdout_clone),
             synchronizer,
             broadcast_handler,
-            broadcast_message_body.clone(),
+            broadcast_body.clone(),
             rx.clone(),
         );
 
@@ -492,7 +537,7 @@ Cannot handle crash request: Node is not running.
             Box::new(stdout_second_clone),
             synchronizer_clone_idle,
             broadcast_handler,
-            broadcast_message_body,
+            broadcast_body,
             rx,
         );
 

@@ -594,8 +594,16 @@ pub struct UiGenerateWalletsResponse {
 conversation_message!(UiGenerateWalletsResponse, "generateWallets");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum SerializableLogLevel {
+    Error,
+    Warn,
+    Info,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiLogBroadcast {
     pub msg: String,
+    pub log_level: SerializableLogLevel,
 }
 fire_and_forget_message!(UiLogBroadcast, "logBroadcast");
 
@@ -739,6 +747,17 @@ mod tests {
 
         assert_eq!(subject.opcode(), "financials");
         assert_eq!(subject.is_conversational(), true);
+    }
+
+    #[test]
+    fn log_message_for_broadcast_was_correctly_generated() {
+        let subject = UiLogBroadcast {
+            msg: "Here's some log.".to_string(),
+            log_level: SerializableLogLevel::Error,
+        };
+
+        assert_eq!(subject.opcode(), "logBroadcast");
+        assert_eq!(subject.is_conversational(), false);
     }
 
     #[test]
