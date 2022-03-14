@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::messages::{ToMessageBody, UiLogBroadcast};
+use crate::messages::{SerializableLogLevel, ToMessageBody, UiLogBroadcast};
 use crate::ui_gateway::{MessageTarget, NodeToUiMessage};
 use actix::Recipient;
 use lazy_static::lazy_static;
@@ -141,13 +141,28 @@ impl Logger {
     where
         F: FnOnce() -> String,
     {
-        if UI_MESSAGE_LOG_LEVEL.le(&level) {
-            self.transmit(log_function())
+        match (!UI_MESSAGE_LOG_LEVEL.le(&level), self.level_enabled(level)) {
+            // We want to transmit log if - !UI_MESSAGE_LOG_LEVEL.le(&level)
+            // We want to save into log file if - self.level_enabled(level)
+            (true, true) => {
+                todo!("")
+                // let msg = log_function();
+                // self.transmit(msg.clone(), level.into());
+                // self.log(level, msg);
+            }
+            (true, false) => {
+                todo!("")
+                // self.transmit(log_function(), level.into())
+            }
+            (false, true) => {
+                todo!("")
+                // self.log(level, log_function())
+            }
+            _ => {
+                todo!("")
+                // return;
+            }
         }
-        if !self.level_enabled(level) {
-            return;
-        }
-        self.log(level, log_function())
     }
 
     pub fn log(&self, level: Level, msg: String) {
@@ -160,13 +175,30 @@ impl Logger {
         );
     }
 
-    fn transmit(&self, msg: String) {
-        if let Some(recipient) = unsafe { LOG_RECIPIENT_OPT.as_ref() } {
-            let actor_msg = NodeToUiMessage {
-                target: MessageTarget::AllClients,
-                body: UiLogBroadcast { msg }.tmb(0),
-            }; //TODO we probably don't want to confront all connected clients?
-            recipient.try_send(actor_msg).expect("UiGateway is dead")
+    fn transmit(&self, msg: String, log_level: SerializableLogLevel) {
+        todo!("Test Me!")
+        // if let Some(recipient) = unsafe { LOG_RECIPIENT_OPT.as_ref() } {
+        //     let actor_msg = NodeToUiMessage {
+        //         target: MessageTarget::AllClients,
+        //         body: UiLogBroadcast {
+        //             msg,
+        //             log_level
+        //         }.tmb(0),
+        //     }; //TODO we probably don't want to confront all connected clients?
+        //     recipient.try_send(actor_msg).expect("UiGateway is dead")
+        // }
+    }
+}
+
+impl From<Level> for SerializableLogLevel {
+    fn from(native_level: Level) -> Self {
+        // todo!("Test Converison: This needs a seperate test")
+        match native_level {
+            Level::Error => SerializableLogLevel::Error,
+            Level::Warn => SerializableLogLevel::Warn,
+            Level::Info => SerializableLogLevel::Info,
+            // We shouldn't be doing this
+            _ => panic!("should not be needed"),
         }
     }
 }
@@ -200,6 +232,10 @@ mod tests {
     use std::thread;
     use std::thread::ThreadId;
     use std::time::SystemTime;
+
+    // 1) Send a message to Recorder
+    // 2) Assert that testing actor received our message (proof that we called transmit method)
+    // 3) Not going to print the logs to logfile
 
     #[test]
     fn logger_format_is_correct() {
