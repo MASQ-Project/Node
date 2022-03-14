@@ -9,11 +9,105 @@ use log::Level;
 use log::Metadata;
 #[allow(unused_imports)]
 use log::Record;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, Once};
 
-pub static INIT_LOG_RECIPIENT: Once = Once::new();
-pub static mut LOG_RECIPIENT_OPT: Option<Recipient<NodeToUiMessage>> = None;
+pub static mut LOG_RECIPIENT: LogRecipient = LogRecipient {
+    initiated: AtomicBool::new(false),
+    initiation_guard: AtomicBool::new(false),
+    recipient_opt: None,
+};
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
+
+#[cfg(test)]
+const TEST_LOG_RECIPIENT_GUARD: Mutex<()> = Mutex::new(());
+
+pub struct LogRecipient {
+    initiated: AtomicBool,
+    initiation_guard: AtomicBool,
+    recipient_opt: Option<Recipient<NodeToUiMessage>>,
+}
+
+impl LogRecipient {
+    pub fn prepare_log_recipient(recipient: Recipient<NodeToUiMessage>) {
+        // loop {
+        //     if LOG_RECIPIENT.guard.swap(false) {
+        //         LOG_RECIPIENT.recipient_opt = Some (recipient);
+        //         LOG_RECIPIENT.guard.swap(true);
+        //         break;
+        //     }
+        //     else {
+        //         thread.sleep (Duration::from_millis (10)) // wait for the logger to finish
+        //     }
+        // }
+    }
+
+    fn transmit_log(&self, msg: String, log_level: SerializableLogLevel) {
+        if unsafe { LOG_RECIPIENT.initiated.load(Ordering::Relaxed) } {
+            todo!("send the log")
+        } else {
+            if unsafe {
+                LOG_RECIPIENT
+                    .initiation_guard
+                    .swap(false, Ordering::Relaxed)
+            } {
+                if let Some(recipient) = unsafe { LOG_RECIPIENT.recipient_opt.as_ref() } {
+                    todo!()
+                }
+                //unsafe LOG_RECIPIENT.guard.swap(true)
+            }
+        }
+    }
+}
+
+// Data structure:
+//
+// pub struct LogRecipient {
+//     guard: AtomicBool,
+//     recipient_opt: Option<Recipient<blah>>,
+// }
+//
+// Data item:
+//
+// static LOG_RECIPIENT: LogRecipient = LogRecipient {guard: AtomicBool::new(false), recipient_opt: None};
+//
+// Log transmitter:
+//
+// fn transmit_log (parameters) {
+//     if (LOG_RECIPIENT.guard.swap(false)) {
+//         // Transmit log to UIGateway if recipient_opt is populated
+//         LOG_RECIPIENT.guard.swap(true)
+//     }
+// }
+//
+// ActorSystemFactory or delegate:
+//
+// fn prepare_log_recipient (recipient: Recipient<blah>) {
+//     loop {
+//         if LOG_RECIPIENT.guard.swap(false) {
+//             LOG_RECIPIENT.recipient_opt = Some (recipient);
+//             LOG_RECIPIENT.guard.swap(true);
+//             break;
+//         }
+//         else {
+//             thread.sleep (Duration::from_millis (10)) // wait for the logger to finish
+//         }
+//     }
+// }
+
+// fn transmit(&self, msg: String, log_level: SerializableLogLevel) {
+//     todo!("Test Me!")
+//     // if let Some(recipient) = unsafe { LOG_RECIPIENT_OPT.as_ref() } {
+//     //     let actor_msg = NodeToUiMessage {
+//     //         target: MessageTarget::AllClients,
+//     //         body: UiLogBroadcast {
+//     //             msg,
+//     //             log_level
+//     //         }.tmb(0),
+//     //     }; //TODO we probably don't want to confront all connected clients?
+//     //     recipient.try_send(actor_msg).expect("UiGateway is dead")
+//     // }
+// }
 
 #[derive(Clone)]
 pub struct Logger {
@@ -174,20 +268,6 @@ impl Logger {
                 .build(),
         );
     }
-
-    fn transmit(&self, msg: String, log_level: SerializableLogLevel) {
-        todo!("Test Me!")
-        // if let Some(recipient) = unsafe { LOG_RECIPIENT_OPT.as_ref() } {
-        //     let actor_msg = NodeToUiMessage {
-        //         target: MessageTarget::AllClients,
-        //         body: UiLogBroadcast {
-        //             msg,
-        //             log_level
-        //         }.tmb(0),
-        //     }; //TODO we probably don't want to confront all connected clients?
-        //     recipient.try_send(actor_msg).expect("UiGateway is dead")
-        // }
-    }
 }
 
 impl From<Level> for SerializableLogLevel {
@@ -226,16 +306,150 @@ mod tests {
     use super::*;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage};
     use chrono::format::StrftimeItems;
     use chrono::{DateTime, Local};
-    use std::sync::{Arc, Mutex};
+    use std::sync::atomic::Ordering::Relaxed;
+    use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
     use std::thread::ThreadId;
-    use std::time::SystemTime;
+    use std::time::{Duration, SystemTime};
+    use actix::{Actor, Context, Handler, System, Message, AsyncContext};
 
     // 1) Send a message to Recorder
     // 2) Assert that testing actor received our message (proof that we called transmit method)
     // 3) Not going to print the logs to logfile
+    struct TestUiGateway{
+        received_messages: Vec<NodeToUiMessage>,
+        expected_msg_count: usize,
+    }
+
+    impl TestUiGateway{
+        fn new(msg_count: usize,recording_arc: Arc<Mutex<>>)->Self{
+            Self{
+                received_messages: ,
+                expected_msg_count: msg_count
+            }
+        }
+    }
+
+    impl Actor for TestUiGateway{
+        type Context = Context<Self>;
+    }
+
+    impl Handler<NodeToUiMessage> for TestUiGateway{
+        type Result = ();
+
+        fn handle(&mut self, msg: NodeToUiMessage, ctx: &mut Self::Context) -> Self::Result {
+            self.received_messages.push(msg);
+            if self.received_messages.len() == self.expected_msg_count{
+                System::current().stop();
+            }
+        }
+    }
+
+    #[derive(Message)]
+    struct ScheduleStop{
+        timeout: Duration
+    }
+
+    #[derive(Message)]
+    struct Stop{}
+
+    impl Handler<ScheduleStop> for TestUiGateway{
+        type Result = ();
+
+        fn handle(&mut self, msg: ScheduleStop, ctx: &mut Self::Context) -> Self::Result {
+            ctx.notify_later(Stop{},msg.timeout);
+        }
+    }
+
+    impl Handler<Stop> for TestUiGateway{
+        type Result = ();
+
+        fn handle(&mut self, msg: Stop, ctx: &mut Self::Context) -> Self::Result {
+            System::current().stop()
+        }
+    }
+
+    #[test]
+    fn transmit_log_sends_msg_from_multiple_threads_when_log_recipient_initiated() {
+        fn create_msg() -> NodeToUiMessage {
+            NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: MessageBody {
+                    opcode: "whatever".to_string(),
+                    path: MessagePath::FireAndForget,
+                    payload: Ok(String::from("our message")),
+                },
+            }
+        }
+        fn send_message_to_recipient() {
+            let recipient = unsafe { LOG_RECIPIENT.recipient_opt.as_ref().unwrap() };
+            recipient.try_send(create_msg()).unwrap()
+        }
+        let _test_guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
+        let ui_gateway = TestUiGateway::default();
+        let addr = ui_gateway.start();
+        let recipient = addr.clone().recipient();
+        unsafe {
+            LOG_RECIPIENT.recipient_opt.replace(recipient);
+            LOG_RECIPIENT.initiated.store(true,Ordering::Relaxed)
+        }
+
+        let system = System::new("test_system");
+        addr.try_send(ScheduleStop{ timeout: Duration::from_secs(5) }).unwrap();
+        addr.try_send(SendAllAtOnce{}).unwrap();
+        system.run();
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), 3);
+        let msg1 = recording.get_record::<NodeToUiMessage>(0);
+        let msg2 = recording.get_record::<NodeToUiMessage>(1);
+        let msg3 = recording.get_record::<NodeToUiMessage>(2);
+        assert!(msg1 == msg2 && msg2 == &create_msg())
+    }
+
+    #[derive(Message)]
+    struct SendAllAtOnce{}
+
+    impl Handler<SendAllAtOnce> for TestUiGateway{
+        type Result = ();
+
+        fn handle(&mut self, msg: SendAllAtOnce, ctx: &mut Self::Context) -> Self::Result {
+            let barrier_arc = Arc::new(Barrier::new(3));
+            let mut join_handle_vector = Vec::new();
+            (0..3).for_each(|_| {
+                join_handle_vector.push(thread::spawn(move || {
+                    let barrier_arc_clone = Arc::clone(&barrier_arc);
+                    barrier_arc_clone.wait();
+                    send_message_to_recipient()
+                }))
+            });
+
+        }
+    }
+
+    #[test]
+    fn prepare_log_recipient_waits_to_set_the_recipient() {
+        unsafe { assert_eq!(LOG_RECIPIENT.initiation_guard.load(Relaxed), false) };
+        // pub fn prepare_log_recipient (recipient: Recipient<NodeToUiMessage>) {
+        //     // loop {
+        //     //     if LOG_RECIPIENT.guard.swap(false) {
+        //     //         LOG_RECIPIENT.recipient_opt = Some (recipient);
+        //     //         LOG_RECIPIENT.guard.swap(true);
+        //     //         break;
+        //     //     }
+        //     //     else {
+        //     //         thread.sleep (Duration::from_millis (10)) // wait for the logger to finish
+        //     //     }
+        //     // }
+
+        let before = SystemTime::now();
+        let join_handle = thread::spawn(move || {});
+        let _ = LogRecipient::prepare_log_recipient(recipient);
+        let after = SystemTime::now();
+        join_handle.join().unwrap();
+    }
 
     #[test]
     fn logger_format_is_correct() {
