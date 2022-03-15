@@ -9,13 +9,14 @@ use masq_lib::messages::{UiFinancialsRequest, UiFinancialsResponse};
 use masq_lib::short_writeln;
 use std::fmt::Debug;
 
+const FINANCIALS_SUBCOMMAND_ABOUT: &str =
+    "Displays financial statistics of this Node. Only valid if Node is already running.";
+
 #[derive(Debug)]
 pub struct FinancialsCommand {}
 
 pub fn financials_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("financials").about(
-        "Displays financial data of the given MASQNode. Only valid if Node is already running.",
-    )
+    SubCommand::with_name("financials").about(FINANCIALS_SUBCOMMAND_ABOUT)
 }
 
 impl Command for FinancialsCommand {
@@ -28,7 +29,7 @@ impl Command for FinancialsCommand {
                 let stdout = context.stdout();
                 dump_parameter_line(
                     stdout,
-                    "Total unpaid payable:",
+                    "Total unpaid and pending payable:",
                     &response.total_unpaid_payable.to_string(),
                 );
                 dump_parameter_line(
@@ -79,6 +80,14 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            FINANCIALS_SUBCOMMAND_ABOUT,
+            "Displays financial statistics of this Node. Only valid if Node is already running."
+        );
+    }
+
+    #[test]
     fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().transact_result(Ok(UiFinancialsResponse {
@@ -125,10 +134,10 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "\
-                   Total unpaid payable:             116688\n\
-                   Total paid payable:               55555\n\
-                   Total unpaid receivable:          221144\n\
-                   Total paid receivable:            66555\n"
+                Total unpaid and pending payable: 116688\n\
+                Total paid payable:               55555\n\
+                Total unpaid receivable:          221144\n\
+                Total paid receivable:            66555\n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
