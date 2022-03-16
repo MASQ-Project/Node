@@ -8,7 +8,7 @@ use crate::masq_node_client::MASQNodeClient;
 use crate::masq_node_server::MASQNodeServer;
 use bip39::{Language, Mnemonic, Seed};
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::CURRENT_LOGFILE_NAME;
+use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
@@ -630,9 +630,9 @@ impl NodeStartupConfigBuilder {
             blockchain_service_url_opt: self.blockchain_service_url,
             chain: self.chain,
             db_password_opt: self.db_password,
-            scans_opt: None,
-            log_level_opt: None,
-            ui_port_opt: None,
+            scans_opt: self.scans_opt,
+            log_level_opt: self.log_level_opt,
+            ui_port_opt: self.ui_port_opt,
         }
     }
 }
@@ -785,9 +785,11 @@ impl MASQRealNode {
 
         docker_run_fn(&root_dir, ip_addr, &name).expect("docker run");
 
+        let ui_port = real_startup_config.ui_port_opt.unwrap_or(DEFAULT_UI_PORT);
+        let ui_port_pair = format! ("{}:{}", ui_port, ui_port);
         Self::exec_command_on_container_and_detach(
             &name,
-            vec!["/usr/local/bin/port_exposer", "80:8080", "443:8443"],
+            vec!["/usr/local/bin/port_exposer", "80:8080", "443:8443"/*, &ui_port_pair*/],
         )
         .expect("port_exposer wouldn't run");
         match &real_startup_config.firewall_opt {

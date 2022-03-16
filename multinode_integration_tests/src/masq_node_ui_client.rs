@@ -24,9 +24,16 @@ struct MASQNodeUIClientInner {
 impl MASQNodeUIClient {
     pub fn new (addr: SocketAddr) -> Self {
         let url = format!("ws://{}", addr);
-        let client = ClientBuilder::new(url.as_str()).expect("Bad URL")
+        let client = match ClientBuilder::new(url.as_str())
+            .expect("Bad URL")
             .add_protocol(NODE_UI_PROTOCOL)
-            .connect_insecure().unwrap();
+            .connect_insecure() {
+            Ok(client) => client,
+            Err (e) => {
+                let msg = format! ("Couldn't build client for {}: {:?}", url, e);
+                panic! ("{}", msg);
+            },
+        };
         Self {
             inner: RefCell::new (MASQNodeUIClientInner {
                 client,

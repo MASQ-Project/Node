@@ -1,10 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{send, Command, CommandError};
+use crate::commands::commands_common::{Command, CommandError, transaction};
 use clap::{App, Arg, SubCommand};
-use masq_lib::messages::UiScanRequest;
+use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use std::fmt::Debug;
+use std::str::FromStr;
+
+pub const SCAN_COMMAND_TIMEOUT_MILLIS: u64 = 10000;
 
 #[derive(Debug)]
 pub struct ScanCommand {
@@ -18,7 +21,7 @@ pub fn scan_subcommand() -> App<'static, 'static> {
             Arg::with_name("name")
                 .help("Type of the scan that should be triggered")
                 .index(1)
-                .possible_values(&["payables", "receivables"])
+                .possible_values(&["payables", "receivables", "pendingpayables"])
                 .required(true)
                 .case_insensitive(true),
         )
@@ -27,11 +30,15 @@ pub fn scan_subcommand() -> App<'static, 'static> {
 impl Command for ScanCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiScanRequest {
-            name: self.name.clone(),
+            scan_type: match ScanType::from_str (&self.name) {
+                Ok(st) => st,
+                Err(s) => panic! ("clap schema does not restrict scan type properly: {}", s),
+            },
         };
-        let result = send(input, context);
+        let result =
+            transaction::<UiScanRequest, UiScanResponse> (input, context, SCAN_COMMAND_TIMEOUT_MILLIS);
         match result {
-            Ok(_) => Ok(()),
+            Ok(_response) => Ok(()),
             Err(e) => Err(e),
         }
     }
@@ -64,7 +71,8 @@ mod tests {
     #[test]
     fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
-        let mut context = CommandContextMock::new().send_result(Ok(()));
+        let mut context = CommandContextMock::new()
+            .transact_result(Ok(UiScanResponse{}.tmb(0)));
         let subject = factory
             .make(&["scan".to_string(), "payables".to_string()])
             .unwrap();
@@ -76,15 +84,16 @@ mod tests {
 
     #[test]
     fn scan_command_works() {
-        scan_command_for_name("payables");
-        scan_command_for_name("receivables");
+        scan_command_for_name("payables", ScanType::Payables);
+        scan_command_for_name("receivables", ScanType::Receivables);
+        scan_command_for_name("pendingpayables", ScanType::PendingPayables);
     }
 
-    fn scan_command_for_name(name: &str) {
-        let send_params_arc = Arc::new(Mutex::new(vec![]));
+    fn scan_command_for_name(name: &str, scan_type: ScanType) {
+        let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
-            .send_params(&send_params_arc)
-            .send_result(Ok(()));
+            .transact_params(&transact_params_arc)
+            .transact_result(Ok(UiScanResponse {}.tmb(0)));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
@@ -97,20 +106,22 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
-        let send_params = send_params_arc.lock().unwrap();
+        let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
-            *send_params,
-            vec![UiScanRequest {
-                name: name.to_string(),
-            }
-            .tmb(0)]
+            *transact_params,
+            vec![(
+                UiScanRequest {
+                    scan_type
+                }.tmb(0),
+                SCAN_COMMAND_TIMEOUT_MILLIS
+            )]
         )
     }
 
     #[test]
     fn scan_command_handles_send_failure() {
         let mut context = CommandContextMock::new()
-            .send_result(Err(ContextError::ConnectionDropped("blah".to_string())));
+            .transact_result(Err(ContextError::ConnectionDropped("blah".to_string())));
         let subject = ScanCommand::new(&["scan".to_string(), "payables".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
