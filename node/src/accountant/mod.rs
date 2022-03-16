@@ -849,12 +849,12 @@ impl Accountant {
     }
 
     fn handle_financials(&mut self, client_id: u64, context_id: u64) {
-        let total_unpaid_payable = self.payable_dao.total();
+        let total_unpaid_and_pending_payable = self.payable_dao.total();
         let total_paid_payable = self.financial_statistics.total_paid_payable;
         let total_unpaid_receivable = self.receivable_dao.total();
         let total_paid_receivable = self.financial_statistics.total_paid_receivable;
         let body = UiFinancialsResponse {
-            total_unpaid_payable,
+            total_unpaid_and_pending_payable,
             total_paid_payable,
             total_unpaid_receivable,
             total_paid_receivable,
@@ -1311,7 +1311,7 @@ mod tests {
         assert_eq!(
             parsed_payload,
             UiFinancialsResponse {
-                total_unpaid_payable: 23456789,
+                total_unpaid_and_pending_payable: 23456789,
                 total_paid_payable: 123456,
                 total_unpaid_receivable: 98765432,
                 total_paid_receivable: 334455

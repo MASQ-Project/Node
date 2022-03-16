@@ -30,7 +30,7 @@ impl Command for FinancialsCommand {
                 dump_parameter_line(
                     stdout,
                     "Total unpaid and pending payable:",
-                    &response.total_unpaid_payable.to_string(),
+                    &response.total_unpaid_and_pending_payable.to_string(),
                 );
                 dump_parameter_line(
                     stdout,
@@ -91,7 +91,7 @@ mod tests {
     fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().transact_result(Ok(UiFinancialsResponse {
-            total_unpaid_payable: 0,
+            total_unpaid_and_pending_payable: 0,
             total_paid_payable: 1111,
             total_unpaid_receivable: 2222,
             total_paid_receivable: 3333,
@@ -108,7 +108,7 @@ mod tests {
     fn financials_command_happy_path() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
-            total_unpaid_payable: 116688,
+            total_unpaid_and_pending_payable: 116688,
             total_paid_payable: 55555,
             total_unpaid_receivable: 221144,
             total_paid_receivable: 66555,

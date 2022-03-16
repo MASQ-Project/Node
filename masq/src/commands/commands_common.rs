@@ -122,6 +122,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(STANDARD_COMMAND_TIMEOUT_MILLIS, 1000);
+        assert_eq!(STANDARD_COLUMN_WIDTH, 33)
     }
 
     #[test]

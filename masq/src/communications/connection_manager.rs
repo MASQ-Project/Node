@@ -1170,7 +1170,7 @@ mod tests {
         let node_port = find_free_port();
         let node_server = MockWebSocketsServer::new(node_port).queue_response(
             UiFinancialsResponse {
-                total_unpaid_payable: 10,
+                total_unpaid_and_pending_payable: 10,
                 total_paid_payable: 22,
                 total_unpaid_receivable: 29,
                 total_paid_receivable: 32,
@@ -1204,7 +1204,7 @@ mod tests {
         assert_eq!(
             response,
             UiFinancialsResponse {
-                total_unpaid_payable: 10,
+                total_unpaid_and_pending_payable: 10,
                 total_paid_payable: 22,
                 total_unpaid_receivable: 29,
                 total_paid_receivable: 32

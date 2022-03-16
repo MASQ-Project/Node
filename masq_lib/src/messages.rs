@@ -537,8 +537,8 @@ conversation_message!(UiFinancialsRequest, "financials");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiFinancialsResponse {
-    #[serde(rename = "totalUnpaidPayable")]
-    pub total_unpaid_payable: i64,
+    #[serde(rename = "totalUnpaidAndPendingPayable")]
+    pub total_unpaid_and_pending_payable: i64,
     #[serde(rename = "totalPaidPayable")]
     pub total_paid_payable: u64,
     #[serde(rename = "totalUnpaidReceivable")]
