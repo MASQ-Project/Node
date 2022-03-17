@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::messages::{SerializableLogLevel, ToMessageBody, UiLogBroadcast};
+use crate::messages::SerializableLogLevel;
 use crate::ui_gateway::{MessageTarget, NodeToUiMessage};
 use actix::Recipient;
 use lazy_static::lazy_static;
@@ -9,105 +9,29 @@ use log::Level;
 use log::Metadata;
 #[allow(unused_imports)]
 use log::Record;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, Once};
+use std::sync::Mutex;
 
-pub static mut LOG_RECIPIENT: LogRecipient = LogRecipient {
-    initiated: AtomicBool::new(false),
-    initiation_guard: AtomicBool::new(false),
-    recipient_opt: None,
-};
-const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
-
-#[cfg(test)]
-const TEST_LOG_RECIPIENT_GUARD: Mutex<()> = Mutex::new(());
+lazy_static! {
+    pub static ref LOG_RECIPIENT: LogRecipient = LogRecipient {
+        recipient_opt: Mutex::new(None)
+    };
+}
 
 pub struct LogRecipient {
-    initiated: AtomicBool,
-    initiation_guard: AtomicBool,
-    recipient_opt: Option<Recipient<NodeToUiMessage>>,
+    recipient_opt: Mutex<Option<Recipient<NodeToUiMessage>>>,
 }
+
+const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
 
 impl LogRecipient {
     pub fn prepare_log_recipient(recipient: Recipient<NodeToUiMessage>) {
-        // loop {
-        //     if LOG_RECIPIENT.guard.swap(false) {
-        //         LOG_RECIPIENT.recipient_opt = Some (recipient);
-        //         LOG_RECIPIENT.guard.swap(true);
-        //         break;
-        //     }
-        //     else {
-        //         thread.sleep (Duration::from_millis (10)) // wait for the logger to finish
-        //     }
-        // }
+        todo!("put the recipient into the mutex")
     }
 
     fn transmit_log(&self, msg: String, log_level: SerializableLogLevel) {
-        if unsafe { LOG_RECIPIENT.initiated.load(Ordering::Relaxed) } {
-            todo!("send the log")
-        } else {
-            if unsafe {
-                LOG_RECIPIENT
-                    .initiation_guard
-                    .swap(false, Ordering::Relaxed)
-            } {
-                if let Some(recipient) = unsafe { LOG_RECIPIENT.recipient_opt.as_ref() } {
-                    todo!()
-                }
-                //unsafe LOG_RECIPIENT.guard.swap(true)
-            }
-        }
+        todo!("try acquire the lock on the mutex and check if the recipient is in place, if yes, send the log message")
     }
 }
-
-// Data structure:
-//
-// pub struct LogRecipient {
-//     guard: AtomicBool,
-//     recipient_opt: Option<Recipient<blah>>,
-// }
-//
-// Data item:
-//
-// static LOG_RECIPIENT: LogRecipient = LogRecipient {guard: AtomicBool::new(false), recipient_opt: None};
-//
-// Log transmitter:
-//
-// fn transmit_log (parameters) {
-//     if (LOG_RECIPIENT.guard.swap(false)) {
-//         // Transmit log to UIGateway if recipient_opt is populated
-//         LOG_RECIPIENT.guard.swap(true)
-//     }
-// }
-//
-// ActorSystemFactory or delegate:
-//
-// fn prepare_log_recipient (recipient: Recipient<blah>) {
-//     loop {
-//         if LOG_RECIPIENT.guard.swap(false) {
-//             LOG_RECIPIENT.recipient_opt = Some (recipient);
-//             LOG_RECIPIENT.guard.swap(true);
-//             break;
-//         }
-//         else {
-//             thread.sleep (Duration::from_millis (10)) // wait for the logger to finish
-//         }
-//     }
-// }
-
-// fn transmit(&self, msg: String, log_level: SerializableLogLevel) {
-//     todo!("Test Me!")
-//     // if let Some(recipient) = unsafe { LOG_RECIPIENT_OPT.as_ref() } {
-//     //     let actor_msg = NodeToUiMessage {
-//     //         target: MessageTarget::AllClients,
-//     //         body: UiLogBroadcast {
-//     //             msg,
-//     //             log_level
-//     //         }.tmb(0),
-//     //     }; //TODO we probably don't want to confront all connected clients?
-//     //     recipient.try_send(actor_msg).expect("UiGateway is dead")
-//     // }
-// }
 
 #[derive(Clone)]
 pub struct Logger {
@@ -306,65 +230,68 @@ mod tests {
     use super::*;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage};
+    use crate::ui_gateway::{MessageBody, MessagePath};
+    use actix::{Actor, AsyncContext, Context, Handler, Message, System};
     use chrono::format::StrftimeItems;
     use chrono::{DateTime, Local};
-    use std::sync::atomic::Ordering::Relaxed;
+    use crossbeam_channel::{unbounded, Sender};
     use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
     use std::thread::ThreadId;
     use std::time::{Duration, SystemTime};
-    use actix::{Actor, Context, Handler, System, Message, AsyncContext};
 
-    // 1) Send a message to Recorder
-    // 2) Assert that testing actor received our message (proof that we called transmit method)
-    // 3) Not going to print the logs to logfile
-    struct TestUiGateway{
-        received_messages: Vec<NodeToUiMessage>,
+    lazy_static! {
+        static ref TEST_LOG_RECIPIENT_GUARD: Mutex<()> = Mutex::new(());
+    }
+
+    struct TestUiGateway {
+        received_messages: Arc<Mutex<Vec<NodeToUiMessage>>>,
         expected_msg_count: usize,
     }
 
-    impl TestUiGateway{
-        fn new(msg_count: usize,recording_arc: Arc<Mutex<>>)->Self{
-            Self{
-                received_messages: ,
-                expected_msg_count: msg_count
+    impl TestUiGateway {
+        fn new(msg_count: usize, recording_arc: &Arc<Mutex<Vec<NodeToUiMessage>>>) -> Self {
+            Self {
+                received_messages: recording_arc.clone(),
+                expected_msg_count: msg_count,
             }
         }
     }
 
-    impl Actor for TestUiGateway{
+    impl Actor for TestUiGateway {
         type Context = Context<Self>;
     }
 
-    impl Handler<NodeToUiMessage> for TestUiGateway{
+    impl Handler<NodeToUiMessage> for TestUiGateway {
         type Result = ();
 
         fn handle(&mut self, msg: NodeToUiMessage, ctx: &mut Self::Context) -> Self::Result {
-            self.received_messages.push(msg);
-            if self.received_messages.len() == self.expected_msg_count{
+            let mut inner = self.received_messages.lock().unwrap();
+            inner.push(msg);
+            if inner.len() == self.expected_msg_count {
                 System::current().stop();
             }
         }
     }
 
     #[derive(Message)]
-    struct ScheduleStop{
-        timeout: Duration
+    struct ScheduleStop {
+        timeout: Duration,
     }
 
     #[derive(Message)]
-    struct Stop{}
+    struct Stop {}
 
-    impl Handler<ScheduleStop> for TestUiGateway{
+    impl Handler<ScheduleStop> for TestUiGateway {
         type Result = ();
 
         fn handle(&mut self, msg: ScheduleStop, ctx: &mut Self::Context) -> Self::Result {
-            ctx.notify_later(Stop{},msg.timeout);
+            ctx.set_mailbox_capacity(0); //this is important
+            ctx.notify_later(Stop {}, msg.timeout);
         }
     }
 
-    impl Handler<Stop> for TestUiGateway{
+    impl Handler<Stop> for TestUiGateway {
         type Result = ();
 
         fn handle(&mut self, msg: Stop, ctx: &mut Self::Context) -> Self::Result {
@@ -372,83 +299,160 @@ mod tests {
         }
     }
 
+    static mut SENDER: Option<Sender<NodeToUiMessage>> = None;
+
     #[test]
-    fn transmit_log_sends_msg_from_multiple_threads_when_log_recipient_initiated() {
-        fn create_msg() -> NodeToUiMessage {
-            NodeToUiMessage {
-                target: MessageTarget::AllClients,
-                body: MessageBody {
-                    opcode: "whatever".to_string(),
-                    path: MessagePath::FireAndForget,
-                    payload: Ok(String::from("our message")),
-                },
+    fn transmit_log_handles_overloading_by_sending_msgs_from_multiple_threads() {
+        let _test_guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
+        let expected_msg_count = 10000;
+        let factor = {
+            let factor = f64::sqrt(expected_msg_count as f64);
+            if factor.fract() != 0.0 {
+                panic!("we expect pure square number")
+            };
+            factor as usize
+        };
+        let (tx, rx) = unbounded();
+        unsafe { SENDER = Some(tx) }
+        let before = SystemTime::now();
+        overloading_function(
+            move || {
+                unsafe { SENDER.as_ref().unwrap().clone().send(create_msg()).unwrap() };
+            },
+            DoAllAtOnce { factor },
+        );
+        let mut counter = 0;
+        loop {
+            rx.recv().unwrap();
+            counter += 1;
+            if counter == expected_msg_count {
+                break;
             }
         }
-        fn send_message_to_recipient() {
-            let recipient = unsafe { LOG_RECIPIENT.recipient_opt.as_ref().unwrap() };
-            recipient.try_send(create_msg()).unwrap()
-        }
-        let _test_guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        let ui_gateway = TestUiGateway::default();
+        let after = SystemTime::now();
+        let labour_time_example = after.duration_since(before).unwrap();
+        let recording_arc = Arc::new(Mutex::new(vec![]));
+        let ui_gateway = TestUiGateway::new(expected_msg_count, &recording_arc);
         let addr = ui_gateway.start();
         let recipient = addr.clone().recipient();
-        unsafe {
-            LOG_RECIPIENT.recipient_opt.replace(recipient);
-            LOG_RECIPIENT.initiated.store(true,Ordering::Relaxed)
+        {
+            LOG_RECIPIENT
+                .recipient_opt
+                .lock()
+                .unwrap()
+                .replace(recipient);
         }
-
         let system = System::new("test_system");
-        addr.try_send(ScheduleStop{ timeout: Duration::from_secs(5) }).unwrap();
-        addr.try_send(SendAllAtOnce{}).unwrap();
+        addr.try_send(ScheduleStop {
+            timeout: Duration::from_secs(8),
+        })
+        .unwrap();
+
+        addr.try_send(DoAllAtOnce { factor }).unwrap();
+
+        let start = SystemTime::now();
         system.run();
+        let end = SystemTime::now();
         let recording = recording_arc.lock().unwrap();
-        assert_eq!(recording.len(), 3);
-        let msg1 = recording.get_record::<NodeToUiMessage>(0);
-        let msg2 = recording.get_record::<NodeToUiMessage>(1);
-        let msg3 = recording.get_record::<NodeToUiMessage>(2);
-        assert!(msg1 == msg2 && msg2 == &create_msg())
+        assert_eq!(recording.len(), expected_msg_count);
+        let measured = end.duration_since(start).unwrap();
+        let safe_estimation = labour_time_example * 5;
+        eprintln!(
+            "Measured: {}; estimation: {}",
+            measured.as_micros(),
+            safe_estimation.as_micros()
+        );
+        assert!(measured < safe_estimation) //this should pass even on slow machines
     }
 
     #[derive(Message)]
-    struct SendAllAtOnce{}
+    struct DoAllAtOnce {
+        factor: usize,
+    }
 
-    impl Handler<SendAllAtOnce> for TestUiGateway{
+    impl Handler<DoAllAtOnce> for TestUiGateway {
         type Result = ();
 
-        fn handle(&mut self, msg: SendAllAtOnce, ctx: &mut Self::Context) -> Self::Result {
-            let barrier_arc = Arc::new(Barrier::new(3));
-            let mut join_handle_vector = Vec::new();
-            (0..3).for_each(|_| {
-                join_handle_vector.push(thread::spawn(move || {
-                    let barrier_arc_clone = Arc::clone(&barrier_arc);
-                    barrier_arc_clone.wait();
-                    send_message_to_recipient()
-                }))
-            });
-
+        fn handle(&mut self, msg: DoAllAtOnce, ctx: &mut Self::Context) -> Self::Result {
+            overloading_function(send_message_to_recipient, msg)
         }
     }
 
-    #[test]
-    fn prepare_log_recipient_waits_to_set_the_recipient() {
-        unsafe { assert_eq!(LOG_RECIPIENT.initiation_guard.load(Relaxed), false) };
-        // pub fn prepare_log_recipient (recipient: Recipient<NodeToUiMessage>) {
-        //     // loop {
-        //     //     if LOG_RECIPIENT.guard.swap(false) {
-        //     //         LOG_RECIPIENT.recipient_opt = Some (recipient);
-        //     //         LOG_RECIPIENT.guard.swap(true);
-        //     //         break;
-        //     //     }
-        //     //     else {
-        //     //         thread.sleep (Duration::from_millis (10)) // wait for the logger to finish
-        //     //     }
-        //     // }
+    fn overloading_function<C>(closure: C, msg: DoAllAtOnce)
+    where
+        C: Fn() + Send + 'static + Clone,
+    {
+        let barrier_arc = Arc::new(Barrier::new(msg.factor));
+        let mut join_handle_vector = Vec::new();
+        (0..msg.factor).for_each(|_| {
+            let barrier_arc_clone = Arc::clone(&barrier_arc);
+            let closure_clone = closure.clone();
+            join_handle_vector.push(thread::spawn(move || {
+                barrier_arc_clone.wait();
+                (0..msg.factor).for_each(|_| closure_clone())
+            }))
+        });
+    }
 
-        let before = SystemTime::now();
-        let join_handle = thread::spawn(move || {});
-        let _ = LogRecipient::prepare_log_recipient(recipient);
-        let after = SystemTime::now();
-        join_handle.join().unwrap();
+    fn create_msg() -> NodeToUiMessage {
+        NodeToUiMessage {
+            target: MessageTarget::AllClients,
+            body: MessageBody {
+                opcode: "whatever".to_string(),
+                path: MessagePath::FireAndForget,
+                payload: Ok(String::from("our message")),
+            },
+        }
+    }
+    fn send_message_to_recipient() {
+        let recipient = LOG_RECIPIENT.recipient_opt.lock().unwrap();
+        recipient.as_ref().unwrap().try_send(create_msg()).unwrap()
+    }
+
+    #[test]
+    fn prepare_log_recipient_works() {
+        todo!("finish me")
+        //first use the test-only guard invented here as an aid; it prevents other tests using the production static variable to interfere with each other
+        //set the production static variable to None inside the mutex (we have to be sure it is always None when the test starts)
+        //make sure that when you call this function the static variable gets populated with the recipient with appropriate use of asser_eq!()
+
+        //let _ = LogRecipient::prepare_log_recipient(recipient);
+    }
+
+    #[test]
+    fn conversion_between_different_level_types_is_enabled() {
+        todo!("finish me")
+        //see impl From<Level> for SerializableLogLevel
+        //use a single assertion for each level and make sure you can convert it to the corresponding level in the other type
+    }
+
+    #[test]
+    #[should_panic(expected = "blah")]
+    fn conversion_between_levels_below_log_broadcast_level_should_panic() {
+        todo!("finish me")
+        //see impl From<Level> for SerializableLogLevel
+        //make sure that if you call the from() method (actually cal rather into() - because we use that one instead)
+        //for a level below of the constant indicating the threshold it will panic as we should not allow that and if we do than something is wrong
+    }
+
+    #[test]
+    fn generic_log_when_both_simple_logging_and_messaging_out_of_the_scope() {
+        todo!("finish me")
+    }
+
+    #[test]
+    fn generic_log_when_simple_logging_runs_but_messaging_is_ignored() {
+        todo!("finish me")
+    }
+
+    #[test]
+    fn generic_log_when_simple_logging_is_ignored_but_messaging_runs() {
+        todo!("finish me")
+    }
+
+    #[test]
+    fn generic_log_when_both_simple_logging_and_messaging_run() {
+        todo!("finish me")
     }
 
     #[test]
