@@ -61,7 +61,6 @@ pub trait UnprivilegedParseArgsConfiguration {
                 }
             };
         unprivileged_config.db_password_opt = value_m!(multi_config, "db-password", String);
-        //TODO decide if we'd rather have this configuration in privileged_pars_args
         configure_accountant_config(multi_config, unprivileged_config, persistent_config)?;
         unprivileged_config.mapping_protocol_opt =
             compute_mapping_protocol_opt(multi_config, persistent_config, logger);
@@ -518,7 +517,6 @@ fn configure_rate_pack(
     )
 }
 
-//TODO untested explicit panics ... let's talk it through at a review
 fn process_combined_params<'a, T: PartialEq, C1, C2>(
     parameter_name: &'a str,
     multi_config: &MultiConfig,
@@ -1991,20 +1989,28 @@ mod tests {
         )
     }
 
+    fn execute_process_combined_params_for_rate_pack(
+        multi_config: &MultiConfig,
+        persist_config: &mut dyn PersistentConfiguration,
+    ) -> Result<RatePack, ConfiguratorError> {
+        process_combined_params(
+            "rate-pack",
+            multi_config,
+            persist_config,
+            |str: &str| RatePack::try_from(str),
+            |pc: &dyn PersistentConfiguration| pc.rate_pack(),
+            |pc: &mut dyn PersistentConfiguration, rate_pack| pc.set_rate_pack(rate_pack),
+        )
+    }
+
     #[test]
     fn process_combined_params_handles_parse_error() {
         let multi_config = make_simplified_multi_config(["--rate-pack", "8|9"]);
         let mut persist_config =
             PersistentConfigurationMock::default().rate_pack_result(Ok(DEFAULT_RATE_PACK));
 
-        let result = process_combined_params(
-            "rate-pack",
-            &multi_config,
-            &mut persist_config,
-            |str: &str| RatePack::try_from(str),
-            |pc: &dyn PersistentConfiguration| pc.rate_pack(),
-            |pc: &mut dyn PersistentConfiguration, rate_pack| pc.set_rate_pack(rate_pack),
-        );
+        let result =
+            execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
 
         assert_eq!(
             result,
@@ -2013,6 +2019,37 @@ mod tests {
                 "Wrong number of values: expected 4 but 2 supplied"
             ))
         )
+    }
+
+    #[test]
+    #[should_panic(expected = "rate-pack: database query failed due to NotPresent")]
+    fn process_combined_params_panics_on_persistent_config_getter_method_with_cli_present() {
+        let multi_config = make_simplified_multi_config(["--rate-pack", "4|5|6|7"]);
+        let mut persist_config = PersistentConfigurationMock::default()
+            .rate_pack_result(Err(PersistentConfigError::NotPresent));
+
+        let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
+    }
+
+    #[test]
+    #[should_panic(expected = "rate-pack: writing database failed due to: TransactionError")]
+    fn process_combined_params_panics_on_persistent_config_setter_method_with_cli_present() {
+        let multi_config = make_simplified_multi_config(["--rate-pack", "4|5|6|7"]);
+        let mut persist_config = PersistentConfigurationMock::default()
+            .rate_pack_result(Ok(RatePack::try_from("1|1|2|2").unwrap()))
+            .set_rate_pack_result(Err(PersistentConfigError::TransactionError));
+
+        let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
+    }
+
+    #[test]
+    #[should_panic(expected = "rate-pack: database query failed due to NotPresent")]
+    fn process_combined_params_panics_on_persistent_config_getter_method_with_cli_absent() {
+        let multi_config = make_simplified_multi_config([]);
+        let mut persist_config = PersistentConfigurationMock::default()
+            .rate_pack_result(Err(PersistentConfigError::NotPresent));
+
+        let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
     }
 
     #[test]

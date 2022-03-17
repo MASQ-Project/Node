@@ -418,9 +418,9 @@ database password. If you want to know whether the password you have is the corr
   to permanentDebtAllowedGwei or unbanBelowGwei.
 
 * `debtThresholdGwei`: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately upon
-  passing the maturityThresholdSec age. Payables lower than this can stay unpaid longer. Receivables higher than this
+  passing the maturityThresholdSec age. Payables less than this can stay unpaid longer. Receivables higher than this
   will be expected to be settled by other Nodes, but will never cause bans until they pass the maturityThresholdSec +
-  paymentGracePeriodSec age. Receivables lower than this will survive longer without banning.
+  paymentGracePeriodSec age. Receivables less than this will survive longer without banning.
 
 * `maturityThresholdSec`: Large payables can get this old -- in seconds -- before the Accountant's scanner suggests
   that it be paid.

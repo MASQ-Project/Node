@@ -130,9 +130,9 @@ pub const PAYMENT_THRESHOLDS_HELP: &str = "\
      they have defaults. The parameters must be always supplied all together, delimited by vertical bars and in the right \
      order.\n\n\
      1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
-     upon passing the Maturity Threshold Sec age. Payables lower than this can stay unpaid longer. Receivables higher than \
+     upon passing the Maturity Threshold Sec age. Payables less than this can stay unpaid longer. Receivables higher than \
      this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
-     + Payment Grace Period Sec age. Receivables lower than this will survive longer without banning.\n\n\
+     + Payment Grace Period Sec age. Receivables less than this will survive longer without banning.\n\n\
      2. Maturity Threshold Sec: Large payables can get this old -- in seconds -- before the Accountant's scanner suggests \
      that it be paid.\n\n\
      3. Payment Grace Period Sec: A large receivable can get as old as Maturity Threshold Sec + Payment Grace Period Sec \
@@ -802,9 +802,9 @@ mod tests {
              since they have not paid mature debts. These are ever present values, no matter if the user's set any value, as \
              they have defaults. The parameters must be always supplied all together, delimited by vertical bars and in the right order.\n\n\
              1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
-             upon passing the Maturity Threshold Sec age. Payables lower than this can stay unpaid longer. Receivables higher than \
+             upon passing the Maturity Threshold Sec age. Payables less than this can stay unpaid longer. Receivables higher than \
              this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
-             + Payment Grace Period Sec age. Receivables lower than this will survive longer without banning.\n\n\
+             + Payment Grace Period Sec age. Receivables less than this will survive longer without banning.\n\n\
              2. Maturity Threshold Sec: Large payables can get this old -- in seconds -- before the Accountant's scanner suggests \
              that it be paid.\n\n\
              3. Payment Grace Period Sec: A large receivable can get as old as Maturity Threshold Sec + Payment Grace Period Sec \
