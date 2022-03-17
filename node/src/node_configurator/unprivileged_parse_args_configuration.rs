@@ -204,7 +204,7 @@ fn wallet_params_are_equal(a: &str, b: &str) -> bool {
 }
 
 pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
-    pars_args_configurator: &T,
+    parse_args_configurator: &T,
     multi_config: &MultiConfig,
     persistent_config: &mut dyn PersistentConfiguration,
     unprivileged_config: &mut BootstrapperConfig,
@@ -212,9 +212,8 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
     let neighbor_configs: Vec<NodeDescriptor> = {
         match convert_ci_configs(multi_config)? {
             Some(configs) => configs,
-            None => {
-                pars_args_configurator.get_past_neighbors(persistent_config, unprivileged_config)?
-            }
+            None => parse_args_configurator
+                .get_past_neighbors(persistent_config, unprivileged_config)?,
         }
     };
     match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {

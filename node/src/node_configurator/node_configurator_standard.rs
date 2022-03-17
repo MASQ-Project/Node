@@ -87,8 +87,8 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             MigratorConfig::create_or_migrate(self.wrap_up_db_externals(multi_config)),
         );
         let mut unprivileged_config = BootstrapperConfig::new();
-        let pars_args_configurator = UnprivilegedParseArgsConfigurationDaoReal {};
-        pars_args_configurator.unprivileged_parse_args(
+        let parse_args_configurator = UnprivilegedParseArgsConfigurationDaoReal {};
+        parse_args_configurator.unprivileged_parse_args(
             multi_config,
             &mut unprivileged_config,
             persistent_config.as_mut(),
@@ -485,8 +485,8 @@ mod tests {
 
         privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut bootstrapper_config)
             .unwrap();
-        let node_pars_args_configurator = UnprivilegedParseArgsConfigurationDaoNull {};
-        node_pars_args_configurator
+        let node_parse_args_configurator = UnprivilegedParseArgsConfigurationDaoNull {};
+        node_parse_args_configurator
             .unprivileged_parse_args(
                 &multi_config,
                 &mut bootstrapper_config,

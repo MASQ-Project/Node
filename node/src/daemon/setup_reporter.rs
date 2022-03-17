@@ -421,9 +421,9 @@ impl SetupReporterReal {
             MigratorConfig::migration_suppressed_with_error(),
         ) {
             Ok(conn) => {
-                let pars_args_configuration = UnprivilegedParseArgsConfigurationDaoReal {};
+                let parse_args_configuration = UnprivilegedParseArgsConfigurationDaoReal {};
                 let mut persistent_config = PersistentConfigurationReal::from(conn);
-                match pars_args_configuration.unprivileged_parse_args(
+                match parse_args_configuration.unprivileged_parse_args(
                     multi_config,
                     &mut bootstrapper_config,
                     &mut persistent_config,
@@ -442,10 +442,10 @@ impl SetupReporterReal {
             Err(InitializationError::Nonexistent | InitializationError::SuppressedMigration) => {
                 // When the Daemon runs for the first time, the database will not yet have been
                 // created. If the database is old, it should not be used by the Daemon.
-                let pars_args_configuration = UnprivilegedParseArgsConfigurationDaoNull {};
+                let parse_args_configuration = UnprivilegedParseArgsConfigurationDaoNull {};
                 let mut persistent_config =
                     PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
-                match pars_args_configuration.unprivileged_parse_args(
+                match parse_args_configuration.unprivileged_parse_args(
                     multi_config,
                     &mut bootstrapper_config,
                     &mut persistent_config,
