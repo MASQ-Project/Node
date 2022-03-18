@@ -21,11 +21,11 @@ lazy_static! {
 
 lazy_static! {
     pub static ref DEFAULT_PAYMENT_THRESHOLDS: PaymentThresholds = PaymentThresholds {
-        threshold_interval_sec: 2_592_000,
-        debt_threshold_gwei: 10_000_000_000,
-        payment_grace_period_sec: 1200,
+        debt_threshold_gwei: 1_000_000_000,
         maturity_threshold_sec: 1200,
+        payment_grace_period_sec: 1200,
         permanent_debt_allowed_gwei: 500_000_000,
+        threshold_interval_sec: 21600,
         unban_below_gwei: 500_000_000,
     };
 }
@@ -158,11 +158,11 @@ mod tests {
         let temporary_consuming_wallet_expected: Wallet =
             Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
         let payment_thresholds_expected = PaymentThresholds {
-            debt_threshold_gwei: 10_000_000_000,
+            debt_threshold_gwei: 1_000_000_000,
             maturity_threshold_sec: 1200,
             payment_grace_period_sec: 1200,
             permanent_debt_allowed_gwei: 500_000_000,
-            threshold_interval_sec: 2_592_000,
+            threshold_interval_sec: 21600,
             unban_below_gwei: 500_000_000,
         };
         let scan_intervals_expected = ScanIntervals {
