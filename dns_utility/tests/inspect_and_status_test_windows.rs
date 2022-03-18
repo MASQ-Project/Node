@@ -11,7 +11,11 @@ use utils::TestCommand;
 // Any integration tests that should be run without root should have names ending in '_user_integration'
 fn winreg_inspect_and_status_user_integration() {
     let modifier = WinDnsModifier::default();
-    let interfaces = modifier.find_interfaces_to_inspect().unwrap();
+    let interfaces = match modifier.find_interfaces_to_inspect() {
+        Ok(interfaces) => interfaces,
+        Err(e) if e.contains("active network interfaces configured with") => return,
+        Err(e) => panic!("Didn't expect to stop for this error: {:?}", e),
+    };
     let dns_server_list_csv = modifier.find_dns_server_list(interfaces).unwrap();
     let dns_server_list = dns_server_list_csv.split(",");
     let expected_inspect_output = dns_server_list

@@ -349,10 +349,10 @@ mod tests {
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::*;
     use actix::System;
     use masq_lib::blockchains::chains::Chain;

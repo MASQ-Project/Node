@@ -15,11 +15,10 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher;
 use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
-use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
-use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
+use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, ZERO_RATE_PACK};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_connector::StreamConnector;
@@ -310,7 +309,7 @@ impl StreamHandlerPool {
                         result: Some(NodeQueryResponseMetadata::new(
                             PublicKey::new(&[]),
                             Some(NodeAddr::from(&socket_addr)),
-                            ZERO_RATE_PACK.clone(),
+                            ZERO_RATE_PACK,
                         )),
                         context: msg,
                     })
@@ -575,7 +574,6 @@ mod tests {
     use crate::test_utils::await_messages;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
     use crate::test_utils::main_cryptde;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -584,6 +582,7 @@ mod tests {
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
+    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use actix::Actor;
     use actix::Addr;
     use actix::System;

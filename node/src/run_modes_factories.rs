@@ -25,22 +25,22 @@ pub struct DumpConfigRunnerFactoryReal;
 pub struct ServerInitializerFactoryReal;
 pub struct DaemonInitializerFactoryReal {
     configurator: RefCell<Option<Box<dyn NodeConfigurator<InitializationConfig>>>>,
-    inner: RefCell<Option<ClusteredParams>>,
+    inner: RefCell<Option<DIClusteredParams>>,
 }
 
 impl Default for DaemonInitializerFactoryReal {
     fn default() -> Self {
         DaemonInitializerFactoryReal::new(
             Box::new(NodeConfiguratorInitializationReal),
-            ClusteredParams::default(),
+            DIClusteredParams::default(),
         )
     }
 }
 
 impl DaemonInitializerFactoryReal {
-    fn new(
+    pub fn new(
         configurator: Box<dyn NodeConfigurator<InitializationConfig>>,
-        clustered_params: ClusteredParams,
+        clustered_params: DIClusteredParams,
     ) -> Self {
         Self {
             configurator: RefCell::new(Some(configurator)),
@@ -48,8 +48,11 @@ impl DaemonInitializerFactoryReal {
         }
     }
 
-    fn expect<T>(mut value_opt: Option<T>) -> T {
-        value_opt.take().expectv(std::any::type_name::<T>())
+    fn expect<T>(value_ref_opt: &RefCell<Option<T>>) -> T {
+        value_ref_opt
+            .take()
+            .take()
+            .expectv(std::any::type_name::<T>())
     }
 }
 
@@ -92,20 +95,20 @@ impl ServerInitializerFactory for ServerInitializerFactoryReal {
 
 impl DaemonInitializerFactory for DaemonInitializerFactoryReal {
     fn make(&self, args: &[String]) -> Result<Box<dyn DaemonInitializer>, ConfiguratorError> {
-        let configurator = Self::expect(self.configurator.take());
         let multi_config =
             NodeConfiguratorInitializationReal::make_multi_config_daemon_specific(args)?;
+        let configurator = Self::expect(&self.configurator);
         let initialization_config = configurator.configure(&multi_config)?;
-        let initializer_clustered_params = Self::expect(self.inner.take());
+        let clustered_params = Self::expect(&self.inner);
         let daemon_initializer = Box::new(DaemonInitializerReal::new(
             initialization_config,
-            initializer_clustered_params,
+            clustered_params,
         ));
         Ok(daemon_initializer)
     }
 }
 
-impl Default for ClusteredParams {
+impl Default for DIClusteredParams {
     fn default() -> Self {
         Self {
             dirs_wrapper: Box::new(DirsWrapperReal),
@@ -117,7 +120,7 @@ impl Default for ClusteredParams {
     }
 }
 
-pub struct ClusteredParams {
+pub struct DIClusteredParams {
     pub dirs_wrapper: Box<dyn DirsWrapper>,
     pub logger_initializer_wrapper: Box<dyn LoggerInitializerWrapper>,
     pub channel_factory: Box<dyn ChannelFactory>,
@@ -127,35 +130,21 @@ pub struct ClusteredParams {
 
 #[cfg(test)]
 mod tests {
-    use crate::daemon::daemon_initializer::{
-        DaemonInitializerReal, RecipientsFactoryReal, RerunnerReal,
-    };
     use crate::database::config_dumper::DumpConfigRunnerReal;
     use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitializationReal;
-    use crate::run_modes_factories::mocks::NodeConfiguratorInitializationMock;
+    use crate::run_modes_factories::mocks::{
+        test_clustered_params, NodeConfiguratorInitializationMock,
+    };
     use crate::run_modes_factories::{
-        ClusteredParams, DaemonInitializerFactory, DaemonInitializerFactoryReal,
+        DIClusteredParams, DaemonInitializerFactory, DaemonInitializerFactoryReal,
         DumpConfigRunnerFactory, DumpConfigRunnerFactoryReal, ServerInitializerFactory,
         ServerInitializerFactoryReal,
     };
-    use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::server_initializer::ServerInitializerReal;
-    use crate::test_utils::pure_test_utils::{
-        make_pre_populated_mocked_directory_wrapper, ChannelFactoryMock,
-    };
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::utils::array_of_borrows_to_vec;
+    use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
-
-    fn test_clustered_params() -> ClusteredParams {
-        ClusteredParams {
-            dirs_wrapper: Box::new(make_pre_populated_mocked_directory_wrapper()),
-            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
-            channel_factory: Box::new(ChannelFactoryMock::new()),
-            recipients_factory: Box::new(RecipientsFactoryReal::new()),
-            rerunner: Box::new(RerunnerReal::new()),
-        }
-    }
 
     #[test]
     fn make_for_dump_config_runner_factory_produces_a_proper_object() {
@@ -179,55 +168,15 @@ mod tests {
             .unwrap();
     }
 
-    #[test]
-    fn make_for_daemon_initializer_factory_labours_hard_and_produces_a_proper_object() {
-        use std::ptr::addr_of;
-        let daemon_clustered_params = test_clustered_params();
-        let init_pointer_of_recipients_factory =
-            addr_of!(*daemon_clustered_params.recipients_factory);
-        let init_pointer_of_channel_factory = addr_of!(*daemon_clustered_params.channel_factory);
-        let init_pointer_of_rerunner = addr_of!(*daemon_clustered_params.rerunner);
-        let subject = DaemonInitializerFactoryReal::new(
-            Box::new(NodeConfiguratorInitializationReal),
-            daemon_clustered_params,
-        );
-        let args = &array_of_borrows_to_vec(&[
-            "program",
-            "--initialization",
-            "--ui-port",
-            1234.to_string().as_str(),
-        ]);
-
-        let result = subject.make(&args).unwrap();
-
-        let factory_product = result
-            .as_any()
-            .downcast_ref::<DaemonInitializerReal>()
-            .unwrap();
-        let (config, channel_factory, recipients_factory, rerunner) =
-            factory_product.access_to_the_fields_test();
-        assert_eq!(config.ui_port, 1234);
-        let final_pointer_of_recipients_factory = addr_of!(**recipients_factory);
-        assert_eq!(
-            init_pointer_of_recipients_factory,
-            final_pointer_of_recipients_factory
-        );
-        let final_pointer_of_channel_factory = addr_of!(**channel_factory);
-        assert_eq!(
-            init_pointer_of_channel_factory,
-            final_pointer_of_channel_factory
-        );
-        let final_pointer_of_rerunner = addr_of!(**rerunner);
-        assert_eq!(init_pointer_of_rerunner, final_pointer_of_rerunner);
-    }
+    //test for make() of DaemonInitializerReal moved to daemon_initializer.rs
 
     #[test]
     #[should_panic(
-        expected = "value for 'node_lib::run_modes_factories::ClusteredParams' badly prepared"
+        expected = "value for 'node_lib::run_modes_factories::DIClusteredParams' badly prepared"
     )]
     fn incorrect_value_in_expect_is_reasonably_displayed() {
-        let cluster_params_opt: Option<ClusteredParams> = None;
-        let _ = DaemonInitializerFactoryReal::expect(cluster_params_opt);
+        let cluster_params_ref_opt: RefCell<Option<DIClusteredParams>> = RefCell::new(None);
+        let _ = DaemonInitializerFactoryReal::expect(&cluster_params_ref_opt);
     }
 
     #[test]
@@ -286,14 +235,19 @@ mod tests {
 
 #[cfg(test)]
 pub mod mocks {
+    use crate::daemon::daemon_initializer::{RecipientsFactoryReal, RerunnerReal};
     use crate::node_configurator::node_configurator_initialization::InitializationConfig;
     use crate::node_configurator::NodeConfigurator;
     use crate::run_modes_factories::{
-        DaemonInitializer, DaemonInitializerFactory, DumpConfigRunner, DumpConfigRunnerFactory,
-        RunModeResult, ServerInitializer, ServerInitializerFactory,
+        DIClusteredParams, DaemonInitializer, DaemonInitializerFactory, DumpConfigRunner,
+        DumpConfigRunnerFactory, RunModeResult, ServerInitializer, ServerInitializerFactory,
     };
+    use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::server_initializer::tests::{
         ingest_values_from_multi_config, MultiConfigExtractedValues,
+    };
+    use crate::test_utils::unshared_test_utils::{
+        make_pre_populated_mocked_directory_wrapper, ChannelFactoryMock,
     };
     use futures::{Async, Future};
     use masq_lib::command::StdStreams;
@@ -301,6 +255,16 @@ pub mod mocks {
     use masq_lib::shared_schema::ConfiguratorError;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
+
+    pub fn test_clustered_params() -> DIClusteredParams {
+        DIClusteredParams {
+            dirs_wrapper: Box::new(make_pre_populated_mocked_directory_wrapper()),
+            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
+            channel_factory: Box::new(ChannelFactoryMock::new()),
+            recipients_factory: Box::new(RecipientsFactoryReal::new()),
+            rerunner: Box::new(RerunnerReal::new()),
+        }
+    }
 
     #[derive(Default)]
     pub struct DumpConfigRunnerFactoryMock {

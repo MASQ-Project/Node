@@ -7,7 +7,7 @@ use crate::daemon::{
 };
 use crate::node_configurator::node_configurator_initialization::InitializationConfig;
 use crate::node_configurator::port_is_busy;
-use crate::run_modes_factories::{ClusteredParams, DaemonInitializer, RunModeResult};
+use crate::run_modes_factories::{DIClusteredParams, DaemonInitializer, RunModeResult};
 use crate::sub_lib::main_tools::main_with_args;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::ui_gateway::UiGateway;
@@ -111,7 +111,10 @@ impl RerunnerReal {
 }
 
 impl DaemonInitializerReal {
-    pub fn new(config: InitializationConfig, mut params: ClusteredParams) -> DaemonInitializerReal {
+    pub fn new(
+        config: InitializationConfig,
+        mut params: DIClusteredParams,
+    ) -> DaemonInitializerReal {
         let real_user = RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref());
         let dirs_home_dir_opt = params.dirs_wrapper.home_dir();
         let dirs_home_dir = dirs_home_dir_opt
@@ -179,43 +182,29 @@ impl DaemonInitializerReal {
 }
 
 #[cfg(test)]
-impl DaemonInitializerReal {
-    pub fn access_to_the_fields_test(
-        &self,
-    ) -> (
-        &InitializationConfig,
-        &Box<dyn ChannelFactory>,
-        &Box<dyn RecipientsFactory>,
-        &Box<dyn Rerunner>,
-    ) {
-        (
-            &self.config,
-            &self.channel_factory,
-            &self.recipients_factory,
-            &self.rerunner,
-        )
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::daemon::Recipients;
-    use crate::node_configurator::node_configurator_initialization::InitializationConfig;
+    use crate::node_configurator::node_configurator_initialization::{
+        InitializationConfig, NodeConfiguratorInitializationReal,
+    };
     use crate::node_test_utils::DirsWrapperMock;
+    use crate::run_modes_factories::mocks::test_clustered_params;
+    use crate::run_modes_factories::{DaemonInitializerFactory, DaemonInitializerFactoryReal};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
-    use crate::test_utils::pure_test_utils::ChannelFactoryMock;
     use crate::test_utils::recorder::{make_recorder, Recorder};
+    use crate::test_utils::unshared_test_utils::ChannelFactoryMock;
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::{find_free_port, localhost};
+    use masq_lib::utils::{array_of_borrows_to_vec, find_free_port, localhost};
     use std::cell::RefCell;
     use std::iter::FromIterator;
     use std::net::{SocketAddr, TcpListener};
     use std::path::PathBuf;
+    use std::ptr::addr_of;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
@@ -311,7 +300,7 @@ mod tests {
                     .join(PathBuf::from_str(relative_data_dir).unwrap()),
             ));
         let config = InitializationConfig::default();
-        let mut clustered_params = ClusteredParams::default();
+        let mut clustered_params = DIClusteredParams::default();
         let init_params_arc = Arc::new(Mutex::new(vec![]));
         let logger_initializer_wrapper =
             LoggerInitializerWrapperMock::new().init_parameters(&init_params_arc);
@@ -345,7 +334,7 @@ mod tests {
         let channel_factory = ChannelFactoryMock::new();
         let addr_factory = RecipientsFactoryMock::new().make_result(recipients);
         let rerunner = RerunnerMock::new();
-        let clustered_params = ClusteredParams {
+        let clustered_params = DIClusteredParams {
             dirs_wrapper: Box::new(dirs_wrapper),
             logger_initializer_wrapper: Box::new(logger_initializer_wrapper),
             channel_factory: Box::new(channel_factory),
@@ -385,7 +374,7 @@ mod tests {
         let addr_factory = RecipientsFactoryMock::new();
         let rerun_parameters_arc = Arc::new(Mutex::new(vec![]));
         let rerunner = RerunnerMock::new().rerun_parameters(&rerun_parameters_arc);
-        let clustered_params = ClusteredParams {
+        let clustered_params = DIClusteredParams {
             dirs_wrapper: Box::new(dirs_wrapper),
             logger_initializer_wrapper: Box::new(logger_initializer_wrapper),
             channel_factory: Box::new(channel_factory),
@@ -427,7 +416,7 @@ mod tests {
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
         let port = find_free_port();
         let _listener = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();
-        let clustered_params = ClusteredParams {
+        let clustered_params = DIClusteredParams {
             dirs_wrapper: Box::new(dirs_wrapper),
             logger_initializer_wrapper: Box::new(logger_initializer_wrapper),
             channel_factory: Box::new(ChannelFactoryMock::new()),
@@ -458,5 +447,44 @@ mod tests {
             crash_notification_sub: daemon_addr.clone().recipient(),
             bind_message_subs: vec![daemon_addr.recipient(), ui_gateway_addr.recipient()],
         }
+    }
+
+    #[test]
+    fn make_for_daemon_initializer_factory_labours_hard_and_produces_a_proper_object() {
+        let daemon_clustered_params = test_clustered_params();
+        let init_pointer_of_recipients_factory =
+            addr_of!(*daemon_clustered_params.recipients_factory);
+        let init_pointer_of_channel_factory = addr_of!(*daemon_clustered_params.channel_factory);
+        let init_pointer_of_rerunner = addr_of!(*daemon_clustered_params.rerunner);
+        let subject = DaemonInitializerFactoryReal::new(
+            Box::new(NodeConfiguratorInitializationReal),
+            daemon_clustered_params,
+        );
+        let args = &array_of_borrows_to_vec(&[
+            "program",
+            "--initialization",
+            "--ui-port",
+            1234.to_string().as_str(),
+        ]);
+
+        let result = subject.make(&args).unwrap();
+
+        let factory_product = result
+            .as_any()
+            .downcast_ref::<DaemonInitializerReal>()
+            .unwrap();
+        assert_eq!(factory_product.config.ui_port, 1234);
+        let final_pointer_of_recipients_factory = addr_of!(*factory_product.recipients_factory);
+        assert_eq!(
+            init_pointer_of_recipients_factory,
+            final_pointer_of_recipients_factory
+        );
+        let final_pointer_of_channel_factory = addr_of!(*factory_product.channel_factory);
+        assert_eq!(
+            init_pointer_of_channel_factory,
+            final_pointer_of_channel_factory
+        );
+        let final_pointer_of_rerunner = addr_of!(*factory_product.rerunner);
+        assert_eq!(init_pointer_of_rerunner, final_pointer_of_rerunner);
     }
 }

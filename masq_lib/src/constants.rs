@@ -3,7 +3,7 @@
 use crate::blockchains::chains::Chain;
 use const_format::concatcp;
 
-pub const DEFAULT_CHAIN: Chain = Chain::EthMainnet;
+pub const DEFAULT_CHAIN: Chain = Chain::PolyMainnet;
 
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
 pub const HTTP_PORT: u16 = 80;
@@ -14,7 +14,6 @@ pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
 pub const HIGHEST_USABLE_PORT: u16 = 65535;
 pub const DEFAULT_UI_PORT: u16 = 5333;
 pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
-
 pub const MASQ_PROMPT: &str = "masq> ";
 
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
@@ -24,6 +23,7 @@ pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
 pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 24_638_838;
 
 //error codes
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //moved from configurator
 pub const CONFIGURATOR_PREFIX: u64 = 0x0001_0000_0000_0000;
@@ -51,6 +51,10 @@ pub const UNMARSHAL_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 4;
 pub const SETUP_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 5;
 pub const TIMEOUT_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 6;
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+pub const COMBINED_PARAMETERS_DELIMITER: char = '|';
+
 //descriptor
 pub const CENTRAL_DELIMITER: char = '@';
 pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
@@ -72,7 +76,7 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        assert_eq!(DEFAULT_CHAIN, Chain::EthMainnet);
+        assert_eq!(DEFAULT_CHAIN, Chain::PolyMainnet);
         assert_eq!(HIGHEST_RANDOM_CLANDESTINE_PORT, 9999);
         assert_eq!(HTTP_PORT, 80);
         assert_eq!(TLS_PORT, 443);

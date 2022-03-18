@@ -1,7 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+#![cfg(test)]
+
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
-use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
+use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
@@ -15,6 +18,7 @@ pub struct PersistentConfigurationMock {
     set_blockchain_service_url_params: Arc<Mutex<Vec<String>>>,
     set_blockchain_service_url_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     current_schema_version_results: RefCell<Vec<String>>,
+    chain_name_params: Arc<Mutex<Vec<()>>>,
     chain_name_results: RefCell<Vec<String>>,
     check_password_params: Arc<Mutex<Vec<Option<String>>>>,
     check_password_results: RefCell<Vec<Result<bool, PersistentConfigError>>>,
@@ -50,6 +54,15 @@ pub struct PersistentConfigurationMock {
     start_block_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
     set_start_block_params: Arc<Mutex<Vec<u64>>>,
     set_start_block_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    payment_thresholds_results: RefCell<Vec<Result<PaymentThresholds, PersistentConfigError>>>,
+    set_payment_thresholds_params: Arc<Mutex<Vec<String>>>,
+    set_payment_thresholds_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    rate_pack_results: RefCell<Vec<Result<RatePack, PersistentConfigError>>>,
+    set_rate_pack_params: Arc<Mutex<Vec<String>>>,
+    set_rate_pack_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    scan_intervals_results: RefCell<Vec<Result<ScanIntervals, PersistentConfigError>>>,
+    set_scan_intervals_params: Arc<Mutex<Vec<String>>>,
+    set_scan_intervals_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
 }
 
 impl PersistentConfiguration for PersistentConfigurationMock {
@@ -72,6 +85,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn chain_name(&self) -> String {
+        self.chain_name_params.lock().unwrap().push(());
         self.chain_name_results.borrow_mut().remove(0)
     }
 
@@ -98,6 +112,25 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.change_password_results.borrow_mut().remove(0)
     }
 
+    fn consuming_wallet(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError> {
+        self.consuming_wallet_params
+            .lock()
+            .unwrap()
+            .push(db_password.to_string());
+        Self::result_from(&self.consuming_wallet_results)
+    }
+
+    fn consuming_wallet_private_key(
+        &self,
+        db_password: &str,
+    ) -> Result<Option<String>, PersistentConfigError> {
+        self.consuming_wallet_private_key_params
+            .lock()
+            .unwrap()
+            .push(db_password.to_string());
+        Self::result_from(&self.consuming_wallet_private_key_results)
+    }
+
     fn clandestine_port(&self) -> Result<u16, PersistentConfigError> {
         Self::result_from(&self.clandestine_port_results)
     }
@@ -105,6 +138,14 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError> {
         self.set_clandestine_port_params.lock().unwrap().push(port);
         self.set_clandestine_port_results.borrow_mut().remove(0)
+    }
+
+    fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError> {
+        Self::result_from(&self.earning_wallet_results)
+    }
+
+    fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError> {
+        Self::result_from(&self.earning_wallet_address_results)
     }
 
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {
@@ -128,45 +169,19 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_mapping_protocol_results.borrow_mut().remove(0)
     }
 
-    fn consuming_wallet(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError> {
-        self.consuming_wallet_params
-            .lock()
-            .unwrap()
-            .push(db_password.to_string());
-        Self::result_from(&self.consuming_wallet_results)
+    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
+        self.neighborhood_mode_results.borrow_mut().remove(0)
     }
 
-    fn consuming_wallet_private_key(
-        &self,
-        db_password: &str,
-    ) -> Result<Option<String>, PersistentConfigError> {
-        self.consuming_wallet_private_key_params
-            .lock()
-            .unwrap()
-            .push(db_password.to_string());
-        Self::result_from(&self.consuming_wallet_private_key_results)
-    }
-
-    fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError> {
-        Self::result_from(&self.earning_wallet_results)
-    }
-
-    fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError> {
-        Self::result_from(&self.earning_wallet_address_results)
-    }
-
-    fn set_wallet_info(
+    fn set_neighborhood_mode(
         &mut self,
-        consuming_wallet_private_key: &str,
-        earning_wallet_address: &str,
-        db_password: &str,
+        value: NeighborhoodModeLight,
     ) -> Result<(), PersistentConfigError> {
-        self.set_wallet_info_params.lock().unwrap().push((
-            consuming_wallet_private_key.to_string(),
-            earning_wallet_address.to_string(),
-            db_password.to_string(),
-        ));
-        self.set_wallet_info_results.borrow_mut().remove(0)
+        self.set_neighborhood_mode_params
+            .lock()
+            .unwrap()
+            .push(value);
+        self.set_neighborhood_mode_results.borrow_mut().remove(0)
     }
 
     fn past_neighbors(
@@ -202,19 +217,51 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.set_start_block_results)
     }
 
-    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
-        self.neighborhood_mode_results.borrow_mut().remove(0)
+    fn set_wallet_info(
+        &mut self,
+        consuming_wallet_private_key: &str,
+        earning_wallet_address: &str,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_wallet_info_params.lock().unwrap().push((
+            consuming_wallet_private_key.to_string(),
+            earning_wallet_address.to_string(),
+            db_password.to_string(),
+        ));
+        self.set_wallet_info_results.borrow_mut().remove(0)
     }
 
-    fn set_neighborhood_mode(
-        &mut self,
-        value: NeighborhoodModeLight,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_neighborhood_mode_params
+    fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError> {
+        self.payment_thresholds_results.borrow_mut().remove(0)
+    }
+
+    fn set_payment_thresholds(&mut self, curves: String) -> Result<(), PersistentConfigError> {
+        self.set_payment_thresholds_params
             .lock()
             .unwrap()
-            .push(value);
-        self.set_neighborhood_mode_results.borrow_mut().remove(0)
+            .push(curves);
+        self.set_payment_thresholds_results.borrow_mut().remove(0)
+    }
+
+    fn rate_pack(&self) -> Result<RatePack, PersistentConfigError> {
+        self.rate_pack_results.borrow_mut().remove(0)
+    }
+
+    fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError> {
+        self.set_rate_pack_params.lock().unwrap().push(rate_pack);
+        self.set_rate_pack_results.borrow_mut().remove(0)
+    }
+
+    fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError> {
+        self.scan_intervals_results.borrow_mut().remove(0)
+    }
+
+    fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError> {
+        self.set_scan_intervals_params
+            .lock()
+            .unwrap()
+            .push(intervals);
+        self.set_scan_intervals_results.borrow_mut().remove(0)
     }
 }
 
@@ -252,6 +299,11 @@ impl PersistentConfigurationMock {
         self.current_schema_version_results
             .borrow_mut()
             .push(result.to_string());
+        self
+    }
+
+    pub fn chain_name_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.chain_name_params = params.clone();
         self
     }
 
@@ -478,6 +530,59 @@ impl PersistentConfigurationMock {
 
     pub fn set_start_block_result(self, result: Result<(), PersistentConfigError>) -> Self {
         self.set_start_block_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn payment_thresholds_result(
+        self,
+        result: Result<PaymentThresholds, PersistentConfigError>,
+    ) -> Self {
+        self.payment_thresholds_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_payment_thresholds_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.set_payment_thresholds_params = params.clone();
+        self
+    }
+
+    pub fn set_payment_thresholds_result(self, result: Result<(), PersistentConfigError>) -> Self {
+        self.set_payment_thresholds_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn rate_pack_result(self, result: Result<RatePack, PersistentConfigError>) -> Self {
+        self.rate_pack_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_rate_pack_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.set_rate_pack_params = params.clone();
+        self
+    }
+
+    pub fn set_rate_pack_result(self, result: Result<(), PersistentConfigError>) -> Self {
+        self.set_rate_pack_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn scan_intervals_result(
+        self,
+        result: Result<ScanIntervals, PersistentConfigError>,
+    ) -> Self {
+        self.scan_intervals_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_scan_intervals_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.set_scan_intervals_params = params.clone();
+        self
+    }
+
+    pub fn set_scan_intervals_result(self, result: Result<(), PersistentConfigError>) -> Self {
+        self.set_scan_intervals_results.borrow_mut().push(result);
         self
     }
 

@@ -218,9 +218,9 @@ mod tests {
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::test_utils::main_cryptde;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use actix::System;
     use lazy_static::lazy_static;
     use masq_lib::blockchains::chains::Chain;

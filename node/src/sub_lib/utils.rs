@@ -101,10 +101,10 @@ pub fn handle_ui_crash_request(
     crashable: bool,
     crash_key: &str,
 ) {
-    let crasher = crash_request_analyzer;
-    if let Some(cr) = crasher(msg, logger, crashable, crash_key) {
-        let requester = type_name_of(crasher);
-        panic!("{} (processed with: {})", cr.panic_message, requester)
+    let crash_analyzer = crash_request_analyzer;
+    if let Some(cr) = crash_analyzer(msg, logger, crashable, crash_key) {
+        let processed_with = type_name_of(crash_analyzer);
+        panic!("{} (processed with: {})", cr.panic_message, processed_with)
     }
 }
 
@@ -118,7 +118,12 @@ fn crash_request_analyzer(
         if logger.debug_enabled() {
             match UiCrashRequest::fmb(msg.body) {
                 Ok((msg, _)) if msg.actor == crash_key => {
-                    debug!(logger,"Received a crash request intended for this actor '{}' but not set up to be crashable",crash_key)
+                    debug!(
+                        logger,
+                        "Received a crash request intended for this actor \
+                    '{}' but not set up to be crashable",
+                        crash_key
+                    )
                 }
                 _ => (),
             }
@@ -195,7 +200,7 @@ pub fn make_new_test_multi_config<'a>(
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use super::*;
     use crate::apps::app_node;
     use log::Level;

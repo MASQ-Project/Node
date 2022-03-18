@@ -20,11 +20,10 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{Endpoint, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
-use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
-use crate::sub_lib::neighborhood::{ExpectedServices, DEFAULT_RATE_PACK};
+use crate::sub_lib::neighborhood::{ExpectedServices, RatePack, DEFAULT_RATE_PACK};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -731,12 +730,12 @@ impl ProxyServer {
         }
         earning_wallets_and_rates
             .into_iter()
-            .for_each(|(earning_wallet, _rate_pack)| {
+            .for_each(|(earning_wallet, rate_pack)| {
                 let report_routing_service_consumed = ReportRoutingServiceConsumedMessage {
                     earning_wallet: earning_wallet.clone(),
                     payload_size,
-                    service_rate: DEFAULT_RATE_PACK.routing_service_rate,
-                    byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
+                    service_rate: rate_pack.routing_service_rate,
+                    byte_rate: rate_pack.routing_byte_rate,
                 };
                 accountant_routing_sub
                     .try_send(report_routing_service_consumed)
@@ -758,13 +757,13 @@ impl ProxyServer {
                 }
                 _ => None,
             }) {
-            Some((earning_wallet, _rate_pack)) => {
+            Some((earning_wallet, rate_pack)) => {
                 let payload_size = payload.sequenced_packet.data.len();
                 let report_exit_service_consumed_message = ReportExitServiceConsumedMessage {
                     earning_wallet: earning_wallet.clone(),
                     payload_size,
-                    service_rate: DEFAULT_RATE_PACK.exit_service_rate,
-                    byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
+                    service_rate: rate_pack.exit_service_rate,
+                    byte_rate: rate_pack.exit_byte_rate,
                 };
                 accountant_exit_sub
                     .try_send(report_exit_service_consumed_message)
@@ -912,7 +911,7 @@ impl ProxyServer {
             .iter()
             .for_each(|service| match service {
                 ExpectedService::Nothing => (),
-                ExpectedService::Exit(_, wallet, _rate_pack) => self
+                ExpectedService::Exit(_, wallet, rate_pack) => self
                     .subs
                     .as_ref()
                     .expect("ProxyServer unbound")
@@ -920,8 +919,8 @@ impl ProxyServer {
                     .try_send(ReportExitServiceConsumedMessage {
                         earning_wallet: wallet.clone(),
                         payload_size: exit_size,
-                        service_rate: DEFAULT_RATE_PACK.exit_service_rate,
-                        byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
+                        service_rate: rate_pack.exit_service_rate,
+                        byte_rate: rate_pack.exit_byte_rate,
                     })
                     .expect("Accountant is dead"),
                 ExpectedService::Routing(_, wallet, _rate_pack) => self
@@ -967,8 +966,8 @@ mod tests {
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
+    use crate::sub_lib::neighborhood::ExpectedService;
     use crate::sub_lib::neighborhood::ExpectedServices;
-    use crate::sub_lib::neighborhood::{ExpectedService, DEFAULT_RATE_PACK};
     use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
     use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
     use crate::sub_lib::proxy_server::ProxyProtocol;
@@ -981,11 +980,11 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
+    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{make_meaningless_route, make_paying_wallet};
@@ -1097,14 +1096,15 @@ mod tests {
         idx: usize,
         wallet: &Wallet,
         payload_size: usize,
+        rate_pack: RatePack,
     ) {
         assert_eq!(
             accountant_recording.get_record::<ReportExitServiceConsumedMessage>(idx),
             &ReportExitServiceConsumedMessage {
                 earning_wallet: wallet.clone(),
                 payload_size,
-                service_rate: DEFAULT_RATE_PACK.exit_service_rate,
-                byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
+                service_rate: rate_pack.exit_service_rate,
+                byte_rate: rate_pack.exit_byte_rate,
             }
         );
     }
@@ -2237,6 +2237,8 @@ mod tests {
         let (accountant_mock, _, accountant_recording_arc) = make_recorder();
         let (hopper_mock, _, hopper_recording_arc) = make_recorder();
         let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
+        let routing_node_1_rate_pack = rate_pack(101);
+        let routing_node_2_rate_pack = rate_pack(102);
         let route_query_response = RouteQueryResponse {
             route: make_meaningless_route(),
             expected_services: ExpectedServices::RoundTrip(
@@ -2245,12 +2247,12 @@ mod tests {
                     ExpectedService::Routing(
                         PublicKey::new(&[1]),
                         route_1_earning_wallet.clone(),
-                        rate_pack(101),
+                        routing_node_1_rate_pack,
                     ),
                     ExpectedService::Routing(
                         PublicKey::new(&[2]),
                         route_2_earning_wallet.clone(),
-                        rate_pack(102),
+                        routing_node_2_rate_pack,
                     ),
                     ExpectedService::Exit(
                         PublicKey::new(&[3]),
@@ -2325,8 +2327,8 @@ mod tests {
             &ReportRoutingServiceConsumedMessage {
                 earning_wallet: route_1_earning_wallet,
                 payload_size: payload_enc.len(),
-                service_rate: DEFAULT_RATE_PACK.routing_service_rate,
-                byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
+                service_rate: routing_node_1_rate_pack.routing_service_rate,
+                byte_rate: routing_node_1_rate_pack.routing_byte_rate,
             }
         );
         let record = recording.get_record::<ReportRoutingServiceConsumedMessage>(2);
@@ -2335,8 +2337,8 @@ mod tests {
             &ReportRoutingServiceConsumedMessage {
                 earning_wallet: route_2_earning_wallet,
                 payload_size: payload_enc.len(),
-                service_rate: DEFAULT_RATE_PACK.routing_service_rate,
-                byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
+                service_rate: routing_node_2_rate_pack.routing_service_rate,
+                byte_rate: routing_node_2_rate_pack.routing_byte_rate,
             }
         );
         let recording = proxy_server_recording_arc.lock().unwrap();
@@ -2473,6 +2475,7 @@ mod tests {
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (accountant_mock, accountant_awaiter, accountant_log_arc) = make_recorder();
         let (neighborhood_mock, _, _) = make_recorder();
+        let exit_node_rate_pack = rate_pack(101);
         let neighborhood_mock = neighborhood_mock.route_query_response(Some(RouteQueryResponse {
             route: make_meaningless_route(),
             expected_services: ExpectedServices::RoundTrip(
@@ -2481,7 +2484,7 @@ mod tests {
                     ExpectedService::Exit(
                         PublicKey::new(&[3]),
                         earning_wallet.clone(),
-                        rate_pack(101),
+                        exit_node_rate_pack,
                     ),
                 ],
                 vec![
@@ -2537,8 +2540,8 @@ mod tests {
             &ReportExitServiceConsumedMessage {
                 earning_wallet,
                 payload_size: expected_data.len(),
-                service_rate: DEFAULT_RATE_PACK.exit_service_rate,
-                byte_rate: DEFAULT_RATE_PACK.exit_byte_rate,
+                service_rate: exit_node_rate_pack.exit_service_rate,
+                byte_rate: exit_node_rate_pack.exit_byte_rate,
             }
         );
     }
@@ -3379,6 +3382,7 @@ mod tests {
             0,
             &incoming_route_d_wallet,
             first_exit_size,
+            rate_pack(101),
         );
         check_routing_report(
             &accountant_recording,
@@ -3398,6 +3402,7 @@ mod tests {
             3,
             &incoming_route_g_wallet,
             second_exit_size,
+            rate_pack(104),
         );
         check_routing_report(
             &accountant_recording,
@@ -3563,7 +3568,13 @@ mod tests {
         system.run();
 
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        check_exit_report(&accountant_recording, 0, &incoming_route_d_wallet, 0);
+        check_exit_report(
+            &accountant_recording,
+            0,
+            &incoming_route_d_wallet,
+            0,
+            rate_pack(101),
+        );
         check_routing_report(
             &accountant_recording,
             1,

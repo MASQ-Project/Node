@@ -392,9 +392,10 @@ pub mod tests {
     use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
-    use crate::test_utils::pure_test_utils::make_pre_populated_mocked_directory_wrapper;
+    use crate::test_utils::unshared_test_utils::make_pre_populated_mocked_directory_wrapper;
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
-    use masq_lib::multi_config::MultiConfig;
+    use masq_lib::multi_config::{make_arg_matches_accesible, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::fake_stream_holder::{
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
@@ -540,7 +541,12 @@ pub mod tests {
         ) -> Self {
             self.arg_matches_requested_entries = required
                 .iter()
-                .map(|key| multi_config.value_of(key).unwrap().to_string())
+                .map(|key| {
+                    make_arg_matches_accesible(multi_config)
+                        .value_of(key)
+                        .unwrap()
+                        .to_string()
+                })
                 .collect();
             self
         }
@@ -823,7 +829,10 @@ pub mod tests {
         assert_eq!(
             *chown_params,
             vec![(
-                PathBuf::from("/home/alice/mock_directory/MASQ/eth-mainnet"),
+                PathBuf::from(format!(
+                    "/home/alice/mock_directory/MASQ/{}",
+                    DEFAULT_CHAIN.rec().literal_identifier
+                )),
                 real_user.clone()
             )]
         );
