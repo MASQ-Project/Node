@@ -148,12 +148,24 @@ impl MockBlockchainClientServer {
 
     pub fn start(&mut self) {
         let listener = TcpListener::bind(SocketAddr::new(localhost(), self.port)).unwrap();
+        listener.set_nonblocking(true).unwrap();
         let requests_arc = self.requests_arc.clone();
         let mut responses: Vec<String> = self.responses.drain(..).collect();
         let (stopper_tx, stopper_rx) = unbounded();
         let notifier = self.notifier.clone();
         let join_handle = thread::spawn(move || {
-            let (conn, _) = listener.accept().unwrap();
+            let conn = loop {
+                if stopper_rx.try_recv().is_ok() {
+                    return;
+                }
+                match listener.accept() {
+                    Ok ((conn, _)) => break conn,
+                    Err (e) if e.kind() == ErrorKind::WouldBlock => (),
+                    Err (e) if e.kind() == ErrorKind::TimedOut => (),
+                    Err (e) => panic! ("MBCS accept() failed: {:?}", e),
+                };
+                thread::sleep (Duration::from_millis (100));
+            };
             drop(listener);
             conn.set_nonblocking(true).unwrap();
             let mut conn_state = ConnectionState {
@@ -198,7 +210,7 @@ impl MockBlockchainClientServer {
                 }
                 None => (),
             };
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(100));
         }
     }
 

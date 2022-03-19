@@ -563,6 +563,7 @@ impl NodeStartupConfigBuilder {
         self
     }
 
+    // This method is currently disabled. See multinode_integration_tests/docker/Dockerfile.
     pub fn open_firewall_port(mut self, port: u16) -> Self {
         if self.firewall.is_none() {
             self.firewall = Some(Firewall {
@@ -789,7 +790,7 @@ impl MASQRealNode {
         let ui_port_pair = format! ("{}:{}", ui_port, ui_port);
         Self::exec_command_on_container_and_detach(
             &name,
-            vec!["/usr/local/bin/port_exposer", "80:8080", "443:8443"/*, &ui_port_pair*/],
+            vec!["/usr/local/bin/port_exposer", "80:8080", "443:8443", &ui_port_pair],
         )
         .expect("port_exposer wouldn't run");
         match &real_startup_config.firewall_opt {

@@ -1,4 +1,5 @@
 use std::cell::{RefCell, RefMut};
+use std::io::ErrorKind;
 use std::net::{SocketAddr, TcpStream};
 use std::ops::Add;
 use std::thread;
@@ -119,6 +120,8 @@ impl MASQNodeUIClient {
             Err (WebSocketError::NoDataAvailable) => {
                 None
             },
+            Err (WebSocketError::IoError(e)) if e.kind() == ErrorKind::WouldBlock => None,
+            Err (WebSocketError::IoError(e)) if e.kind() == ErrorKind::TimedOut => None,
             Err (e) => {
                 unimplemented! ("{:?}", e)
             }
