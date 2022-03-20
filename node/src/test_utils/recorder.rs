@@ -2,7 +2,7 @@
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanForPayables, ScanForReceivables,
-    ScanForPendingPayables, SentPayable,
+    ScanForPendingPayables, SentPayable, ScanError
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
@@ -123,6 +123,7 @@ recorder_message_handler!(ReportExitServiceConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceConsumedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
+recorder_message_handler!(ScanError);
 recorder_message_handler!(SentPayable);
 recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(SetDbPasswordMsg);

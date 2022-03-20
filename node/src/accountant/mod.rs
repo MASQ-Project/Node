@@ -153,6 +153,13 @@ pub struct ScanForPendingPayables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
+#[derive(Debug, Clone, Message, PartialEq)]
+pub struct ScanError {
+    pub scan_type: ScanType,
+    pub response_skeleton: ResponseSkeleton,
+    pub msg: String,
+}
+
 impl Handler<BindMessage> for Accountant {
     type Result = ();
 
@@ -256,6 +263,14 @@ impl Handler<ScanForReceivables> for Accountant {
     }
 }
 
+impl Handler<ScanError> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: ScanError, _ctx: &mut Self::Context) -> Self::Result {
+        todo!("Handle ScanError")
+    }
+}
+
 impl Handler<ReportRoutingServiceProvidedMessage> for Accountant {
     type Result = ();
 
@@ -304,10 +319,20 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
     }
 }
 
+pub trait SkeletonOptHolder {
+    fn skeleton_opt (&self) -> Option<ResponseSkeleton>;
+}
+
 #[derive(Debug, PartialEq, Message, Clone)]
 pub struct RequestTransactionReceipts {
     pub pending_payable: Vec<PendingPayableFingerprint>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
+}
+
+impl SkeletonOptHolder for RequestTransactionReceipts {
+    fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
+        self.response_skeleton_opt
+    }
 }
 
 #[derive(Debug, PartialEq, Message, Clone)]
@@ -1238,7 +1263,6 @@ mod tests {
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
     use web3::types::U256;
-    use automap_lib::protocols::utils::Direction::Response;
 
     use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
     use masq_lib::test_utils::logging::init_test_logging;
