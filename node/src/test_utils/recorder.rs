@@ -384,6 +384,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
         report_sent_payments: recipient!(addr, SentPayable),
+        scan_errors: recipient!(addr, ScanError),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),
     }
 }

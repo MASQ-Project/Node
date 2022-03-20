@@ -163,7 +163,7 @@ mod tests {
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
     use crate::test_utils::{main_cryptde, ArgsBuilder};
-    use masq_lib::test_utils::environment_guard::ClapGuard;
+    use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::NeighborhoodModeLight;
@@ -174,6 +174,7 @@ mod tests {
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {
+        let _ = EnvironmentGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "database_must_be_created_by_node_before_dump_config_used",

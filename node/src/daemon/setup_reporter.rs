@@ -37,7 +37,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-const CONSOLE_DIAGNOSTICS: bool = true;
+const CONSOLE_DIAGNOSTICS: bool = false;
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
@@ -1186,7 +1186,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_everything_preexistent",
         );
         let existing_setup = setup_cluster_from(vec![
-            ("blockchain-service-url", "https://example.com", Set),
+            ("blockchain-service-url", "https://example1.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
@@ -1211,7 +1211,7 @@ mod tests {
         let result = subject.get_modified_setup(existing_setup, vec![]).unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "https://example.com", Set),
+            ("blockchain-service-url", "https://example1.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
@@ -1248,7 +1248,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_everything_set",
         );
         let incoming_setup = vec![
-            ("blockchain-service-url", "https://example.com"),
+            ("blockchain-service-url", "https://example2.com"),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("clandestine-port", "1234"),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677"),
@@ -1277,7 +1277,7 @@ mod tests {
             .unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "https://example.com", Set),
+            ("blockchain-service-url", "https://example2.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
@@ -1315,7 +1315,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_nothing_set_everything_in_environment",
         );
         vec![
-            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
+            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example3.com"),
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
@@ -1342,7 +1342,7 @@ mod tests {
         let result = subject.get_modified_setup(HashMap::new(), params).unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "https://example.com", Configured),
+            ("blockchain-service-url", "https://example3.com", Configured),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
@@ -1529,7 +1529,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_all_but_requireds_cleared",
         );
         vec![
-            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
+            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example4.com"),
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
@@ -1609,7 +1609,7 @@ mod tests {
         let result = subject.get_modified_setup(existing_setup, params).unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "https://example.com", Configured),
+            ("blockchain-service-url", "https://example4.com", Configured),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),

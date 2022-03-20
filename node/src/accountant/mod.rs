@@ -15,12 +15,13 @@ use actix::Recipient;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use web3::types::{H256, TransactionReceipt};
+use masq_lib::constants::SCAN_ERROR;
 
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiFinancialsRequest, UiScanRequest, UiScanResponse};
 use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
-use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::utils::{ExpectValue, plus};
 use payable_dao::PayableDao;
@@ -266,8 +267,22 @@ impl Handler<ScanForReceivables> for Accountant {
 impl Handler<ScanError> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: ScanError, _ctx: &mut Self::Context) -> Self::Result {
-        todo!("Handle ScanError")
+    fn handle(&mut self, scan_error: ScanError, _ctx: &mut Self::Context) -> Self::Result {
+        let error_msg = NodeToUiMessage {
+            target: MessageTarget::ClientId(scan_error.response_skeleton.client_id),
+            body: MessageBody {
+                opcode: "scan".to_string(),
+                path: MessagePath::Conversation(scan_error.response_skeleton.context_id),
+                payload: Err((
+                    SCAN_ERROR, format! ("{:?} scan failed: '{}'", scan_error.scan_type, scan_error.msg)
+                ))
+            },
+        };
+        self.ui_message_sub
+            .as_ref()
+            .expect ("UIGateway not bound")
+            .try_send (error_msg)
+            .expect ("UiGateway is dead");
     }
 }
 
@@ -458,6 +473,7 @@ impl Accountant {
             pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
             report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
             report_sent_payments: recipient!(addr, SentPayable),
+            scan_errors: recipient!(addr, ScanError),
             ui_message_sub: recipient!(addr, NodeFromUiMessage),
         }
     }
@@ -1263,11 +1279,12 @@ mod tests {
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
     use web3::types::U256;
+    use masq_lib::constants::SCAN_ERROR;
 
     use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+    use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::ui_gateway::MessagePath::Conversation;
 
     use crate::accountant::payable_dao::PayableDaoError;
@@ -4399,6 +4416,40 @@ mod tests {
         let transaction_id = PendingPayableId { hash, rowid };
 
         let _ = subject.update_payable_fingerprint(transaction_id);
+    }
+
+    #[test]
+    fn handles_scan_error() {
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let subject = AccountantBuilder::default()
+            .build();
+        let subject_addr = subject.start();
+        let system = System::new("test");
+        let peer_actors = peer_actors_builder()
+            .ui_gateway(ui_gateway)
+            .build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(ScanError {
+            scan_type: ScanType::Payables,
+            response_skeleton: ResponseSkeleton {client_id: 1234, context_id: 4321},
+            msg: "My tummy hurts".to_string()
+        }).unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq! (ui_gateway_recording.get_record::<NodeToUiMessage>(0), &NodeToUiMessage {
+            target: MessageTarget::ClientId(1234),
+            body: MessageBody {
+                opcode: "scan".to_string(),
+                path: MessagePath::Conversation(4321),
+                payload: Err ((
+                    SCAN_ERROR,
+                    "Payables scan failed: 'My tummy hurts'".to_string()
+                ))
+            }
+        });
     }
 
     #[test]
