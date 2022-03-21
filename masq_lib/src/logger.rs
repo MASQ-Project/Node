@@ -159,25 +159,26 @@ impl Logger {
     where
         F: FnOnce() -> String,
     {
-        match (!UI_MESSAGE_LOG_LEVEL.le(&level), self.level_enabled(level)) {
-            // We want to transmit log if - !UI_MESSAGE_LOG_LEVEL.le(&level)
-            // We want to save into log file if - self.level_enabled(level)
+        match (self.level_enabled(level), level.le(&UI_MESSAGE_LOG_LEVEL)) {
+            // Error < Warn < Info < Debug < Trace
+            // Log only if - self.level_enabled(level) ~ level <= level_limit
+            // Transmit only if - level.le(&UI_MESSAGE_LOG_LEVEL) ~ level <= UI_MESSAGE_LOG_LEVEL
             (true, true) => {
-                todo!("")
+                todo!("Both Transmit and Log")
                 // let msg = log_function();
                 // self.transmit(msg.clone(), level.into());
                 // self.log(level, msg);
             }
             (true, false) => {
-                todo!("")
-                // self.transmit(log_function(), level.into())
-            }
-            (false, true) => {
-                todo!("")
+                todo!("Only Log")
                 // self.log(level, log_function())
             }
+            (false, true) => {
+                todo!("Only Transmit")
+                // self.transmit(log_function(), level.into())
+            }
             _ => {
-                todo!("")
+                todo!("Neither Transmit nor Log")
                 // return;
             }
         }
@@ -460,23 +461,75 @@ mod tests {
     }
 
     #[test]
-    fn generic_log_when_both_simple_logging_and_messaging_out_of_the_scope() {
-        todo!("finish me")
+    fn generic_log_when_neither_logging_nor_transmitting() {
+        // todo!("finish me")
+        let logger = make_logger_at_level(Level::Debug);
+        let signal = Arc::new(Mutex::new(Some(false)));
+        let signal_c = signal.clone();
+
+        let log_function = move || {
+            let mut locked_signal = signal_c.lock().unwrap();
+            locked_signal.replace(true);
+            "blah".to_string()
+        };
+
+        logger.trace(log_function);
+
+        assert_eq!(signal.lock().unwrap().as_ref(), Some(&false));
     }
 
     #[test]
-    fn generic_log_when_simple_logging_runs_but_messaging_is_ignored() {
-        todo!("finish me")
+    fn generic_log_when_only_logging() {
+        // todo!("finish me")
+        let logger = make_logger_at_level(Level::Debug);
+        let signal = Arc::new(Mutex::new(Some(false)));
+        let signal_c = signal.clone();
+
+        let log_function = move || {
+            let mut locked_signal = signal_c.lock().unwrap();
+            locked_signal.replace(true);
+            "blah".to_string()
+        };
+
+        logger.debug(log_function);
+
+        assert_eq!(signal.lock().unwrap().as_ref(), Some(&false));
     }
 
     #[test]
-    fn generic_log_when_simple_logging_is_ignored_but_messaging_runs() {
-        todo!("finish me")
+    fn generic_log_when_only_transmitting() {
+        // todo!("finish me");
+        let logger = make_logger_at_level(Level::Warn);
+        let signal = Arc::new(Mutex::new(Some(false)));
+        let signal_c = signal.clone();
+
+        let log_function = move || {
+            let mut locked_signal = signal_c.lock().unwrap();
+            locked_signal.replace(true);
+            "blah".to_string()
+        };
+
+        logger.info(log_function);
+
+        assert_eq!(signal.lock().unwrap().as_ref(), Some(&false));
     }
 
     #[test]
-    fn generic_log_when_both_simple_logging_and_messaging_run() {
-        todo!("finish me")
+    fn generic_log_when_both_logging_and_transmitting() {
+        // todo!("finish me")
+        let logger = make_logger_at_level(Level::Debug);
+        let signal = Arc::new(Mutex::new(Some(false)));
+        let signal_c = signal.clone();
+
+        let log_function = move || {
+            let mut locked_signal = signal_c.lock().unwrap();
+            locked_signal.replace(true);
+            "blah".to_string()
+        };
+
+        logger.warning(log_function);
+
+        assert_eq!(signal.lock().unwrap().as_ref(), Some(&false));
     }
 
     #[test]
