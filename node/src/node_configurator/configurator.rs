@@ -8,9 +8,9 @@ use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
     UiCheckPasswordRequest, UiCheckPasswordResponse, UiConfigurationRequest,
     UiConfigurationResponse, UiGenerateSeedSpec, UiGenerateWalletsRequest,
-    UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiRecoverWalletsRequest,
-    UiRecoverWalletsResponse, UiSetConfigurationRequest, UiSetConfigurationResponse,
-    UiWalletAddressesRequest, UiWalletAddressesResponse,
+    UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiPaymentThresholds, UiRatePack,
+    UiRecoverWalletsRequest, UiRecoverWalletsResponse, UiScanIntervals, UiSetConfigurationRequest,
+    UiSetConfigurationResponse, UiWalletAddressesRequest, UiWalletAddressesResponse,
 };
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{
@@ -589,6 +589,24 @@ impl Configurator {
                 }
                 None => (None, None, vec![]),
             };
+        let rate_pack = Self::value_required(persistent_config.rate_pack(), "ratePack")?;
+        let scan_intervals =
+            Self::value_required(persistent_config.scan_intervals(), "scanIntervals")?;
+        let payment_thresholds =
+            Self::value_required(persistent_config.payment_thresholds(), "paymentThresholds")?;
+        let routing_byte_rate = rate_pack.routing_byte_rate;
+        let routing_service_rate = rate_pack.routing_service_rate;
+        let exit_byte_rate = rate_pack.exit_byte_rate;
+        let exit_service_rate = rate_pack.exit_service_rate;
+        let pending_payable_sec = scan_intervals.pending_payable_scan_interval.as_secs();
+        let payable_sec = scan_intervals.payable_scan_interval.as_secs();
+        let receivable_sec = scan_intervals.receivable_scan_interval.as_secs();
+        let threshold_interval_sec = payment_thresholds.threshold_interval_sec;
+        let debt_threshold_gwei = payment_thresholds.debt_threshold_gwei;
+        let payment_grace_period_sec = payment_thresholds.payment_grace_period_sec;
+        let maturity_threshold_sec = payment_thresholds.maturity_threshold_sec;
+        let permanent_debt_allowed_gwei = payment_thresholds.permanent_debt_allowed_gwei;
+        let unban_below_gwei = payment_thresholds.unban_below_gwei;
         let response = UiConfigurationResponse {
             blockchain_service_url_opt,
             current_schema_version,
@@ -601,7 +619,26 @@ impl Configurator {
             earning_wallet_address_opt,
             port_mapping_protocol_opt,
             past_neighbors,
+            payment_thresholds: UiPaymentThresholds {
+                threshold_interval_sec,
+                debt_threshold_gwei,
+                maturity_threshold_sec,
+                payment_grace_period_sec,
+                permanent_debt_allowed_gwei,
+                unban_below_gwei,
+            },
+            rate_pack: UiRatePack {
+                routing_byte_rate,
+                routing_service_rate,
+                exit_byte_rate,
+                exit_service_rate,
+            },
             start_block,
+            scan_intervals: UiScanIntervals {
+                pending_payable_sec,
+                payable_sec,
+                receivable_sec,
+            },
         };
         Ok(response.tmb(context_id))
     }
@@ -769,12 +806,14 @@ mod tests {
     use actix::System;
     use masq_lib::messages::{
         ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
-        UiGenerateSeedSpec, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiRecoverSeedSpec,
-        UiStartOrder, UiWalletAddressesRequest, UiWalletAddressesResponse,
+        UiGenerateSeedSpec, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiPaymentThresholds,
+        UiRatePack, UiRecoverSeedSpec, UiScanIntervals, UiStartOrder, UiWalletAddressesRequest,
+        UiWalletAddressesResponse,
     };
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
@@ -788,13 +827,14 @@ mod tests {
     use crate::blockchain::bip39::Bip39;
     use crate::blockchain::test_utils::make_meaningless_phrase_words;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::cryptde::PublicKey as PK;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
-    use crate::sub_lib::neighborhood::NodeDescriptor;
+    use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::pure_test_utils::{
-        make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up,
+    use crate::test_utils::unshared_test_utils::{
+        configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
@@ -1760,7 +1800,7 @@ mod tests {
         };
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
-            make_default_persistent_configuration()
+            configure_default_persistent_config(ZERO)
                 .check_password_result(Ok(true))
                 .set_wallet_info_params(&set_wallet_info_params_arc)
                 .set_wallet_info_result(Ok(())),
@@ -1787,7 +1827,7 @@ mod tests {
             earning_address_opt: Some("0x0123456789012345678901234567890123456789".to_string()),
         };
         let mut persistent_config: Box<dyn PersistentConfiguration> =
-            Box::new(make_default_persistent_configuration().check_password_result(Ok(true)));
+            Box::new(configure_default_persistent_config(ZERO).check_password_result(Ok(true)));
 
         let result =
             Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
@@ -1812,7 +1852,7 @@ mod tests {
             earning_address_opt: Some(earning_address),
         };
         let mut persistent_config: Box<dyn PersistentConfiguration> =
-            Box::new(make_default_persistent_configuration().check_password_result(Ok(true)));
+            Box::new(configure_default_persistent_config(ZERO).check_password_result(Ok(true)));
 
         let result =
             Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
@@ -1838,7 +1878,7 @@ mod tests {
             earning_address_opt: None,
         };
         let mut persistent_config: Box<dyn PersistentConfiguration> =
-            Box::new(make_default_persistent_configuration().check_password_result(Ok(true)));
+            Box::new(configure_default_persistent_config(ZERO).check_password_result(Ok(true)));
 
         let result =
             Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
@@ -1862,7 +1902,7 @@ mod tests {
             earning_address_opt: Some("0x0123456789012345678901234567890123456789".to_string()),
         };
         let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
-            make_default_persistent_configuration()
+            configure_default_persistent_config(ZERO)
                 .check_password_result(Ok(true))
                 .set_wallet_info_result(Ok(())),
         );
@@ -1903,7 +1943,6 @@ mod tests {
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         let (_, context_id) = UiSetConfigurationResponse::fmb(response.body.clone()).unwrap();
         assert_eq!(context_id, 4444);
-
         let check_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*check_start_block_params, vec![166666]);
     }
@@ -2148,7 +2187,7 @@ mod tests {
             .blockchain_service_url_result(Ok(None))
             .check_password_result(Ok(true))
             .chain_name_result("ropsten".to_string())
-            .current_schema_version_result("1.2.3")
+            .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
             .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key)))
@@ -2157,6 +2196,7 @@ mod tests {
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
             .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
             .start_block_result(Ok(3456));
+        let persistent_config = payment_thresholds_scan_intervals_rate_pack(persistent_config);
         let mut subject = make_subject(Some(persistent_config));
 
         let (configuration, context_id) =
@@ -2173,7 +2213,7 @@ mod tests {
             configuration,
             UiConfigurationResponse {
                 blockchain_service_url_opt: None,
-                current_schema_version: "1.2.3".to_string(),
+                current_schema_version: "3".to_string(),
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
@@ -2183,9 +2223,53 @@ mod tests {
                 earning_wallet_address_opt: Some(earning_wallet_address),
                 port_mapping_protocol_opt: Some("IGDP".to_string()),
                 past_neighbors: vec![],
-                start_block: 3456
+                payment_thresholds: UiPaymentThresholds {
+                    threshold_interval_sec: 10_000,
+                    debt_threshold_gwei: 5_000_000,
+                    maturity_threshold_sec: 1200,
+                    payment_grace_period_sec: 1000,
+                    permanent_debt_allowed_gwei: 20_000,
+                    unban_below_gwei: 20_000
+                },
+                rate_pack: UiRatePack {
+                    routing_byte_rate: 6,
+                    routing_service_rate: 8,
+                    exit_byte_rate: 10,
+                    exit_service_rate: 13
+                },
+                start_block: 3456,
+                scan_intervals: UiScanIntervals {
+                    pending_payable_sec: 122,
+                    payable_sec: 125,
+                    receivable_sec: 128
+                }
             }
         );
+    }
+
+    fn payment_thresholds_scan_intervals_rate_pack(
+        persistent_config: PersistentConfigurationMock,
+    ) -> PersistentConfigurationMock {
+        persistent_config
+            .rate_pack_result(Ok(RatePack {
+                routing_byte_rate: 6,
+                routing_service_rate: 8,
+                exit_byte_rate: 10,
+                exit_service_rate: 13,
+            }))
+            .scan_intervals_result(Ok(ScanIntervals {
+                pending_payable_scan_interval: Duration::from_secs(122),
+                payable_scan_interval: Duration::from_secs(125),
+                receivable_scan_interval: Duration::from_secs(128),
+            }))
+            .payment_thresholds_result(Ok(PaymentThresholds {
+                threshold_interval_sec: 10000,
+                debt_threshold_gwei: 5000000,
+                payment_grace_period_sec: 1000,
+                maturity_threshold_sec: 1200,
+                permanent_debt_allowed_gwei: 20000,
+                unban_below_gwei: 20000,
+            }))
     }
 
     #[test]
@@ -2230,7 +2314,7 @@ mod tests {
             .blockchain_service_url_result(Ok(None))
             .check_password_result(Ok(true))
             .chain_name_result("ropsten".to_string())
-            .current_schema_version_result("1.2.3")
+            .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
             .consuming_wallet_private_key_params(&consuming_wallet_private_key_params_arc)
@@ -2240,7 +2324,9 @@ mod tests {
             .past_neighbors_params(&past_neighbors_params_arc)
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
             .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
+            .start_block_result(Ok(3456))
             .start_block_result(Ok(3456));
+        let persistent_config = payment_thresholds_scan_intervals_rate_pack(persistent_config);
         let mut subject = make_subject(Some(persistent_config));
 
         let (configuration, context_id) =
@@ -2257,7 +2343,7 @@ mod tests {
             configuration,
             UiConfigurationResponse {
                 blockchain_service_url_opt: None,
-                current_schema_version: "1.2.3".to_string(),
+                current_schema_version: "3".to_string(),
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
@@ -2267,7 +2353,26 @@ mod tests {
                 earning_wallet_address_opt: Some(earning_wallet_address),
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp.to_string()),
                 past_neighbors: vec![node_descriptor.to_string(main_cryptde())],
-                start_block: 3456
+                payment_thresholds: UiPaymentThresholds {
+                    threshold_interval_sec: 10_000,
+                    debt_threshold_gwei: 5_000_000,
+                    maturity_threshold_sec: 1200,
+                    payment_grace_period_sec: 1000,
+                    permanent_debt_allowed_gwei: 20_000,
+                    unban_below_gwei: 20_000
+                },
+                rate_pack: UiRatePack {
+                    routing_byte_rate: 6,
+                    routing_service_rate: 8,
+                    exit_byte_rate: 10,
+                    exit_service_rate: 13
+                },
+                start_block: 3456,
+                scan_intervals: UiScanIntervals {
+                    pending_payable_sec: 122,
+                    payable_sec: 125,
+                    receivable_sec: 128
+                }
             }
         );
         let consuming_wallet_private_key_params =

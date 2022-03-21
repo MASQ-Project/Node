@@ -19,6 +19,7 @@ use node_lib::blockchain::blockchain_interface::{
 };
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::database::db_migrations::{ExternalData, MigratorConfig};
+use node_lib::sub_lib::accountant::PaymentThresholds;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use rustc_hex::{FromHex, ToHex};
@@ -37,7 +38,6 @@ fn verify_bill_payment() {
         Ok(cluster) => cluster,
         Err(e) => panic!("{}", e),
     };
-
     let blockchain_server = BlockchainServer {
         name: "ganache-cli",
     };
@@ -52,7 +52,6 @@ fn verify_bill_payment() {
     let deriv_path = derivation_path(0, 0);
     let seed = make_seed();
     let (contract_owner_wallet, _) = make_node_wallet(&seed, &deriv_path);
-
     let contract_addr = deploy_smart_contract(&contract_owner_wallet, &web3, cluster.chain);
     assert_eq!(
         contract_addr,
@@ -68,17 +67,37 @@ fn verify_bill_payment() {
         "99998043204000000000",
         "472000000000000000000000000",
     );
-    let (consuming_config, _) = build_config(&blockchain_server, &seed, deriv_path);
+    let payment_thresholds = PaymentThresholds {
+        threshold_interval_sec: 2_592_000,
+        debt_threshold_gwei: 1_000_000_000,
+        payment_grace_period_sec: 86_400,
+        maturity_threshold_sec: 86_400,
+        permanent_debt_allowed_gwei: 10_000_000,
+        unban_below_gwei: 10_000_000,
+    };
+    let (consuming_config, _) =
+        build_config(&blockchain_server, &seed, payment_thresholds, deriv_path);
 
-    let (serving_node_1_config, serving_node_1_wallet) =
-        build_config(&blockchain_server, &seed, derivation_path(0, 1));
-    let (serving_node_2_config, serving_node_2_wallet) =
-        build_config(&blockchain_server, &seed, derivation_path(0, 2));
-    let (serving_node_3_config, serving_node_3_wallet) =
-        build_config(&blockchain_server, &seed, derivation_path(0, 3));
+    let (serving_node_1_config, serving_node_1_wallet) = build_config(
+        &blockchain_server,
+        &seed,
+        payment_thresholds,
+        derivation_path(0, 1),
+    );
+    let (serving_node_2_config, serving_node_2_wallet) = build_config(
+        &blockchain_server,
+        &seed,
+        payment_thresholds,
+        derivation_path(0, 2),
+    );
+    let (serving_node_3_config, serving_node_3_wallet) = build_config(
+        &blockchain_server,
+        &seed,
+        payment_thresholds,
+        derivation_path(0, 3),
+    );
 
-    let amount = 10u64
-        * u64::try_from(node_lib::accountant::PAYMENT_CURVES.permanent_debt_allowed_gwub).unwrap();
+    let amount = 10u64 * u64::try_from(payment_thresholds.permanent_debt_allowed_gwei).unwrap();
 
     let project_root = MASQNodeUtils::find_project_root();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
@@ -385,6 +404,7 @@ fn make_seed() -> Seed {
 fn build_config(
     server: &BlockchainServer,
     seed: &Seed,
+    payment_thresholds: PaymentThresholds,
     wallet_derivation_path: String,
 ) -> (NodeStartupConfig, Wallet) {
     let (serving_node_wallet, serving_node_secret) =
@@ -392,6 +412,7 @@ fn build_config(
     let config = NodeStartupConfigBuilder::standard()
         .blockchain_service_url(server.service_url())
         .chain(Chain::Dev)
+        .payment_thresholds(payment_thresholds)
         .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_secret))
         .earning_wallet_info(EarningWalletInfo::Address(format!(
             "{}",

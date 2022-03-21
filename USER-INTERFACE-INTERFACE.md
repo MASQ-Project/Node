@@ -332,17 +332,36 @@ Another reason the secrets might be missing is that there are not yet any secret
     "blockchainServiceUrl": <optional string>,
     "chainName": <String>, 
     "clandestinePort": <string>,
-    "consumingWalletDerivationPathOpt": <optional string>,
     "currentSchemaVersion": <string>,
     "earningWalletAddressOpt": <optional string>,
     "gasPrice": <number>,
     "neighborhoodMode": <string>,
+    "consumingWalletPrivateKeyOpt": <optional string>,
+    "consumingWalletAddressOpt": <optional string>,
     "startBlock": <number>,
-    "mnemonicSeedOpt": <optional string>,
-    "pastNeighbors": [
+    "pastNeighbors":[
         <string>,
         <string>, ...
     ],
+    "PaymentThresholds": {
+        "debtThresholdGwei": <number>,
+        "maturityThresholdSec": <number>,
+        "paymentGracePeriodSec": <number>,
+        "permanentDebtAllowedGwei": <number>,
+        "thresholdIntervalSec": <number>
+        "unbanBelowGwei": <number>
+    },
+    "ratePack": {
+        "routingByteRate": <number>,
+        "routingServiceRate": <number>,
+        "exitByteRate": <number>,
+        "exitServiceRate: <number>"
+    },
+    "scanIntervals": {
+        "pendingPayableSec": <number>,
+        "payableSec": <number>,
+        "receivableSec": <number>
+    },
 }
 ```
 ##### Description:
@@ -351,11 +370,12 @@ because it hasn't been configured yet, or it might be because it's secret and yo
 database password. If you want to know whether the password you have is the correct one, try the
 `checkPassword` message.
 
-* `blockchainServiceUrl`: The url which will be used for obtaining a communication to chosen services to interact with the blockchain.
-  This parameter is read, if present, only if the same parameter wasn't specified at another place (UI, configuration file, environment variables).
+* `blockchainServiceUrl`: The url which will be used for obtaining a communication to chosen services to interact with the 
+  blockchain. This parameter is read, if present, only if the same parameter wasn't specified at another place (UI,
+  configuration file, environment variables).
 
-* `chainName`: This value reveals the chain which the open database has been created for. It is always present and once initiated,
-  during creation of the database, it never changes. It's basically a read-only value.  
+* `chainName`: This value reveals the chain which the open database has been created for. It is always present and once 
+  initiated, during creation of the database, it never changes. It's basically a read-only value.  
 
 * `clandestinePort`: The port on which the Node is currently listening for connections from other Nodes.
 
@@ -364,19 +384,19 @@ database password. If you want to know whether the password you have is the corr
 
 * `consumingWalletAddress`: This is the address of the consuming wallet, as a 40-digit hexadecimal number prefixed by "0x".
 
-* `currentSchemaVersion`: This will be a version number for the database schema represented as an ordinal numeral. This will always
-  be the same for a given version of Node. If you upgrade your Node, and the new Node wants to see a later
+* `currentSchemaVersion`: This will be a version number for the database schema represented as an ordinal numeral. This will
+  always be the same for a given version of Node. If you upgrade your Node, and the new Node wants to see a later
   schema version in the database, it will migrate your existing data to the new schema and update its schema
   version. If this attempt fails for some reason, this value can be used to diagnose the issue.
 
 * `earningWalletAddressOpt`: The wallet address for the earning wallet. This is not secret, so
   if you don't get this field, it's because it hasn't been set yet.
 
-* `gasPrice`: The Node will not pay more than this number of wei for gas to complete a transaction.
+* `gasPrice`: The Node will not pay more than this number of Gwei for gas to complete a transaction.
 
 * `neighborhoodMode`: The neighborhood mode being currently used, this parameter has nothing to do with descriptors which 
-  may have been used in order to set the Node's nearest neighborhood. It is only informative, to know what mode is running at the moment. 
-  This value is ever present since the creation of the database.    
+  may have been used in order to set the Node's nearest neighborhood. It is only informative, to know what mode is running
+  at the moment. This value is ever present since the creation of the database.    
 
 * `startBlock`: When the Node scans for incoming payments, it can't scan the whole blockchain: that would take
   much too long. So instead, it scans starting from wherever it left off last time. This block number is where
@@ -385,6 +405,70 @@ database password. If you want to know whether the password you have is the corr
 * `pastNeighbors`: This is an array containing the Node descriptors of the neighbors the Node is planning to
   try to connect to when it starts up next time.  It's a secret, so if you don't supply the `dbPasswordOpt` in the
   request you won't see it.
+
+* `PaymentThresholds`: These are parameters that define thresholds to determine when and how much to pay other nodes
+  for routing and exit services and the expectations the node should have for receiving payments from other nodes for
+  routing and exit services. The thresholds are also used to determine whether to offer services to other Nodes or
+  enact a ban since they have not paid mature debts. These are ever present values, no matter if the user's set any
+  value, as they have defaults.
+
+* `thresholdIntervalSec`: This interval -- in seconds -- begins after maturityThresholdSec for payables and after
+  maturityThresholdSec + paymentGracePeriodSec for receivables. During the interval, the amount of a payable that is
+  allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the debtThresholdGwei
+  to permanentDebtAllowedGwei or unbanBelowGwei.
+
+* `debtThresholdGwei`: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately upon
+  passing the maturityThresholdSec age. Payables less than this can stay unpaid longer. Receivables higher than this
+  will be expected to be settled by other Nodes, but will never cause bans until they pass the maturityThresholdSec +
+  paymentGracePeriodSec age. Receivables less than this will survive longer without banning.
+
+* `maturityThresholdSec`: Large payables can get this old -- in seconds -- before the Accountant's scanner suggests
+  that it be paid.
+
+* `paymentGracePeriodSec`: A large receivable can get as old as maturityThresholdSec + paymentGracePeriodSec -- in seconds
+  -- before the Node that owes it will be banned.
+
+* `permanentDebtAllowedGwei`: Receivables this small and smaller -- in Gwei of MASQ -- will not cause bans no matter 
+  how old they get.
+
+* `unbanBelowGwei`: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid
+  below this level -- in Gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the
+  same as permanentDebtAllowedGwei.
+
+* `ratePack`: These four parameters specify your rates that your Node will use for charging other Nodes for your provided
+  services. They are currently denominated in Gwei of MASQ, but will be improved to allow denomination in Wei units.
+  These are ever present values, no matter if the user's set any value, they have defaults.
+
+* `exitByteRate`: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload while the Node
+  acts as the exit Node.
+
+* `exitServiceRate`: This parameter indicates an amount of MASQ demanded to provide services, unpacking and repacking
+  1 CORES package, while the Node acts as the exit Node.
+
+* `routingByteRate`: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload while the
+  Node is a common relay Node.
+
+* `routingServiceRate`: This parameter indicates an amount of MASQ demanded to provide services, unpacking and repacking
+  1 CORES package, while the Node is a common relay Node.
+
+* `scanIntervals`: These three intervals describe the length of three different scan cycles running automatically in the
+  background since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete
+  3-hop route. Each parameter can be set independently, but by default are all the same which currently is most desirable
+  for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower limit 
+  for the minimum of time you can set; two scans of the same sort would never run at the same time but the next one is
+  always scheduled not earlier than the end of the previous one. These are ever present values, no matter if the user's
+  set any value, because defaults are prepared.
+
+* `pendingPayableSec`: Amount of seconds between two sequential cycles of scanning for payments that are marked as currently
+  pending; the payments were sent to pay our debts, the payable. The purpose of this process is to confirm the status of
+  the pending payment; either the payment transaction was written on blockchain as successful or failed.
+
+* `payableSec`: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts of that meet
+  the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If they meet the 
+  Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.
+
+* `receivableSec`: Amount of seconds between two sequential cycles of scanning for payments on the blockchain that have
+  been sent by our creditors to us, which are credited against receivables recorded for services provided.
 
 #### `configurationChanged`
 ##### Direction: Broadcast

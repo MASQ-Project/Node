@@ -31,10 +31,10 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
-    routing_byte_rate: 100,
-    routing_service_rate: 10000,
-    exit_byte_rate: 101,
-    exit_service_rate: 10001,
+    routing_byte_rate: 1,
+    routing_service_rate: 10,
+    exit_byte_rate: 2,
+    exit_service_rate: 20,
 };
 
 pub const ZERO_RATE_PACK: RatePack = RatePack {
@@ -43,6 +43,14 @@ pub const ZERO_RATE_PACK: RatePack = RatePack {
     exit_byte_rate: 0,
     exit_service_rate: 0,
 };
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct RatePack {
+    pub routing_byte_rate: u64,
+    pub routing_service_rate: u64,
+    pub exit_byte_rate: u64,
+    pub exit_service_rate: u64,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NeighborhoodMode {
@@ -149,8 +157,7 @@ impl Default for NodeDescriptor {
     }
 }
 
-//confusing but seems like the public key in the args plays a role just in tests,
-//making the public key part of the descriptor persistent and reliable for testing
+//the public key's role as a separate arg is to enable the produced descriptor to be constant and reliable in tests
 impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&PublicKey, &NodeAddr, Chain, &dyn CryptDE)) -> Self {
         let (public_key, node_addr, blockchain, cryptde) = tuple;
@@ -318,14 +325,20 @@ enum DescriptorParsingError<'a> {
 impl Display for DescriptorParsingError<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self{
-            Self::CentralDelimiterProbablyMissing(descriptor) => write!(f, "Delimiter '@' probably missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
-            Self::CentralDelimOrNodeAddr(descriptor,tail) => write!(f, "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as '{}'", descriptor,tail),
-            Self::CentralDelimOrIdentifier(descriptor) => write!(f, "Either '@' delimiter position or format of chain identifier is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
-            Self::ChainIdentifierDelimiter(descriptor) => write!(f, "Chain identifier delimiter mismatch. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
-            Self::PrefixMissing(descriptor) => write!(f,"Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'",descriptor),
-            Self::WrongChainIdentifier(identifier) => write!(f, "Chain identifier '{}' is not valid; possible values are '{}' while formatted as 'masq://<chain identifier>:<public key>@<node address>'",
-                                                             identifier,
-                                                             CHAINS.iter().map(|record|record.literal_identifier).filter(|identifier|*identifier != "dev").join("', '")
+            Self::CentralDelimiterProbablyMissing(descriptor) =>
+                write!(f, "Delimiter '@' probably missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
+            Self::CentralDelimOrNodeAddr(descriptor,tail) =>
+                write!(f, "Either '@' delimiter position or format of node address is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'\nNodeAddr should be expressed as '<IP address>:<port>/<port>/...', probably not as '{}'", descriptor,tail),
+            Self::CentralDelimOrIdentifier(descriptor) =>
+                write!(f, "Either '@' delimiter position or format of chain identifier is wrong. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
+            Self::ChainIdentifierDelimiter(descriptor) =>
+                write!(f, "Chain identifier delimiter mismatch. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
+            Self::PrefixMissing(descriptor) =>
+                write!(f,"Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'",descriptor),
+            Self::WrongChainIdentifier(identifier) =>
+                write!(f, "Chain identifier '{}' is not valid; possible values are '{}' while formatted as 'masq://<chain identifier>:<public key>@<node address>'",
+                                             identifier,
+                                             CHAINS.iter().map(|record|record.literal_identifier).filter(|identifier|*identifier != "dev").join("', '")
             )
         }
     }
@@ -463,27 +476,6 @@ pub enum NodeRecordMetadataMessage {
     Desirable(PublicKey, bool),
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct RatePack {
-    pub routing_byte_rate: u64,
-    pub routing_service_rate: u64,
-    pub exit_byte_rate: u64,
-    pub exit_service_rate: u64,
-}
-
-impl fmt::Display for RatePack {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}+{}b route {}+{}b exit",
-            self.routing_service_rate,
-            self.routing_byte_rate,
-            self.exit_service_rate,
-            self.exit_byte_rate
-        )
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
 pub enum GossipFailure_0v1 {
@@ -524,10 +516,10 @@ mod tests {
         assert_eq!(
             DEFAULT_RATE_PACK,
             RatePack {
-                routing_byte_rate: 100,
-                routing_service_rate: 10000,
-                exit_byte_rate: 101,
-                exit_service_rate: 10001,
+                routing_byte_rate: 1,
+                routing_service_rate: 10,
+                exit_byte_rate: 2,
+                exit_service_rate: 20,
             }
         );
         assert_eq!(

@@ -59,10 +59,10 @@ pub const LOG_LEVEL_HELP: &str =
 pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in the MASQ \
      One or more Node descriptors for active Nodes in the MASQ Network to which you'd like your Node to connect \
      on startup. A Node descriptor looks similar to one of these:\n\n\
-          masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
-          masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-          masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-          masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+     masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
+     masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
+     masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+     masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
      and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
      a configuration with multiple clandestine ports.\n\n\
@@ -110,6 +110,61 @@ pub const REAL_USER_HELP: &str =
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
      you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
      like <uid>:<gid>:<home directory>.";
+pub const RATE_PACK_HELP: &str = "\
+     These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
+     services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
+     all together, delimited by vertical bars and in the right order.\n\n\
+     1. Routing Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+     while the Node is a common relay Node.\n\n\
+     2. Routing Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking \
+     and repacking 1 CORES package, while the Node is a common relay Node.\n\n\
+     3. Exit Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+     while the Node acts as the exit Node.\n\n\
+     4. Exit Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking and \
+     repacking 1 CORES package, while the Node acts as the exit Node.";
+pub const PAYMENT_THRESHOLDS_HELP: &str = "\
+     These are parameters that define thresholds to determine when and how much to pay other Nodes for routing and \
+     exit services and the expectations the Node should have for receiving payments from other Nodes for routing and \
+     exit services. The thresholds are also used to determine whether to offer services to other Nodes or enact a ban \
+     since they have not paid mature debts. These are ever present values, no matter if the user's set any value, as \
+     they have defaults. The parameters must be always supplied all together, delimited by vertical bars and in the right \
+     order.\n\n\
+     1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
+     upon passing the Maturity Threshold Sec age. Payables less than this can stay unpaid longer. Receivables higher than \
+     this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
+     + Payment Grace Period Sec age. Receivables less than this will survive longer without banning.\n\n\
+     2. Maturity Threshold Sec: Large payables can get this old -- in seconds -- before the Accountant's scanner suggests \
+     that it be paid.\n\n\
+     3. Payment Grace Period Sec: A large receivable can get as old as Maturity Threshold Sec + Payment Grace Period Sec \
+     -- in seconds -- before the Node that owes it will be banned.\n\n\
+     4. Permanent Debt Allowed Gwei: Receivables this small and smaller -- in Gwei of MASQ -- will not cause bans no \
+     matter how old they get.\n\n\
+     5. Threshold Interval Sec: This interval -- in seconds -- begins after Maturity Threshold Sec for payables and after \
+     Maturity Threshold Sec + Payment Grace Period Sec for receivables. During the interval, the amount of a payable that is \
+     allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold Gwei \
+     to Permanent Debt Allowed Gwei or Unban Below Gwei.\n\n\
+     6. Unban Below Gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
+     below this level -- in Gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
+     as Permanent Debt Allowed Gwei.";
+pub const SCAN_INTERVALS_HELP:&str = "\
+     These three intervals describe the length of three different scan cycles running automatically in the background \
+     since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete 3-hop \
+     route. Each parameter can be set independently, but by default are all the same which currently is most desirable \
+     for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower \
+     limit for the minimum of time you can set; two scans of the same sort would never run at the same time but the \
+     next one is always scheduled not earlier than the end of the previous one. These are ever present values, no matter \
+     if the user's set any value, they have defaults. The parameters must be always supplied all together, delimited by vertical \
+     bars and in the right order.\n\n\
+     1. Pending Payable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments that are \
+     marked as currently pending; the payments were sent to pay our debts, the payable. The purpose of this process is to \
+     confirm the status of the pending payment; either the payment transaction was written on blockchain as successful or \
+     failed.\n\n\
+     2. Payable Scan Interval: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts \
+     of that meet the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If \
+     they meet the Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.\n\n\
+     3. Receivable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments on the \
+     blockchain that have been sent by our creditors to us, which are credited against receivables recorded for services \
+     provided.";
 
 lazy_static! {
     pub static ref DEFAULT_UI_PORT_VALUE: String = DEFAULT_UI_PORT.to_string();
@@ -235,11 +290,20 @@ pub fn ui_port_arg(help: &str) -> Arg {
         .help(help)
 }
 
+fn common_parameter_with_separate_u64_values<'a>(name: &'a str, help: &'a str) -> Arg<'a, 'a> {
+    Arg::with_name(name)
+        .long(name)
+        .value_name(Box::leak(name.to_uppercase().into_boxed_str()))
+        .min_values(0)
+        .max_values(1)
+        .validator(common_validators::validate_separate_u64_values)
+        .help(help)
+}
+
 pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
     head.arg(
         Arg::with_name("blockchain-service-url")
             .long("blockchain-service-url")
-            .empty_values(false)
             .value_name("URL")
             .min_values(0)
             .max_values(1)
@@ -250,7 +314,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
         Arg::with_name("clandestine-port")
             .long("clandestine-port")
             .value_name("CLANDESTINE-PORT")
-            .empty_values(false)
             .min_values(0)
             .validator(common_validators::validate_clandestine_port)
             .help(&CLANDESTINE_PORT_HELP),
@@ -354,6 +417,18 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(NEIGHBORS_HELP),
     )
     .arg(real_user_arg())
+    .arg(common_parameter_with_separate_u64_values(
+        "scan-intervals",
+        SCAN_INTERVALS_HELP,
+    ))
+    .arg(common_parameter_with_separate_u64_values(
+        "rate-pack",
+        RATE_PACK_HELP,
+    ))
+    .arg(common_parameter_with_separate_u64_values(
+        "payment-thresholds",
+        PAYMENT_THRESHOLDS_HELP,
+    ))
 }
 
 pub mod common_validators {
@@ -471,6 +546,18 @@ pub mod common_validators {
             Ok(_) => Ok(()),
             Err(_) => Err(port),
         }
+    }
+
+    pub fn validate_separate_u64_values(values_with_delimiters: String) -> Result<(), String> {
+        values_with_delimiters.split('|').try_for_each(|segment| {
+            segment
+                .parse::<u64>()
+                .map_err(|_| {
+                    "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                        .to_string()
+                })
+                .map(|_| ())
+        })
     }
 }
 
@@ -693,6 +780,66 @@ mod tests {
                 DEFAULT_GAS_PRICE
             )
         );
+        assert_eq!(
+            RATE_PACK_HELP,
+            "These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
+             services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
+             all together, delimited by vertical bars and in the right order.\n\n\
+             1. Routing Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+             while the Node is a common relay Node.\n\n\
+             2. Routing Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking \
+             and repacking 1 CORES package, while the Node is a common relay Node.\n\n\
+             3. Exit Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+             while the Node acts as the exit Node.\n\n\
+             4. Exit Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking and \
+             repacking 1 CORES package, while the Node acts as the exit Node."
+        );
+        assert_eq!(
+            PAYMENT_THRESHOLDS_HELP,
+            "These are parameters that define thresholds to determine when and how much to pay other Nodes for routing and \
+             exit services and the expectations the Node should have for receiving payments from other Nodes for routing and \
+             exit services. The thresholds are also used to determine whether to offer services to other Nodes or enact a ban \
+             since they have not paid mature debts. These are ever present values, no matter if the user's set any value, as \
+             they have defaults. The parameters must be always supplied all together, delimited by vertical bars and in the right order.\n\n\
+             1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
+             upon passing the Maturity Threshold Sec age. Payables less than this can stay unpaid longer. Receivables higher than \
+             this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
+             + Payment Grace Period Sec age. Receivables less than this will survive longer without banning.\n\n\
+             2. Maturity Threshold Sec: Large payables can get this old -- in seconds -- before the Accountant's scanner suggests \
+             that it be paid.\n\n\
+             3. Payment Grace Period Sec: A large receivable can get as old as Maturity Threshold Sec + Payment Grace Period Sec \
+             -- in seconds -- before the Node that owes it will be banned.\n\n\
+             4. Permanent Debt Allowed Gwei: Receivables this small and smaller -- in Gwei of MASQ -- will not cause bans no \
+             matter how old they get.\n\n\
+             5. Threshold Interval Sec: This interval -- in seconds -- begins after Maturity Threshold Sec for payables and after \
+             Maturity Threshold Sec + Payment Grace Period Sec for receivables. During the interval, the amount of a payable that is \
+             allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold Gwei \
+             to Permanent Debt Allowed Gwei or Unban Below Gwei.\n\n\
+             6. Unban Below Gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
+             below this level -- in Gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
+             as Permanent Debt Allowed Gwei."
+        );
+        assert_eq!(
+            SCAN_INTERVALS_HELP,
+            "These three intervals describe the length of three different scan cycles running automatically in the background \
+             since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete 3-hop \
+             route. Each parameter can be set independently, but by default are all the same which currently is most desirable \
+             for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower \
+             limit for the minimum of time you can set; two scans of the same sort would never run at the same time but the \
+             next one is always scheduled not earlier than the end of the previous one. These are ever present values, no matter \
+             if the user's set any value, they have defaults. The parameters must be always supplied all together, delimited by \
+             vertical bars and in the right order.\n\n\
+             1. Pending Payable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments that are \
+             marked as currently pending; the payments were sent to pay our debts, the payable. The purpose of this process is to \
+             confirm the status of the pending payment; either the payment transaction was written on blockchain as successful or \
+             failed.\n\n\
+             2. Payable Scan Interval: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts \
+             of that meet the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If \
+             they meet the Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.\n\n\
+             3. Receivable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments on the \
+             blockchain that have been sent by our creditors to us, which are credited against receivables recorded for services \
+             provided."
+        )
     }
 
     #[test]
@@ -785,39 +932,35 @@ mod tests {
     fn validate_clandestine_port_rejects_port_number_too_high() {
         let result = common_validators::validate_clandestine_port(String::from("65536"));
 
-        assert_eq!(Err(String::from("65536")), result);
+        assert_eq!(result, Err(String::from("65536")));
     }
 
     #[test]
     fn validate_clandestine_port_accepts_port_if_provided() {
         let result = common_validators::validate_clandestine_port(String::from("4567"));
 
-        assert!(result.is_ok());
-        assert_eq!(Ok(()), result);
+        assert_eq!(result, Ok(()));
     }
 
     #[test]
     fn validate_gas_price_zero() {
         let result = common_validators::validate_gas_price("0".to_string());
 
-        assert!(result.is_err());
-        assert_eq!(Err(String::from("0")), result);
+        assert_eq!(result, Err(String::from("0")));
     }
 
     #[test]
     fn validate_gas_price_normal_ropsten() {
         let result = common_validators::validate_gas_price("2".to_string());
 
-        assert!(result.is_ok());
-        assert_eq!(Ok(()), result);
+        assert_eq!(result, Ok(()));
     }
 
     #[test]
     fn validate_gas_price_normal_mainnet() {
         let result = common_validators::validate_gas_price("20".to_string());
 
-        assert!(result.is_ok());
-        assert_eq!(Ok(()), result);
+        assert_eq!(result, Ok(()));
     }
 
     #[test]
@@ -831,15 +974,58 @@ mod tests {
     #[test]
     fn validate_gas_price_not_digits_fails() {
         let result = common_validators::validate_gas_price("not".to_string());
-        assert!(result.is_err());
-        assert_eq!(Err(String::from("not")), result);
+
+        assert_eq!(result, Err(String::from("not")));
     }
 
     #[test]
     fn validate_gas_price_hex_fails() {
         let result = common_validators::validate_gas_price("0x0".to_string());
-        assert!(result.is_err());
-        assert_eq!(Err(String::from("0x0")), result);
+
+        assert_eq!(result, Err(String::from("0x0")));
+    }
+
+    #[test]
+    fn validate_separate_u64_values_happy_path() {
+        let result = common_validators::validate_separate_u64_values("4567|1111|444".to_string());
+
+        assert_eq!(result, Ok(()))
+    }
+
+    #[test]
+    fn validate_separate_u64_values_sad_path_with_non_numeric_values() {
+        let result = common_validators::validate_separate_u64_values("4567|foooo|444".to_string());
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+            ))
+        )
+    }
+
+    #[test]
+    fn validate_separate_u64_values_sad_path_bad_delimiters_generally() {
+        let result = common_validators::validate_separate_u64_values("4567,555,444".to_string());
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+            ))
+        )
+    }
+
+    #[test]
+    fn validate_separate_u64_values_sad_path_bad_delimiters_at_the_end() {
+        let result = common_validators::validate_separate_u64_values("|4567|5555|444".to_string());
+
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+            ))
+        )
     }
 
     #[test]

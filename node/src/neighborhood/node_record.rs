@@ -4,8 +4,7 @@ use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord};
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
-use crate::sub_lib::neighborhood::NodeDescriptor;
-use crate::sub_lib::neighborhood::RatePack;
+use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
@@ -951,8 +950,8 @@ mod tests {
         let result = subject.update(agr);
 
         assert_eq!(
-            Err("Updating a NodeRecord must not change its rate pack: 1236+1235b route 1238+1237b exit -> 0+0b route 0+0b exit".to_string()),
-            result
+            result,
+            Err("Updating a NodeRecord must not change its rate pack: 1235|1236|1237|1238 -> 0|0|0|0".to_string()),
         )
     }
 

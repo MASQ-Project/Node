@@ -379,10 +379,10 @@ mod tests {
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_utils::{
-        make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up,
-    };
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+    use crate::test_utils::unshared_test_utils::{
+        configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO,
+    };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
     use ethereum_types::{BigEndianHash, U64};
@@ -413,7 +413,7 @@ mod tests {
         let consuming_wallet = Wallet::from(Bip32ECKeyProvider::from_raw_secret(&secret).unwrap());
         let subject = BlockchainBridge::new(
             stub_bi(),
-            Box::new(make_default_persistent_configuration()),
+            Box::new(configure_default_persistent_config(ZERO)),
             false,
             Some(consuming_wallet.clone()),
         );

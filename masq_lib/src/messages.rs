@@ -472,7 +472,6 @@ pub struct UiConfigurationRequest {
 }
 conversation_message!(UiConfigurationRequest, "configuration");
 
-//put non-secret parameters first with both sorts alphabetical ordered
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiConfigurationResponse {
     #[serde(rename = "blockchainServiceUrlOpt")]
@@ -501,8 +500,53 @@ pub struct UiConfigurationResponse {
     pub consuming_wallet_address_opt: Option<String>,
     #[serde(rename = "pastNeighbors")]
     pub past_neighbors: Vec<String>,
+    #[serde(rename = "paymentThresholds")]
+    pub payment_thresholds: UiPaymentThresholds,
+    #[serde(rename = "ratePack")]
+    pub rate_pack: UiRatePack,
+    #[serde(rename = "scanIntervals")]
+    pub scan_intervals: UiScanIntervals,
 }
+
 conversation_message!(UiConfigurationResponse, "configuration");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiRatePack {
+    #[serde(rename = "routingByteRate")]
+    pub routing_byte_rate: u64,
+    #[serde(rename = "routingServiceRate")]
+    pub routing_service_rate: u64,
+    #[serde(rename = "exitByteRate")]
+    pub exit_byte_rate: u64,
+    #[serde(rename = "exitServiceRate")]
+    pub exit_service_rate: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiScanIntervals {
+    #[serde(rename = "pendingPayableSec")]
+    pub pending_payable_sec: u64,
+    #[serde(rename = "payableSec")]
+    pub payable_sec: u64,
+    #[serde(rename = "receivableSec")]
+    pub receivable_sec: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiPaymentThresholds {
+    #[serde(rename = "thresholdIntervalSec")]
+    pub threshold_interval_sec: i64,
+    #[serde(rename = "debtThresholdGwei")]
+    pub debt_threshold_gwei: i64,
+    #[serde(rename = "paymentGracePeriodSec")]
+    pub payment_grace_period_sec: i64,
+    #[serde(rename = "maturityThresholdSec")]
+    pub maturity_threshold_sec: i64,
+    #[serde(rename = "permanentDebtAllowedGwei")]
+    pub permanent_debt_allowed_gwei: i64,
+    #[serde(rename = "unbanBelowGwei")]
+    pub unban_below_gwei: i64,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiDescriptorRequest {}
