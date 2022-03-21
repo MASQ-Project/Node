@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::messages::SerializableLogLevel;
+use crate::messages::{SerializableLogLevel, ToMessageBody, UiLogBroadcast};
 use crate::ui_gateway::{MessageTarget, NodeToUiMessage};
 use actix::Recipient;
 use lazy_static::lazy_static;
@@ -12,13 +12,13 @@ use log::Record;
 use std::sync::Mutex;
 
 lazy_static! {
-    pub static ref LOG_RECIPIENT: LogRecipient = LogRecipient {
-        recipient_opt: Mutex::new(None)
+    pub static ref LOG_RECIPIENT_OPT: LogRecipient = LogRecipient {
+        recipient_mutex_opt: Mutex::new(None)
     };
 }
 
 pub struct LogRecipient {
-    recipient_opt: Mutex<Option<Recipient<NodeToUiMessage>>>,
+    recipient_mutex_opt: Mutex<Option<Recipient<NodeToUiMessage>>>,
 }
 
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
@@ -164,10 +164,9 @@ impl Logger {
             // Log only if        : self.level_enabled(level)        ~ level <= level_limit
             // Transmit only if   : level.le(&UI_MESSAGE_LOG_LEVEL)  ~ level <= UI_MESSAGE_LOG_LEVEL
             (true, true) => {
-                todo!("Both Log and Transmit")
-                // let msg = log_function();
-                // self.transmit(msg.clone(), level.into());
-                // self.log(level, msg);
+                let msg = log_function();
+                Self::transmit(msg.clone(), level.into());
+                self.log(level, msg);
             }
             (true, false) => {
                 todo!("Only Log")
@@ -184,6 +183,17 @@ impl Logger {
         }
     }
 
+    fn transmit(msg:String, log_level: SerializableLogLevel) {
+        let recipient_mutex_log =  unsafe { &LOG_RECIPIENT_OPT.recipient_mutex_opt};
+        if let Some(recipient) = recipient_mutex_log.lock().expect("log recipient mutex poisoned").as_ref() {
+            let actix_msg = NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiLogBroadcast { msg, log_level }.tmb(0),
+            };
+            recipient.try_send(actix_msg).expect("UiGateway is dead")
+        } else{todo!("this will go away but there should be a test about what happens if ")}
+    }
+
     pub fn log(&self, level: Level, msg: String) {
         logger().log(
             &Record::builder()
@@ -197,12 +207,10 @@ impl Logger {
 
 impl From<Level> for SerializableLogLevel {
     fn from(native_level: Level) -> Self {
-        // todo!("Test Converison: This needs a seperate test")
         match native_level {
             Level::Error => SerializableLogLevel::Error,
             Level::Warn => SerializableLogLevel::Warn,
             Level::Info => SerializableLogLevel::Info,
-            // We shouldn't be doing this
             _ => panic!("The level you're converting is below log broadcast level."),
         }
     }
@@ -240,6 +248,7 @@ mod tests {
     use std::thread;
     use std::thread::ThreadId;
     use std::time::{Duration, SystemTime};
+    use crate::messages::{ToMessageBody, UiLogBroadcast};
 
     lazy_static! {
         static ref TEST_LOG_RECIPIENT_GUARD: Mutex<()> = Mutex::new(());
@@ -337,8 +346,8 @@ mod tests {
         let addr = ui_gateway.start();
         let recipient = addr.clone().recipient();
         {
-            LOG_RECIPIENT
-                .recipient_opt
+            LOG_RECIPIENT_OPT
+                .recipient_mutex_opt
                 .lock()
                 .unwrap()
                 .replace(recipient);
@@ -406,7 +415,7 @@ mod tests {
         }
     }
     fn send_message_to_recipient() {
-        let recipient = LOG_RECIPIENT.recipient_opt.lock().unwrap();
+        let recipient = LOG_RECIPIENT_OPT.recipient_mutex_opt.lock().unwrap();
         recipient.as_ref().unwrap().try_send(create_msg()).unwrap()
     }
 
@@ -510,7 +519,17 @@ mod tests {
 
         logger.debug(log_function);
 
-        assert_eq!(signal.lock().unwrap().as_ref(), Some(&true));
+       assert_eq!(signal.lock().unwrap().as_ref(), Some(&true));
+       //
+       // This test should look similar to 'generic_log_when_both_logging_and_transmitting'
+       // but with a major difference:
+       //
+       // As for running the actor system you will run it but you won't want to rely on how many messages have come or not;
+       // here you want use another approach with System::current().stop(); placed right before system.run();
+       // It means: have the first message (within our tested code) executed - that is actually to be put in a queue at the first position
+       // and right after it place another message, the last one, that means STOP ME.
+       // The system stops and you can assert on what your Actor has received because the message was sent to him as the first one in the queue.
+       // Though your assertion will be that the container for messages is empty which equals to "transmission did not happen"
     }
 
     #[test]
@@ -533,20 +552,26 @@ mod tests {
 
     #[test]
     fn generic_log_when_both_logging_and_transmitting() {
-        // todo!("finish me")
+        init_test_logging();
+        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         let logger = make_logger_at_level(Level::Debug);
-        let signal = Arc::new(Mutex::new(Some(false)));
-        let signal_c = signal.clone();
-
+        let system = System::new("logging ang transmitting");
+        let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
+        let ui_gateway = TestUiGateway::new(1,&ui_gateway_recording_arc);
+        let recipient = ui_gateway.start().recipient();
+        unsafe {
+            LOG_RECIPIENT_OPT.recipient_mutex_opt.lock().unwrap().replace(recipient);
+        }
         let log_function = move || {
-            let mut locked_signal = signal_c.lock().unwrap();
-            locked_signal.replace(true);
-            "blah".to_string()
+            "This is a warning. Be careful.".to_string()
         };
 
         logger.warning(log_function);
 
-        assert_eq!(signal.lock().unwrap().as_ref(), Some(&true));
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(*ui_gateway_recording,vec![NodeToUiMessage{ target: MessageTarget::AllClients, body: UiLogBroadcast{ msg: "This is a warning. Be careful.".to_string(), log_level: SerializableLogLevel::Warn }.tmb(0)}]);
+        TestLogHandler::new().exists_log_containing("WARN: test: This is a warning. Be careful.");
     }
 
     #[test]
