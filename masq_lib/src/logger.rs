@@ -202,7 +202,7 @@ impl From<Level> for SerializableLogLevel {
             Level::Warn => SerializableLogLevel::Warn,
             Level::Info => SerializableLogLevel::Info,
             // We shouldn't be doing this
-            _ => panic!("should not be needed"),
+            _ => panic!("The level you're converting is below log broadcast level."),
         }
     }
 }
@@ -421,18 +421,42 @@ mod tests {
 
     #[test]
     fn conversion_between_different_level_types_is_enabled() {
-        todo!("finish me")
+        // todo!("finish me");
         //see impl From<Level> for SerializableLogLevel
-        //use a single assertion for each level and make sure you can convert it to the corresponding level in the other type
+        //use a single assertion for each level and make sure you can convert it to the
+        // corresponding level in the other type
+
+        // Method 1 -->
+        // let some_log: SerializableLogLevel = Level::Error.into();
+        // assert_eq!(some_log, SerializableLogLevel::Error);
+
+        // Method 2 -->
+        assert_eq!(
+            SerializableLogLevel::from(Level::Error),
+            SerializableLogLevel::Error
+        );
+        assert_eq!(
+            SerializableLogLevel::from(Level::Warn),
+            SerializableLogLevel::Warn
+        );
+        assert_eq!(
+            SerializableLogLevel::from(Level::Info),
+            SerializableLogLevel::Info
+        );
     }
 
     #[test]
-    #[should_panic(expected = "blah")]
+    #[should_panic(expected = "The level you're converting is below log broadcast level.")]
     fn conversion_between_levels_below_log_broadcast_level_should_panic() {
-        todo!("finish me")
+        // todo!("finish me");
         //see impl From<Level> for SerializableLogLevel
-        //make sure that if you call the from() method (actually cal rather into() - because we use that one instead)
-        //for a level below of the constant indicating the threshold it will panic as we should not allow that and if we do than something is wrong
+        //make sure that if you call the from() method
+        // (actually cal rather into() - because we use that one instead)
+        //for a level below of the constant indicating the threshold it will
+        // panic as we should not allow that and if we do than something is wrong
+        let level_below_broadcast_level = Level::Debug;
+        let serializable_level_below_broadcast_level: SerializableLogLevel =
+            level_below_broadcast_level.into();
     }
 
     #[test]
