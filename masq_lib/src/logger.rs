@@ -168,30 +168,27 @@ impl Logger {
                 Self::transmit(msg.clone(), level.into());
                 self.log(level, msg);
             }
-            (true, false) => {
-                todo!("Only Log")
-                // self.log(level, log_function())
-            }
-            (false, true) => {
-                todo!("Only Transmit")
-                // self.transmit(log_function(), level.into())
-            }
+            (true, false) => self.log(level, log_function()),
+            (false, true) => Self::transmit(log_function(), level.into()),
             _ => {
-                todo!("Neither Log nor Transmit")
-                // return;
+                return;
             }
         }
     }
 
-    fn transmit(msg:String, log_level: SerializableLogLevel) {
-        let recipient_mutex_log =  unsafe { &LOG_RECIPIENT_OPT.recipient_mutex_opt};
-        if let Some(recipient) = recipient_mutex_log.lock().expect("log recipient mutex poisoned").as_ref() {
+    fn transmit(msg: String, log_level: SerializableLogLevel) {
+        let recipient_mutex_log = unsafe { &LOG_RECIPIENT_OPT.recipient_mutex_opt };
+        if let Some(recipient) = recipient_mutex_log
+            .lock()
+            .expect("log recipient mutex poisoned")
+            .as_ref()
+        {
             let actix_msg = NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiLogBroadcast { msg, log_level }.tmb(0),
             };
             recipient.try_send(actix_msg).expect("UiGateway is dead")
-        } else{todo!("this will go away but there should be a test about what happens if ")}
+        }
     }
 
     pub fn log(&self, level: Level, msg: String) {
@@ -237,6 +234,7 @@ impl Logger {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::messages::{ToMessageBody, UiLogBroadcast};
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::ui_gateway::{MessageBody, MessagePath};
@@ -248,7 +246,6 @@ mod tests {
     use std::thread;
     use std::thread::ThreadId;
     use std::time::{Duration, SystemTime};
-    use crate::messages::{ToMessageBody, UiLogBroadcast};
 
     lazy_static! {
         static ref TEST_LOG_RECIPIENT_GUARD: Mutex<()> = Mutex::new(());
@@ -487,67 +484,121 @@ mod tests {
     }
 
     #[test]
-    fn generic_log_when_neither_logging_nor_transmitting() {
-        // todo!("finish me")
-        let logger = make_logger_at_level(Level::Debug);
-        let signal = Arc::new(Mutex::new(Some(false)));
-        let signal_c = signal.clone();
+    fn transmit_fn_can_handle_no_recipients() {
+        let system = System::new("Trying to transmit with no recipient");
 
-        let log_function = move || {
-            let mut locked_signal = signal_c.lock().unwrap();
-            locked_signal.replace(true);
-            "blah".to_string()
-        };
+        Logger::transmit("Some message".to_string(), Level::Warn.into());
+
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
+    fn generic_log_when_neither_logging_nor_transmitting() {
+        init_test_logging();
+        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
+        let logger = make_logger_at_level(Level::Debug);
+        let system = System::new("Neither Logging, Nor Transmitting");
+        let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
+        let ui_gateway = TestUiGateway::new(0, &ui_gateway_recording_arc);
+        let recipient = ui_gateway.start().recipient();
+        unsafe {
+            LOG_RECIPIENT_OPT
+                .recipient_mutex_opt
+                .lock()
+                .unwrap()
+                .replace(recipient);
+        }
+        let log_function = move || "This is a trace log.".to_string();
 
         logger.trace(log_function);
 
-        assert_eq!(signal.lock().unwrap().as_ref(), Some(&false));
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(*ui_gateway_recording, vec![]);
+        TestLogHandler::new().exists_no_log_containing("This is a trace log.");
     }
 
     #[test]
     fn generic_log_when_only_logging() {
-        // todo!("finish me")
-        let logger = make_logger_at_level(Level::Debug);
-        let signal = Arc::new(Mutex::new(Some(false)));
-        let signal_c = signal.clone();
+        //
+        // This test should look similar to 'generic_log_when_both_logging_and_transmitting'
+        // but with a major difference:
+        //
+        // As for running the actor system you will run it but you won't want to rely on
+        // how many messages have come or not;
+        // here you want use another approach with System::current().stop();
+        // placed right before system.run();
+        // It means: have the first message (within our tested code) executed -
+        // that is actually to be put in a queue at the first position
+        // and right after it place another message, the last one, that means STOP ME.
+        // The system stops and you can assert on what your Actor has received because
+        // the message was sent to him as the first one in the queue.
+        // Though your assertion will be that the container for messages is empty
+        // which equals to "transmission did not happen"
 
-        let log_function = move || {
-            let mut locked_signal = signal_c.lock().unwrap();
-            locked_signal.replace(true);
-            "blah".to_string()
-        };
+        init_test_logging();
+        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
+        let logger = make_logger_at_level(Level::Debug);
+        let system = System::new("Only Logging, Not Transmitting");
+        let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
+        let ui_gateway = TestUiGateway::new(0, &ui_gateway_recording_arc);
+        let recipient = ui_gateway.start().recipient();
+        unsafe {
+            LOG_RECIPIENT_OPT
+                .recipient_mutex_opt
+                .lock()
+                .unwrap()
+                .replace(recipient);
+        }
+        let log_function = move || "This is a debug log.".to_string();
 
         logger.debug(log_function);
 
-       assert_eq!(signal.lock().unwrap().as_ref(), Some(&true));
-       //
-       // This test should look similar to 'generic_log_when_both_logging_and_transmitting'
-       // but with a major difference:
-       //
-       // As for running the actor system you will run it but you won't want to rely on how many messages have come or not;
-       // here you want use another approach with System::current().stop(); placed right before system.run();
-       // It means: have the first message (within our tested code) executed - that is actually to be put in a queue at the first position
-       // and right after it place another message, the last one, that means STOP ME.
-       // The system stops and you can assert on what your Actor has received because the message was sent to him as the first one in the queue.
-       // Though your assertion will be that the container for messages is empty which equals to "transmission did not happen"
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(*ui_gateway_recording, vec![]);
+        TestLogHandler::new().exists_log_containing("This is a debug log.");
     }
 
     #[test]
     fn generic_log_when_only_transmitting() {
-        // todo!("finish me");
+        init_test_logging();
+        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         let logger = make_logger_at_level(Level::Warn);
-        let signal = Arc::new(Mutex::new(Some(false)));
-        let signal_c = signal.clone();
-
-        let log_function = move || {
-            let mut locked_signal = signal_c.lock().unwrap();
-            locked_signal.replace(true);
-            "blah".to_string()
-        };
+        let system = System::new("transmitting but not logging");
+        let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
+        let ui_gateway = TestUiGateway::new(1, &ui_gateway_recording_arc);
+        let recipient = ui_gateway.start().recipient();
+        unsafe {
+            LOG_RECIPIENT_OPT
+                .recipient_mutex_opt
+                .lock()
+                .unwrap()
+                .replace(recipient);
+        }
+        let log_function = move || "This is an info.".to_string();
 
         logger.info(log_function);
 
-        assert_eq!(signal.lock().unwrap().as_ref(), Some(&false));
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+
+        assert_eq!(
+            *ui_gateway_recording,
+            vec![NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiLogBroadcast {
+                    msg: "This is an info.".to_string(),
+                    log_level: SerializableLogLevel::Info
+                }
+                .tmb(0)
+            }]
+        );
+
+        TestLogHandler::new().exists_no_log_containing("This is an info.");
     }
 
     #[test]
@@ -557,20 +608,32 @@ mod tests {
         let logger = make_logger_at_level(Level::Debug);
         let system = System::new("logging ang transmitting");
         let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
-        let ui_gateway = TestUiGateway::new(1,&ui_gateway_recording_arc);
+        let ui_gateway = TestUiGateway::new(1, &ui_gateway_recording_arc);
         let recipient = ui_gateway.start().recipient();
         unsafe {
-            LOG_RECIPIENT_OPT.recipient_mutex_opt.lock().unwrap().replace(recipient);
+            LOG_RECIPIENT_OPT
+                .recipient_mutex_opt
+                .lock()
+                .unwrap()
+                .replace(recipient);
         }
-        let log_function = move || {
-            "This is a warning. Be careful.".to_string()
-        };
+        let log_function = move || "This is a warning. Be careful.".to_string();
 
         logger.warning(log_function);
 
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(*ui_gateway_recording,vec![NodeToUiMessage{ target: MessageTarget::AllClients, body: UiLogBroadcast{ msg: "This is a warning. Be careful.".to_string(), log_level: SerializableLogLevel::Warn }.tmb(0)}]);
+        assert_eq!(
+            *ui_gateway_recording,
+            vec![NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiLogBroadcast {
+                    msg: "This is a warning. Be careful.".to_string(),
+                    log_level: SerializableLogLevel::Warn
+                }
+                .tmb(0)
+            }]
+        );
         TestLogHandler::new().exists_log_containing("WARN: test: This is a warning. Be careful.");
     }
 
