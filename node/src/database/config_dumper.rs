@@ -23,6 +23,7 @@ use clap::value_t;
 use heck::MixedCase;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
+use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use rustc_hex::ToHex;
@@ -40,7 +41,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
             distill_args(&DirsWrapperReal {}, args)?;
         let cryptde = CryptDEReal::new(chain);
         PrivilegeDropperReal::new().drop_privileges(&real_user);
-        let config_dao = make_config_dao(&data_directory, MigratorConfig::migration_suppressed()); //dump config never migrates db
+        let config_dao = make_config_dao(&data_directory, MigratorConfig::migration_suppressed()); //dump config is not supposed to migrate db
         let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
         let json = configuration_to_json(configuration, password_opt, &cryptde);
         write_string(streams, json);
@@ -159,8 +160,9 @@ mod tests {
         PersistentConfiguration, PersistentConfigurationReal,
     };
     use crate::db_config::typed_config_layer::encode_bytes;
+    use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
     use crate::sub_lib::cryptde::PlainData;
-    use crate::sub_lib::neighborhood::NodeDescriptor;
+    use crate::sub_lib::neighborhood::{NodeDescriptor, DEFAULT_RATE_PACK};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
     use crate::test_utils::{main_cryptde, ArgsBuilder};
     use masq_lib::test_utils::environment_guard::ClapGuard;
@@ -332,7 +334,13 @@ mod tests {
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
             &map,
         );
-
+        assert_value(
+            "paymentThresholds",
+            &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
+            &map,
+        );
+        assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
+        assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
         assert!(output.ends_with("\n}\n")) //asserting that there is a blank line at the end
     }
 
@@ -436,6 +444,13 @@ mod tests {
         let expected_ee_decrypted = Bip39::decrypt_bytes(&expected_ee_entry, "password").unwrap();
         let expected_ee_string = encode_bytes(Some(expected_ee_decrypted)).unwrap().unwrap();
         assert_value("exampleEncrypted", &expected_ee_string, &map);
+        assert_value(
+            "paymentThresholds",
+            &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
+            &map,
+        );
+        assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
+        assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
     }
 
     #[test]
@@ -548,6 +563,13 @@ mod tests {
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
             &map,
         );
+        assert_value(
+            "paymentThresholds",
+            &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
+            &map,
+        );
+        assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
+        assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
     }
 
     #[test]

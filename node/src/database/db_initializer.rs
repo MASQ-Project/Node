@@ -4,6 +4,8 @@ use crate::database::db_migrations::{
     DbMigrator, DbMigratorReal, ExternalData, MigratorConfig, Suppression,
 };
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
+use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
+use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -20,7 +22,7 @@ use std::path::Path;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: usize = 5;
+pub const CURRENT_SCHEMA_VERSION: usize = 6;
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -28,7 +30,7 @@ pub enum InitializationError {
     UndetectableVersion(String),
     SqliteError(rusqlite::Error),
     MigrationError(String),
-    SuppressedMigrationError,
+    SuppressedMigration,
 }
 
 pub trait DbInitializer {
@@ -103,7 +105,7 @@ impl DbInitializer for DbInitializerReal {
                     }
                     (Some(_), &Suppression::Yes) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
                     (Some(_), &Suppression::WithErr) => {
-                        Err(InitializationError::SuppressedMigrationError)
+                        Err(InitializationError::SuppressedMigration)
                     }
                 }
             }
@@ -253,6 +255,27 @@ impl DbInitializerReal {
             None,
             false,
             "last successful protocol for port mapping on the router",
+        );
+        Self::set_config_value(
+            conn,
+            "payment_thresholds",
+            Some(&DEFAULT_PAYMENT_THRESHOLDS.to_string()),
+            false,
+            "payment thresholds",
+        );
+        Self::set_config_value(
+            conn,
+            "rate_pack",
+            Some(&DEFAULT_RATE_PACK.to_string()),
+            false,
+            "rate pack",
+        );
+        Self::set_config_value(
+            conn,
+            "scan_intervals",
+            Some(&DEFAULT_SCAN_INTERVALS.to_string()),
+            false,
+            "scan intervals",
         );
     }
 
@@ -612,7 +635,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DATABASE_FILE, "node-data.db");
-        assert_eq!(CURRENT_SCHEMA_VERSION, 5);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 6);
     }
 
     #[test]
@@ -922,7 +945,25 @@ mod tests {
             false,
         );
         verify(&mut config_vec, "past_neighbors", None, true);
-        verify(&mut config_vec, "preexisting", Some("yes"), false); // makes sure we just created this database
+        verify(
+            &mut config_vec,
+            "payment_thresholds",
+            Some(&DEFAULT_PAYMENT_THRESHOLDS.to_string()),
+            false,
+        );
+        verify(&mut config_vec, "preexisting", Some("yes"), false); // making sure we opened the preexisting database
+        verify(
+            &mut config_vec,
+            "rate_pack",
+            Some(&DEFAULT_RATE_PACK.to_string()),
+            false,
+        );
+        verify(
+            &mut config_vec,
+            "scan_intervals",
+            Some(&DEFAULT_SCAN_INTERVALS.to_string()),
+            false,
+        );
         verify(
             &mut config_vec,
             "schema_version",
@@ -1184,7 +1225,7 @@ mod tests {
             Ok(_) => panic!("expected an Err, got Ok"),
             Err(e) => e,
         };
-        assert_eq!(err, InitializationError::SuppressedMigrationError);
+        assert_eq!(err, InitializationError::SuppressedMigration);
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_after, schema_version_before)
     }

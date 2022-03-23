@@ -24,10 +24,9 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::hopper::MessageType;
-use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
-use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{ExpectedService, RatePack};
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
 use crate::sub_lib::route::Route;
@@ -35,7 +34,6 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
@@ -203,17 +201,6 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
             .flatten()
             .collect::<Vec<u8>>(),
     )
-}
-
-pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
-    PersistentConfigurationMock::new()
-        .earning_wallet_address_result(Ok(None))
-        .earning_wallet_result(Ok(None))
-        .consuming_wallet_private_key_result(Ok(None))
-        .consuming_wallet_result(Ok(None))
-        .past_neighbors_result(Ok(None))
-        .gas_price_result(Ok(1))
-        .mapping_protocol_result(Ok(None))
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
@@ -516,10 +503,17 @@ pub struct TestRawTransaction {
 }
 
 #[cfg(test)]
-pub mod pure_test_utils {
+pub mod unshared_test_utils {
+    use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::apps::app_node;
     use crate::daemon::ChannelFactory;
+    use crate::db_config::config_dao_null::ConfigDaoNull;
+    use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
+    use crate::sub_lib::accountant::{
+        AccountantConfig, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
+    };
+    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use actix::{Actor, Addr, Context, Handler, System};
@@ -538,20 +532,76 @@ pub mod pure_test_utils {
     use std::time::Duration;
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
-        let owned_args = array_of_borrows_to_vec(&args);
-        let arg_matches = app_node().get_matches_from_safe(owned_args).unwrap();
+        let mut app_args = vec!["MASQNode".to_string()];
+        app_args.append(&mut array_of_borrows_to_vec(&args));
+        let arg_matches = app_node().get_matches_from_safe(app_args).unwrap();
         MultiConfig::new_test_only(arg_matches)
     }
 
-    pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
-        PersistentConfigurationMock::new()
+    pub const ZERO: u32 = 0b0;
+    pub const MAPPING_PROTOCOL: u32 = 0b000010;
+    pub const ACCOUNTANT_CONFIG_PARAMS: u32 = 0b000100;
+    pub const RATE_PACK: u32 = 0b001000;
+
+    pub fn configure_default_persistent_config(bit_flag: u32) -> PersistentConfigurationMock {
+        let config = default_persistent_config_just_base(PersistentConfigurationMock::new());
+        let config = if (bit_flag & MAPPING_PROTOCOL) == MAPPING_PROTOCOL {
+            config.mapping_protocol_result(Ok(None))
+        } else {
+            config
+        };
+        let config = if (bit_flag & ACCOUNTANT_CONFIG_PARAMS) == ACCOUNTANT_CONFIG_PARAMS {
+            default_persistent_config_just_accountant_config(config)
+        } else {
+            config
+        };
+        let config = if (bit_flag & RATE_PACK) == RATE_PACK {
+            config.rate_pack_result(Ok(DEFAULT_RATE_PACK))
+        } else {
+            config
+        };
+        config
+    }
+
+    pub fn default_persistent_config_just_base(
+        persistent_config_mock: PersistentConfigurationMock,
+    ) -> PersistentConfigurationMock {
+        persistent_config_mock
             .earning_wallet_address_result(Ok(None))
             .earning_wallet_result(Ok(None))
             .consuming_wallet_private_key_result(Ok(None))
+            .consuming_wallet_result(Ok(None))
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
-            .mapping_protocol_result(Ok(None))
             .blockchain_service_url_result(Ok(None))
+    }
+
+    pub fn default_persistent_config_just_accountant_config(
+        persistent_config_mock: PersistentConfigurationMock,
+    ) -> PersistentConfigurationMock {
+        persistent_config_mock
+            .payment_thresholds_result(Ok(*DEFAULT_PAYMENT_THRESHOLDS))
+            .scan_intervals_result(Ok(*DEFAULT_SCAN_INTERVALS))
+    }
+
+    pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {
+        PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()))
+    }
+
+    pub fn make_populated_accountant_config_with_defaults() -> AccountantConfig {
+        AccountantConfig {
+            scan_intervals: *DEFAULT_SCAN_INTERVALS,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+        }
+    }
+
+    pub fn make_accountant_config_null() -> AccountantConfig {
+        AccountantConfig {
+            scan_intervals: Default::default(),
+            payment_thresholds: Default::default(),
+            when_pending_too_long_sec: Default::default(),
+        }
     }
 
     pub struct ChannelFactoryMock {

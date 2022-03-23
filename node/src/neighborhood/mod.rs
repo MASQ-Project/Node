@@ -150,7 +150,7 @@ impl Handler<NodeQueryMessage> for Neighborhood {
             NodeQueryResponseMetadata::new(
                 node_record_ref.public_key().clone(),
                 node_record_ref.node_addr_opt(),
-                node_record_ref.rate_pack().clone(),
+                *node_record_ref.rate_pack(),
             )
         }))
     }
@@ -173,7 +173,7 @@ impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
             NodeQueryResponseMetadata::new(
                 node_record_ref.public_key().clone(),
                 node_record_ref.node_addr_opt(),
-                node_record_ref.rate_pack().clone(),
+                *node_record_ref.rate_pack(),
             )
         });
 
@@ -254,6 +254,10 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
         match msg {
             NodeRecordMetadataMessage::Desirable(public_key, desirable) => {
                 if let Some(node_record) = self.neighborhood_database.node_by_key_mut(&public_key) {
+                    debug!(
+                        self.logger,
+                        "About to set desirable '{}' for '{:?}'", desirable, public_key
+                    );
                     node_record.set_desirable(desirable);
                 };
             }
@@ -967,13 +971,13 @@ impl Neighborhood {
                             Ok(ExpectedService::Exit(
                                 route_segment_key.clone(),
                                 node.earning_wallet(),
-                                node.rate_pack().clone(),
+                                *node.rate_pack(),
                             ))
                         }
                         (Some(_), Some(_)) => Ok(ExpectedService::Routing(
                             route_segment_key.clone(),
                             node.earning_wallet(),
-                            node.rate_pack().clone(),
+                            *node.rate_pack(),
                         )),
                         _ => Err(
                             "cannot calculate expected service, no keys provided in route segment"
@@ -1293,12 +1297,12 @@ mod tests {
         neighborhood_from_nodes,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
+    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
