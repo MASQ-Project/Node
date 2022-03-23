@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use clap::{crate_description, App, AppSettings, Arg};
+use clap::{crate_description, App, AppSettings, Arg, crate_version};
 use indoc::indoc;
 use lazy_static::lazy_static;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
@@ -16,8 +16,7 @@ pub fn app_head() -> App<'static, 'static> {
         } else {
             &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
         })
-        //.version(crate_version!())
-        .version("1.0.0")
+        .version(crate_version!())
         .author("MASQ")
         .about(crate_description!())
 }

@@ -33,7 +33,6 @@ use std::string::ToString;
 use std::thread;
 use std::time::Duration;
 use log::Level;
-use masq_lib::logger::Logger;
 use crate::masq_node_ui_client::MASQNodeUIClient;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";

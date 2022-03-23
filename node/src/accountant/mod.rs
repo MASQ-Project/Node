@@ -268,6 +268,7 @@ impl Handler<ScanError> for Accountant {
     type Result = ();
 
     fn handle(&mut self, scan_error: ScanError, _ctx: &mut Self::Context) -> Self::Result {
+error!(self.logger, "Received ScanError: {:?}", scan_error);
         let error_msg = NodeToUiMessage {
             target: MessageTarget::ClientId(scan_error.response_skeleton.client_id),
             body: MessageBody {
@@ -278,6 +279,7 @@ impl Handler<ScanError> for Accountant {
                 ))
             },
         };
+error!(self.logger, "Sending UiScanResponse: {:?}", error_msg);
         self.ui_message_sub
             .as_ref()
             .expect ("UIGateway not bound")

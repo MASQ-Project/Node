@@ -343,6 +343,7 @@ impl BlockchainBridge {
             Err (e) => {
                 warning!(self.logger, "{}", e);
                 if let Some (skeleton) = skeleton_opt {
+error! (self.logger, "Skeleton is populated; sending ScanError");
                     self.scan_error_subs_opt
                         .as_ref()
                         .expect ("Accountant not bound")
@@ -352,6 +353,9 @@ impl BlockchainBridge {
                             msg: e
                         })
                         .expect ("Accountant is dead");
+                }
+                else {
+error! (self.logger, "Skeleton is unpopulated; not sending ScanError");
                 }
             }
         }

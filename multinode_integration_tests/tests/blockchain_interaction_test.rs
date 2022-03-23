@@ -85,7 +85,7 @@ fn debtors_are_credited_once_but_not_twice() {
     ui_client.send_request (UiScanRequest {
         scan_type: ScanType::Receivables,
     }.tmb(1235));
-    let _ = ui_client.wait_for_response (1235).payload.unwrap();
+    let response = ui_client.wait_for_response (1235, Duration::from_secs (5));
     // Kill the real Node
     node.kill_node();
     // Use the receivable DAO to verify that the receivable's balance has been adjusted

@@ -49,25 +49,25 @@ impl MASQNodeUIClient {
         inner.client.send_message(&OwnedMessage::Text(json)).unwrap();
     }
 
-    pub fn wait_for_response (&self, context_id: u64) -> MessageBody {
-        return self.buffered_or_incoming (MessagePath::Conversation(context_id))
+    pub fn wait_for_response (&self, context_id: u64, timeout: Duration) -> MessageBody {
+        return self.buffered_or_incoming (MessagePath::Conversation(context_id), timeout)
     }
 
-    pub fn wait_for_broadcast (&self) -> MessageBody {
-        return self.buffered_or_incoming (MessagePath::FireAndForget)
+    pub fn wait_for_broadcast (&self, timeout: Duration) -> MessageBody {
+        return self.buffered_or_incoming (MessagePath::FireAndForget, timeout)
     }
 
-    fn buffered_or_incoming (&self, path: MessagePath) -> MessageBody {
+    fn buffered_or_incoming (&self, path: MessagePath, timeout: Duration) -> MessageBody {
         if let Some (target) = self.check_for_buffered_message(path) {
             return target;
         }
-        return self.wait_for_message (path)
+        return self.wait_for_message (path, timeout)
     }
 
-    fn wait_for_message (&self, path: MessagePath) -> MessageBody {
+    fn wait_for_message (&self, path: MessagePath, timeout: Duration) -> MessageBody {
         let mut inner = self.inner.borrow_mut();
         let mut target_opt = None;
-        let deadline = SystemTime::now().add (Duration::from_secs(5));
+        let deadline = SystemTime::now().add (timeout);
         loop {
             match self.check_for_waiting_message(&mut inner) {
                 Some (message) => if message.path == path {
