@@ -713,7 +713,7 @@ mod tests {
     use log::LevelFilter;
     use log::LevelFilter::Off;
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::logger::Logger;
+    use masq_lib::logger::{LOG_RECIPIENT_OPT, Logger};
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
@@ -733,6 +733,7 @@ mod tests {
     use tokio;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
+    use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
 
     lazy_static! {
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
@@ -1359,6 +1360,11 @@ mod tests {
     #[test]
     fn init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged(
     ) {
+        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
+        {
+            let global_recipient = unsafe { &LOG_RECIPIENT_OPT };
+            global_recipient.lock().unwrap().take();
+        }
         let _lock = INITIALIZATION.lock();
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(

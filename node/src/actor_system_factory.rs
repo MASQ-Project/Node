@@ -39,11 +39,11 @@ use automap_lib::control_layer::automap_control::{
 };
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
-use masq_lib::logger::{INIT_LOG_RECIPIENT, LOG_RECIPIENT_OPT};
-use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
+use masq_lib::logger::prepare_log_recipient;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -96,6 +96,7 @@ pub trait ActorSystemFactoryTools: Send {
 }
 
 pub struct ActorSystemFactoryToolsReal {
+    log_recipient_setter: Box<dyn LogRecipientSetter>,
     automap_control_factory: Box<dyn AutomapControlFactory>,
 }
 
@@ -198,10 +199,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
             })
             .expect("Dispatcher is dead");
 
-        unsafe {
-            INIT_LOG_RECIPIENT
-                .call_once(|| LOG_RECIPIENT_OPT = Some(ui_gateway_subs.node_to_ui_message_sub))
-        }
+        self.log_recipient_setter.prepare_log_recipient(ui_gateway_subs.node_to_ui_message_sub);
 
         self.start_automap(
             &config,
@@ -243,6 +241,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
 impl ActorSystemFactoryToolsReal {
     pub fn new() -> Self {
         Self {
+            log_recipient_setter: Box::new(LogRecipientSetterReal{}),
             automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
         }
     }
@@ -551,6 +550,24 @@ impl AutomapControlFactory for AutomapControlFactoryNull {
     }
 }
 
+trait LogRecipientSetter: Send {
+    fn prepare_log_recipient(&self, recipient: Recipient<NodeToUiMessage>);
+}
+
+struct LogRecipientSetterReal{}
+
+impl LogRecipientSetter for LogRecipientSetterReal{
+    fn prepare_log_recipient(&self, recipient: Recipient<NodeToUiMessage>) {
+        prepare_log_recipient(recipient);
+    }
+}
+
+struct LogRecipientSetterNull{}
+
+impl LogRecipientSetter for LogRecipientSetterNull{
+    fn prepare_log_recipient(&self, _recipient: Recipient<NodeToUiMessage>) {}
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -593,9 +610,12 @@ mod tests {
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
-    use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
+    use masq_lib::logger::{LOG_RECIPIENT_OPT, TEST_LOG_RECIPIENT_GUARD};
+    use masq_lib::messages::{
+        SerializableLogLevel, ToMessageBody, UiCrashRequest, UiDescriptorRequest, UiLogBroadcast,
+    };
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use masq_lib::ui_gateway::NodeFromUiMessage;
+    use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::running_test;
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -995,6 +1015,7 @@ mod tests {
             &Some(alias_cryptde()),
         );
         let mut tools = ActorSystemFactoryToolsReal::new();
+        tools.log_recipient_setter = Box::new(LogRecipientSetterNull{});
         tools.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new().make_result(
                 AutomapControlMock::new()
@@ -1003,12 +1024,12 @@ mod tests {
             ),
         );
         let subject = ActorSystemFactoryReal::new(Box::new(tools));
-
         let system = System::new("test");
+
         subject.make_and_start_actors(config, Box::new(actor_factory), &persistent_config);
+
         System::current().stop();
         system.run();
-
         thread::sleep(Duration::from_millis(100));
         Recording::get::<BindMessage>(&recordings.dispatcher, 0);
         Recording::get::<BindMessage>(&recordings.hopper, 0);
@@ -1061,6 +1082,7 @@ mod tests {
         };
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ActorSystemFactoryToolsReal::new();
+        subject.log_recipient_setter = Box::new(LogRecipientSetterNull{});
         subject.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new().make_result(
                 AutomapControlMock::new()
@@ -1162,6 +1184,57 @@ mod tests {
     }
 
     #[test]
+    fn prepare_initial_messages_initiates_global_log_recipient() {
+        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
+        running_test();
+        let mut actor_factory = ActorFactoryMock::new();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        actor_factory.ui_gateway.replace(Some(ui_gateway));
+        let mut config = BootstrapperConfig::default();
+        config.neighborhood_config =  NeighborhoodConfig {
+            mode: NeighborhoodMode::ConsumeOnly(vec![]),
+        };
+        let subject = ActorSystemFactoryToolsReal::new();
+        {
+            let global_recipient = unsafe { &LOG_RECIPIENT_OPT };
+            global_recipient.lock().unwrap().take();
+        }
+
+        let _ = subject.prepare_initial_messages(
+            main_cryptde(),
+            alias_cryptde(),
+            config,
+            Box::new(actor_factory),
+        );
+
+        let expected_message = NodeToUiMessage {
+            target: MessageTarget::AllClients,
+            body: UiLogBroadcast {
+                msg: String::from("Testing log message"),
+                log_level: SerializableLogLevel::Warn,
+            }
+            .tmb(0),
+        };
+        {
+            let global_recipient = unsafe { &LOG_RECIPIENT_OPT };
+            global_recipient
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .try_send(expected_message.clone());
+        }
+        let system = System::new("MASQNode");
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let filtered_expected_log_messages = (0..ui_gateway_recording.len())
+            .flat_map(|idx| ui_gateway_recording.get_record_opt::<NodeToUiMessage>(idx))
+            .filter(|ref_msg| ref_msg == &&expected_message);
+        assert_eq!(filtered_expected_log_messages.count(), 1);
+    }
+
+    #[test]
     #[should_panic(
         expected = "1: IP change to 1.2.3.5 reported from ISP. We can't handle that until GH-499. Going down..."
     )]
@@ -1178,6 +1251,7 @@ mod tests {
         };
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ActorSystemFactoryToolsReal::new();
+        subject.log_recipient_setter = Box::new(LogRecipientSetterNull{});
         subject.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new()
                 .make_params(&make_params_arc)
@@ -1237,6 +1311,7 @@ mod tests {
         };
         let system = System::new("MASQNode");
         let mut subject = ActorSystemFactoryToolsReal::new();
+        subject.log_recipient_setter = Box::new(LogRecipientSetterNull{});
         subject.automap_control_factory = Box::new(AutomapControlFactoryMock::new());
 
         let _ = subject.prepare_initial_messages(
@@ -1248,7 +1323,6 @@ mod tests {
 
         System::current().stop();
         system.run();
-
         let messages = recordings.proxy_client.lock().unwrap();
         assert!(messages.is_empty());
         check_bind_message(&recordings.dispatcher, true);
@@ -1402,7 +1476,8 @@ mod tests {
             },
             node_descriptor: Default::default(),
         };
-        let subject = ActorSystemFactoryToolsReal::new();
+        let mut subject = ActorSystemFactoryToolsReal::new();
+        subject.log_recipient_setter = Box::new(LogRecipientSetterNull{});
         let system = System::new("MASQNode");
 
         let _ = subject.prepare_initial_messages(
