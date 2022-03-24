@@ -1362,8 +1362,7 @@ mod tests {
     ) {
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         {
-            let global_recipient = unsafe { &LOG_RECIPIENT_OPT };
-            global_recipient.lock().unwrap().take();
+            LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let _lock = INITIALIZATION.lock();
         let _clap_guard = ClapGuard::new();

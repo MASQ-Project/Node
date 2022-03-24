@@ -414,8 +414,7 @@ mod tests {
     fn prepare_log_recipient_works() {
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         {
-            let global_recipient = unsafe { &LOG_RECIPIENT_OPT };
-            global_recipient.lock().unwrap().take();
+            LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let message_container_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new("prepare log recipient");
@@ -424,7 +423,7 @@ mod tests {
 
         prepare_log_recipient(recipient);
 
-        global_recipient
+        LOG_RECIPIENT_OPT
             .lock()
             .unwrap()
             .as_ref()
@@ -441,8 +440,7 @@ mod tests {
     fn prepare_log_recipient_should_be_called_only_once_panic() {
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         {
-            let global_recipient = unsafe { &LOG_RECIPIENT_OPT };
-            global_recipient.lock().unwrap().take();
+            LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let ui_gateway = TestUiGateway::new(0, &Arc::new(Mutex::new(vec![])));
         let recipient: Recipient<NodeToUiMessage> = ui_gateway.start().recipient();
@@ -488,8 +486,7 @@ mod tests {
     fn transmit_fn_can_handle_no_recipients() {
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         {
-            let recipient = unsafe { &LOG_RECIPIENT_OPT };
-            recipient.lock().unwrap().take();
+            LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let system = System::new("Trying to transmit with no recipient");
 
@@ -508,7 +505,7 @@ mod tests {
         let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
         let ui_gateway = TestUiGateway::new(0, &ui_gateway_recording_arc);
         let recipient = ui_gateway.start().recipient();
-        unsafe {
+        {
             LOG_RECIPIENT_OPT
                 .lock()
                 .unwrap()
@@ -534,7 +531,7 @@ mod tests {
         let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
         let ui_gateway = TestUiGateway::new(0, &ui_gateway_recording_arc);
         let recipient = ui_gateway.start().recipient();
-        unsafe {
+        {
             LOG_RECIPIENT_OPT
                 .lock()
                 .unwrap()
@@ -560,7 +557,7 @@ mod tests {
         let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
         let ui_gateway = TestUiGateway::new(1, &ui_gateway_recording_arc);
         let recipient = ui_gateway.start().recipient();
-        unsafe {
+        {
             LOG_RECIPIENT_OPT
                 .lock()
                 .unwrap()
@@ -595,7 +592,7 @@ mod tests {
         let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
         let ui_gateway = TestUiGateway::new(1, &ui_gateway_recording_arc);
         let recipient = ui_gateway.start().recipient();
-        unsafe {
+        {
             LOG_RECIPIENT_OPT
                 .lock()
                 .unwrap()
@@ -626,8 +623,7 @@ mod tests {
         init_test_logging();
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         {
-            let recipient = unsafe { &LOG_RECIPIENT_OPT };
-            recipient.lock().unwrap().take();
+            LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let one_logger = Logger::new("logger_format_is_correct_one");
         let another_logger = Logger::new("logger_format_is_correct_another");
@@ -693,8 +689,7 @@ mod tests {
         init_test_logging();
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         {
-            let recipient = unsafe { &LOG_RECIPIENT_OPT };
-            recipient.lock().unwrap().take();
+            LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let logger = make_logger_at_level(Level::Warn);
         let log_function = move || "info...4455667788".to_string();
@@ -709,8 +704,7 @@ mod tests {
         init_test_logging();
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         {
-            let recipient = unsafe { &LOG_RECIPIENT_OPT };
-            recipient.lock().unwrap().take();
+            LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let logger = make_logger_at_level(Level::Error);
         let log_function = move || "warning...335566".to_string();
@@ -758,8 +752,7 @@ mod tests {
     fn info_is_computed_when_log_level_is_info() {
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         {
-            let recipient = unsafe { &LOG_RECIPIENT_OPT };
-            recipient.lock().unwrap().take();
+            LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let logger = make_logger_at_level(Level::Info);
         let signal = Arc::new(Mutex::new(Some(false)));
@@ -779,8 +772,7 @@ mod tests {
     fn warn_is_computed_when_log_level_is_warn() {
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         {
-            let recipient = unsafe { &LOG_RECIPIENT_OPT };
-            recipient.lock().unwrap().take();
+            LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let logger = make_logger_at_level(Level::Warn);
         let signal = Arc::new(Mutex::new(Some(false)));
@@ -801,8 +793,7 @@ mod tests {
     fn error_is_computed_when_log_level_is_error() {
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         {
-            let recipient = unsafe { &LOG_RECIPIENT_OPT };
-            recipient.lock().unwrap().take();
+            LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let logger = make_logger_at_level(Level::Error);
         let signal = Arc::new(Mutex::new(Some(false)));
@@ -823,8 +814,7 @@ mod tests {
         init_test_logging();
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         {
-            let recipient = unsafe { &LOG_RECIPIENT_OPT };
-            recipient.lock().unwrap().take();
+            LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let logger = Logger::new("test");
 

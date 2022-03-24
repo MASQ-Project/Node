@@ -1196,8 +1196,7 @@ mod tests {
         };
         let subject = ActorSystemFactoryToolsReal::new();
         {
-            let global_recipient = unsafe { &LOG_RECIPIENT_OPT };
-            global_recipient.lock().unwrap().take();
+            LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
 
         let _ = subject.prepare_initial_messages(
@@ -1216,8 +1215,7 @@ mod tests {
             .tmb(0),
         };
         {
-            let global_recipient = unsafe { &LOG_RECIPIENT_OPT };
-            global_recipient
+            LOG_RECIPIENT_OPT
                 .lock()
                 .unwrap()
                 .as_ref()
