@@ -5,7 +5,9 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use crate::db_config::typed_config_layer::decode_bytes;
+use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
@@ -345,7 +347,7 @@ impl DatabaseMigration for Migrate_3_to_4 {
         };
         utils.execute_upon_transaction(&[
             format! ("insert into config (name, value, encrypted) values ('consuming_wallet_private_key', {}, 1)",
-                private_key_column).as_str(),
+                     private_key_column).as_str(),
             "delete from config where name in ('seed', 'consuming_wallet_derivation_path', 'consuming_wallet_public_key')",
         ])
     }
@@ -428,6 +430,46 @@ impl DatabaseMigration for Migrate_4_to_5 {
     }
 }
 
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+struct Migrate_5_to_6;
+
+impl DatabaseMigration for Migrate_5_to_6 {
+    fn migrate<'a>(
+        &self,
+        declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
+    ) -> rusqlite::Result<()> {
+        let statement_1 = Self::make_initialization_statement(
+            "payment_thresholds",
+            &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
+        );
+        let statement_2 =
+            Self::make_initialization_statement("rate_pack", &DEFAULT_RATE_PACK.to_string());
+        let statement_3 = Self::make_initialization_statement(
+            "scan_intervals",
+            &DEFAULT_SCAN_INTERVALS.to_string(),
+        );
+        declaration_utils.execute_upon_transaction(&[
+            statement_1.as_str(),
+            statement_2.as_str(),
+            statement_3.as_str(),
+        ])
+    }
+
+    fn old_version(&self) -> usize {
+        5
+    }
+}
+
+impl Migrate_5_to_6 {
+    fn make_initialization_statement(name: &str, value: &str) -> String {
+        format!(
+            "INSERT INTO config (name, value, encrypted) VALUES ('{}', '{}', 0)",
+            name, value
+        )
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 impl DbMigratorReal {
@@ -445,6 +487,7 @@ impl DbMigratorReal {
             &Migrate_2_to_3,
             &Migrate_3_to_4,
             &Migrate_4_to_5,
+            &Migrate_5_to_6,
         ]
     }
 
@@ -673,7 +716,9 @@ mod tests {
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
     use crate::db_config::db_encryption_layer::DbEncryptionLayer;
     use crate::db_config::typed_config_layer::encode_bytes;
+    use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
     use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::database_utils::retrieve_config_row;
     use crate::test_utils::database_utils::{
@@ -1484,7 +1529,10 @@ mod tests {
 
     #[test]
     fn migration_from_0_to_1_is_properly_set() {
-        let dir_path = ensure_node_home_directory_exists("db_migrations", "0_to_1");
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_0_to_1_is_properly_set",
+        );
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
@@ -1509,7 +1557,10 @@ mod tests {
     fn migration_from_1_to_2_is_properly_set() {
         init_test_logging();
         let start_at = 1;
-        let dir_path = ensure_node_home_directory_exists("db_migrations", "1_to_2");
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_1_to_2_is_properly_set",
+        );
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
@@ -1546,7 +1597,10 @@ mod tests {
     #[test]
     fn migration_from_2_to_3_is_properly_set() {
         let start_at = 2;
-        let dir_path = ensure_node_home_directory_exists("db_migrations", "2_to_3");
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "migration_from_2_to_3_is_properly_set",
+        );
         let db_path = dir_path.join(DATABASE_FILE);
         let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
@@ -1930,5 +1984,51 @@ mod tests {
         let mut vec_of_values = hash_map_of_values.into_iter().collect_vec();
         vec_of_values.sort_by_key(|(name, _)| name.clone());
         vec_of_values
+    }
+
+    #[test]
+    fn migration_from_5_to_6_works() {
+        let dir_path =
+            ensure_node_home_directory_exists("db_migrations", "migration_from_5_to_6_works");
+        let db_path = dir_path.join(DATABASE_FILE);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
+        let subject = DbInitializerReal::default();
+        {
+            subject
+                .initialize_to_version(
+                    &dir_path,
+                    6,
+                    true,
+                    MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                )
+                .unwrap();
+        }
+
+        let result = subject.initialize_to_version(
+            &dir_path,
+            6,
+            true,
+            MigratorConfig::create_or_migrate(ExternalData::new(
+                DEFAULT_CHAIN,
+                NeighborhoodModeLight::ConsumeOnly,
+                None,
+            )),
+        );
+
+        let connection = result.unwrap();
+        let (payment_thresholds, encrypted) =
+            retrieve_config_row(connection.as_ref(), "payment_thresholds");
+        assert_eq!(
+            payment_thresholds,
+            Some(DEFAULT_PAYMENT_THRESHOLDS.to_string())
+        );
+        assert_eq!(encrypted, false);
+        let (rate_pack, encrypted) = retrieve_config_row(connection.as_ref(), "rate_pack");
+        assert_eq!(rate_pack, Some(DEFAULT_RATE_PACK.to_string()));
+        assert_eq!(encrypted, false);
+        let (scan_intervals, encrypted) =
+            retrieve_config_row(connection.as_ref(), "scan_intervals");
+        assert_eq!(scan_intervals, Some(DEFAULT_SCAN_INTERVALS.to_string()));
+        assert_eq!(encrypted, false);
     }
 }

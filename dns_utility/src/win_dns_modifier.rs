@@ -3,6 +3,7 @@
 use crate::dns_modifier::DnsModifier;
 use crate::ipconfig_wrapper::{IpconfigWrapper, IpconfigWrapperReal};
 use crate::netsh::{Netsh, NetshCommand, NetshError};
+use masq_lib::utils::plus;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::io;
@@ -394,13 +395,6 @@ impl WinDnsModifier {
             None => None,
         }
     }
-}
-
-pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
-    let mut result = vec![];
-    result.append(&mut source);
-    result.push(item);
-    result
 }
 
 pub trait RegKeyTrait: Debug {

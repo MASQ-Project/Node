@@ -1,11 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{unsigned_to_signed, PaymentCurves};
+use crate::accountant::unsigned_to_signed;
 use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
 use crate::db_config::config_dao::{ConfigDaoWrite, ConfigDaoWriteableReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
+use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use masq_lib::logger::Logger;
@@ -47,10 +48,10 @@ pub trait ReceivableDao: Send {
     fn new_delinquencies(
         &self,
         now: SystemTime,
-        payment_curves: &PaymentCurves,
+        payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount>;
 
-    fn paid_delinquencies(&self, payment_curves: &PaymentCurves) -> Vec<ReceivableAccount>;
+    fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount>;
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount>;
 
@@ -156,12 +157,12 @@ impl ReceivableDao for ReceivableDaoReal {
     fn new_delinquencies(
         &self,
         system_now: SystemTime,
-        payment_curves: &PaymentCurves,
+        payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
         let now = to_time_t(system_now);
-        let slope = (payment_curves.permanent_debt_allowed_gwub as f64
-            - payment_curves.balance_to_decrease_from_gwub as f64)
-            / (payment_curves.balance_decreases_for_sec as f64);
+        let slope = (payment_thresholds.permanent_debt_allowed_gwei as f64
+            - payment_thresholds.debt_threshold_gwei as f64)
+            / (payment_thresholds.threshold_interval_sec as f64);
         let sql = indoc!(
             r"
             select r.wallet_address, r.balance, r.last_received_timestamp
@@ -177,9 +178,9 @@ impl ReceivableDao for ReceivableDaoReal {
         stmt.query_map(
             named_params! {
                 ":slope": slope,
-                ":sugg_and_grace": payment_curves.sugg_and_grace(now),
-                ":balance_to_decrease_from": payment_curves.balance_to_decrease_from_gwub,
-                ":permanent_debt": payment_curves.permanent_debt_allowed_gwub,
+                ":sugg_and_grace": payment_thresholds.sugg_and_grace(now),
+                ":balance_to_decrease_from": payment_thresholds.debt_threshold_gwei,
+                ":permanent_debt": payment_thresholds.permanent_debt_allowed_gwei,
             },
             Self::row_to_account,
         )
@@ -188,7 +189,7 @@ impl ReceivableDao for ReceivableDaoReal {
         .collect()
     }
 
-    fn paid_delinquencies(&self, payment_curves: &PaymentCurves) -> Vec<ReceivableAccount> {
+    fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount> {
         let sql = indoc!(
             r"
             select r.wallet_address, r.balance, r.last_received_timestamp
@@ -200,7 +201,7 @@ impl ReceivableDao for ReceivableDaoReal {
         let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
         stmt.query_map(
             named_params! {
-                ":unban_balance": payment_curves.unban_when_balance_below_gwub,
+                ":unban_balance": payment_thresholds.unban_below_gwei,
             },
             Self::row_to_account,
         )
@@ -765,37 +766,37 @@ mod tests {
 
     #[test]
     fn new_delinquencies_unit_slope() {
-        let pcs = PaymentCurves {
-            payment_suggested_after_sec: 25,
-            payment_grace_before_ban_sec: 50,
-            permanent_debt_allowed_gwub: 100,
-            balance_to_decrease_from_gwub: 200,
-            balance_decreases_for_sec: 100,
-            unban_when_balance_below_gwub: 0, // doesn't matter for this test
+        let pcs = PaymentThresholds {
+            maturity_threshold_sec: 25,
+            payment_grace_period_sec: 50,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 200,
+            threshold_interval_sec: 100,
+            unban_below_gwei: 0, // doesn't matter for this test
         };
         let now = now_time_t();
         let mut not_delinquent_inside_grace_period = make_receivable_account(1234, false);
-        not_delinquent_inside_grace_period.balance = pcs.balance_to_decrease_from_gwub + 1;
+        not_delinquent_inside_grace_period.balance = pcs.debt_threshold_gwei + 1;
         not_delinquent_inside_grace_period.last_received_timestamp =
             from_time_t(pcs.sugg_and_grace(now) + 2);
         let mut not_delinquent_after_grace_below_slope = make_receivable_account(2345, false);
-        not_delinquent_after_grace_below_slope.balance = pcs.balance_to_decrease_from_gwub - 2;
+        not_delinquent_after_grace_below_slope.balance = pcs.debt_threshold_gwei - 2;
         not_delinquent_after_grace_below_slope.last_received_timestamp =
             from_time_t(pcs.sugg_and_grace(now) - 1);
         let mut delinquent_above_slope_after_grace = make_receivable_account(3456, true);
-        delinquent_above_slope_after_grace.balance = pcs.balance_to_decrease_from_gwub - 1;
+        delinquent_above_slope_after_grace.balance = pcs.debt_threshold_gwei - 1;
         delinquent_above_slope_after_grace.last_received_timestamp =
             from_time_t(pcs.sugg_and_grace(now) - 2);
         let mut not_delinquent_below_slope_before_stop = make_receivable_account(4567, false);
-        not_delinquent_below_slope_before_stop.balance = pcs.permanent_debt_allowed_gwub + 1;
+        not_delinquent_below_slope_before_stop.balance = pcs.permanent_debt_allowed_gwei + 1;
         not_delinquent_below_slope_before_stop.last_received_timestamp =
             from_time_t(pcs.sugg_thru_decreasing(now) + 2);
         let mut delinquent_above_slope_before_stop = make_receivable_account(5678, true);
-        delinquent_above_slope_before_stop.balance = pcs.permanent_debt_allowed_gwub + 2;
+        delinquent_above_slope_before_stop.balance = pcs.permanent_debt_allowed_gwei + 2;
         delinquent_above_slope_before_stop.last_received_timestamp =
             from_time_t(pcs.sugg_thru_decreasing(now) + 1);
         let mut not_delinquent_above_slope_after_stop = make_receivable_account(6789, false);
-        not_delinquent_above_slope_after_stop.balance = pcs.permanent_debt_allowed_gwub - 1;
+        not_delinquent_above_slope_after_stop.balance = pcs.permanent_debt_allowed_gwei - 1;
         not_delinquent_above_slope_after_stop.last_received_timestamp =
             from_time_t(pcs.sugg_thru_decreasing(now) - 2);
         let home_dir = ensure_node_home_directory_exists("accountant", "new_delinquencies");
@@ -820,13 +821,13 @@ mod tests {
 
     #[test]
     fn new_delinquencies_shallow_slope() {
-        let pcs = PaymentCurves {
-            payment_suggested_after_sec: 100,
-            payment_grace_before_ban_sec: 100,
-            permanent_debt_allowed_gwub: 100,
-            balance_to_decrease_from_gwub: 110,
-            balance_decreases_for_sec: 100,
-            unban_when_balance_below_gwub: 0, // doesn't matter for this test
+        let pcs = PaymentThresholds {
+            maturity_threshold_sec: 100,
+            payment_grace_period_sec: 100,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 110,
+            threshold_interval_sec: 100,
+            unban_below_gwei: 0, // doesn't matter for this test
         };
         let now = now_time_t();
         let mut not_delinquent = make_receivable_account(1234, false);
@@ -853,13 +854,13 @@ mod tests {
 
     #[test]
     fn new_delinquencies_steep_slope() {
-        let pcs = PaymentCurves {
-            payment_suggested_after_sec: 100,
-            payment_grace_before_ban_sec: 100,
-            permanent_debt_allowed_gwub: 100,
-            balance_to_decrease_from_gwub: 1100,
-            balance_decreases_for_sec: 100,
-            unban_when_balance_below_gwub: 0, // doesn't matter for this test
+        let pcs = PaymentThresholds {
+            maturity_threshold_sec: 100,
+            payment_grace_period_sec: 100,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 1100,
+            threshold_interval_sec: 100,
+            unban_below_gwei: 0, // doesn't matter for this test
         };
         let now = now_time_t();
         let mut not_delinquent = make_receivable_account(1234, false);
@@ -886,13 +887,13 @@ mod tests {
 
     #[test]
     fn new_delinquencies_does_not_find_existing_delinquencies() {
-        let pcs = PaymentCurves {
-            payment_suggested_after_sec: 25,
-            payment_grace_before_ban_sec: 50,
-            permanent_debt_allowed_gwub: 100,
-            balance_to_decrease_from_gwub: 200,
-            balance_decreases_for_sec: 100,
-            unban_when_balance_below_gwub: 0, // doesn't matter for this test
+        let pcs = PaymentThresholds {
+            maturity_threshold_sec: 25,
+            payment_grace_period_sec: 50,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 200,
+            threshold_interval_sec: 100,
+            unban_below_gwei: 0, // doesn't matter for this test
         };
         let now = now_time_t();
         let mut existing_delinquency = make_receivable_account(1234, true);
@@ -923,13 +924,13 @@ mod tests {
 
     #[test]
     fn paid_delinquencies() {
-        let pcs = PaymentCurves {
-            payment_suggested_after_sec: 0,   // doesn't matter for this test
-            payment_grace_before_ban_sec: 0,  // doesn't matter for this test
-            permanent_debt_allowed_gwub: 0,   // doesn't matter for this test
-            balance_to_decrease_from_gwub: 0, // doesn't matter for this test
-            balance_decreases_for_sec: 0,     // doesn't matter for this test
-            unban_when_balance_below_gwub: 50,
+        let pcs = PaymentThresholds {
+            maturity_threshold_sec: 0,      // doesn't matter for this test
+            payment_grace_period_sec: 0,    // doesn't matter for this test
+            permanent_debt_allowed_gwei: 0, // doesn't matter for this test
+            debt_threshold_gwei: 0,         // doesn't matter for this test
+            threshold_interval_sec: 0,      // doesn't matter for this test
+            unban_below_gwei: 50,
         };
         let mut paid_delinquent = make_receivable_account(1234, true);
         paid_delinquent.balance = 50;
@@ -954,13 +955,13 @@ mod tests {
 
     #[test]
     fn paid_delinquencies_does_not_find_existing_nondelinquencies() {
-        let pcs = PaymentCurves {
-            payment_suggested_after_sec: 0,   // doesn't matter for this test
-            payment_grace_before_ban_sec: 0,  // doesn't matter for this test
-            permanent_debt_allowed_gwub: 0,   // doesn't matter for this test
-            balance_to_decrease_from_gwub: 0, // doesn't matter for this test
-            balance_decreases_for_sec: 0,     // doesn't matter for this test
-            unban_when_balance_below_gwub: 50,
+        let pcs = PaymentThresholds {
+            maturity_threshold_sec: 0,      // doesn't matter for this test
+            payment_grace_period_sec: 0,    // doesn't matter for this test
+            permanent_debt_allowed_gwei: 0, // doesn't matter for this test
+            debt_threshold_gwei: 0,         // doesn't matter for this test
+            threshold_interval_sec: 0,      // doesn't matter for this test
+            unban_below_gwei: 50,
         };
         let mut newly_non_delinquent = make_receivable_account(1234, false);
         newly_non_delinquent.balance = 25;
