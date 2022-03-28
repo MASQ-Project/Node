@@ -211,9 +211,6 @@ pub fn privileged_parse_args(
     privileged_config.crash_point =
         value_m!(multi_config, "crash-point", CrashPoint).unwrap_or(CrashPoint::None);
 
-    privileged_config.accountant_config.suppress_initial_scans =
-        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
-
     if let Some(public_key_str) = value_m!(multi_config, "fake-public-key", String) {
         let (main_public_key, alias_public_key) = match base64::decode(&public_key_str) {
             Ok(mut key) => {
@@ -810,7 +807,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            bootstrapper_config.accountant_config.suppress_initial_scans,
+            bootstrapper_config.accountant_config_opt.unwrap().suppress_initial_scans,
             true
         );
     }
@@ -826,7 +823,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            bootstrapper_config.accountant_config.suppress_initial_scans,
+            bootstrapper_config.accountant_config_opt.unwrap().suppress_initial_scans,
             false
         );
     }
@@ -842,7 +839,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            bootstrapper_config.accountant_config.suppress_initial_scans,
+            bootstrapper_config.accountant_config_opt.unwrap().suppress_initial_scans,
             false
         );
     }

@@ -23,7 +23,6 @@ use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};

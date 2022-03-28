@@ -479,6 +479,9 @@ fn configure_accountant_config(
     config: &mut BootstrapperConfig,
     persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
+     let suppress_initial_scans =
+        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
+
     let accountant_config = AccountantConfig {
         scan_intervals: process_combined_params(
             "scan-intervals",
@@ -496,6 +499,7 @@ fn configure_accountant_config(
             |pc: &dyn PersistentConfiguration| pc.payment_thresholds(),
             |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_thresholds(curves),
         )?,
+        suppress_initial_scans,
         when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
     };
     config.accountant_config_opt = Some(accountant_config);
@@ -1749,6 +1753,7 @@ mod tests {
                 permanent_debt_allowed_gwei: 20000,
                 unban_below_gwei: 20000,
             },
+            suppress_initial_scans: false,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         assert_eq!(actual_accountant_config, expected_accountant_config);
@@ -1816,6 +1821,7 @@ mod tests {
                 permanent_debt_allowed_gwei: 20000,
                 unban_below_gwei: 20000,
             },
+            suppress_initial_scans: false,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         assert_eq!(actual_accountant_config, expected_accountant_config);

@@ -989,7 +989,7 @@ impl ValueRetriever for Scans {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         Some(("on".to_string(), Default))
@@ -3045,7 +3045,7 @@ mod tests {
     fn scans_computed_default() {
         let subject = Scans {};
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(&BootstrapperConfig::new(), &PersistentConfigurationMock::new(), &None);
 
         assert_eq!(result, Some(("on".to_string(), Default)));
     }

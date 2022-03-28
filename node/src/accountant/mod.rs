@@ -20,7 +20,6 @@ use actix::Handler;
 use actix::Message;
 use actix::Recipient;
 use itertools::Itertools;
-use lazy_static::lazy_static;
 use web3::types::{H256, TransactionReceipt};
 use masq_lib::constants::SCAN_ERROR;
 
@@ -46,10 +45,6 @@ use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
-use crate::db_config::config_dao::ConfigDaoFactory;
-use crate::db_config::persistent_configuration::{
-    PersistentConfiguration, PersistentConfigurationReal,
-};
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
@@ -157,18 +152,6 @@ impl Handler<StartMessage> for Accountant {
             ctx.notify(ScanForReceivables { response_skeleton_opt: None });
         }
     }
-}
-
-macro_rules! notify_later_assertable {
-    ($self: expr, $ctx: expr, $message_type: ident, $notify_later_handle_field: ident, $scan_interval: expr) => {
-        let closure =
-            Box::new(|msg: $message_type, interval: Duration| $ctx.notify_later(msg, interval));
-        let _ = $self.tools.$notify_later_handle_field.notify_later(
-            $message_type {response_skeleton_opt: None},
-            $scan_interval,
-            closure,
-        );
-    };
 }
 
 impl Handler<ReceivedPayments> for Accountant {
@@ -1296,8 +1279,6 @@ mod tests {
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
-    use crate::db_config::mocks::ConfigDaoMock;
-    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::accountant::{
         ReportRoutingServiceConsumedMessage, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
     };

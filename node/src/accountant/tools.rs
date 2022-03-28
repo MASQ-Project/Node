@@ -9,12 +9,12 @@ pub(in crate::accountant) mod accountant_tools {
     use std::time::Duration;
 
     macro_rules! notify_later_assertable {
-        ($accountant: expr, $ctx: expr, $message_type: ident, $notify_later_handle_field: ident,$scan_interval_field: ident) => {
+        ($accountant: expr, $ctx: expr, $message_type: ident, $notify_later_handle_field: ident, $scan_interval: expr) => {
             let closure =
                 Box::new(|msg: $message_type, interval: Duration| $ctx.notify_later(msg, interval));
             let _ = $accountant.tools.$notify_later_handle_field.notify_later(
-                $message_type {},
-                $accountant.config.scan_intervals.$scan_interval_field,
+                $message_type {response_skeleton_opt: None},
+                $scan_interval,
                 closure,
             );
         };
@@ -43,7 +43,7 @@ pub(in crate::accountant) mod accountant_tools {
     }
 
     #[derive(Debug, PartialEq)]
-    pub struct PendingPaymentsScanner;
+    pub struct PendingPaymentsScanner; // TODO: Rename to PendingPayablesScanner
 
     impl Scanner for PendingPaymentsScanner {
         fn scan(&self, accountant: &Accountant, response_skeleton_opt: Option<ResponseSkeleton>) {
@@ -53,9 +53,9 @@ pub(in crate::accountant) mod accountant_tools {
             notify_later_assertable!(
                 accountant,
                 ctx,
-                ScanForPendingPayable,
+                ScanForPendingPayables,
                 notify_later_scan_for_pending_payable,
-                pending_payable_scan_interval
+                accountant.config.scan_intervals.pending_payable_scan_interval
             );
         }
         as_any_impl!();
@@ -75,7 +75,7 @@ pub(in crate::accountant) mod accountant_tools {
                 ctx,
                 ScanForPayables,
                 notify_later_scan_for_payable,
-                payable_scan_interval
+                accountant.config.scan_intervals.payable_scan_interval
             );
         }
 
@@ -98,7 +98,7 @@ pub(in crate::accountant) mod accountant_tools {
                 ctx,
                 ScanForReceivables,
                 notify_later_scan_for_receivable,
-                receivable_scan_interval
+                accountant.config.scan_intervals.receivable_scan_interval
             );
         }
 
