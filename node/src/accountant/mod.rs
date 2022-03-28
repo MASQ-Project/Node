@@ -190,24 +190,24 @@ impl Handler<SentPayable> for Accountant {
 impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, _msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_message(self.scanners.payables.as_ref(), ctx)
+    fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
+        self.handle_scan_message(self.scanners.payables.as_ref(), msg.response_skeleton_opt, ctx)
     }
 }
 
 impl Handler<ScanForPendingPayables> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, _msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_message(self.scanners.pending_payables.as_ref(), ctx)
+    fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
+        self.handle_scan_message(self.scanners.pending_payables.as_ref(), msg.response_skeleton_opt, ctx)
     }
 }
 
 impl Handler<ScanForReceivables> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, _msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_message(self.scanners.receivables.as_ref(), ctx)
+    fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
+        self.handle_scan_message(self.scanners.receivables.as_ref(), msg.response_skeleton_opt, ctx)
     }
 }
 
@@ -435,12 +435,12 @@ impl Accountant {
         DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
     }
 
-    fn handle_scan_message(&self, scanner: &dyn Scanner, ctx: &mut Context<Accountant>) {
-        scanner.scan(self);
+    fn handle_scan_message(&self, scanner: &dyn Scanner, response_skeleton_opt: Option<ResponseSkeleton>, ctx: &mut Context<Accountant>) {
+        scanner.scan(self, response_skeleton_opt);
         scanner.notify_later_assertable(self, ctx)
     }
 
-    fn scan_for_payables(&self) {
+    fn scan_for_payables(&self, response_skeleton_opt: Option<ResponseSkeleton>) {
         info!(self.logger, "Scanning for payables");
 
         let all_non_pending_payables = self.payable_dao.non_pending_payables();
