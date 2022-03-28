@@ -2,7 +2,7 @@
 
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
-use crate::communications::broadcasts::broadcasts::{
+use crate::communications::broadcast_tools::tools::{
     handle_node_is_dead_while_f_f_on_the_way_broadcast, handle_ui_log_broadcast,
     handle_unrecognized_broadcast,
 };

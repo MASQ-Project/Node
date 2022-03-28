@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub(in crate::communications) mod broadcasts {
+pub(in crate::communications) mod tools {
     use crate::terminal::terminal_interface::TerminalWrapper;
     use masq_lib::messages::{UiLogBroadcast, UiUndeliveredFireAndForget};
     use masq_lib::short_writeln;

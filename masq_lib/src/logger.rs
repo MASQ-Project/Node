@@ -1,7 +1,10 @@
-use std::collections::HashMap;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::messages::{SerializableLogLevel, ToMessageBody, UiLogBroadcast};
-use crate::ui_gateway::{MessageTarget, NodeToUiMessage};
+use crate::messages::SerializableLogLevel;
+#[cfg(not(feature = "log_recipient_test"))]
+use crate::messages::{ToMessageBody, UiLogBroadcast};
+#[cfg(not(feature = "log_recipient_test"))]
+use crate::ui_gateway::MessageTarget;
+use crate::ui_gateway::NodeToUiMessage;
 use actix::Recipient;
 use lazy_static::lazy_static;
 use log::logger;
@@ -18,9 +21,9 @@ lazy_static! {
 
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
 
+#[cfg(not(feature = "log_recipient_test"))]
 pub fn prepare_log_recipient(recipient: Recipient<NodeToUiMessage>) {
-    let global_recipient = unsafe { &LOG_RECIPIENT_OPT};
-    if global_recipient
+    if LOG_RECIPIENT_OPT
         .lock()
         .expect("log recipient poisoned")
         .replace(recipient)
@@ -28,6 +31,19 @@ pub fn prepare_log_recipient(recipient: Recipient<NodeToUiMessage>) {
     {
         panic!("Log recipient should be initiated only once")
     }
+}
+
+#[cfg(feature = "log_recipient_test")]
+pub struct Counter(pub usize);
+
+#[cfg(feature = "log_recipient_test")]
+lazy_static! {
+    pub static ref INITIALIZATION_COUNTER: Mutex<Counter> = Mutex::new(Counter(0));
+}
+
+#[cfg(feature = "log_recipient_test")]
+pub fn prepare_log_recipient(_recipient: Recipient<NodeToUiMessage>) {
+    INITIALIZATION_COUNTER.lock().unwrap().0 += 1;
 }
 
 #[derive(Clone)]
@@ -164,15 +180,13 @@ impl Logger {
             }
             (true, false) => self.log(level, log_function()),
             (false, true) => Self::transmit(log_function(), level.into()),
-            _ => {
-                return;
-            }
+            _ => {}
         }
     }
 
+    #[cfg(not(feature = "log_recipient_test"))]
     fn transmit(msg: String, log_level: SerializableLogLevel) {
-        let recipient_mutex_log = unsafe { &LOG_RECIPIENT_OPT};
-        if let Some(recipient) = recipient_mutex_log
+        if let Some(recipient) = LOG_RECIPIENT_OPT
             .lock()
             .expect("log recipient mutex poisoned")
             .as_ref()
@@ -184,6 +198,9 @@ impl Logger {
             recipient.try_send(actix_msg).expect("UiGateway is dead")
         }
     }
+
+    #[cfg(feature = "log_recipient_test")]
+    fn transmit(_msg: String, _log_level: SerializableLogLevel) {}
 
     pub fn log(&self, level: Level, msg: String) {
         logger().log(
@@ -241,7 +258,6 @@ mod tests {
     use chrono::format::StrftimeItems;
     use chrono::{DateTime, Local};
     use crossbeam_channel::{unbounded, Sender};
-    use std::borrow::{Borrow, BorrowMut};
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
@@ -269,7 +285,7 @@ mod tests {
     impl Handler<NodeToUiMessage> for TestUiGateway {
         type Result = ();
 
-        fn handle(&mut self, msg: NodeToUiMessage, ctx: &mut Self::Context) -> Self::Result {
+        fn handle(&mut self, msg: NodeToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
             let mut inner = self.received_messages.lock().unwrap();
             inner.push(msg);
             if inner.len() == self.expected_msg_count {
@@ -298,7 +314,7 @@ mod tests {
     impl Handler<Stop> for TestUiGateway {
         type Result = ();
 
-        fn handle(&mut self, msg: Stop, ctx: &mut Self::Context) -> Self::Result {
+        fn handle(&mut self, _msg: Stop, _ctx: &mut Self::Context) -> Self::Result {
             System::current().stop()
         }
     }
@@ -341,10 +357,7 @@ mod tests {
         let addr = ui_gateway.start();
         let recipient = addr.clone().recipient();
         {
-            LOG_RECIPIENT_OPT
-                .lock()
-                .unwrap()
-                .replace(recipient);
+            LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
         }
         addr.try_send(ScheduleStop {
             timeout: Duration::from_secs(8),
@@ -374,7 +387,7 @@ mod tests {
     impl Handler<DoAllAtOnce> for TestUiGateway {
         type Result = ();
 
-        fn handle(&mut self, msg: DoAllAtOnce, ctx: &mut Self::Context) -> Self::Result {
+        fn handle(&mut self, msg: DoAllAtOnce, _ctx: &mut Self::Context) -> Self::Result {
             overloading_function(send_message_to_recipient, msg)
         }
     }
@@ -446,10 +459,8 @@ mod tests {
         let recipient: Recipient<NodeToUiMessage> = ui_gateway.start().recipient();
         prepare_log_recipient(recipient.clone());
 
-        let caught_panic = catch_unwind(AssertUnwindSafe(|| {
-            prepare_log_recipient(recipient)
-        }))
-        .unwrap_err();
+        let caught_panic =
+            catch_unwind(AssertUnwindSafe(|| prepare_log_recipient(recipient))).unwrap_err();
 
         let panic_message = caught_panic.downcast_ref::<&str>().unwrap();
         assert_eq!(
@@ -478,7 +489,7 @@ mod tests {
     #[should_panic(expected = "The level you're converting is below log broadcast level.")]
     fn conversion_between_levels_below_log_broadcast_level_should_panic() {
         let level_below_broadcast_level = Level::Debug;
-        let serializable_level_below_broadcast_level: SerializableLogLevel =
+        let _serializable_level_below_broadcast_level: SerializableLogLevel =
             level_below_broadcast_level.into();
     }
 
@@ -506,10 +517,7 @@ mod tests {
         let ui_gateway = TestUiGateway::new(0, &ui_gateway_recording_arc);
         let recipient = ui_gateway.start().recipient();
         {
-            LOG_RECIPIENT_OPT
-                .lock()
-                .unwrap()
-                .replace(recipient);
+            LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
         }
         let log_function = move || "This is a trace log.".to_string();
 
@@ -532,10 +540,7 @@ mod tests {
         let ui_gateway = TestUiGateway::new(0, &ui_gateway_recording_arc);
         let recipient = ui_gateway.start().recipient();
         {
-            LOG_RECIPIENT_OPT
-                .lock()
-                .unwrap()
-                .replace(recipient);
+            LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
         }
         let log_function = move || "This is a debug log.".to_string();
 
@@ -558,10 +563,7 @@ mod tests {
         let ui_gateway = TestUiGateway::new(1, &ui_gateway_recording_arc);
         let recipient = ui_gateway.start().recipient();
         {
-            LOG_RECIPIENT_OPT
-                .lock()
-                .unwrap()
-                .replace(recipient);
+            LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
         }
         let log_function = move || "This is an info.".to_string();
 
@@ -593,10 +595,7 @@ mod tests {
         let ui_gateway = TestUiGateway::new(1, &ui_gateway_recording_arc);
         let recipient = ui_gateway.start().recipient();
         {
-            LOG_RECIPIENT_OPT
-                .lock()
-                .unwrap()
-                .replace(recipient);
+            LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
         }
         let log_function = move || "This is a warning. Be careful.".to_string();
 

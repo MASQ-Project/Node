@@ -1,8 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
+use crate::test_utils::ui_connection::ReceiveResult::{Correct, MarshalError, TransactionError};
 use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
+use crate::ui_gateway::NodeToUiMessage;
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use std::io::Write;
@@ -61,10 +63,10 @@ impl UiConnection {
         self.client.writer_mut()
     }
 
-    fn receive_raw<T: FromMessageBody>(
+    fn receive_main_impl<T: FromMessageBody>(
         &mut self,
         context_id: Option<u64>,
-    ) -> Result<T, (u64, String)> {
+    ) -> ReceiveResult<T> {
         let incoming_msg_json = match self.client.recv_message() {
             Ok(OwnedMessage::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
                 panic!("The queue is empty; all messages are gone.")
@@ -92,22 +94,32 @@ impl UiConnection {
             }
         }
 
-        let result: Result<(T, u64), UiMessageError> = T::fmb(incoming_msg.body);
+        let result: Result<(T, u64), UiMessageError> = T::fmb(incoming_msg.body.clone());
         match result {
-            Ok((payload, _)) => Ok(payload),
+            Ok((payload, _)) => ReceiveResult::Correct(payload),
             Err(UiMessageError::PayloadError(message_body)) => {
                 let payload_error = message_body
                     .payload
                     .err()
                     .expect("PayloadError message body contained no payload error");
-                Err(payload_error)
+                ReceiveResult::TransactionError(payload_error)
             }
-            Err(e) => panic!("Deserialization problem for {}: {:?}", opcode, e),
+            Err(e) => ReceiveResult::MarshalError((incoming_msg, e, opcode)),
         }
     }
 
-    pub fn receive<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
-        self.receive_raw::<T>(None)
+    pub fn skip_until_received<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
+        Self::await_message(self)
+    }
+
+    fn await_message<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
+        loop {
+            match self.receive_main_impl::<T>(None) {
+                Correct(msg) => break Ok(msg),
+                TransactionError(e) => break Err(e),
+                MarshalError(_) => continue,
+            }
+        }
     }
 
     pub fn transact<S: ToMessageBody, R: FromMessageBody>(
@@ -115,7 +127,7 @@ impl UiConnection {
         payload: S,
     ) -> Result<R, (u64, String)> {
         self.send(payload);
-        self.receive_raw::<R>(None)
+        Self::standard_result_resolution(self.receive_main_impl::<R>(None))
     }
 
     pub fn transact_with_context_id<S: ToMessageBody, R: FromMessageBody>(
@@ -124,10 +136,28 @@ impl UiConnection {
         context_id: u64,
     ) -> Result<R, (u64, String)> {
         self.send_with_context_id(payload, context_id);
-        self.receive_raw::<R>(Some(context_id))
+        Self::standard_result_resolution(self.receive_main_impl::<R>(Some(context_id)))
+    }
+
+    fn standard_result_resolution<T>(
+        extended_result: ReceiveResult<T>,
+    ) -> Result<T, (u64, String)> {
+        match extended_result {
+            Correct(msg) => Ok(msg),
+            TransactionError(e) => Err(e),
+            MarshalError((_, e, opcode)) => {
+                panic!("Deserialization problem for {}: {:?}", opcode, e)
+            }
+        }
     }
 
     pub fn shutdown(self) {
         self.client.shutdown().unwrap()
     }
+}
+
+pub enum ReceiveResult<T> {
+    Correct(T),
+    TransactionError((u64, String)),
+    MarshalError((NodeToUiMessage, UiMessageError, String)),
 }
