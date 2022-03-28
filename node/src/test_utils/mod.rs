@@ -592,6 +592,7 @@ pub mod unshared_test_utils {
             scan_intervals: *DEFAULT_SCAN_INTERVALS,
             payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+            suppress_initial_scans: false,
         }
     }
 

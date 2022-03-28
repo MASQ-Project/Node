@@ -1,4 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+pub mod payable_dao;
+pub mod pending_payable_dao;
+pub mod receivable_dao;
+pub mod tools;
+
+#[cfg(test)]
+pub mod test_utils;
 
 use std::default::Default;
 use std::ops::Add;
@@ -39,14 +46,10 @@ use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
-<<<<<<< HEAD
-use crate::sub_lib::accountant::AccountantConfig;
-=======
 use crate::db_config::config_dao::ConfigDaoFactory;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
->>>>>>> master
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
@@ -57,39 +60,6 @@ use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-<<<<<<< HEAD
-
-pub mod payable_dao;
-pub mod pending_payable_dao;
-pub mod receivable_dao;
-pub mod tools;
-
-#[cfg(test)]
-pub mod test_utils;
-=======
-use actix::Actor;
-use actix::Addr;
-use actix::AsyncContext;
-use actix::Context;
-use actix::Handler;
-use actix::Message;
-use actix::Recipient;
-use itertools::Itertools;
-use masq_lib::crash_point::CrashPoint;
-use masq_lib::logger::Logger;
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
-use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
-use masq_lib::ui_gateway::MessageTarget::ClientId;
-use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::{plus, ExpectValue};
-use payable_dao::PayableDao;
-use receivable_dao::ReceivableDao;
-use std::default::Default;
-use std::ops::Add;
-use std::path::Path;
-use std::time::{Duration, SystemTime};
-use web3::types::{TransactionReceipt, H256};
->>>>>>> master
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 
@@ -189,7 +159,6 @@ impl Handler<StartMessage> for Accountant {
     }
 }
 
-<<<<<<< HEAD
 macro_rules! notify_later_assertable {
     ($self: expr, $ctx: expr, $message_type: ident, $notify_later_handle_field: ident, $scan_interval: expr) => {
         let closure =
@@ -218,44 +187,19 @@ impl Handler<SentPayable> for Accountant {
     }
 }
 
-=======
->>>>>>> master
 impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-<<<<<<< HEAD
-        self.scanners.payables.scan(self, None);
-        notify_later_assertable!(
-            self,
-            ctx,
-            ScanForPayables,
-            notify_later_handle_scan_for_payable,
-            self.config.payables_scan_interval
-        );
-=======
         self.handle_scan_message(self.scanners.payables.as_ref(), ctx)
->>>>>>> master
     }
 }
 
 impl Handler<ScanForPendingPayables> for Accountant {
     type Result = ();
 
-<<<<<<< HEAD
     fn handle(&mut self, _msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.scanners.pending_payable.scan(self, None);
-        notify_later_assertable!(
-            self,
-            ctx,
-            ScanForPendingPayables,
-            notify_later_handle_scan_for_pending_payable,
-            self.config.pending_payable_scan_interval
-        );
-=======
-    fn handle(&mut self, _msg: ScanForPendingPayable, ctx: &mut Self::Context) -> Self::Result {
         self.handle_scan_message(self.scanners.pending_payables.as_ref(), ctx)
->>>>>>> master
     }
 }
 
@@ -263,18 +207,7 @@ impl Handler<ScanForReceivables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
-<<<<<<< HEAD
-        self.scanners.receivables.scan(self, None);
-        notify_later_assertable!(
-            self,
-            ctx,
-            ScanForReceivables,
-            notify_later_handle_scan_for_receivable,
-            self.config.receivables_scan_interval
-        );
-=======
         self.handle_scan_message(self.scanners.receivables.as_ref(), ctx)
->>>>>>> master
     }
 }
 
@@ -502,18 +435,13 @@ impl Accountant {
         DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
     }
 
-<<<<<<< HEAD
-    fn scan_for_payables(&self, response_skeleton_opt: Option<ResponseSkeleton>) {
-        info!(self.logger, "Scanning for payables");
-=======
     fn handle_scan_message(&self, scanner: &dyn Scanner, ctx: &mut Context<Accountant>) {
         scanner.scan(self);
         scanner.notify_later_assertable(self, ctx)
     }
 
     fn scan_for_payables(&self) {
-        debug!(self.logger, "Scanning for payables");
->>>>>>> master
+        info!(self.logger, "Scanning for payables");
 
         let all_non_pending_payables = self.payable_dao.non_pending_payables();
         debug!(
@@ -1020,7 +948,7 @@ impl Accountant {
         match scan_type {
             ScanType::Payables => self.scanners.payables.scan (&self, Some (response_skeleton.clone())),
             ScanType::Receivables => self.scanners.receivables.scan (&self, Some(response_skeleton.clone())),
-            ScanType::PendingPayables => self.scanners.pending_payable.scan (&self, Some (response_skeleton)),
+            ScanType::PendingPayables => self.scanners.pending_payables.scan (&self, Some (response_skeleton)),
         }
     }
 
@@ -1139,13 +1067,8 @@ impl Accountant {
         logger: &Logger,
     ) -> PendingTransactionStatus {
         fn handle_none_status(
-<<<<<<< HEAD
             fingerprint: &PendingPayableFingerprint,
-            pending_interval: u64,
-=======
-            fingerprint: PendingPayableFingerprint,
             max_pending_interval: u64,
->>>>>>> master
             logger: &Logger,
         ) -> PendingTransactionStatus {
             info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",fingerprint.hash, fingerprint.attempt_opt.expectv("initialized attempt"), elapsed_in_ms(fingerprint.timestamp));
@@ -1159,7 +1082,7 @@ impl Accountant {
             };
             if max_pending_interval <= elapsed.as_secs() {
                 error!(logger,"Pending transaction '{}' has exceeded the maximum pending time ({}sec) and the confirmation process is going to be aborted now at the final attempt {}; \
-                 manual resolution is required from the user to complete the transaction.",fingerprint.hash,max_pending_interval,fingerprint.attempt_opt.expectv("initialized attempt"));
+                 manual resolution is required from the user to complete the transaction.", fingerprint.hash, max_pending_interval, fingerprint.attempt_opt.expectv("initialized attempt"));
                 PendingTransactionStatus::Failure(transaction_id)
             } else {
                 PendingTransactionStatus::StillPending(transaction_id)
@@ -1334,6 +1257,7 @@ impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::cell::RefCell;
     use std::ops::Sub;
     use std::rc::Rc;
@@ -1372,29 +1296,14 @@ mod tests {
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
-<<<<<<< HEAD
-    use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
-=======
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::accountant::{
         ReportRoutingServiceConsumedMessage, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
     };
->>>>>>> master
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-<<<<<<< HEAD
-    use crate::test_utils::pure_test_utils::{
-        CleanUpMessage, DummyActor, NotifyHandleMock, NotifyLaterHandleMock,
-        prove_that_crash_request_handler_is_hooked_up,
-    };
-    use crate::test_utils::recorder::make_recorder;
-    use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::recorder::Recorder;
-
-    use super::*;
-=======
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
@@ -1403,24 +1312,9 @@ mod tests {
         prove_that_crash_request_handler_is_hooked_up, CleanUpMessage, DummyActor,
         NotifyHandleMock, NotifyLaterHandleMock,
     };
-    use crate::test_utils::{make_paying_wallet, make_wallet};
-    use actix::{Arbiter, System};
-    use ethereum_types::{BigEndianHash, U64};
-    use ethsign_crypto::Keccak256;
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::ui_gateway::MessagePath::Conversation;
-    use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
-    use std::cell::RefCell;
-    use std::ops::Sub;
-    use std::rc::Rc;
-    use std::sync::Mutex;
-    use std::sync::{Arc, MutexGuard};
-    use std::time::Duration;
-    use std::time::SystemTime;
-    use web3::types::U256;
     use web3::types::{TransactionReceipt, H256};
->>>>>>> master
+    use crate::accountant::Accountant;
+    use crate::bootstrapper::BootstrapperConfig;
 
     #[derive(Default)]
     struct PayableThresholdToolsMock {
@@ -1583,17 +1477,7 @@ mod tests {
         let system = System::new("test");
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
-<<<<<<< HEAD
-                AccountantConfig {
-                    payables_scan_interval: Duration::from_millis(10_000),
-                    receivables_scan_interval: Duration::from_millis(10_000),
-                    pending_payable_scan_interval: Duration::from_millis(10_000),
-                    when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                    suppress_initial_scans: false,
-                },
-=======
                 make_populated_accountant_config_with_defaults(),
->>>>>>> master
                 make_wallet("some_wallet_address"),
             ))
             .receivable_dao(receivable_dao)
@@ -1670,11 +1554,14 @@ mod tests {
     #[test]
     fn scan_receivables_request() {
         let config = bc_from_ac_plus_earning_wallet (AccountantConfig {
-            payables_scan_interval: Duration::from_millis(10_000),
-            receivables_scan_interval: Duration::from_millis(10_000),
-            pending_payable_scan_interval: Duration::from_secs(100),
+            scan_intervals: ScanIntervals {
+                payable_scan_interval: Duration::from_millis(10_000),
+                receivable_scan_interval: Duration::from_millis(10_000),
+                pending_payable_scan_interval: Duration::from_secs(100),
+            },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             suppress_initial_scans: true,
+            payment_thresholds: Default::default()
         }, make_wallet("earning_wallet"));
         let receivable_dao = ReceivableDaoMock::new()
             .new_delinquencies_result(vec![])
@@ -1710,11 +1597,14 @@ mod tests {
     #[test]
     fn received_payments_with_response_skeleton_sends_response_to_ui_gateway() {
         let config = bc_from_ac_plus_earning_wallet (AccountantConfig {
-            payables_scan_interval: Duration::from_millis(10_000),
-            receivables_scan_interval: Duration::from_millis(10_000),
-            pending_payable_scan_interval: Duration::from_secs(100),
+            scan_intervals: ScanIntervals {
+                payable_scan_interval: Duration::from_millis(10_000),
+                receivable_scan_interval: Duration::from_millis(10_000),
+                pending_payable_scan_interval: Duration::from_secs(100),
+            },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             suppress_initial_scans: true,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
         }, make_wallet("earning_wallet"));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
@@ -1746,17 +1636,20 @@ mod tests {
     #[test]
     fn scan_payables_request() {
         let config = bc_from_ac_plus_earning_wallet (AccountantConfig {
-            payables_scan_interval: Duration::from_millis(10_000),
-            receivables_scan_interval: Duration::from_millis(10_000),
-            pending_payable_scan_interval: Duration::from_secs(100),
+            scan_intervals: ScanIntervals {
+                payable_scan_interval: Duration::from_millis(10_000),
+                receivable_scan_interval: Duration::from_millis(10_000),
+                pending_payable_scan_interval: Duration::from_secs(100),
+            },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             suppress_initial_scans: true,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
         }, make_wallet("some_wallet_address"));
         let payable_account = PayableAccount {
             wallet: make_wallet ("wallet"),
-            balance: PAYMENT_CURVES.balance_to_decrease_from_gwub + 1,
+            balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1,
             last_paid_timestamp: SystemTime::now().sub (
-                Duration::from_secs ((PAYMENT_CURVES.payment_suggested_after_sec + 1) as u64)
+                Duration::from_secs ((DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 1) as u64)
             ),
             pending_payable_opt: None
         };
@@ -1793,11 +1686,14 @@ mod tests {
     #[test]
     fn sent_payable_with_response_skeleton_sends_scan_response_to_ui_gateway() {
         let config = bc_from_ac_plus_earning_wallet (AccountantConfig {
-            payables_scan_interval: Duration::from_millis(10_000),
-            receivables_scan_interval: Duration::from_millis(10_000),
-            pending_payable_scan_interval: Duration::from_secs(100),
+            scan_intervals: ScanIntervals {
+                payable_scan_interval: Duration::from_millis(10_000),
+                receivable_scan_interval: Duration::from_millis(10_000),
+                pending_payable_scan_interval: Duration::from_secs(100),
+            },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             suppress_initial_scans: true,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
         }, make_wallet("earning_wallet"));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
@@ -1829,11 +1725,14 @@ mod tests {
     #[test]
     fn scan_pending_payables_request() {
         let config = bc_from_ac_plus_earning_wallet (AccountantConfig {
-            payables_scan_interval: Duration::from_millis(10_000),
-            receivables_scan_interval: Duration::from_millis(10_000),
-            pending_payable_scan_interval: Duration::from_secs(100),
+            scan_intervals: ScanIntervals {
+                payable_scan_interval: Duration::from_millis(10_000),
+                receivable_scan_interval: Duration::from_millis(10_000),
+                pending_payable_scan_interval: Duration::from_secs(100),
+            },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             suppress_initial_scans: true,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
         }, make_wallet("some_wallet_address"));
         let fingerprint = PendingPayableFingerprint {
             rowid_opt: Some (1234),
@@ -1876,11 +1775,14 @@ mod tests {
     #[test]
     fn report_transaction_receipts_with_response_skeleton_sends_scan_response_to_ui_gateway() {
         let config = bc_from_ac_plus_earning_wallet (AccountantConfig {
-            payables_scan_interval: Duration::from_millis(10_000),
-            receivables_scan_interval: Duration::from_millis(10_000),
-            pending_payable_scan_interval: Duration::from_secs(100),
+            scan_intervals: ScanIntervals {
+                payable_scan_interval: Duration::from_millis(10_000),
+                receivable_scan_interval: Duration::from_millis(10_000),
+                pending_payable_scan_interval: Duration::from_secs(100),
+            },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             suppress_initial_scans: true,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
         }, make_wallet("earning_wallet"));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
@@ -1927,17 +1829,7 @@ mod tests {
         let system = System::new("accountant_calls_payable_dao_to_mark_pending_payable");
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
-<<<<<<< HEAD
-                AccountantConfig {
-                    payables_scan_interval: Duration::from_millis(10_000),
-                    receivables_scan_interval: Duration::from_millis(10_000),
-                    pending_payable_scan_interval: Duration::from_millis(10_000),
-                    when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                    suppress_initial_scans: false,
-                },
-=======
                 make_populated_accountant_config_with_defaults(),
->>>>>>> master
                 make_wallet("some_wallet_address"),
             ))
             .payable_dao(payable_dao)
@@ -2108,17 +2000,7 @@ mod tests {
         let system = System::new("report_accounts_payable forwarded to blockchain_bridge");
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
-<<<<<<< HEAD
-                AccountantConfig {
-                    payables_scan_interval: Duration::from_secs(100_000),
-                    receivables_scan_interval: Duration::from_secs(100_000),
-                    pending_payable_scan_interval: Duration::from_secs(100_000),
-                    when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                    suppress_initial_scans: false,
-                },
-=======
                 make_populated_accountant_config_with_defaults(),
->>>>>>> master
                 make_wallet("some_wallet_address"),
             ))
             .payable_dao(payable_dao)
@@ -2164,17 +2046,7 @@ mod tests {
             .paid_delinquencies_result(vec![]);
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
-<<<<<<< HEAD
-                AccountantConfig {
-                    payables_scan_interval: Duration::from_secs(100_000),
-                    receivables_scan_interval: Duration::from_secs(100_000),
-                    pending_payable_scan_interval: Duration::from_secs(100_000),
-                    when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                    suppress_initial_scans: false,
-                },
-=======
                 make_populated_accountant_config_with_defaults(),
->>>>>>> master
                 earning_wallet.clone(),
             ))
             .payable_dao(payable_dao)
@@ -2225,17 +2097,7 @@ mod tests {
             .more_money_received_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
-<<<<<<< HEAD
-                AccountantConfig {
-                    payables_scan_interval: Duration::from_secs(10_000),
-                    receivables_scan_interval: Duration::from_secs(10_000),
-                    pending_payable_scan_interval: Duration::from_secs(10_000),
-                    when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                    suppress_initial_scans: false,
-                },
-=======
                 make_populated_accountant_config_with_defaults(),
->>>>>>> master
                 earning_wallet.clone(),
             ))
             .payable_dao(PayableDaoMock::new().non_pending_payables_result(vec![]))
@@ -2358,11 +2220,8 @@ mod tests {
                     pending_payable_scan_interval: Duration::from_secs(100),
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-<<<<<<< HEAD
                 suppress_initial_scans: false,
-=======
                 payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
->>>>>>> master
             },
             earning_wallet.clone(),
         );
@@ -2546,11 +2405,8 @@ mod tests {
                     pending_payable_scan_interval: Duration::from_secs(100),
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-<<<<<<< HEAD
                 suppress_initial_scans: false,
-=======
                 payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
->>>>>>> master
             },
             make_wallet("hi"),
         );
@@ -2619,11 +2475,14 @@ mod tests {
         let system = System::new("start_message_triggers_no_scans_in_suppress_mode");
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-                payables_scan_interval: Duration::from_millis(1),
-                receivables_scan_interval: Duration::from_secs(1),
-                pending_payable_scan_interval: Duration::from_secs(100),
+                scan_intervals: ScanIntervals {
+                    payable_scan_interval: Duration::from_millis(1),
+                    receivable_scan_interval: Duration::from_millis(1),
+                    pending_payable_scan_interval: Duration::from_secs(100),
+                },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: true,
+                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             },
             make_wallet("hi"),
         );
@@ -2652,21 +2511,8 @@ mod tests {
     #[test]
     fn scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve() {
         init_test_logging();
-<<<<<<< HEAD
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(1000),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-            make_wallet("mine"),
-        );
-=======
         let accountant_config = make_populated_accountant_config_with_defaults();
         let config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
->>>>>>> master
         let now = to_time_t(SystemTime::now());
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 2_592_000,
@@ -2800,21 +2646,8 @@ mod tests {
     #[test]
     fn scan_for_delinquencies_triggers_bans_and_unbans() {
         init_test_logging();
-<<<<<<< HEAD
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(1000),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-            make_wallet("mine"),
-        );
-=======
         let accountant_config = make_populated_accountant_config_with_defaults();
         let config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
->>>>>>> master
         let newly_banned_1 = make_receivable_account(1234, true);
         let newly_banned_2 = make_receivable_account(2345, true);
         let newly_unbanned_1 = make_receivable_account(3456, false);
@@ -2914,17 +2747,7 @@ mod tests {
                 payable_fingerprint_2.clone(),
             ]);
         let config = bc_from_ac_plus_earning_wallet(
-<<<<<<< HEAD
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-=======
             make_populated_accountant_config_with_defaults(),
->>>>>>> master
             make_wallet("mine"),
         );
         let system = System::new("pending payable scan");
@@ -2962,22 +2785,9 @@ mod tests {
     #[test]
     fn report_routing_service_provided_message_is_received() {
         init_test_logging();
-<<<<<<< HEAD
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-            make_wallet("hi"),
-        );
-=======
         let mut bootstrapper_config = BootstrapperConfig::default();
         bootstrapper_config.accountant_config_opt = Some(make_accountant_config_null());
         bootstrapper_config.earning_wallet = make_wallet("hi");
->>>>>>> master
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
@@ -3024,17 +2834,7 @@ mod tests {
         init_test_logging();
         let consuming_wallet = make_wallet("our consuming wallet");
         let config = bc_from_ac_plus_wallets(
-<<<<<<< HEAD
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-=======
             make_populated_accountant_config_with_defaults(),
->>>>>>> master
             consuming_wallet.clone(),
             make_wallet("our earning wallet"),
         );
@@ -3082,17 +2882,7 @@ mod tests {
         init_test_logging();
         let earning_wallet = make_wallet("our earning wallet");
         let config = bc_from_ac_plus_earning_wallet(
-<<<<<<< HEAD
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-=======
             make_populated_accountant_config_with_defaults(),
->>>>>>> master
             earning_wallet.clone(),
         );
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -3138,17 +2928,7 @@ mod tests {
     fn report_routing_service_consumed_message_is_received() {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
-<<<<<<< HEAD
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-=======
             make_populated_accountant_config_with_defaults(),
->>>>>>> master
             make_wallet("hi"),
         );
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -3195,17 +2975,7 @@ mod tests {
         init_test_logging();
         let consuming_wallet = make_wallet("the consuming wallet");
         let config = bc_from_ac_plus_wallets(
-<<<<<<< HEAD
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-=======
             make_populated_accountant_config_with_defaults(),
->>>>>>> master
             consuming_wallet.clone(),
             make_wallet("the earning wallet"),
         );
@@ -3249,17 +3019,7 @@ mod tests {
         init_test_logging();
         let earning_wallet = make_wallet("the earning wallet");
         let config = bc_from_ac_plus_earning_wallet(
-<<<<<<< HEAD
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-=======
             make_populated_accountant_config_with_defaults(),
->>>>>>> master
             earning_wallet.clone(),
         );
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -3300,17 +3060,7 @@ mod tests {
     fn report_exit_service_provided_message_is_received() {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
-<<<<<<< HEAD
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-=======
             make_populated_accountant_config_with_defaults(),
->>>>>>> master
             make_wallet("hi"),
         );
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -3359,17 +3109,7 @@ mod tests {
         init_test_logging();
         let consuming_wallet = make_wallet("my consuming wallet");
         let config = bc_from_ac_plus_wallets(
-<<<<<<< HEAD
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-=======
             make_accountant_config_null(),
->>>>>>> master
             consuming_wallet.clone(),
             make_wallet("my earning wallet"),
         );
@@ -3416,21 +3156,8 @@ mod tests {
     fn report_exit_service_provided_message_is_received_from_our_earning_wallet() {
         init_test_logging();
         let earning_wallet = make_wallet("my earning wallet");
-<<<<<<< HEAD
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-            earning_wallet.clone(),
-        );
-=======
         let config =
             bc_from_ac_plus_earning_wallet(make_accountant_config_null(), earning_wallet.clone());
->>>>>>> master
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
@@ -3484,21 +3211,8 @@ mod tests {
     #[test]
     fn report_exit_service_consumed_message_is_received() {
         init_test_logging();
-<<<<<<< HEAD
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-            make_wallet("hi"),
-        );
-=======
         let config =
             bc_from_ac_plus_earning_wallet(make_accountant_config_null(), make_wallet("hi"));
->>>>>>> master
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
@@ -3544,17 +3258,7 @@ mod tests {
         init_test_logging();
         let consuming_wallet = make_wallet("own consuming wallet");
         let config = bc_from_ac_plus_wallets(
-<<<<<<< HEAD
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-=======
             make_accountant_config_null(),
->>>>>>> master
             consuming_wallet.clone(),
             make_wallet("own earning wallet"),
         );
@@ -3597,21 +3301,8 @@ mod tests {
     fn report_exit_service_consumed_message_is_received_for_our_earning_wallet() {
         init_test_logging();
         let earning_wallet = make_wallet("own earning wallet");
-<<<<<<< HEAD
-        let config = bc_from_ac_plus_earning_wallet(
-            AccountantConfig {
-                payables_scan_interval: Duration::from_secs(100),
-                receivables_scan_interval: Duration::from_secs(100),
-                pending_payable_scan_interval: Duration::from_secs(100),
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
-            earning_wallet.clone(),
-        );
-=======
         let config =
             bc_from_ac_plus_earning_wallet(make_accountant_config_null(), earning_wallet.clone());
->>>>>>> master
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
@@ -4105,6 +3796,7 @@ mod tests {
         bootstrapper_config.accountant_config_opt = Some(AccountantConfig {
             scan_intervals: Default::default(),
             payment_thresholds: custom_payment_thresholds,
+            suppress_initial_scans: false,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         });
         let payable_thresholds_tools = PayableThresholdToolsMock::default()
@@ -4255,14 +3947,6 @@ mod tests {
             .transaction_confirmed_result(Ok(()));
         let bootstrapper_config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
-<<<<<<< HEAD
-                payables_scan_interval: Duration::from_secs(1_000_000), //we don't care about this scan
-                receivables_scan_interval: Duration::from_secs(1_000_000), //we don't care about this scan
-                pending_payable_scan_interval: Duration::from_millis(pending_payable_scan_interval),
-                when_pending_too_long_sec: (PAYMENT_CURVES.payment_suggested_after_sec + 1000)
-                    as u64,
-                suppress_initial_scans: false,
-=======
                 scan_intervals: ScanIntervals {
                     payable_scan_interval: Duration::from_secs(1_000_000), //we don't care about this scan
                     receivable_scan_interval: Duration::from_secs(1_000_000), //we don't care about this scan
@@ -4271,8 +3955,8 @@ mod tests {
                     ),
                 },
                 payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
+                suppress_initial_scans: false,
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
->>>>>>> master
             },
             make_wallet("some_wallet_address"),
         );
@@ -4817,7 +4501,6 @@ mod tests {
     }
 
     #[test]
-<<<<<<< HEAD
     fn handles_scan_error() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject = AccountantBuilder::default()
@@ -4852,10 +4535,7 @@ mod tests {
     }
 
     #[test]
-    fn jackass_unsigned_to_signed_handles_zero() {
-=======
     fn unsigned_to_signed_handles_zero() {
->>>>>>> master
         let result = unsigned_to_signed(0u64);
 
         assert_eq!(result, Ok(0i64));
