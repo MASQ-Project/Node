@@ -319,23 +319,34 @@ mod tests {
         }
     }
 
-    static mut SENDER: Option<Sender<NodeToUiMessage>> = None;
+    lazy_static! {
+        static ref SENDER: Mutex<Option<Sender<NodeToUiMessage>>> = Mutex::new(None);
+    }
 
     #[test]
     fn transmit_log_handles_overloading_by_sending_msgs_from_multiple_threads() {
         let _test_guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        let expected_msg_count = 10000;
-        let factor = match f64::sqrt(expected_msg_count as f64) {
+        let number_of_sent_msgs_in_total = 10000;
+        let factor = match f64::sqrt(number_of_sent_msgs_in_total as f64) {
             x if x.fract() == 0.0 => x as usize,
             _ => panic!("we expected a square number"),
         };
         let (tx, rx) = unbounded();
-        unsafe { SENDER = Some(tx) }
+        {
+            SENDER.lock().unwrap().replace(tx);
+        }
         let (template_before, template_after) = {
             let before = SystemTime::now();
             overloading_function(
                 move || {
-                    unsafe { SENDER.as_ref().unwrap().clone().send(create_msg()).unwrap() };
+                    SENDER
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .clone()
+                        .send(create_msg())
+                        .unwrap();
                 },
                 DoAllAtOnce { factor },
             );
@@ -343,7 +354,7 @@ mod tests {
             loop {
                 rx.recv().unwrap();
                 counter += 1;
-                if counter == expected_msg_count {
+                if counter == number_of_sent_msgs_in_total {
                     break;
                 }
             }
@@ -352,7 +363,7 @@ mod tests {
         };
         let labour_time_example = template_after.duration_since(template_before).unwrap();
         let recording_arc = Arc::new(Mutex::new(vec![]));
-        let ui_gateway = TestUiGateway::new(expected_msg_count, &recording_arc);
+        let ui_gateway = TestUiGateway::new(number_of_sent_msgs_in_total, &recording_arc);
         let system = System::new("test_system");
         let addr = ui_gateway.start();
         let recipient = addr.clone().recipient();
@@ -373,9 +384,10 @@ mod tests {
             (start, end)
         };
         let recording = recording_arc.lock().unwrap();
-        assert_eq!(recording.len(), expected_msg_count);
+        assert_eq!(recording.len(), number_of_sent_msgs_in_total);
         let measured = actual_end.duration_since(actual_start).unwrap();
-        let safe_estimation = labour_time_example * 5;
+        let safe_estimation = labour_time_example * 3;
+        eprintln!("measured {:?}, template {:?}", measured, safe_estimation);
         assert!(measured < safe_estimation) //this should pass even on slow machines
     }
 
@@ -565,7 +577,7 @@ mod tests {
         {
             LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
         }
-        let log_function = move || "This is an info.".to_string();
+        let log_function = move || "This is an info log.".to_string();
 
         logger.info(log_function);
 
@@ -576,13 +588,13 @@ mod tests {
             vec![NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiLogBroadcast {
-                    msg: "This is an info.".to_string(),
+                    msg: "This is an info log.".to_string(),
                     log_level: SerializableLogLevel::Info
                 }
                 .tmb(0)
             }]
         );
-        TestLogHandler::new().exists_no_log_containing("This is an info.");
+        TestLogHandler::new().exists_no_log_containing("This is an info log.");
     }
 
     #[test]
@@ -597,24 +609,24 @@ mod tests {
         {
             LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
         }
-        let log_function = move || "This is a warning. Be careful.".to_string();
+        let log_function = move || "This is a warn log.".to_string();
 
         logger.warning(log_function);
 
-        system.run();
+        system.run(); //shut down by matching the Actor's expected count of received messages
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
             *ui_gateway_recording,
             vec![NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiLogBroadcast {
-                    msg: "This is a warning. Be careful.".to_string(),
+                    msg: "This is a warn log.".to_string(),
                     log_level: SerializableLogLevel::Warn
                 }
                 .tmb(0)
             }]
         );
-        TestLogHandler::new().exists_log_containing("WARN: test: This is a warning. Be careful.");
+        TestLogHandler::new().exists_log_containing("WARN: test: This is a warn log.");
     }
 
     #[test]
@@ -691,11 +703,11 @@ mod tests {
             LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let logger = make_logger_at_level(Level::Warn);
-        let log_function = move || "info...4455667788".to_string();
+        let log_function = move || "info 445566".to_string();
 
         logger.info(log_function);
 
-        TestLogHandler::new().exists_no_log_containing("info...4455667788")
+        TestLogHandler::new().exists_no_log_containing("info 445566")
     }
 
     #[test]
@@ -706,11 +718,11 @@ mod tests {
             LOG_RECIPIENT_OPT.lock().unwrap().take();
         }
         let logger = make_logger_at_level(Level::Error);
-        let log_function = move || "warning...335566".to_string();
+        let log_function = move || "warning 335566".to_string();
 
         logger.warning(log_function);
 
-        TestLogHandler::new().exists_no_log_containing("warning...335566")
+        TestLogHandler::new().exists_no_log_containing("warning 335566")
     }
 
     #[test]

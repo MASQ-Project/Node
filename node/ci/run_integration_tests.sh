@@ -9,7 +9,7 @@ export RUSTFLAGS="-D warnings -Anon-snake-case"
 umask 000
 
 pushd "$CI_DIR/.."
-cargo test --release --no-fail-fast -- --nocapture --test-threads=1 _integration
+cargo test --release --no-fail-fast --features masq_lib/no_test_share -- --nocapture --test-threads=1 _integration
 BUILD_RESULT=$?
 chmod -R 777 target
 popd

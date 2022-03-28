@@ -794,17 +794,6 @@ mod tests {
     }
 
     #[test]
-    fn log_message_for_broadcast_was_correctly_generated() {
-        let subject = UiLogBroadcast {
-            msg: "Here's some log.".to_string(),
-            log_level: SerializableLogLevel::Error,
-        };
-
-        assert_eq!(subject.opcode(), "logBroadcast");
-        assert_eq!(subject.is_conversational(), false);
-    }
-
-    #[test]
     fn can_serialize_ui_financials_response() {
         let subject = UiFinancialsResponse {
             payables: vec![UiPayableAccount {

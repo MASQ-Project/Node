@@ -242,7 +242,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
 impl ActorSystemFactoryToolsReal {
     pub fn new() -> Self {
         Self {
-            log_recipient_setter: Box::new(LogRecipientSetterReal {}),
+            log_recipient_setter: Box::new(LogRecipientSetterReal::new()),
             automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
         }
     }
@@ -557,16 +557,16 @@ trait LogRecipientSetter: Send {
 
 struct LogRecipientSetterReal {}
 
+impl LogRecipientSetterReal {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 impl LogRecipientSetter for LogRecipientSetterReal {
     fn prepare_log_recipient(&self, recipient: Recipient<NodeToUiMessage>) {
         prepare_log_recipient(recipient);
     }
-}
-
-struct LogRecipientSetterNull {}
-
-impl LogRecipientSetter for LogRecipientSetterNull {
-    fn prepare_log_recipient(&self, _recipient: Recipient<NodeToUiMessage>) {}
 }
 
 #[cfg(test)]
@@ -612,7 +612,7 @@ mod tests {
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     #[cfg(feature = "log_recipient_test")]
-    use masq_lib::logger::{INITIALIZATION_COUNTER, TEST_LOG_RECIPIENT_GUARD};
+    use masq_lib::logger::INITIALIZATION_COUNTER;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -628,6 +628,18 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+
+    struct LogRecipientSetterNull {}
+
+    impl LogRecipientSetterNull {
+        pub fn new() -> Self {
+            Self {}
+        }
+    }
+
+    impl LogRecipientSetter for LogRecipientSetterNull {
+        fn prepare_log_recipient(&self, _recipient: Recipient<NodeToUiMessage>) {}
+    }
 
     #[derive(Default)]
     struct ActorSystemFactoryToolsMock {
@@ -1015,7 +1027,7 @@ mod tests {
             &Some(alias_cryptde()),
         );
         let mut tools = ActorSystemFactoryToolsReal::new();
-        tools.log_recipient_setter = Box::new(LogRecipientSetterNull {});
+        tools.log_recipient_setter = Box::new(LogRecipientSetterNull::new());
         tools.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new().make_result(
                 AutomapControlMock::new()
@@ -1082,7 +1094,7 @@ mod tests {
         };
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ActorSystemFactoryToolsReal::new();
-        subject.log_recipient_setter = Box::new(LogRecipientSetterNull {});
+        subject.log_recipient_setter = Box::new(LogRecipientSetterNull::new());
         subject.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new().make_result(
                 AutomapControlMock::new()
@@ -1224,7 +1236,7 @@ mod tests {
         };
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ActorSystemFactoryToolsReal::new();
-        subject.log_recipient_setter = Box::new(LogRecipientSetterNull {});
+        subject.log_recipient_setter = Box::new(LogRecipientSetterNull::new());
         subject.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new()
                 .make_params(&make_params_arc)
@@ -1284,7 +1296,7 @@ mod tests {
         };
         let system = System::new("MASQNode");
         let mut subject = ActorSystemFactoryToolsReal::new();
-        subject.log_recipient_setter = Box::new(LogRecipientSetterNull {});
+        subject.log_recipient_setter = Box::new(LogRecipientSetterNull::new());
         subject.automap_control_factory = Box::new(AutomapControlFactoryMock::new());
 
         let _ = subject.prepare_initial_messages(
@@ -1450,7 +1462,7 @@ mod tests {
             node_descriptor: Default::default(),
         };
         let mut subject = ActorSystemFactoryToolsReal::new();
-        subject.log_recipient_setter = Box::new(LogRecipientSetterNull {});
+        subject.log_recipient_setter = Box::new(LogRecipientSetterNull::new());
         let system = System::new("MASQNode");
 
         let _ = subject.prepare_initial_messages(
