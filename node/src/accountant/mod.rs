@@ -1352,7 +1352,7 @@ mod tests {
     }
 
     #[test]
-    fn total_paid_payable_for_financial_statistics_starts_at_zero_and_is_repeatedly_updated() {
+    fn total_paid_payable_starts_at_zero_and_gets_increasingly_bigger() {
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let fingerprint = PendingPayableFingerprint {
             rowid_opt: Some(5),
@@ -1374,7 +1374,6 @@ mod tests {
             .payable_dao(payable_dao)
             .build();
         assert_eq!(subject.financial_statistics.total_paid_payable, 0);
-        //to demonstrate that we will perform addition and not overwrite the value
         subject.financial_statistics.total_paid_payable += 1111;
         let msg = ConfirmPendingTransaction {
             pending_payable_fingerprint: fingerprint.clone(),
@@ -1388,7 +1387,7 @@ mod tests {
     }
 
     #[test]
-    fn total_paid_receivable_for_financial_statistics_starts_at_zero_and_is_repeatedly_updated() {
+    fn total_paid_receivable_starts_at_zero_and_gets_increasingly_bigger() {
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_parameters(&more_money_received_params_arc)
@@ -1397,7 +1396,6 @@ mod tests {
             .receivable_dao(receivable_dao)
             .build();
         assert_eq!(subject.financial_statistics.total_paid_receivable, 0);
-        //to demonstrate that we will perform addition and not overwrite the value
         subject.financial_statistics.total_paid_receivable += 2222;
         let receivables = vec![
             PaidReceivable {

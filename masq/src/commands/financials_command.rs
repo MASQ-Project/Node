@@ -27,24 +27,25 @@ impl Command for FinancialsCommand {
         match output {
             Ok(response) => {
                 let stdout = context.stdout();
+                short_writeln!(stdout, "Financial status totals in Gwei\n");
                 dump_parameter_line(
                     stdout,
-                    "Total unpaid and pending payable:",
+                    "Unpaid and pending payable:",
                     &response.total_unpaid_and_pending_payable.to_string(),
                 );
                 dump_parameter_line(
                     stdout,
-                    "Total paid payable:",
+                    "Paid payable:",
                     &response.total_paid_payable.to_string(),
                 );
                 dump_parameter_line(
                     stdout,
-                    "Total unpaid receivable:",
+                    "Unpaid receivable:",
                     &response.total_unpaid_receivable.to_string(),
                 );
                 dump_parameter_line(
                     stdout,
-                    "Total paid receivable:",
+                    "Paid receivable:",
                     &response.total_paid_receivable.to_string(),
                 );
                 Ok(())
@@ -134,10 +135,12 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "\
-                Total unpaid and pending payable: 116688\n\
-                Total paid payable:               55555\n\
-                Total unpaid receivable:          221144\n\
-                Total paid receivable:            66555\n"
+                Financial status totals in Gwei\n\
+                \n\
+                Unpaid and pending payable:       116688\n\
+                Paid payable:                     55555\n\
+                Unpaid receivable:                221144\n\
+                Paid receivable:                  66555\n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }

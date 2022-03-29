@@ -569,8 +569,9 @@ field will be null or absent.
 ##### Description:
 Requests financial statistics from the Node.
 
-This will report back information about Node's performance, that is records of services having been run over time
-(provided and also consumed); put as some kind of money value. 
+This request will report back information about a Node's historical financial operations. This will include both
+services ordered from other Nodes and services provided for other Nodes, represented as monetary values owed and
+paid to and from this Node's wallets.
 
 #### `financials`
 ##### Direction: Response
@@ -580,37 +581,37 @@ This will report back information about Node's performance, that is records of s
     
 "payload": {
     "totalUnpaidAndPendingPayable": <integer>
-    "totalPaidPayable": <positive integer>
+    "totalPaidPayable": <nonnegative integer>
     "totalUnpaidReceivable": <integer>
-    "totalPaidReceivable": <positive integer>
+    "totalPaidReceivable": <nonnegative integer>
 }
 ```
 ##### Description:
-Brings requested values of financial statistics of the running Node.
+Contains requested values of financial statistics of the running Node.
 
-`totalUnpaidAndPendingPayable` is a cumulative amount of Gwei from all accounts that were established in the DB on
-behalf of the Node's creditors; referred as payable, that is the base of our payments to other Nodes. The fact there
-is an account in the DB may mean two situations, either the debt is still bulking up to reach the level when it is
-supposed to be settled as a qualified debt (with enough significance), or it also may mean a record with an attached
-pending transaction with the goal to finally settle a qualified debt. That's why this values technically composed of
-two money amounts from two different states of the debts. An existence of a record in this database table clearly
-means the process of debt settlement has not completed yet either way and thus the blockchain certainly hasn't been
-modified up to this time.
-                  
-`totalPaidPayable`, unlike the previous, this is a sum of each paid (or settled) amount of the token that our
-Node has sent to our creditors, and as well, implying that the transactions have been confirmed by now. Values in Gwei 
-tracked since the startup (should be changed later to really give all time values regardless Node's restarts). 
+`totalUnpaidAndPendingPayable` is a cumulative amount of Gwei referring to the `payable` and `pending_payable` tables
+in the database, owed money over possibly several accounts set up for the Node's creditors, either with a payment being 
+underway or waiting until it full qualify and comes to be paid. This is why these values technically compose of
+two money amounts derived from two different books of debts. Because the sub amount representing pending payable can
+still potentially end up as a failure we cannot include it into an amount of paid payable yet, not until the transaction
+is added to the blockchain, and we can confirm that on our end. While we pay our debts, this total decreases in 
+its value but raises other time.
 
-`totalUnpaidReceivable`, this is shallowly similar to `totalUnpaidAndPendingPayable`, the values making the sum here
-come from the DB table put up for receivable; this table contains accounts of different Nodes that have drawn the Node's
-services but so far without paying for that. We take track of the amount of work we gave, put in money, Gwei;
-here we sum them up to get cumulative active debt from all our debtors. When a Node pays us to redeem its debt
-the respective account takes a subtracting operation of the owed balance by the paid amount, this also leads to a decrease
-in this total value to be displayed.  
+`totalPaidPayable`, unlike the previous, this is a sum of paid amounts of the token that our Node has sent to our
+creditors and the transactions must have been confirmed by now. This parameter displays as a value in Gwei
+tracked since the startup (we plan a change to keep track of all time values regardless the Node's nonoperational
+periods). 
 
-`totalPaidReceivable`: this number of Gwei means a total of all transactions made on our account and that we detected
-as confirmed on the blockchain. Currently, we compute the value since the startup only, but we plan to enhance it to work
-even over multiple starts and shutdowns as an all-time total.
+`totalUnpaidReceivable`, this is shallowly similar to `totalUnpaidAndPendingPayable`, the values making the sum
+come from the `receivable` table in the database. This table collects accounts for Nodes that have drawn our Node's
+services but haven't paid for them yet. The value is represented in Gwei. When a Node pays us to redeem its debt
+its respective account faces a subtracting operation of the payment out of the cumulative owed balance, this also leads
+to a decrease in this total to be displayed.  
+
+`totalPaidReceivable`: this number of Gwei means a total of all transactions made on our account to other Nodes
+and that we've already detected as confirmed on the blockchain. Currently, we compute the value since the startup only
+and it gets zeroed with every new startup (we plan a change to keep track of all time values regardless the Node's
+nonoperational periods).
 
 #### `generateWallets`
 ##### Direction: Request
