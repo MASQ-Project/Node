@@ -821,7 +821,7 @@ mod tests {
                                           ScanType::Receivables, Box::new (msg));
 
         TestLogHandler::new().exists_log_containing(
-            "WARN: BlockchainBridge: Attempted to retrieve \
+            "WARN: BlockchainBridge: Tried to retrieve \
          received payments but failed: QueryFailed(\"we have no luck\")",
         );
     }

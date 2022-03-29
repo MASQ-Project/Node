@@ -1251,12 +1251,12 @@ mod tests {
                     .to_string(),
                 Default,
             ),
-            ("scans", "on", Default),
             (
                 "scan-intervals",
                 &DEFAULT_SCAN_INTERVALS.to_string(),
                 Default,
             ),
+            ("scans", "on", Default),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1301,8 +1301,8 @@ mod tests {
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
+            ("scan-intervals","150|150|150",Set),
             ("scans", "off", Set),
-            ("scan-intervals","150|150|150",Set)
         ]);
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
@@ -1330,8 +1330,8 @@ mod tests {
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
+            ("scan-intervals","150|150|150",Set),
             ("scans", "off", Set),
-            ("scan-intervals","150|150|150",Set)
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1369,8 +1369,8 @@ mod tests {
             ("rate-pack","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga"),
+            ("scan-intervals","140|130|150"),
             ("scans", "off"),
-            ("scan-intervals","140|130|150")
         ].into_iter()
             .map (|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
@@ -1402,8 +1402,8 @@ mod tests {
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
+            ("scan-intervals","140|130|150",Set),
             ("scans", "off", Set),
-            ("scan-intervals","140|130|150",Set)
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1473,8 +1473,8 @@ mod tests {
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
+            ("scan-intervals","133|133|111",Configured),
             ("scans", "off", Configured),
-            ("scan-intervals","133|133|111",Configured)
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1642,8 +1642,8 @@ mod tests {
                     .to_string(),
                 Default,
             ),
-            ("scans", "off", Configured),
             ("scan-intervals", "555|555|555", Configured),
+            ("scans", "off", Configured),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1708,8 +1708,8 @@ mod tests {
             "rate-pack",
             #[cfg(not(target_os = "windows"))]
             "real-user",
-            "scans",
             "scan-intervals",
+            "scans",
         ]
         .into_iter()
         .map(|name| UiSetupRequestValue::clear(name))
@@ -1746,9 +1746,9 @@ mod tests {
             ("rate-pack", "10|30|13|28", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "6666:6666:agoob", Set),
-            ("scans", "off", Set),
             ("scan-intervals", "111|111|111", Set),
-        ]);
+            ("scans", "off", Set),
+            ]);
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
 
@@ -1779,8 +1779,8 @@ mod tests {
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
-            ("scans", "off", Configured),
             ("scan-intervals","150|150|155",Configured),
+            ("scans", "off", Configured),
         ]
         .into_iter()
         .map(|(name, value, status)| {

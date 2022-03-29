@@ -797,54 +797,6 @@ mod tests {
     }
 
     #[test]
-    fn privileged_configuration_handles_scans_off() {
-        running_test();
-        let subject = NodeConfiguratorStandardPrivileged::new();
-        let args = ["program", "--ip", "1.2.3.4", "--scans", "off"];
-
-        let bootstrapper_config = subject
-            .configure(&make_simplified_multi_config(args))
-            .unwrap();
-
-        assert_eq!(
-            bootstrapper_config.accountant_config_opt.unwrap().suppress_initial_scans,
-            true
-        );
-    }
-
-    #[test]
-    fn privileged_configuration_handles_scans_on() {
-        running_test();
-        let subject = NodeConfiguratorStandardPrivileged::new();
-        let args = ["program", "--ip", "1.2.3.4", "--scans", "on"];
-
-        let bootstrapper_config = subject
-            .configure(&make_simplified_multi_config(args))
-            .unwrap();
-
-        assert_eq!(
-            bootstrapper_config.accountant_config_opt.unwrap().suppress_initial_scans,
-            false
-        );
-    }
-
-    #[test]
-    fn privileged_configuration_defaults_scans() {
-        running_test();
-        let subject = NodeConfiguratorStandardPrivileged::new();
-        let args = ["program", "--ip", "1.2.3.4"];
-
-        let bootstrapper_config = subject
-            .configure(&make_simplified_multi_config(args))
-            .unwrap();
-
-        assert_eq!(
-            bootstrapper_config.accountant_config_opt.unwrap().suppress_initial_scans,
-            false
-        );
-    }
-
-    #[test]
     fn unprivileged_configuration_gets_parameter_gas_price() {
         running_test();
         let _clap_guard = ClapGuard::new();

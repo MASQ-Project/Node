@@ -2338,6 +2338,72 @@ mod tests {
         assert_eq!(result, Ok(IpAddr::from_str("4.3.2.1").unwrap()));
     }
 
+    #[test]
+    fn unprivileged_configuration_handles_scans_off() {
+        running_test();
+        let subject = UnprivilegedParseArgsConfigurationDaoReal{};
+        let args = ["--ip", "1.2.3.4", "--scans", "off"];
+        let mut bootstrapper_config = BootstrapperConfig::new();
+
+        subject
+            .unprivileged_parse_args(
+                &make_simplified_multi_config(args),
+                &mut bootstrapper_config,
+                &mut configure_default_persistent_config(ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK),
+                &Logger::new("test"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            bootstrapper_config.accountant_config_opt.unwrap().suppress_initial_scans,
+            true
+        );
+    }
+
+    #[test]
+    fn unprivileged_configuration_handles_scans_on() {
+        running_test();
+        let subject = UnprivilegedParseArgsConfigurationDaoReal{};
+        let args = ["--ip", "1.2.3.4", "--scans", "on"];
+        let mut bootstrapper_config = BootstrapperConfig::new();
+
+        subject
+            .unprivileged_parse_args(
+                &make_simplified_multi_config(args),
+                &mut bootstrapper_config,
+                &mut configure_default_persistent_config(ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK),
+                &Logger::new("test"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            bootstrapper_config.accountant_config_opt.unwrap().suppress_initial_scans,
+            false
+        );
+    }
+
+    #[test]
+    fn unprivileged_configuration_defaults_scans() {
+        running_test();
+        let subject = UnprivilegedParseArgsConfigurationDaoReal{};
+        let args = ["--ip", "1.2.3.4"];
+        let mut bootstrapper_config = BootstrapperConfig::new();
+
+        subject
+            .unprivileged_parse_args(
+                &make_simplified_multi_config(args),
+                &mut bootstrapper_config,
+                &mut configure_default_persistent_config(ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK),
+                &Logger::new("test"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            bootstrapper_config.accountant_config_opt.unwrap().suppress_initial_scans,
+            false
+        );
+    }
+
     fn make_persistent_config(
         db_password_opt: Option<&str>,
         consuming_wallet_private_key_opt: Option<&str>,
