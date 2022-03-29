@@ -740,6 +740,27 @@ its database, in encrypted form, because it needs to withdraw money from the wal
 will not retain it; but you'll need it to withdraw earned funds from the wallet, especially if you didn't request or
 retain a mnemonic phrase.
 
+#### `logBroadcast`
+##### Direction: Broadcast
+##### Correspondent: Node
+##### Layout:
+```
+"msg": <String>,
+"logLevel": <String>
+```
+##### Description:
+This broadcast is intended to give the user immediate information about various events in the Node. It is a reaction
+that follows after the Node's execution flow hits a log with severity `Info`, `Warn` or `Error`.
+Every such situation will produce this broadcast, while standard logging to the log file remains unchanged
+and happens simultaneously. (Plans are to make different messages to print to the file and prettier and user-friendlier
+meant for the UI, but more preparation must go before we can do that). 
+The level of logs constraining the output from messages of `Debug` and `Trace` logs is now steadily given by the `Info`
+level. However, we may consider make it adjustable later on.
+
+`msg` is the message describing a passed event. 
+
+`logLevel` indicates what severity the event had. It can only be a string value from this list: `Info`, `Warn`, `Error`.
+
 #### `newPassword`
 ##### Direction: Broadcast
 ##### Correspondent: Node
