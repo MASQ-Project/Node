@@ -89,7 +89,11 @@ pub struct RetrievedTransactions {
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
 
-    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Result<RetrievedTransactions, BlockchainError>;
+    fn retrieve_transactions(
+        &self,
+        start_block: u64,
+        recipient: &Wallet,
+    ) -> Result<RetrievedTransactions, BlockchainError>;
 
     fn send_transaction(
         &self,
@@ -143,7 +147,11 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         self.chain.rec().contract
     }
 
-    fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> Result<RetrievedTransactions, BlockchainError> {
+    fn retrieve_transactions(
+        &self,
+        _start_block: u64,
+        _recipient: &Wallet,
+    ) -> Result<RetrievedTransactions, BlockchainError> {
         let msg = "Can't retrieve transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
         Err(BlockchainError::QueryFailed(msg))
@@ -222,7 +230,11 @@ where
         self.chain.rec().contract
     }
 
-    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Result<RetrievedTransactions, BlockchainError> {
+    fn retrieve_transactions(
+        &self,
+        start_block: u64,
+        recipient: &Wallet,
+    ) -> Result<RetrievedTransactions, BlockchainError> {
         debug!(
             self.logger,
             "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",

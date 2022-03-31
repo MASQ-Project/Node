@@ -479,7 +479,7 @@ fn configure_accountant_config(
     config: &mut BootstrapperConfig,
     persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
-     let suppress_initial_scans =
+    let suppress_initial_scans =
         value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
 
     let accountant_config = AccountantConfig {
@@ -2341,7 +2341,7 @@ mod tests {
     #[test]
     fn unprivileged_configuration_handles_scans_off() {
         running_test();
-        let subject = UnprivilegedParseArgsConfigurationDaoReal{};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
         let args = ["--ip", "1.2.3.4", "--scans", "off"];
         let mut bootstrapper_config = BootstrapperConfig::new();
 
@@ -2349,13 +2349,18 @@ mod tests {
             .unprivileged_parse_args(
                 &make_simplified_multi_config(args),
                 &mut bootstrapper_config,
-                &mut configure_default_persistent_config(ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK),
+                &mut configure_default_persistent_config(
+                    ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK,
+                ),
                 &Logger::new("test"),
             )
             .unwrap();
 
         assert_eq!(
-            bootstrapper_config.accountant_config_opt.unwrap().suppress_initial_scans,
+            bootstrapper_config
+                .accountant_config_opt
+                .unwrap()
+                .suppress_initial_scans,
             true
         );
     }
@@ -2363,7 +2368,7 @@ mod tests {
     #[test]
     fn unprivileged_configuration_handles_scans_on() {
         running_test();
-        let subject = UnprivilegedParseArgsConfigurationDaoReal{};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
         let args = ["--ip", "1.2.3.4", "--scans", "on"];
         let mut bootstrapper_config = BootstrapperConfig::new();
 
@@ -2371,13 +2376,18 @@ mod tests {
             .unprivileged_parse_args(
                 &make_simplified_multi_config(args),
                 &mut bootstrapper_config,
-                &mut configure_default_persistent_config(ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK),
+                &mut configure_default_persistent_config(
+                    ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK,
+                ),
                 &Logger::new("test"),
             )
             .unwrap();
 
         assert_eq!(
-            bootstrapper_config.accountant_config_opt.unwrap().suppress_initial_scans,
+            bootstrapper_config
+                .accountant_config_opt
+                .unwrap()
+                .suppress_initial_scans,
             false
         );
     }
@@ -2385,7 +2395,7 @@ mod tests {
     #[test]
     fn unprivileged_configuration_defaults_scans() {
         running_test();
-        let subject = UnprivilegedParseArgsConfigurationDaoReal{};
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
         let args = ["--ip", "1.2.3.4"];
         let mut bootstrapper_config = BootstrapperConfig::new();
 
@@ -2393,13 +2403,18 @@ mod tests {
             .unprivileged_parse_args(
                 &make_simplified_multi_config(args),
                 &mut bootstrapper_config,
-                &mut configure_default_persistent_config(ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK),
+                &mut configure_default_persistent_config(
+                    ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK,
+                ),
                 &Logger::new("test"),
             )
             .unwrap();
 
         assert_eq!(
-            bootstrapper_config.accountant_config_opt.unwrap().suppress_initial_scans,
+            bootstrapper_config
+                .accountant_config_opt
+                .unwrap()
+                .suppress_initial_scans,
             false
         );
     }

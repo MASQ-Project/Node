@@ -97,7 +97,7 @@ impl ClientListenerThread {
                     .recv_message(&mut self.listener_half.stream)
                 {
                     Ok(OwnedMessage::Text(string)) => {
-eprintln! ("Received JSON:\n------\n{}\n------\n", string);
+                        // eprintln!("Received JSON:\n------\n{}\n------\n", string);
                         match UiTrafficConverter::new_unmarshal(&string) {
                             Ok(body) => match self.message_body_tx.send(Ok(body.clone())) {
                                 Ok(_) => (),

@@ -13,13 +13,16 @@ use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::H256;
 use jsonrpc_core as rpc;
 use lazy_static::lazy_static;
-use web3::{RequestId, Transport};
-use web3::Error as Web3Error;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
+use web3::Error as Web3Error;
+use web3::{RequestId, Transport};
 
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::blockchain::blockchain_interface::{Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError, Nonce, Receipt, REQUESTS_IN_PARALLEL, RetrievedTransactions, SendTransactionInputs};
+use crate::blockchain::blockchain_interface::{
+    Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
+    Nonce, Receipt, RetrievedTransactions, SendTransactionInputs, REQUESTS_IN_PARALLEL,
+};
 use crate::blockchain::tool_wrappers::SendTransactionToolsWrapper;
 use crate::sub_lib::wallet::Wallet;
 
@@ -67,7 +70,10 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn retrieve_transactions_result(self, result: Result<RetrievedTransactions, BlockchainError>) -> Self {
+    pub fn retrieve_transactions_result(
+        self,
+        result: Result<RetrievedTransactions, BlockchainError>,
+    ) -> Self {
         self.retrieve_transactions_results.borrow_mut().push(result);
         self
     }
@@ -131,7 +137,11 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.contract_address_results.borrow_mut().remove(0)
     }
 
-    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Result<RetrievedTransactions, BlockchainError> {
+    fn retrieve_transactions(
+        &self,
+        start_block: u64,
+        recipient: &Wallet,
+    ) -> Result<RetrievedTransactions, BlockchainError> {
         self.retrieve_transactions_parameters
             .lock()
             .unwrap()

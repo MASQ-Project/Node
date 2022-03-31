@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use default_net::get_default_interface;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream};
 use std::thread;
 use std::thread::JoinHandle;
-use default_net::get_default_interface;
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
@@ -85,10 +85,16 @@ impl PortExposer {
                 }
                 PortPair {
                     loopback: str::parse::<u16>(port_strs[0]).unwrap_or_else(|e| {
-                        panic!("Couldn't convert '{}' to a port number: {:?}", port_strs[0], e)
+                        panic!(
+                            "Couldn't convert '{}' to a port number: {:?}",
+                            port_strs[0], e
+                        )
                     }),
                     nic: str::parse::<u16>(port_strs[1]).unwrap_or_else(|e| {
-                        panic!("Couldn't convert '{}' to a port number: {:?}", port_strs[1], e)
+                        panic!(
+                            "Couldn't convert '{}' to a port number: {:?}",
+                            port_strs[1], e
+                        )
                     }),
                 }
             })
@@ -100,9 +106,17 @@ impl PortExposer {
             "Opening listener on port {} to connect to {}",
             port_pair.nic, port_pair.loopback
         );
-        let default_interface = get_default_interface().expect("No default interface found").ipv4[0].addr;
+        let default_interface = get_default_interface()
+            .expect("No default interface found")
+            .ipv4[0]
+            .addr;
         let listener = TcpListener::bind(SocketAddrV4::new(default_interface, port_pair.nic))
-            .unwrap_or_else(|e| panic!("Couldn't bind TcpListener to {}:{}: {:?}", default_interface, port_pair.nic, e));
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Couldn't bind TcpListener to {}:{}: {:?}",
+                    default_interface, port_pair.nic, e
+                )
+            });
         eprintln!(
             "Opened listener on port {} to connect to {}",
             port_pair.nic, port_pair.loopback
@@ -118,16 +132,21 @@ impl PortExposer {
             .listener
             .local_addr()
             .expect("No local address for listener");
-        let (outside, peer_addr) = lap
-            .listener
-            .accept()
-            .unwrap_or_else(|e| panic!("Couldn't accept incoming connection on {}: {:?}", local_addr, e));
+        let (outside, peer_addr) = lap.listener.accept().unwrap_or_else(|e| {
+            panic!(
+                "Couldn't accept incoming connection on {}: {:?}",
+                local_addr, e
+            )
+        });
         eprintln!("Accepted connection from {} on {}", peer_addr, local_addr);
         let target = SocketAddrV4::new(Ipv4Addr::LOCALHOST, lap.loopback_port);
         match TcpStream::connect(target) {
             Ok(inside) => Ok((outside, inside)),
             Err(e) => {
-                eprintln!("Couldn't connect from {} to {}: {:?}", local_addr, target, e);
+                eprintln!(
+                    "Couldn't connect from {} to {}: {:?}",
+                    local_addr, target, e
+                );
                 outside
                     .shutdown(Shutdown::Both)
                     .expect("Couldn't shut down incoming connection");

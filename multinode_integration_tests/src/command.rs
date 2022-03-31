@@ -48,9 +48,8 @@ impl Command {
         let stdout = self.stdout_as_string();
         let stderr = self.stderr_as_string();
         if stdout.len() > stderr.len() {
-            format! ("{} (stdout: '{}')", stderr, stdout)
-        }
-        else {
+            format!("{} (stdout: '{}')", stderr, stdout)
+        } else {
             stderr
         }
     }

@@ -3045,7 +3045,11 @@ mod tests {
     fn scans_computed_default() {
         let subject = Scans {};
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &PersistentConfigurationMock::new(), &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &PersistentConfigurationMock::new(),
+            &None,
+        );
 
         assert_eq!(result, Some(("on".to_string(), Default)));
     }

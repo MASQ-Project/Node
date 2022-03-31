@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{Command, CommandError, transaction};
+use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use std::fmt::Debug;
@@ -30,13 +30,16 @@ pub fn scan_subcommand() -> App<'static, 'static> {
 impl Command for ScanCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiScanRequest {
-            scan_type: match ScanType::from_str (&self.name) {
+            scan_type: match ScanType::from_str(&self.name) {
                 Ok(st) => st,
-                Err(s) => panic! ("clap schema does not restrict scan type properly: {}", s),
+                Err(s) => panic!("clap schema does not restrict scan type properly: {}", s),
             },
         };
-        let result =
-            transaction::<UiScanRequest, UiScanResponse> (input, context, SCAN_COMMAND_TIMEOUT_MILLIS);
+        let result = transaction::<UiScanRequest, UiScanResponse>(
+            input,
+            context,
+            SCAN_COMMAND_TIMEOUT_MILLIS,
+        );
         match result {
             Ok(_response) => Ok(()),
             Err(e) => Err(e),
@@ -71,8 +74,7 @@ mod tests {
     #[test]
     fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
-        let mut context = CommandContextMock::new()
-            .transact_result(Ok(UiScanResponse{}.tmb(0)));
+        let mut context = CommandContextMock::new().transact_result(Ok(UiScanResponse {}.tmb(0)));
         let subject = factory
             .make(&["scan".to_string(), "payables".to_string()])
             .unwrap();
@@ -110,9 +112,7 @@ mod tests {
         assert_eq!(
             *transact_params,
             vec![(
-                UiScanRequest {
-                    scan_type
-                }.tmb(0),
+                UiScanRequest { scan_type }.tmb(0),
                 SCAN_COMMAND_TIMEOUT_MILLIS
             )]
         )

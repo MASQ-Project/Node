@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, ScanError, SentPayable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
@@ -10,7 +11,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
-use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, ScanError, SentPayable};
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");

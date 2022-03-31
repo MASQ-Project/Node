@@ -6,7 +6,9 @@ use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::masq_node_client::MASQNodeClient;
 use crate::masq_node_server::MASQNodeServer;
+use crate::masq_node_ui_client::MASQNodeUIClient;
 use bip39::{Language, Mnemonic, Seed};
+use log::Level;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
@@ -32,8 +34,6 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::thread;
 use std::time::Duration;
-use log::Level;
-use crate::masq_node_ui_client::MASQNodeUIClient;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
 
@@ -224,18 +224,25 @@ impl NodeStartupConfig {
 
         if let Some(ref scans) = self.scans_opt {
             args.push("--scans".to_string());
-            args.push(if *scans {"on".to_string()} else {"off".to_string()});
+            args.push(if *scans {
+                "on".to_string()
+            } else {
+                "off".to_string()
+            });
         }
 
         if let Some(ref level) = self.log_level_opt {
             args.push("--log-level".to_string());
-            args.push(match level {
-                Level::Error => "error",
-                Level::Warn => "warn",
-                Level::Info => "info",
-                Level::Debug => "debug",
-                Level::Trace => "trace",
-            }.to_string());
+            args.push(
+                match level {
+                    Level::Error => "error",
+                    Level::Warn => "warn",
+                    Level::Info => "info",
+                    Level::Debug => "debug",
+                    Level::Trace => "trace",
+                }
+                .to_string(),
+            );
         }
 
         if let Some(ref ui_port) = self.ui_port_opt {
@@ -423,31 +430,29 @@ impl NodeStartupConfigBuilder {
         builder.neighborhood_mode = "zero-hop".to_string();
         builder.ip_info = LocalIpInfo::ZeroHop;
         builder.rate_pack = ZERO_RATE_PACK.clone();
-        return builder
+        return builder;
     }
 
     pub fn consume_only() -> Self {
         let mut builder = Self::standard();
         builder.neighborhood_mode = "consume-only".to_string();
-        builder.earning_wallet_info = EarningWalletInfo::Address(
-            "0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string(),
-        );
+        builder.earning_wallet_info =
+            EarningWalletInfo::Address("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string());
         builder.consuming_wallet_info = ConsumingWalletInfo::PrivateKey(
             "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
         );
-        return builder
+        return builder;
     }
 
     pub fn originate_only() -> Self {
         let mut builder = Self::standard();
         builder.neighborhood_mode = "originate-only".to_string();
-        builder.earning_wallet_info = EarningWalletInfo::Address(
-            "0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string(),
-        );
+        builder.earning_wallet_info =
+            EarningWalletInfo::Address("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string());
         builder.consuming_wallet_info = ConsumingWalletInfo::PrivateKey(
             "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
         );
-        return builder
+        return builder;
     }
 
     pub fn standard() -> Self {
@@ -607,17 +612,17 @@ impl NodeStartupConfigBuilder {
     }
 
     pub fn scans(mut self, scans: bool) -> Self {
-        self.scans_opt = Some (scans);
+        self.scans_opt = Some(scans);
         self
     }
 
     pub fn log_level(mut self, level: Level) -> Self {
-        self.log_level_opt = Some (level);
+        self.log_level_opt = Some(level);
         self
     }
 
     pub fn ui_port(mut self, ui_port: u16) -> Self {
-        self.ui_port_opt = Some (ui_port);
+        self.ui_port_opt = Some(ui_port);
         self
     }
 
@@ -801,10 +806,15 @@ impl MASQRealNode {
         docker_run_fn(&root_dir, ip_addr, &name).expect("docker run");
 
         let ui_port = real_startup_config.ui_port_opt.unwrap_or(DEFAULT_UI_PORT);
-        let ui_port_pair = format! ("{}:{}", ui_port, ui_port);
+        let ui_port_pair = format!("{}:{}", ui_port, ui_port);
         Self::exec_command_on_container_and_detach(
             &name,
-            vec!["/usr/local/bin/port_exposer", "80:8080", "443:8443", &ui_port_pair],
+            vec![
+                "/usr/local/bin/port_exposer",
+                "80:8080",
+                "443:8443",
+                &ui_port_pair,
+            ],
         )
         .expect("port_exposer wouldn't run");
         match &real_startup_config.firewall_opt {
@@ -921,7 +931,7 @@ impl MASQRealNode {
     }
 
     pub fn make_ui(&self, port: u16) -> MASQNodeUIClient {
-        MASQNodeUIClient::new (SocketAddr::new (self.guts.container_ip, port))
+        MASQNodeUIClient::new(SocketAddr::new(self.guts.container_ip, port))
     }
 
     fn establish_wallet_info(name: &str, startup_config: &NodeStartupConfig) {
@@ -1353,9 +1363,9 @@ mod tests {
             blockchain_service_url_opt: None,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
             db_password_opt: Some("booga".to_string()),
-            scans_opt: Some (false),
-            log_level_opt: Some (Level::Info),
-            ui_port_opt: Some (4321),
+            scans_opt: Some(false),
+            log_level_opt: Some(Level::Info),
+            ui_port_opt: Some(4321),
         };
         let neighborhood_mode = "standard".to_string();
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -1415,8 +1425,8 @@ mod tests {
             Some(PublicKey::new(&[1, 2, 3, 4]))
         );
         assert_eq!(result.db_password_opt, Some("booga".to_string()));
-        assert_eq!(result.scans_opt, Some (false));
-        assert_eq!(result.log_level_opt, Some (Level::Info));
+        assert_eq!(result.scans_opt, Some(false));
+        assert_eq!(result.log_level_opt, Some(Level::Info));
         assert_eq!(result.ui_port_opt, Some(4321));
         assert_eq!(
             result.payment_thresholds,

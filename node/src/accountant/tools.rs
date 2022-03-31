@@ -1,7 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub(in crate::accountant) mod accountant_tools {
-    use crate::accountant::{Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables, ScanForReceivables};
+    use crate::accountant::{
+        Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction,
+        RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
+        ScanForReceivables,
+    };
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use actix::{AsyncContext, Context, Recipient};
     #[cfg(test)]
@@ -13,7 +17,9 @@ pub(in crate::accountant) mod accountant_tools {
             let closure =
                 Box::new(|msg: $message_type, interval: Duration| $ctx.notify_later(msg, interval));
             let _ = $accountant.tools.$notify_later_handle_field.notify_later(
-                $message_type {response_skeleton_opt: None},
+                $message_type {
+                    response_skeleton_opt: None,
+                },
                 $scan_interval,
                 closure,
             );
@@ -55,7 +61,10 @@ pub(in crate::accountant) mod accountant_tools {
                 ctx,
                 ScanForPendingPayables,
                 notify_later_scan_for_pending_payable,
-                accountant.config.scan_intervals.pending_payable_scan_interval
+                accountant
+                    .config
+                    .scan_intervals
+                    .pending_payable_scan_interval
             );
         }
         as_any_impl!();
@@ -110,7 +119,8 @@ pub(in crate::accountant) mod accountant_tools {
     pub struct NullScanner;
 
     impl Scanner for NullScanner {
-        fn scan(&self, _accountant: &Accountant, _response_skeleton_opt: Option<ResponseSkeleton>) {}
+        fn scan(&self, _accountant: &Accountant, _response_skeleton_opt: Option<ResponseSkeleton>) {
+        }
         fn notify_later_assertable(
             &self,
             _accountant: &Accountant,

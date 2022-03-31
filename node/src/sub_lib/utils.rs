@@ -17,7 +17,7 @@ static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::ConnectionAborted,
     ErrorKind::ConnectionReset,
     ErrorKind::ConnectionRefused,
-    ErrorKind::TimedOut
+    ErrorKind::TimedOut,
 ];
 
 pub static NODE_MAILBOX_CAPACITY: usize = 0; // 0 for unbound

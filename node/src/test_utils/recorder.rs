@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
-    ReceivedPayments, RequestTransactionReceipts, ScanForPayables, ScanForReceivables,
-    ScanForPendingPayables, SentPayable, ScanError
+    ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
+    ScanForPendingPayables, ScanForReceivables, SentPayable,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;

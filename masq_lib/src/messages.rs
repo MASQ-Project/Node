@@ -688,7 +688,7 @@ impl FromStr for ScanType {
             s if &s.to_lowercase() == "payables" => Ok(ScanType::Payables),
             s if &s.to_lowercase() == "receivables" => Ok(ScanType::Receivables),
             s if &s.to_lowercase() == "pendingpayables" => Ok(ScanType::PendingPayables),
-            s => Err (format! ("Unrecognized ScanType: '{}'", s))
+            s => Err(format!("Unrecognized ScanType: '{}'", s)),
         }
     }
 }
@@ -1105,24 +1105,30 @@ mod tests {
             "PendingPayables",
             "pENDINGpAYABLES",
         ]
-            .into_iter ()
-            .map (|s| ScanType::from_str (s).unwrap())
-            .collect ();
+        .into_iter()
+        .map(|s| ScanType::from_str(s).unwrap())
+        .collect();
 
-        assert_eq! (result, vec![
-            ScanType::Payables,
-            ScanType::Payables,
-            ScanType::Receivables,
-            ScanType::Receivables,
-            ScanType::PendingPayables,
-            ScanType::PendingPayables,
-        ])
+        assert_eq!(
+            result,
+            vec![
+                ScanType::Payables,
+                ScanType::Payables,
+                ScanType::Receivables,
+                ScanType::Receivables,
+                ScanType::PendingPayables,
+                ScanType::PendingPayables,
+            ]
+        )
     }
 
     #[test]
     fn scan_type_from_string_error() {
-        let result = ScanType::from_str ("unrecognized");
+        let result = ScanType::from_str("unrecognized");
 
-        assert_eq! (result, Err ("Unrecognized ScanType: 'unrecognized'".to_string()));
+        assert_eq!(
+            result,
+            Err("Unrecognized ScanType: 'unrecognized'".to_string())
+        );
     }
 }
