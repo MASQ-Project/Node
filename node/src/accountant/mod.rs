@@ -1102,7 +1102,7 @@ trait PayableExceedThresholdTools {
     as_any_dcl!();
 }
 
-#[derive(Default, PartialEq, Debug)]
+#[derive(Default)]
 struct PayableExceedThresholdToolsReal {}
 
 impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
@@ -1169,8 +1169,7 @@ mod tests {
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::ui_gateway::MessagePath::Conversation;
-    use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+    use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
     use std::cell::RefCell;
     use std::ops::Sub;
     use std::rc::Rc;
@@ -4060,11 +4059,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let ui_message = NodeFromUiMessage {
             client_id: 1234,
-            body: MessageBody {
-                opcode: "financials".to_string(),
-                path: Conversation(2222),
-                payload: Ok("{}".to_string()),
-            },
+            body: UiFinancialsRequest {}.tmb(2222),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -4074,13 +4069,10 @@ mod tests {
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         assert_eq!(response.target, MessageTarget::ClientId(1234));
-        assert_eq!(response.body.opcode, "financials".to_string());
-        assert_eq!(response.body.path, Conversation(2222));
-        let parsed_payload =
-            serde_json::from_str::<UiFinancialsResponse>(&response.body.payload.as_ref().unwrap())
-                .unwrap();
+        let (body, context_id) = UiFinancialsResponse::fmb(response.body.clone()).unwrap();
+        assert_eq!(context_id, 2222);
         assert_eq!(
-            parsed_payload,
+            body,
             UiFinancialsResponse {
                 total_unpaid_and_pending_payable: 23456789,
                 total_paid_payable: 123456,
@@ -4091,7 +4083,7 @@ mod tests {
     }
 
     #[test]
-    fn total_paid_payable_starts_at_zero_and_gets_increasingly_bigger() {
+    fn total_paid_payable_raises_with_each_bill_paid() {
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let fingerprint = PendingPayableFingerprint {
             rowid_opt: Some(5),
@@ -4125,7 +4117,7 @@ mod tests {
     }
 
     #[test]
-    fn total_paid_receivable_starts_at_zero_and_gets_increasingly_bigger() {
+    fn total_paid_receivable_raises_with_each_bill_paid() {
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_parameters(&more_money_received_params_arc)
