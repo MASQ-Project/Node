@@ -67,7 +67,7 @@ pub trait PayableDao: Debug + Send {
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount>;
 
-    fn total(&self) -> i64;
+    fn total(&self) -> u64;
 }
 
 pub trait PayableDaoFactory {
@@ -228,13 +228,13 @@ impl PayableDao for PayableDaoReal {
         .collect()
     }
 
-    fn total(&self) -> i64 {
+    fn total(&self) -> u64 {
         let mut stmt = self
             .conn
             .prepare("select sum(balance) from payable")
             .expect("Internal error");
         match stmt.query_row([], |row| {
-            let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
+            let total_balance_result: Result<u64, rusqlite::Error> = row.get(0);
             match total_balance_result {
                 Ok(total_balance) => Ok(total_balance),
                 Err(e)

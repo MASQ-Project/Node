@@ -51,6 +51,8 @@ use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{plus, ExpectValue};
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
+#[cfg(test)]
+use std::any::Any;
 use std::default::Default;
 use std::ops::Add;
 use std::path::Path;
@@ -319,7 +321,7 @@ impl Accountant {
             report_new_payments_sub: None,
             report_sent_payments_sub: None,
             ui_message_sub: None,
-            payable_threshold_tools: Box::new(PayableExceedThresholdToolsReal {}),
+            payable_threshold_tools: Box::new(PayableExceedThresholdToolsReal::default()),
             logger: Logger::new("Accountant"),
         }
     }
@@ -1097,8 +1099,10 @@ trait PayableExceedThresholdTools {
     fn is_innocent_age(&self, age: u64, limit: u64) -> bool;
     fn is_innocent_balance(&self, balance: i64, limit: i64) -> bool;
     fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> f64;
+    as_any_dcl!();
 }
 
+#[derive(Default, PartialEq, Debug)]
 struct PayableExceedThresholdToolsReal {}
 
 impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
@@ -1119,6 +1123,7 @@ impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
             - m * payment_thresholds.maturity_threshold_sec as f64;
         m * x as f64 + b
     }
+    as_any_impl!();
 }
 
 #[cfg(test)]
@@ -1134,7 +1139,7 @@ mod tests {
         ReceivableDaoFactoryMock, ReceivableDaoMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
-    use crate::accountant::tools::accountant_tools::NullScanner;
+    use crate::accountant::tools::accountant_tools::{NullScanner, ReceivablesScanner};
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::blockchain_interface::PaidReceivable;
@@ -1148,6 +1153,7 @@ mod tests {
         ReportRoutingServiceConsumedMessage, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
+    use crate::sub_lib::utils::{NotifyHandleReal, NotifyLaterHandleReal};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1301,125 +1307,69 @@ mod tests {
     }
 
     #[test]
-    fn financials_request_produces_financials_response() {
-        let payable_dao = PayableDaoMock::new().total_result(23456789);
-        let receivable_dao = ReceivableDaoMock::new().total_result(98765432);
-        let system = System::new("test");
-        let mut subject = AccountantBuilder::default()
-            .bootstrapper_config(bc_from_ac_plus_earning_wallet(
-                make_populated_accountant_config_with_defaults(),
-                make_wallet("some_wallet_address"),
-            ))
-            .receivable_dao(receivable_dao)
-            .payable_dao(payable_dao)
-            .build();
-        subject.financial_statistics.total_paid_payable = 123456;
-        subject.financial_statistics.total_paid_receivable = 334455;
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let ui_message = NodeFromUiMessage {
-            client_id: 1234,
-            body: MessageBody {
-                opcode: "financials".to_string(),
-                path: Conversation(2222),
-                payload: Ok("{}".to_string()),
-            },
-        };
+    fn accountant_have_proper_defaulted_values() {
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        bootstrapper_config.accountant_config_opt =
+            Some(make_populated_accountant_config_with_defaults());
+        let payable_dao_factory = Box::new(PayableDaoFactoryMock::new(PayableDaoMock::new()));
+        let receivable_dao_factory =
+            Box::new(ReceivableDaoFactoryMock::new(ReceivableDaoMock::new()));
+        let pending_payable_dao_factory = Box::new(PendingPayableDaoFactoryMock::new(
+            PendingPayableDaoMock::default(),
+        ));
+        let banned_dao_factory = Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new()));
+        let config_dao_factory = Box::new(ConfigDaoFactoryMock::new(ConfigDaoMock::new()));
 
-        subject_addr.try_send(ui_message).unwrap();
-
-        System::current().stop();
-        system.run();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
-        assert_eq!(response.target, MessageTarget::ClientId(1234));
-        assert_eq!(response.body.opcode, "financials".to_string());
-        assert_eq!(response.body.path, Conversation(2222));
-        let parsed_payload =
-            serde_json::from_str::<UiFinancialsResponse>(&response.body.payload.as_ref().unwrap())
-                .unwrap();
-        assert_eq!(
-            parsed_payload,
-            UiFinancialsResponse {
-                total_unpaid_and_pending_payable: 23456789,
-                total_paid_payable: 123456,
-                total_unpaid_receivable: 98765432,
-                total_paid_receivable: 334455
-            }
+        let result = Accountant::new(
+            &bootstrapper_config,
+            payable_dao_factory,
+            receivable_dao_factory,
+            pending_payable_dao_factory,
+            banned_dao_factory,
+            config_dao_factory,
         );
-    }
 
-    #[test]
-    fn total_paid_payable_starts_at_zero_and_gets_increasingly_bigger() {
-        let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
-        let fingerprint = PendingPayableFingerprint {
-            rowid_opt: Some(5),
-            timestamp: from_time_t(189_999_888),
-            hash: H256::from_uint(&U256::from(56789)),
-            attempt_opt: Some(1),
-            amount: 5478,
-            process_error: None,
-        };
-        let mut pending_payable_dao =
-            PendingPayableDaoMock::default().delete_fingerprint_result(Ok(()));
-        let payable_dao = PayableDaoMock::default()
-            .transaction_confirmed_params(&transaction_confirmed_params_arc)
-            .transaction_confirmed_result(Ok(()))
-            .transaction_confirmed_result(Ok(()));
-        pending_payable_dao.have_return_all_fingerprints_shut_down_the_system = true;
-        let mut subject = AccountantBuilder::default()
-            .pending_payable_dao(pending_payable_dao)
-            .payable_dao(payable_dao)
-            .build();
-        assert_eq!(subject.financial_statistics.total_paid_payable, 0);
-        subject.financial_statistics.total_paid_payable += 1111;
-        let msg = ConfirmPendingTransaction {
-            pending_payable_fingerprint: fingerprint.clone(),
-        };
-
-        subject.handle_confirm_pending_transaction(msg);
-
-        assert_eq!(subject.financial_statistics.total_paid_payable, 1111 + 5478);
-        let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
-        assert_eq!(*transaction_confirmed_params, vec![fingerprint])
-    }
-
-    #[test]
-    fn total_paid_receivable_starts_at_zero_and_gets_increasingly_bigger() {
-        let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
-        let receivable_dao = ReceivableDaoMock::new()
-            .more_money_received_parameters(&more_money_received_params_arc)
-            .more_money_receivable_result(Ok(()));
-        let mut subject = AccountantBuilder::default()
-            .receivable_dao(receivable_dao)
-            .build();
-        assert_eq!(subject.financial_statistics.total_paid_receivable, 0);
-        subject.financial_statistics.total_paid_receivable += 2222;
-        let receivables = vec![
-            PaidReceivable {
-                block_number: 4578910,
-                from: make_wallet("wallet_1"),
-                gwei_amount: 45780,
-            },
-            PaidReceivable {
-                block_number: 4569898,
-                from: make_wallet("wallet_2"),
-                gwei_amount: 33345,
-            },
-        ];
-
-        subject.handle_received_payments(ReceivedPayments {
-            payments: receivables.clone(),
-        });
-
-        assert_eq!(
-            subject.financial_statistics.total_paid_receivable,
-            2222 + 45780 + 33345
-        );
-        let more_money_received_params = more_money_received_params_arc.lock().unwrap();
-        assert_eq!(*more_money_received_params, vec![receivables]);
+        let transaction_confirmation_tools = result.tools;
+        transaction_confirmation_tools
+            .notify_confirm_transaction
+            .as_any()
+            .downcast_ref::<NotifyHandleReal<ConfirmPendingTransaction>>()
+            .unwrap();
+        transaction_confirmation_tools
+            .notify_cancel_failed_transaction
+            .as_any()
+            .downcast_ref::<NotifyHandleReal<CancelFailedPendingTransaction>>()
+            .unwrap();
+        transaction_confirmation_tools
+            .notify_later_scan_for_pending_payable
+            .as_any()
+            .downcast_ref::<NotifyLaterHandleReal<ScanForPendingPayable>>()
+            .unwrap();
+        transaction_confirmation_tools
+            .notify_later_scan_for_payable
+            .as_any()
+            .downcast_ref::<NotifyLaterHandleReal<ScanForPayables>>()
+            .unwrap();
+        transaction_confirmation_tools
+            .notify_later_scan_for_receivable
+            .as_any()
+            .downcast_ref::<NotifyLaterHandleReal<ScanForReceivables>>()
+            .unwrap();
+        //testing presence of real scanners, there is a different test covering them all
+        result
+            .scanners
+            .receivables
+            .as_any()
+            .downcast_ref::<ReceivablesScanner>()
+            .unwrap();
+        result
+            .payable_threshold_tools
+            .as_any()
+            .downcast_ref::<PayableExceedThresholdToolsReal>()
+            .unwrap();
+        assert_eq!(result.crashable, false);
+        assert_eq!(result.financial_statistics.total_paid_receivable, 0);
+        assert_eq!(result.financial_statistics.total_paid_payable, 0);
     }
 
     #[test]
@@ -4087,6 +4037,126 @@ mod tests {
         let transaction_id = PendingPayableId { hash, rowid };
 
         let _ = subject.update_payable_fingerprint(transaction_id);
+    }
+
+    #[test]
+    fn financials_request_produces_financials_response() {
+        let payable_dao = PayableDaoMock::new().total_result(23456789);
+        let receivable_dao = ReceivableDaoMock::new().total_result(98765432);
+        let system = System::new("test");
+        let mut subject = AccountantBuilder::default()
+            .bootstrapper_config(bc_from_ac_plus_earning_wallet(
+                make_populated_accountant_config_with_defaults(),
+                make_wallet("some_wallet_address"),
+            ))
+            .receivable_dao(receivable_dao)
+            .payable_dao(payable_dao)
+            .build();
+        subject.financial_statistics.total_paid_payable = 123456;
+        subject.financial_statistics.total_paid_receivable = 334455;
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let ui_message = NodeFromUiMessage {
+            client_id: 1234,
+            body: MessageBody {
+                opcode: "financials".to_string(),
+                path: Conversation(2222),
+                payload: Ok("{}".to_string()),
+            },
+        };
+
+        subject_addr.try_send(ui_message).unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq!(response.target, MessageTarget::ClientId(1234));
+        assert_eq!(response.body.opcode, "financials".to_string());
+        assert_eq!(response.body.path, Conversation(2222));
+        let parsed_payload =
+            serde_json::from_str::<UiFinancialsResponse>(&response.body.payload.as_ref().unwrap())
+                .unwrap();
+        assert_eq!(
+            parsed_payload,
+            UiFinancialsResponse {
+                total_unpaid_and_pending_payable: 23456789,
+                total_paid_payable: 123456,
+                total_unpaid_receivable: 98765432,
+                total_paid_receivable: 334455
+            }
+        );
+    }
+
+    #[test]
+    fn total_paid_payable_starts_at_zero_and_gets_increasingly_bigger() {
+        let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
+        let fingerprint = PendingPayableFingerprint {
+            rowid_opt: Some(5),
+            timestamp: from_time_t(189_999_888),
+            hash: H256::from_uint(&U256::from(56789)),
+            attempt_opt: Some(1),
+            amount: 5478,
+            process_error: None,
+        };
+        let mut pending_payable_dao =
+            PendingPayableDaoMock::default().delete_fingerprint_result(Ok(()));
+        let payable_dao = PayableDaoMock::default()
+            .transaction_confirmed_params(&transaction_confirmed_params_arc)
+            .transaction_confirmed_result(Ok(()))
+            .transaction_confirmed_result(Ok(()));
+        pending_payable_dao.have_return_all_fingerprints_shut_down_the_system = true;
+        let mut subject = AccountantBuilder::default()
+            .pending_payable_dao(pending_payable_dao)
+            .payable_dao(payable_dao)
+            .build();
+        subject.financial_statistics.total_paid_payable += 1111;
+        let msg = ConfirmPendingTransaction {
+            pending_payable_fingerprint: fingerprint.clone(),
+        };
+
+        subject.handle_confirm_pending_transaction(msg);
+
+        assert_eq!(subject.financial_statistics.total_paid_payable, 1111 + 5478);
+        let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
+        assert_eq!(*transaction_confirmed_params, vec![fingerprint])
+    }
+
+    #[test]
+    fn total_paid_receivable_starts_at_zero_and_gets_increasingly_bigger() {
+        let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
+        let receivable_dao = ReceivableDaoMock::new()
+            .more_money_received_parameters(&more_money_received_params_arc)
+            .more_money_receivable_result(Ok(()));
+        let mut subject = AccountantBuilder::default()
+            .receivable_dao(receivable_dao)
+            .build();
+        subject.financial_statistics.total_paid_receivable += 2222;
+        let receivables = vec![
+            PaidReceivable {
+                block_number: 4578910,
+                from: make_wallet("wallet_1"),
+                gwei_amount: 45780,
+            },
+            PaidReceivable {
+                block_number: 4569898,
+                from: make_wallet("wallet_2"),
+                gwei_amount: 33345,
+            },
+        ];
+
+        subject.handle_received_payments(ReceivedPayments {
+            payments: receivables.clone(),
+        });
+
+        assert_eq!(
+            subject.financial_statistics.total_paid_receivable,
+            2222 + 45780 + 33345
+        );
+        let more_money_received_params = more_money_received_params_arc.lock().unwrap();
+        assert_eq!(*more_money_received_params, vec![receivables]);
     }
 
     #[test]

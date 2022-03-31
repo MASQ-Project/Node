@@ -290,7 +290,7 @@ pub struct PayableDaoMock {
     transaction_canceled_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
     top_records_results: RefCell<Vec<Vec<PayableAccount>>>,
-    total_results: RefCell<Vec<i64>>,
+    total_results: RefCell<Vec<u64>>,
     pub have_non_pending_payables_shut_down_the_system: bool,
 }
 
@@ -347,7 +347,7 @@ impl PayableDao for PayableDaoMock {
         self.top_records_results.borrow_mut().remove(0)
     }
 
-    fn total(&self) -> i64 {
+    fn total(&self) -> u64 {
         self.total_results.borrow_mut().remove(0)
     }
 }
@@ -431,7 +431,7 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn total_result(self, result: i64) -> Self {
+    pub fn total_result(self, result: u64) -> Self {
         self.total_results.borrow_mut().push(result);
         self
     }
