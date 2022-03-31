@@ -9,8 +9,8 @@ use multinode_integration_tests_lib::masq_real_node::{
     make_consuming_wallet_info, make_earning_wallet_info, MASQRealNode, NodeStartupConfigBuilder,
 };
 use multinode_integration_tests_lib::utils::{payable_dao, receivable_dao};
-use node_lib::accountant::payable_dao::{PayableAccount};
-use node_lib::accountant::receivable_dao::{ReceivableAccount};
+use node_lib::accountant::payable_dao::PayableAccount;
+use node_lib::accountant::receivable_dao::ReceivableAccount;
 use node_lib::sub_lib::wallet::Wallet;
 
 #[test]
