@@ -879,16 +879,19 @@ Node.
 }
 ```
 ##### Description:
-This message instructs the Node to perform either a payables scan or a receivables scan, depending on the `name`
-parameter. This will be an extra, additional scan will not affect the Node's regular schedule of autonomous scans,
-if any, except that it's possible that it may delay a regular autonomous scan if the Node is busy with your scan
-when the autonomous scan is scheduled.
+This message instructs the Node to perform a payables scan, a pending-payables scan, or a receivables scan, depending 
+on the `name` parameter. This will be an extra, additional scan will not affect the Node's regular schedule of 
+autonomous scans, if any, except that it's possible that it may delay a regular autonomous scan if the Node is busy 
+with your scan when the autonomous scan is scheduled.
 
-The `name` field in the payload must be either "payables" or "receivables". A payables scan will search through the
-database for payable bills that are big enough and old enough to pay, and will pay them from your consuming wallet.
-A receivables scan will do two things: first, it will scan the blockchain for receivables that have been paid to
-your earning wallet, and adjust the database to reflect those payments; second, it will run a database scan to
-handle delinquency banning and unbanning.
+The `name` field in the payload must be "payables" or "pendingpayables" or "receivables".
+
+A payables scan will search through the database for payable bills that are big enough and old enough to pay, and will 
+pay them from your consuming wallet. A pending-payables scan will find payments you've already made on the blockchain
+that have since been confirmed--actually received by your creditors--and remove them from your books. A receivables 
+scan will do two things: first, it will scan the blockchain for receivables that have been paid to your earning wallet, 
+and adjust your books to reflect those payments; second, it will run a database scan to handle delinquency banning and 
+unbanning.
 
 #### `scan`
 ##### Direction: Response
@@ -899,7 +902,7 @@ handle delinquency banning and unbanning.
 }
 ```
 ##### Description:
-This is a simple acknowledgment that the requested scan has been triggered.
+This is a simple acknowledgment that the requested scan has been completed.
 
 #### `setConfiguration`
 ##### Direction: Request

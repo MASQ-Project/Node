@@ -4014,8 +4014,8 @@ mod tests {
         let notify_confirm_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_confirm_transaction_params_arc_cloned =
             notify_confirm_transaction_params_arc.clone(); //because it moves into a closure
-        let pending_tx_hash_1 = H256::from_uint(&U256::from(123u64));
-        let pending_tx_hash_2 = H256::from_uint(&U256::from(567u64));
+        let pending_tx_hash_1 = H256::from_uint(&U256::from(123));
+        let pending_tx_hash_2 = H256::from_uint(&U256::from(567));
         let rowid_for_account_1 = 3;
         let rowid_for_account_2 = 5;
         let now = SystemTime::now();
@@ -4033,13 +4033,13 @@ mod tests {
         let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
         let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_1_third_round = TransactionReceipt::default();
-        transaction_receipt_tx_1_third_round.status = Some(U64::from(0u64)); //failure
+        transaction_receipt_tx_1_third_round.status = Some(U64::from(0)); //failure
         let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
-        transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1u64)); // confirmed
+        transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_transaction_count_result(Ok(web3::types::U256::from(1u64)))
-            .get_transaction_count_result(Ok(web3::types::U256::from(2u64)))
+            .get_transaction_count_result(Ok(web3::types::U256::from(1)))
+            .get_transaction_count_result(Ok(web3::types::U256::from(2)))
             //because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
             //there is one component missing in this wholesome test - the part where we send a request for
             //a fingerprint of that payable in the DB - this happens inside send_raw_transaction()

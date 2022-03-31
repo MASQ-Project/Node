@@ -112,10 +112,12 @@ pub const REAL_USER_HELP: &str =
      like <uid>:<gid>:<home directory>.";
 pub const SCANS_HELP: &str =
     "The Node, when running, performs various periodic scans, including scanning for payables that need to be paid, \
-    for incoming receivables that need to be recorded, and for delinquent Node that need to be banned. If you don't \
-    specify this parameter, or if you give it the value 'on', these scans will proceed normally. But if you give \
-    the value 'off', the scans won't be started when the Node starts, and will have to be started manually later \
-    with the MASQNode-UIv2 'scan' command. This parameter is most useful for testing.";
+    for pending payables that have arrived (and are no longer pending), for incoming receivables that need to be \
+    recorded, and for delinquent Nodes that need to be banned. If you don't specify this parameter, or if you give \
+    it the value 'on', these scans will proceed normally. But if you give the value 'off', the scans won't be \
+    started when the Node starts, and will have to be triggered later manually and individually with the \
+    MASQNode-UIv2 'scan' command. (If you don't, you'll most likely be delinquency-banned by all your neighbors.) \
+    This parameter is most useful for testing.";
 pub const RATE_PACK_HELP: &str = "\
      These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
      services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \

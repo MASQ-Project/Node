@@ -77,7 +77,6 @@ impl Display for BlockchainError {
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
 pub type Balance = BlockchainResult<web3::types::U256>;
 pub type Nonce = BlockchainResult<web3::types::U256>;
-// pub type Transactions = BlockchainResult<Vec<Transaction>>;
 pub type Receipt = BlockchainResult<Option<TransactionReceipt>>;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -714,9 +713,9 @@ mod tests {
             RetrievedTransactions {
                 new_start_block: 0x4be663 + 1,
                 transactions: vec![Transaction {
-                    block_number: 4_974_179u64,
+                    block_number: 4_974_179,
                     from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-                    gwei_amount: 4_503_599u64,
+                    gwei_amount: 4_503_599,
                 }]
             }
         )

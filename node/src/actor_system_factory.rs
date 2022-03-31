@@ -418,7 +418,6 @@ impl ActorFactory for ActorFactoryReal {
             false,
             MigratorConfig::panic_on_migration(),
         ));
-        // let config_dao_factory = Accountant::dao_factory(data_directory);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
@@ -427,7 +426,6 @@ impl ActorFactory for ActorFactoryReal {
                 Box::new(receivable_dao_factory),
                 Box::new(pending_payable_dao_factory),
                 Box::new(banned_dao_factory),
-                // Box::new(config_dao_factory),
             )
         });
         Accountant::make_subs_from(&addr)

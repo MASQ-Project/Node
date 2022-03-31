@@ -35,7 +35,7 @@ pub(in crate::accountant) mod accountant_tools {
     impl Default for Scanners {
         fn default() -> Self {
             Scanners {
-                pending_payables: Box::new(PendingPaymentsScanner),
+                pending_payables: Box::new(PendingPayablesScanner),
                 payables: Box::new(PayablesScanner),
                 receivables: Box::new(ReceivablesScanner),
             }
@@ -49,9 +49,9 @@ pub(in crate::accountant) mod accountant_tools {
     }
 
     #[derive(Debug, PartialEq)]
-    pub struct PendingPaymentsScanner; // TODO: Rename to PendingPayablesScanner
+    pub struct PendingPayablesScanner;
 
-    impl Scanner for PendingPaymentsScanner {
+    impl Scanner for PendingPayablesScanner {
         fn scan(&self, accountant: &Accountant, response_skeleton_opt: Option<ResponseSkeleton>) {
             accountant.scan_for_pending_payable(response_skeleton_opt)
         }
@@ -145,7 +145,7 @@ pub(in crate::accountant) mod accountant_tools {
 #[cfg(test)]
 mod tests {
     use crate::accountant::tools::accountant_tools::{
-        PayablesScanner, PendingPaymentsScanner, ReceivablesScanner, Scanners,
+        PayablesScanner, PendingPayablesScanner, ReceivablesScanner, Scanners,
     };
 
     #[test]
@@ -154,7 +154,7 @@ mod tests {
 
         assert_eq!(
             subject.pending_payables.as_any().downcast_ref(),
-            Some(&PendingPaymentsScanner)
+            Some(&PendingPayablesScanner)
         );
         assert_eq!(
             subject.payables.as_any().downcast_ref(),
