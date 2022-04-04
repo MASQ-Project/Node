@@ -25,6 +25,7 @@ use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_UR
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
@@ -52,13 +53,25 @@ pub struct RatePack {
     pub exit_service_rate: u64,
 }
 
+enum ConnectionStageErrors {
+    TcpConnectionFailed,
+    NoGossipResponseReceived,
+}
+
 enum ConnectionStage {
-    StageZero(u32),
+    StageZero,
     TcpConnectionEstablished,
     NeighborshipEstablished,
-    // RouteFound, // Better fit for OverallConnectedness
-    // RouteNotFound,
-    Failed,
+    Failed(ConnectionStageErrors),
+}
+
+struct ConnectionProgress {
+    starting_descriptor: NodeDescriptor,
+    current_descriptor: NodeDescriptor,
+    connection_stage: ConnectionStage,
+    previous_pass_targets: HashSet<NodeDescriptor>,
+    // Uses:
+    // Stop the cycle if we receive a node descriptor that is a part of this hash set.
 }
 
 // NodeConnection 1 ->  Desc 1 => TCPConnectionError
@@ -83,31 +96,62 @@ enum ConnectionStage {
 // NeighborshipEstablished with Node Descriptor 0x02
 // Three Hops Route Found. You can relay data.
 
-struct NodeConnection {
-    current_descriptor: NodeDescriptor,
-    connection_stage: ConnectionStage,
-    descriptors_vec: Vec<NodeDescriptor>, // HashMap<NodeDescriptor, ConnectionStage>
+enum OverallConnectionStage {
+    NotConnected,        // Not connected to any neighbor.
+    ConnectedToNeighbor, // Neighborship is established. Same as No 3 hops route found.
+    ThreeHopsRouteFound, // check_connectedness() returned true, data can now be relayed.
 }
 
-struct OverallConnectedness {
-    descriptors_connection_vec: Vec<NodeConnection>,
-    overall_connected: bool,
+// TODO: Migrate this struct and code related to it to a new module and make that module public only for neighborhood
+pub struct OverallConnectionStatus {
+    can_make_routes: bool, // Boolean flag which becomes true iff three hops route was found.
+    stage: OverallConnectionStage, // Stores one out of the three stages, mentioned in enum.
+    progress: Vec<ConnectionProgress>, // Stores the info of individual NodeConnection, each element might be corresponding to the descriptors entered by user.
 }
 
-impl NodeConnection {
-    fn connect(&self) -> bool {
-        // This is where the whole state changes will happen
-        todo!("Write state changes")
-
-        // 1. Increase the count for Stage Zero
-        // 2. Initiate a TCP Connection. OK() -> TcpConnectionEstablished, Err() -> Failed and throw TcpConnectionFailed
-        // 3. Send a Debut Gossip
-        // 4. Waiting Period. IntroductionGossip -> Move to Next Step,
-        //    PassGossip -> Update the NodeConnection and retry the whole process,
-        //    TimeOut -> Failed and throw NoResponseReceived
-        // 5. Check for check_connectedness(), true -> Fully Connected, false -> Not able to Route
+impl OverallConnectionStatus {
+    pub fn new(initial_node_descriptors: Vec<NodeDescriptor>) -> Self {
+        todo!("Construct the OverallConnectionStatus")
     }
+
+    // fn get_connected_neighbors() {
+    //     todo!("Fetch the connected neighbors from the Neighborhood Database")
+    // }
 }
+
+//
+// Edge 1 ->
+// Explanation:     Introduction Gossip is received.
+// Log:             Connected to new neighbor(s) - {desc_1}, {desc_2}, .. {desc_n}.
+//
+// Edge 2 ->
+// Explanation:     The `check_connectedness()` returns false, still connected to neighbor(s).
+// Log:             Attempt to search for Three Hops Route: Not found, retrying...
+//
+// Edge 3 ->
+// Explanation:     The `check_connectedness()` returns true, hence three hops route found.
+// Log:             Attempt to search for Three Hops Route: Route found. Data can be relayed.
+//
+// Edge 4 ->
+// Explanation:     Some nodes in the network died. Hence, three hops route was lost.
+// Log:             Three hops route lost.
+//
+// Edge 5 ->
+// Explanation:     Lost connection with some node(s), but still connected to 1 node.
+// Log:             Lost connection with node {desc}.
+//
+// Edge 6 ->
+// Explanation:     Uncertain reason due to which lost connection to each and every node.
+// Log:             Lost connection with all the nodes.
+
+// Some Steps to follow ==>
+// 1. Increase the count for Stage Zero
+// 2. Initiate a TCP Connection. OK() -> TcpConnectionEstablished, Err() -> Failed and throw TcpConnectionFailed
+// 3. Send a Debut Gossip
+// 4. Waiting Period. IntroductionGossip -> Move to Next Step,
+//    PassGossip -> Update the NodeConnection and retry the whole process,
+//    TimeOut -> Failed and throw NoResponseReceived
+// 5. Check for check_connectedness(), true -> Fully Connected, false -> Not able to Route
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NeighborhoodMode {

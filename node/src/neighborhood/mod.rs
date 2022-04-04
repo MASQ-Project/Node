@@ -40,7 +40,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeDescriptor;
@@ -51,6 +50,7 @@ use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
+use crate::sub_lib::neighborhood::{ExpectedService, OverallConnectionStatus};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
@@ -86,6 +86,7 @@ pub struct Neighborhood {
     consuming_wallet_opt: Option<Wallet>,
     next_return_route_id: u32,
     initial_neighbors: Vec<NodeDescriptor>,
+    overall_connection_status: OverallConnectionStatus,
     chain: Chain,
     crashable: bool,
     data_directory: PathBuf,
@@ -368,6 +369,8 @@ impl Neighborhood {
             })
             .collect_vec();
 
+        let overall_connection_status = OverallConnectionStatus::new(initial_neighbors.clone());
+
         Neighborhood {
             cryptde,
             hopper: None,
@@ -381,6 +384,7 @@ impl Neighborhood {
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
             next_return_route_id: 0,
             initial_neighbors,
+            overall_connection_status,
             chain: config.blockchain_bridge_config.chain,
             crashable: config.crash_point == CrashPoint::Message,
             data_directory: config.data_directory.clone(),
@@ -411,9 +415,16 @@ impl Neighborhood {
         }
     }
 
+    pub fn connect_to_the_masq_network(&mut self) {
+        // 1. We'll create different node connections.
+        // 2. We'll initiate their connections here too.
+    }
+
     fn handle_start_message(&mut self) {
         self.connect_database();
         self.send_debut_gossip();
+        self.connect_to_the_masq_network();
+        // Replace send_debut_gossip() to connect_to_the_masq_network(), and migrate it's functionality there
     }
 
     fn handle_new_public_ip(&mut self, msg: NewPublicIp) {
@@ -470,6 +481,7 @@ impl Neighborhood {
     }
 
     fn send_debut_gossip(&mut self) {
+        todo!("Breaking the flow");
         if self.initial_neighbors.is_empty() {
             info!(self.logger, "Empty. No Nodes to report to; continuing");
             return;
@@ -3532,10 +3544,10 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
-
         let sub = addr.recipient::<StartMessage>();
 
         sub.try_send(StartMessage {}).unwrap();
+
         System::current().stop();
         system.run();
         let locked_recording = hopper_recording.lock().unwrap();
