@@ -52,6 +52,63 @@ pub struct RatePack {
     pub exit_service_rate: u64,
 }
 
+enum ConnectionStage {
+    StageZero(u32),
+    TcpConnectionEstablished,
+    NeighborshipEstablished,
+    // RouteFound, // Better fit for OverallConnectedness
+    // RouteNotFound,
+    Failed,
+}
+
+// NodeConnection 1 ->  Desc 1 => TCPConnectionError
+// NodeConnection 2 ->  Desc 2 => 10 Pass Gossips Vec[11]
+// NodeConnection 3 ->  Desc 3
+
+// Initiating TCP Connection for Node Descriptor 0x00
+// TCPConn Established for Node Descriptor 0x00
+// Received 1 Pass Gossip. Passed to Node Descriptor 0x01
+// Received 2 Pass Gossip Passed to Node Descriptor 0x02
+// NeighborshipEstablished with Node Descriptor 0x02
+// Three Hops Route Found. You can relay data.
+
+// Initiating TCP Connection for Node Descriptor 0x00
+// TCPConn Established for Node Descriptor 0x00
+// Sending Debut Gossip to Node Descriptor 0x00.
+// Received 1 Pass Gossip. Passed to Node Descriptor 0x01
+// Sending Debut Gossip to Node Descriptor 0x01.
+// Received 2 Pass Gossip Passed to Node Descriptor 0x02
+// Sending Debut Gossip to Node Descriptor 0x02.
+// IntroductionGossip Received from Node Descriptor 0x02. New Node 0x03 Introduced.
+// NeighborshipEstablished with Node Descriptor 0x02
+// Three Hops Route Found. You can relay data.
+
+struct NodeConnection {
+    current_descriptor: NodeDescriptor,
+    connection_stage: ConnectionStage,
+    descriptors_vec: Vec<NodeDescriptor>, // HashMap<NodeDescriptor, ConnectionStage>
+}
+
+struct OverallConnectedness {
+    descriptors_connection_vec: Vec<NodeConnection>,
+    overall_connected: bool,
+}
+
+impl NodeConnection {
+    fn connect(&self) -> bool {
+        // This is where the whole state changes will happen
+        todo!("Write state changes")
+
+        // 1. Increase the count for Stage Zero
+        // 2. Initiate a TCP Connection. OK() -> TcpConnectionEstablished, Err() -> Failed and throw TcpConnectionFailed
+        // 3. Send a Debut Gossip
+        // 4. Waiting Period. IntroductionGossip -> Move to Next Step,
+        //    PassGossip -> Update the NodeConnection and retry the whole process,
+        //    TimeOut -> Failed and throw NoResponseReceived
+        // 5. Check for check_connectedness(), true -> Fully Connected, false -> Not able to Route
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum NeighborhoodMode {
     Standard(NodeAddr, Vec<NodeDescriptor>, RatePack),
