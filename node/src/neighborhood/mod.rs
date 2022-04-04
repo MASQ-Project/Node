@@ -6,6 +6,7 @@ pub mod gossip_acceptor;
 pub mod gossip_producer;
 pub mod neighborhood_database;
 pub mod node_record;
+pub mod overall_connection_status;
 
 use std::cmp::Ordering;
 use std::convert::TryFrom;
@@ -33,6 +34,7 @@ use crate::db_config::persistent_configuration::{
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
+use crate::neighborhood::overall_connection_status::OverallConnectionStatus;
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PublicKey;
@@ -40,6 +42,7 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
+use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeDescriptor;
@@ -50,7 +53,6 @@ use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
-use crate::sub_lib::neighborhood::{ExpectedService, OverallConnectionStatus};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
@@ -85,7 +87,7 @@ pub struct Neighborhood {
     neighborhood_database: NeighborhoodDatabase,
     consuming_wallet_opt: Option<Wallet>,
     next_return_route_id: u32,
-    initial_neighbors: Vec<NodeDescriptor>,
+    // initial_neighbors: Vec<NodeDescriptor>,
     overall_connection_status: OverallConnectionStatus,
     chain: Chain,
     crashable: bool,
@@ -383,7 +385,7 @@ impl Neighborhood {
             neighborhood_database,
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
             next_return_route_id: 0,
-            initial_neighbors,
+            // initial_neighbors,
             overall_connection_status,
             chain: config.blockchain_bridge_config.chain,
             crashable: config.crash_point == CrashPoint::Message,
@@ -416,6 +418,7 @@ impl Neighborhood {
     }
 
     pub fn connect_to_the_masq_network(&mut self) {
+        todo!("write it")
         // 1. We'll create different node connections.
         // 2. We'll initiate their connections here too.
     }
@@ -423,7 +426,7 @@ impl Neighborhood {
     fn handle_start_message(&mut self) {
         self.connect_database();
         self.send_debut_gossip();
-        self.connect_to_the_masq_network();
+        // self.connect_to_the_masq_network();
         // Replace send_debut_gossip() to connect_to_the_masq_network(), and migrate it's functionality there
     }
 
@@ -482,7 +485,7 @@ impl Neighborhood {
 
     fn send_debut_gossip(&mut self) {
         todo!("Breaking the flow");
-        if self.initial_neighbors.is_empty() {
+        if self.overall_connection_status.is_empty() {
             info!(self.logger, "Empty. No Nodes to report to; continuing");
             return;
         }
@@ -490,39 +493,41 @@ impl Neighborhood {
         let gossip = self
             .gossip_producer
             .produce_debut(&self.neighborhood_database);
-        self.initial_neighbors.iter().for_each(|node_descriptor| {
-            if let Some(node_addr) = &node_descriptor.node_addr_opt {
-                self.hopper_no_lookup
-                    .as_ref()
-                    .expect("unbound hopper")
-                    .try_send(
-                        NoLookupIncipientCoresPackage::new(
-                            self.cryptde,
-                            &node_descriptor.encryption_public_key,
-                            node_addr,
-                            MessageType::Gossip(gossip.clone().into()),
+        self.overall_connection_status
+            .iter()
+            .for_each(|node_descriptor| {
+                if let Some(node_addr) = &node_descriptor.node_addr_opt {
+                    self.hopper_no_lookup
+                        .as_ref()
+                        .expect("unbound hopper")
+                        .try_send(
+                            NoLookupIncipientCoresPackage::new(
+                                self.cryptde,
+                                &node_descriptor.encryption_public_key,
+                                node_addr,
+                                MessageType::Gossip(gossip.clone().into()),
+                            )
+                            .expectv("public key"),
                         )
-                        .expectv("public key"),
+                        .expect("hopper is dead");
+                    trace!(
+                        self.logger,
+                        "Sent Gossip: {}",
+                        gossip.to_dot_graph(
+                            self.neighborhood_database.root(),
+                            (
+                                &node_descriptor.encryption_public_key,
+                                &node_descriptor.node_addr_opt
+                            ),
+                        )
+                    );
+                } else {
+                    panic!(
+                        "--neighbors node descriptors must have IP address and port list, not '{}'",
+                        node_descriptor.to_string(self.cryptde)
                     )
-                    .expect("hopper is dead");
-                trace!(
-                    self.logger,
-                    "Sent Gossip: {}",
-                    gossip.to_dot_graph(
-                        self.neighborhood_database.root(),
-                        (
-                            &node_descriptor.encryption_public_key,
-                            &node_descriptor.node_addr_opt
-                        ),
-                    )
-                );
-            } else {
-                panic!(
-                    "--neighbors node descriptors must have IP address and port list, not '{}'",
-                    node_descriptor.to_string(self.cryptde)
-                )
-            }
-        });
+                }
+            });
     }
 
     fn log_incoming_gossip(&self, incoming_gossip: &Gossip_0v1, gossip_source: SocketAddr) {
@@ -581,30 +586,33 @@ impl Neighborhood {
     }
 
     fn handle_gossip_failure(&mut self, failure_source: SocketAddr, failure: GossipFailure_0v1) {
-        match self
-            .initial_neighbors
-            .iter()
-            .find_position(|n| match &n.node_addr_opt {
-                None => false,
-                Some(node_addr) => node_addr.ip_addr() == failure_source.ip(),
-            }) {
-            None => unimplemented!("TODO: Test-drive me (or replace me with a panic)"),
-            Some((position, node_descriptor)) => {
-                warning!(
-                    self.logger,
-                    "Node at {} refused Debut: {}",
-                    node_descriptor
-                        .node_addr_opt
-                        .as_ref()
-                        .expectv("NodeAddr")
-                        .ip_addr(),
-                    failure
-                );
-                self.initial_neighbors.remove(position);
-                if self.initial_neighbors.is_empty() {
-                    error!(self.logger, "None of the Nodes listed in the --neighbors parameter could accept your Debut; shutting down");
-                    System::current().stop_with_code(1)
-                }
+        let tuple_opt =
+            match self
+                .overall_connection_status
+                .iter()
+                .find_position(|n| match &n.node_addr_opt {
+                    None => false,
+                    Some(node_addr) => node_addr.ip_addr() == failure_source.ip(),
+                }) {
+                None => unimplemented!("TODO: Test-drive me (or replace me with a panic)"),
+                Some(tuple) => Some(tuple),
+            };
+        if let Some((position, node_descriptor)) = tuple_opt {
+            warning!(
+                self.logger,
+                "Node at {} refused Debut: {}",
+                node_descriptor
+                    .node_addr_opt
+                    .as_ref()
+                    .expectv("NodeAddr")
+                    .ip_addr(),
+                failure
+            );
+
+            self.overall_connection_status.remove(position);
+            if self.overall_connection_status.is_empty() {
+                error!(self.logger, "None of the Nodes listed in the --neighbors parameter could accept your Debut; shutting down");
+                System::current().stop_with_code(1)
             }
         };
     }
@@ -1575,13 +1583,14 @@ mod tests {
             root_node_record_ref.has_half_neighbor(another_neighbor_node.public_key()),
             false,
         );
-        assert_eq!(
-            subject.initial_neighbors,
-            vec![
-                NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde,)),
-                NodeDescriptor::from((&another_neighbor_node, Chain::EthRopsten, cryptde,))
-            ]
-        );
+        todo!("fix the below assert");
+        // assert_eq!(
+        //     subject.overall_connection_status,
+        //     vec![
+        //         NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde,)),
+        //         NodeDescriptor::from((&another_neighbor_node, Chain::EthRopsten, cryptde,))
+        //     ]
+        // );
     }
 
     #[test]
