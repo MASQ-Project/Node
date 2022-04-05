@@ -102,3 +102,43 @@ fn log_broadcasts_are_correctly_received_integration() {
     client.send(UiShutdownRequest {});
     node.wait_for_exit();
 }
+
+#[test]
+fn dead_clients_are_dumped_integration() {
+    fdlimit::raise_fd_limit();
+    let port = find_free_port();
+    let mut node = utils::MASQNode::start_standard(
+        "dead_clients_are_dumped",
+        Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+        true,
+        true,
+        false,
+        true,
+    );
+    node.wait_for_log("UIGateway bound", Some(5000));
+    let client_1 = UiConnection::new(port, NODE_UI_PROTOCOL);
+    let client_1_addr = client_1.local_addr();
+    let mut client_2 = UiConnection::new(port, NODE_UI_PROTOCOL);
+
+    drop(client_1);
+
+    let broadcasts: Vec<UiLogBroadcast> = (0..2)
+        .map(|_| client_2.skip_until_received().unwrap())
+        .collect();
+    let expected_message_snippet = format!("UI at {} violated protocol", client_1_addr);
+    assert!(
+        broadcasts[0].msg.contains(&expected_message_snippet),
+        "{} not present in: {:?}",
+        expected_message_snippet,
+        broadcasts[0].msg
+    );
+    let expected_message_snippet = "Client 0: BrokenPipe, dropping its reference".to_string();
+    assert!(
+        broadcasts[1].msg.contains(&expected_message_snippet),
+        "{} not present in: {:?}",
+        expected_message_snippet,
+        broadcasts[1].msg
+    );
+    client_2.send(UiShutdownRequest {});
+    node.wait_for_exit();
+}

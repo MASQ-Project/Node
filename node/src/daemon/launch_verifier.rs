@@ -8,7 +8,7 @@ use masq_lib::messages::NODE_UI_PROTOCOL;
 use std::thread;
 use std::time::Duration;
 use sysinfo::{ProcessExt, ProcessStatus, Signal, SystemExt};
-use websocket::ClientBuilder;
+use websocket::{ClientBuilder, OwnedMessage};
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
 // because they depend on being able to fail twice and still succeed.
@@ -34,7 +34,16 @@ impl VerifierTools for VerifierToolsReal {
             Ok(builder) => builder.add_protocol(NODE_UI_PROTOCOL),
             Err(e) => panic!("{:?}", e),
         };
-        builder.connect_insecure().is_ok()
+        match builder.connect_insecure() {
+            Ok(mut client) => {
+                match client.send_message(&OwnedMessage::Close(None)) {
+                    Ok(_) => (),
+                    Err(e) => todo!("test drive me in {}", e),
+                };
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     fn process_is_running(&self, process_id: u32) -> bool {
@@ -201,6 +210,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
     use websocket::server::sync::Server;
+    use websocket::OwnedMessage;
 
     #[test]
     fn constants_have_correct_values() {
@@ -344,11 +354,17 @@ mod tests {
         use crossbeam_channel::unbounded;
         let port = find_free_port();
         let (tx, rx) = unbounded();
-        thread::spawn(move || {
+        let thread_handle = thread::spawn(move || {
             let mut server = Server::bind(SocketAddr::new(localhost(), port)).unwrap();
             tx.send(()).unwrap();
             let upgrade = server.accept().expect("Couldn't accept connection");
-            let _ = upgrade.accept().unwrap();
+            let client = upgrade.accept().unwrap();
+            let (mut reader, _) = client.split().unwrap();
+            let message = reader.recv_message().unwrap();
+            match message {
+                OwnedMessage::Close(None) => (),
+                _ => panic!("Close message did not arrive"),
+            }
         });
         let subject = VerifierToolsReal::new();
         rx.recv().unwrap();
@@ -356,6 +372,7 @@ mod tests {
         let result = subject.can_connect_to_ui_gateway(port);
 
         assert_eq!(result, true);
+        thread_handle.join().unwrap()
     }
 
     #[test]

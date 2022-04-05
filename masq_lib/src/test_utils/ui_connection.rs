@@ -8,7 +8,7 @@ use crate::ui_gateway::NodeToUiMessage;
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use std::io::Write;
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream};
 use websocket::sync::Client;
 use websocket::{ClientBuilder, OwnedMessage};
 
@@ -37,6 +37,10 @@ impl UiConnection {
 
     pub fn new(port: u16, protocol: &str) -> UiConnection {
         Self::make(port, protocol).unwrap()
+    }
+
+    pub fn local_addr(&self) -> SocketAddr {
+        self.client.local_addr().unwrap()
     }
 
     pub fn send<T: ToMessageBody>(&mut self, payload: T) {
