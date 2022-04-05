@@ -96,7 +96,9 @@ impl OverallConnectionStatus {
     }
 
     pub fn remove(&mut self, index: usize) -> NodeDescriptor {
-        todo!("")
+        let removed_desc = self.progress[index].starting_descriptor.clone();
+        self.progress.remove(index);
+        removed_desc
     }
 
     // fn get_connected_neighbors() {
@@ -146,7 +148,7 @@ mod tests {
     #[test]
     fn able_to_create_overall_connection_status() {
         let node_desc_1 = NodeDescriptor::try_from((
-            main_cryptde(),
+            main_cryptde(), // Used to provide default cryptde
             "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345",
         ))
         .unwrap();
@@ -205,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    pub fn overall_connection_status_is_iterable() {
+    fn overall_connection_status_is_iterable() {
         let node_desc_1 = NodeDescriptor::try_from((
             main_cryptde(),
             "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345",
@@ -224,5 +226,28 @@ mod tests {
         assert_eq!(result.next(), Some(&node_desc_1));
         assert_eq!(result.next(), Some(&node_desc_2));
         assert_eq!(result.next(), None);
+    }
+
+    #[test]
+    fn remove_deletes_descriptor_s_progress_and_returns_node_descriptor() {
+        let node_desc_1 = NodeDescriptor::try_from((
+            main_cryptde(),
+            "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345",
+        ))
+        .unwrap();
+        let node_desc_2 = NodeDescriptor::try_from((
+            main_cryptde(),
+            "masq://eth-ropsten:AgMEBQ@1.2.3.5:1234/2345",
+        ))
+        .unwrap();
+        let initial_node_descriptors = vec![node_desc_1.clone(), node_desc_2.clone()];
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+
+        let removed_desc_1 = subject.remove(0);
+        let removed_desc_2 = subject.remove(0);
+
+        assert_eq!(removed_desc_1, node_desc_1);
+        assert_eq!(removed_desc_2, node_desc_2);
+        assert_eq!(subject, OverallConnectionStatus::new(vec![]));
     }
 }
