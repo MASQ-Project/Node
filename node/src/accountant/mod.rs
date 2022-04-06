@@ -4083,7 +4083,7 @@ mod tests {
     }
 
     #[test]
-    fn total_paid_payable_raises_with_each_bill_paid() {
+    fn total_paid_payable_rises_with_each_bill_paid() {
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let fingerprint = PendingPayableFingerprint {
             rowid_opt: Some(5),
@@ -4117,7 +4117,7 @@ mod tests {
     }
 
     #[test]
-    fn total_paid_receivable_raises_with_each_bill_paid() {
+    fn total_paid_receivable_rises_with_each_bill_paid() {
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_parameters(&more_money_received_params_arc)
