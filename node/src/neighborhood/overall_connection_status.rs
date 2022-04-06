@@ -77,14 +77,9 @@ impl OverallConnectionStatus {
     }
 
     pub fn remove(&mut self, index: usize) -> NodeDescriptor {
-        let removed_desc = self.progress[index].starting_descriptor.clone();
-        self.progress.remove(index);
-        removed_desc
+        let removed_connection_progress = self.progress.remove(index);
+        removed_connection_progress.starting_descriptor
     }
-
-    // fn get_connected_neighbors() {
-    //     todo!("Fetch the connected neighbors from the Neighborhood Database")
-    // }
 }
 
 // Some Steps to follow ==>

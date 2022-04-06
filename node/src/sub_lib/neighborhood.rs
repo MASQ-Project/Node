@@ -370,6 +370,7 @@ pub struct NeighborhoodSubs {
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub from_ui_message_sub: Recipient<NodeFromUiMessage>,
     pub new_password_sub: Recipient<NewPasswordMessage>,
+    pub connection_progress_sub: Recipient<ConnectionProgressMessage>,
 }
 
 impl Debug for NeighborhoodSubs {
@@ -472,6 +473,18 @@ pub struct RemoveNeighborMessage {
     pub public_key: PublicKey,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum ConnectionProgressStage {
+    TcpConnectionEstablished,
+    TcpConnectionFailed,
+}
+
+#[derive(Clone, Debug, Message, PartialEq)]
+pub struct ConnectionProgressMessage {
+    pub public_key: PublicKey,
+    pub stage: ConnectionProgressStage,
+}
+
 #[derive(Clone, Debug, Message, PartialEq)]
 pub enum NodeRecordMetadataMessage {
     Desirable(PublicKey, bool),
@@ -562,6 +575,7 @@ mod tests {
             set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
             new_password_sub: recipient!(recorder, NewPasswordMessage),
+            connection_progress_sub: recipient!(recorder, ConnectionProgressMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "NeighborhoodSubs");

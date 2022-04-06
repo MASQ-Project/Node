@@ -22,7 +22,6 @@ use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
-use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
@@ -30,6 +29,7 @@ use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{ConnectionProgressMessage, NeighborhoodDotGraphRequest};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
@@ -136,6 +136,7 @@ recorder_message_handler!(ReportTransactionReceipts);
 recorder_message_handler!(ReportAccountsPayable);
 recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
+recorder_message_handler!(ConnectionProgressMessage);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -366,6 +367,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
         new_password_sub: recipient!(addr, NewPasswordMessage),
+        connection_progress_sub: recipient!(addr, ConnectionProgressMessage),
     }
 }
 

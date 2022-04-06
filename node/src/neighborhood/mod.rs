@@ -42,7 +42,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeDescriptor;
@@ -52,6 +51,7 @@ use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
@@ -250,6 +250,14 @@ impl Handler<RemoveNeighborMessage> for Neighborhood {
     }
 }
 
+impl Handler<ConnectionProgressMessage> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, msg: ConnectionProgressMessage, ctx: &mut Self::Context) -> Self::Result {
+        todo!()
+    }
+}
+
 impl Handler<NodeRecordMetadataMessage> for Neighborhood {
     type Result = ();
 
@@ -385,7 +393,6 @@ impl Neighborhood {
             neighborhood_database,
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
             next_return_route_id: 0,
-            // initial_neighbors,
             overall_connection_status,
             chain: config.blockchain_bridge_config.chain,
             crashable: config.crash_point == CrashPoint::Message,
@@ -414,6 +421,7 @@ impl Neighborhood {
             set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
             from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
             new_password_sub: addr.clone().recipient::<NewPasswordMessage>(),
+            connection_progress_sub: addr.clone().recipient::<ConnectionProgressMessage>(),
         }
     }
 
@@ -484,7 +492,6 @@ impl Neighborhood {
     }
 
     fn send_debut_gossip(&mut self) {
-        todo!("Breaking the flow");
         if self.overall_connection_status.is_empty() {
             info!(self.logger, "Empty. No Nodes to report to; continuing");
             return;
@@ -1583,14 +1590,13 @@ mod tests {
             root_node_record_ref.has_half_neighbor(another_neighbor_node.public_key()),
             false,
         );
-        todo!("fix the below assert");
-        // assert_eq!(
-        //     subject.overall_connection_status,
-        //     vec![
-        //         NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde,)),
-        //         NodeDescriptor::from((&another_neighbor_node, Chain::EthRopsten, cryptde,))
-        //     ]
-        // );
+        assert_eq!(
+            subject.overall_connection_status,
+            OverallConnectionStatus::new(vec![
+                NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde,)),
+                NodeDescriptor::from((&another_neighbor_node, Chain::EthRopsten, cryptde,))
+            ])
+        );
     }
 
     #[test]
