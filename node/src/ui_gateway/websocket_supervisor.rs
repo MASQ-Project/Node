@@ -37,12 +37,10 @@ trait ClientWrapper: Send + Any {
     fn as_any(&self) -> &dyn Any;
     fn send(&mut self, item: OwnedMessage) -> Result<(), WebSocketError>;
     fn flush(&mut self) -> Result<(), WebSocketError>;
-    fn socket(&self) -> SocketAddr;
 }
 
 struct ClientWrapperReal {
     delegate: Wait<SplitSink<Framed<TcpStream, MessageCodec<OwnedMessage>>>>,
-    socket_addr: SocketAddr,
 }
 
 impl ClientWrapper for ClientWrapperReal {
@@ -56,10 +54,6 @@ impl ClientWrapper for ClientWrapperReal {
 
     fn flush(&mut self) -> Result<(), WebSocketError> {
         self.delegate.flush()
-    }
-
-    fn socket(&self) -> SocketAddr {
-        self.socket_addr
     }
 }
 
@@ -77,6 +71,7 @@ struct WebSocketSupervisorInner {
     next_client_id: u64,
     from_ui_message_sub: Recipient<NodeFromUiMessage>,
     client_id_by_socket_addr: HashMap<SocketAddr, u64>,
+    socket_addr_by_client_id: HashMap<u64, SocketAddr>,
     client_by_id: HashMap<u64, Box<dyn ClientWrapper>>,
 }
 
@@ -97,6 +92,7 @@ impl WebSocketSupervisorReal {
             next_client_id: 0,
             from_ui_message_sub,
             client_id_by_socket_addr: HashMap::new(),
+            socket_addr_by_client_id: Default::default(),
             client_by_id: HashMap::new(),
         }));
         let logger = Logger::new("WebSocketSupervisor");
@@ -225,7 +221,6 @@ impl WebSocketSupervisorReal {
         let sync_outgoing: Wait<SplitSink<_>> = outgoing.wait();
         let client_wrapper = Box::new(ClientWrapperReal {
             delegate: sync_outgoing,
-            socket_addr,
         });
         let mut locked_inner = inner.lock().expect("WebSocketSupervisor is poisoned");
         let client_id = locked_inner.next_client_id;
@@ -233,6 +228,9 @@ impl WebSocketSupervisorReal {
         locked_inner
             .client_id_by_socket_addr
             .insert(socket_addr, client_id);
+        locked_inner
+            .socket_addr_by_client_id
+            .insert(client_id, socket_addr);
         locked_inner.client_by_id.insert(client_id, client_wrapper);
         let incoming_future = incoming
             .then(move |result| Self::handle_websocket_errors(result, &logger_2, socket_addr))
@@ -420,10 +418,10 @@ impl WebSocketSupervisorReal {
                 );
                 Self::handle_dead_client_removal(client_id, locked_inner)
             }
-            e => warning!(
+            err => warning!(
                 Logger::new("WebSocketSupervisor"),
                 "'{:?}' occurred when flushing msg for Client {}",
-                e,
+                err,
                 client_id
             ),
         }
@@ -433,12 +431,18 @@ impl WebSocketSupervisorReal {
         client_id: u64,
         locked_inner: &mut MutexGuard<WebSocketSupervisorInner>,
     ) {
-        let removed_client = locked_inner
+        locked_inner
             .client_by_id
             .remove(&client_id)
             .expectv("client");
-        let socket_addr = removed_client.socket();
-        locked_inner.client_id_by_socket_addr.remove(&socket_addr);
+        let socket_addr = locked_inner
+            .socket_addr_by_client_id
+            .remove(&client_id)
+            .expectv("socket address");
+        locked_inner
+            .client_id_by_socket_addr
+            .remove(&socket_addr)
+            .expectv("client id");
     }
 
     fn handle_websocket_errors<I>(
@@ -514,6 +518,7 @@ mod tests {
     use crate::test_utils::{assert_contains, await_value, wait_for};
     use actix::System;
     use actix::{Actor, Addr};
+    use crossbeam_channel::bounded;
     use futures::future::lazy;
     use masq_lib::constants::UNMARSHAL_ERROR;
     use masq_lib::messages::{
@@ -648,10 +653,6 @@ mod tests {
             }
             self.flush_results.borrow_mut().remove(0)
         }
-
-        fn socket(&self) -> SocketAddr {
-            self.socket_results.borrow_mut().remove(0)
-        }
     }
 
     fn make_client(port: u16, protocol: &str) -> Result<Client<TcpStream>, WebSocketError> {
@@ -713,6 +714,48 @@ mod tests {
 
         let tlh = TestLogHandler::new();
         tlh.await_log_containing("Unsuccessful connection to UI port detected", 1000);
+    }
+
+    #[test]
+    fn data_describing_newly_connected_client_is_filled_properly() {
+        init_test_logging();
+        let port = find_free_port();
+        let (tx, rx) = bounded(1);
+        let (ui_gateway, _, _) = make_recorder();
+        let join_handle = thread::spawn(move || {
+            let system = System::new("logs_unexpected_binary_ping_pong_websocket_messages");
+            let ui_message_sub = subs(ui_gateway);
+            let subject = lazy(move || {
+                let supervisor = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
+                let inner_clone = supervisor.inner.clone();
+                tx.send(inner_clone).unwrap();
+                Ok(())
+            });
+            actix::spawn(subject);
+            let background_system = System::current();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(500));
+                background_system.stop();
+            });
+            system.run();
+        });
+        let _client = await_value(Some((100, 1000)), || {
+            UiConnection::make(port, NODE_UI_PROTOCOL)
+        })
+        .unwrap();
+        let inner_clone = rx.recv().unwrap();
+        let locked_inner = inner_clone.lock().unwrap();
+        assert_eq!(locked_inner.port, port);
+        assert_eq!(locked_inner.next_client_id, 1);
+        let client_socket_addr = *locked_inner.socket_addr_by_client_id.get(&0).unwrap();
+        assert_eq!(
+            locked_inner
+                .client_id_by_socket_addr
+                .get(&client_socket_addr),
+            Some(&0)
+        );
+        assert!(!locked_inner.client_by_id.is_empty());
+        join_handle.join().unwrap();
     }
 
     #[test]
@@ -871,6 +914,7 @@ mod tests {
             next_client_id: 0,
             from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
             client_id_by_socket_addr: Default::default(),
+            socket_addr_by_client_id: Default::default(),
             client_by_id: Default::default(),
         };
         let subject = WebSocketSupervisorReal {
@@ -938,6 +982,7 @@ mod tests {
             next_client_id: 0,
             from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
             client_id_by_socket_addr: Default::default(),
+            socket_addr_by_client_id: Default::default(),
             client_by_id: Default::default(),
         };
         let subject = WebSocketSupervisorReal {
@@ -1005,6 +1050,7 @@ mod tests {
             next_client_id: 0,
             from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
             client_id_by_socket_addr: Default::default(),
+            socket_addr_by_client_id: Default::default(),
             client_by_id: Default::default(),
         };
         let subject = WebSocketSupervisorReal {
@@ -1081,11 +1127,14 @@ mod tests {
         client_by_id.insert(1234, Box::new(client));
         let mut client_id_by_socket_addr: HashMap<SocketAddr, u64> = HashMap::new();
         client_id_by_socket_addr.insert(socket_addr, 1234);
+        let mut socket_addr_by_client_id: HashMap<u64, SocketAddr> = HashMap::new();
+        socket_addr_by_client_id.insert(1234, socket_addr);
         let inner_arc = Arc::new(Mutex::new(WebSocketSupervisorInner {
             port: 0,
             next_client_id: 0,
             from_ui_message_sub,
             client_id_by_socket_addr,
+            socket_addr_by_client_id,
             client_by_id,
         }));
 
