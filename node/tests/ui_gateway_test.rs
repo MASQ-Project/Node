@@ -132,7 +132,11 @@ fn dead_clients_are_dumped_integration() {
         expected_message_snippet,
         broadcasts[0].msg
     );
+    #[cfg(not(target_os = "windows"))]
     let expected_message_snippet = "Client 0: BrokenPipe, dropping its reference".to_string();
+    #[cfg(target_os = "windows")]
+    let expected_message_snippet =
+        "Client 0: ConnectionAborted, dropping its reference".to_string();
     assert!(
         broadcasts[1].msg.contains(&expected_message_snippet),
         "{} not present in: {:?}",

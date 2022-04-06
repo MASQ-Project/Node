@@ -392,22 +392,7 @@ impl WebSocketSupervisorReal {
             match client.send(OwnedMessage::Text(json.clone())) {
                 Ok(_) => match client.flush() {
                     Ok(_) => (),
-                    Err(e) => match e {
-                        WebSocketError::IoError(e) if e.kind() == ErrorKind::BrokenPipe => {
-                            warning!(
-                                Logger::new("WebSocketSupervisor"),
-                                "Client {}: BrokenPipe, dropping its reference",
-                                client_id
-                            );
-                            Self::handle_dead_client_removal(client_id, locked_inner)
-                        }
-                        e => warning!(
-                            Logger::new("WebSocketSupervisor"),
-                            "'{:?}' occurred when flushing msg for Client {}",
-                            e,
-                            client_id
-                        ),
-                    },
+                    Err(e) => Self::handle_flush_error(e, locked_inner, client_id),
                 },
                 Err(e) => error!(
                     Logger::new("WebSocketSupervisor"),
@@ -415,6 +400,33 @@ impl WebSocketSupervisorReal {
                 ),
             };
         });
+    }
+
+    fn handle_flush_error(
+        error: WebSocketError,
+        locked_inner: &mut MutexGuard<WebSocketSupervisorInner>,
+        client_id: u64,
+    ) {
+        match error {
+            WebSocketError::IoError(e)
+                if e.kind() == ErrorKind::BrokenPipe
+                    || e.kind() == ErrorKind::ConnectionAborted =>
+            {
+                warning!(
+                    Logger::new("WebSocketSupervisor"),
+                    "Client {}: {:?}, dropping its reference",
+                    client_id,
+                    e.kind()
+                );
+                Self::handle_dead_client_removal(client_id, locked_inner)
+            }
+            e => warning!(
+                Logger::new("WebSocketSupervisor"),
+                "'{:?}' occurred when flushing msg for Client {}",
+                e,
+                client_id
+            ),
+        }
     }
 
     fn handle_dead_client_removal(
@@ -1113,6 +1125,17 @@ mod tests {
         flush_failure_test_body(flush_error, assertion_on_retention_of_the_client);
         TestLogHandler::new().exists_log_containing(
             "WARN: WebSocketSupervisor: Client 1234: BrokenPipe, dropping its reference",
+        );
+    }
+
+    #[test]
+    fn can_handle_connection_aborted_flush_failure_after_send() {
+        init_test_logging();
+        let flush_error = WebSocketError::IoError(Error::from(ErrorKind::ConnectionAborted));
+        let assertion_on_retention_of_the_client = None;
+        flush_failure_test_body(flush_error, assertion_on_retention_of_the_client);
+        TestLogHandler::new().exists_log_containing(
+            "WARN: WebSocketSupervisor: Client 1234: ConnectionAborted, dropping its reference",
         );
     }
 
