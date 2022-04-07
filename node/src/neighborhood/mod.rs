@@ -255,6 +255,7 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
 
     fn handle(&mut self, msg: ConnectionProgressMessage, ctx: &mut Self::Context) -> Self::Result {
         todo!("Write how to handle the ConnectionProgressMessage");
+        // self.overall_connection_status.
     }
 }
 
@@ -1291,7 +1292,9 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use itertools::Itertools;
+    use nix::sys::socket::AddressFamily::System;
     use serde_cbor;
+    use sysinfo::Signal::Sys;
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
@@ -1596,6 +1599,45 @@ mod tests {
                 NodeDescriptor::from((&another_neighbor_node, Chain::EthRopsten, cryptde,))
             ])
         );
+    }
+
+    #[test]
+    pub fn neighborhood_handles_connection_progress_message() {
+        init_test_logging();
+        let cryptde: &dyn CryptDE = main_cryptde();
+        let earning_wallet = make_wallet("earning");
+        let node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
+        let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
+        let public_key = PublicKey::new(&b"booga"[..]);
+        let node_descriptor = NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde)),
+        let subject = Neighborhood::new(
+            cryptde,
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        this_node_addr,
+                        vec![
+                            node_descriptor
+                        ],
+                        rate_pack(100),
+                    ),
+                },
+                earning_wallet.clone(),
+                None,
+                "neighborhood_handles_connection_progress_message",
+            ),
+        );
+        let recipient = subject.start().recipient();
+        let system = System::new("testing");
+        let connection_progress_message = ConnectionProgressMessage {
+            public_key,
+            event: ConnectionProgressEvent::TcpConnectionSuccessful,
+        };
+
+        recipient.try_send(connection_progress_message).unwrap();
+
+        System::current().stop();
+        system.run();
     }
 
     #[test]
