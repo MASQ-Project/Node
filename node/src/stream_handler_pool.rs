@@ -497,7 +497,11 @@ impl StreamHandlerPool {
                 let subs = self.self_subs_opt.clone().expect("Internal error");
                 let add_stream_sub = subs.add_sub;
                 let node_query_response_sub = subs.node_query_response;
-                let connection_progress_sub = self
+                let connection_progress_sub_ok = self
+                    .connection_progress_sub_opt
+                    .clone()
+                    .expect("Internal Error");
+                let connection_progress_sub_err = self
                     .connection_progress_sub_opt
                     .clone()
                     .expect("Internal Error");
@@ -543,7 +547,7 @@ impl StreamHandlerPool {
                             public_key: key_clone_ok,
                             event: ConnectionProgressEvent::TcpConnectionSuccessful
                         };
-                        connection_progress_sub.try_send(connection_progress_message).expect("Neighborhood is dead");
+                        connection_progress_sub_ok.try_send(connection_progress_message).expect("Neighborhood is dead");
                     })
                     .map_err(move |err| { // connection was unsuccessful
                         error!(logger_me, "Stream to {} does not exist and could not be connected; discarding {} bytes: {}", peer_addr, msg_data_len, err);
@@ -554,8 +558,13 @@ impl StreamHandlerPool {
                             sub,
                         }).expect("StreamHandlerPool is dead");
 
-                        let remove_node_message = RemoveNeighborMessage { public_key: key_clone_err };
+                        let remove_node_message = RemoveNeighborMessage { public_key: key_clone_err.clone() };
                         tell_neighborhood.try_send(remove_node_message).expect("Neighborhood is Dead");
+                        let connection_progress_message = ConnectionProgressMessage {
+                            public_key: key_clone_err,
+                            event: ConnectionProgressEvent::TcpConnectionFailed
+                        };
+                        connection_progress_sub_err.try_send(connection_progress_message).expect("Neighborhood is dead");
                     });
 
                 debug!(self.logger, "Beginning connection attempt to {}", peer_addr);
@@ -1292,7 +1301,7 @@ mod tests {
                 public_key,
                 event: ConnectionProgressEvent::TcpConnectionSuccessful
             }
-        )
+        );
     }
 
     #[test]
@@ -1590,7 +1599,7 @@ mod tests {
         init_test_logging();
         let cryptde = main_cryptde();
         let key = cryptde.public_key().clone();
-
+        let key_bg = key.clone();
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
         let peer_addr_a = peer_addr.clone();
         let msg = TransmitDataMsg {
@@ -1622,7 +1631,7 @@ mod tests {
             local_addr,
             peer_addr: peer_addr_a,
         };
-
+        let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
         let (tx, rx) = unbounded();
 
         thread::spawn(move || {
@@ -1637,7 +1646,7 @@ mod tests {
                 vec![Box::new(HttpRequestDiscriminatorFactory::new())];
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().build();
+            let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -1651,7 +1660,7 @@ mod tests {
                 .node_query_response
                 .try_send(DispatcherNodeQueryResponse {
                     result: Some(NodeQueryResponseMetadata::new(
-                        key.clone(),
+                        key_bg,
                         Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
                         rate_pack(100),
                     )),
@@ -1683,6 +1692,17 @@ mod tests {
 
         assert_eq!(poll_write_params[0], expected_data);
         assert_eq!(poll_write_params.len(), 1);
+
+        neighborhood_awaiter.await_message_count(1);
+        let connection_progress_message =
+            Recording::get::<ConnectionProgressMessage>(&neighborhood_recording_arc, 1);
+        assert_eq!(
+            connection_progress_message,
+            ConnectionProgressMessage {
+                public_key: key,
+                event: ConnectionProgressEvent::TcpConnectionFailed
+            }
+        );
     }
 
     #[test]
