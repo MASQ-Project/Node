@@ -42,7 +42,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
@@ -51,6 +50,7 @@ use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::node_addr::NodeAddr;
@@ -254,7 +254,7 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ConnectionProgressMessage, ctx: &mut Self::Context) -> Self::Result {
-        todo!()
+        todo!("Write how to handle the ConnectionProgressMessage");
     }
 }
 
@@ -501,7 +501,7 @@ impl Neighborhood {
             .gossip_producer
             .produce_debut(&self.neighborhood_database);
         self.overall_connection_status
-            .iter()
+            .iter_starting_descriptors()
             .for_each(|node_descriptor| {
                 if let Some(node_addr) = &node_descriptor.node_addr_opt {
                     self.hopper_no_lookup
@@ -593,17 +593,16 @@ impl Neighborhood {
     }
 
     fn handle_gossip_failure(&mut self, failure_source: SocketAddr, failure: GossipFailure_0v1) {
-        let tuple_opt =
-            match self
-                .overall_connection_status
-                .iter()
-                .find_position(|n| match &n.node_addr_opt {
-                    None => false,
-                    Some(node_addr) => node_addr.ip_addr() == failure_source.ip(),
-                }) {
-                None => unimplemented!("TODO: Test-drive me (or replace me with a panic)"),
-                Some(tuple) => Some(tuple),
-            };
+        let tuple_opt = match self
+            .overall_connection_status
+            .iter_starting_descriptors()
+            .find_position(|n| match &n.node_addr_opt {
+                None => false,
+                Some(node_addr) => node_addr.ip_addr() == failure_source.ip(),
+            }) {
+            None => unimplemented!("TODO: Test-drive me (or replace me with a panic)"),
+            Some(tuple) => Some(tuple),
+        };
         if let Some((position, node_descriptor)) = tuple_opt {
             warning!(
                 self.logger,

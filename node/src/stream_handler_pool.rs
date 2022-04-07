@@ -18,7 +18,7 @@ use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::{
-    ConnectionProgressMessage, ConnectionProgressStage, NodeQueryMessage,
+    ConnectionProgressEvent, ConnectionProgressMessage, NodeQueryMessage,
 };
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, ZERO_RATE_PACK};
 use crate::sub_lib::node_addr::NodeAddr;
@@ -541,7 +541,7 @@ impl StreamHandlerPool {
 
                         let connection_progress_message = ConnectionProgressMessage {
                             public_key: key_clone_ok,
-                            stage: ConnectionProgressStage::TcpConnectionEstablished
+                            event: ConnectionProgressEvent::TcpConnectionSuccessful
                         };
                         connection_progress_sub.try_send(connection_progress_message).expect("Neighborhood is dead");
                     })
@@ -589,7 +589,7 @@ mod tests {
     use crate::node_test_utils::FailingMasquerader;
     use crate::sub_lib::dispatcher::InboundClientData;
     use crate::sub_lib::neighborhood::{
-        ConnectionProgressMessage, ConnectionProgressStage, NodeQueryResponseMetadata,
+        ConnectionProgressEvent, ConnectionProgressMessage, NodeQueryResponseMetadata,
     };
     use crate::sub_lib::stream_connector::ConnectionInfo;
     use crate::test_utils::await_messages;
@@ -1290,7 +1290,7 @@ mod tests {
             connection_progress_message,
             ConnectionProgressMessage {
                 public_key,
-                stage: ConnectionProgressStage::TcpConnectionEstablished
+                event: ConnectionProgressEvent::TcpConnectionSuccessful
             }
         )
     }

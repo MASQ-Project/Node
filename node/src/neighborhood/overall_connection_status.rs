@@ -1,17 +1,19 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
 use openssl::init;
 use std::collections::HashSet;
+use std::ops::Deref;
 
 #[derive(PartialEq, Debug)]
-enum ConnectionStageErrors {
+pub enum ConnectionStageErrors {
     TcpConnectionFailed,
     NoGossipResponseReceived,
 }
 
 #[derive(PartialEq, Debug)]
-enum ConnectionStage {
+pub enum ConnectionStage {
     StageZero,
     TcpConnectionEstablished,
     NeighborshipEstablished,
@@ -21,11 +23,30 @@ enum ConnectionStage {
 #[derive(PartialEq, Debug)]
 pub struct ConnectionProgress {
     pub starting_descriptor: NodeDescriptor,
-    current_descriptor: NodeDescriptor,
-    connection_stage: ConnectionStage,
-    // previous_pass_targets is used to stop the cycle of infinite pass gossips
-    // in case it receives a node descriptor that is already a part of this hash set.
-    previous_pass_targets: HashSet<NodeDescriptor>,
+    pub current_descriptor: NodeDescriptor,
+    pub connection_stage: ConnectionStage,
+}
+
+impl ConnectionProgress {
+    pub fn new(node_descriptor: NodeDescriptor) -> Self {
+        Self {
+            starting_descriptor: node_descriptor.clone(),
+            current_descriptor: node_descriptor,
+            connection_stage: ConnectionStage::StageZero,
+        }
+    }
+
+    pub fn update_stage(&mut self, connection_stage: ConnectionStage) {
+        self.connection_stage = connection_stage;
+        // todo!("Add checks whether it should be allowed to change stage or not");
+    }
+
+    pub fn handle_pass_gossip(&mut self, new_node_descriptor: NodeDescriptor) {
+        unimplemented!(
+            "Update the current_descriptor and reset the stage to StageZero,\
+         iff the current_stage is TcpConnectionEstablished"
+        )
+    }
 }
 
 #[derive(PartialEq, Debug)]
@@ -44,7 +65,10 @@ pub struct OverallConnectionStatus {
     stage: OverallConnectionStage,
     // Stores the progress for initial node descriptors,
     // each element may or may not be corresponding to the descriptors entered by user.
-    progress: Vec<ConnectionProgress>,
+    pub progress: Vec<ConnectionProgress>,
+    // previous_pass_targets is used to stop the cycle of infinite pass gossips
+    // in case it receives a node descriptor that is already a part of this hash set.
+    previous_pass_targets: HashSet<NodeDescriptor>,
 }
 
 impl OverallConnectionStatus {
@@ -55,7 +79,6 @@ impl OverallConnectionStatus {
                 starting_descriptor: node_descriptor.clone(),
                 current_descriptor: node_descriptor.clone(),
                 connection_stage: ConnectionStage::StageZero,
-                previous_pass_targets: HashSet::new(),
             })
             .collect();
 
@@ -63,13 +86,36 @@ impl OverallConnectionStatus {
             can_make_routes: false,
             stage: OverallConnectionStage::NotConnected,
             progress,
+            previous_pass_targets: HashSet::new(),
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &NodeDescriptor> {
+    pub fn iter_starting_descriptors(&self) -> impl Iterator<Item = &NodeDescriptor> {
         self.progress
             .iter()
             .map(|connection_progress| &connection_progress.starting_descriptor)
+    }
+
+    pub fn update_connection_stage(
+        &mut self,
+        public_key: PublicKey,
+        event: ConnectionProgressEvent,
+    ) {
+        let mut connection_progress_to_modify = self
+            .progress
+            .iter_mut()
+            .find(|connection_progress| {
+                connection_progress.current_descriptor.encryption_public_key == public_key
+            })
+            .unwrap();
+
+        match event {
+            ConnectionProgressEvent::TcpConnectionSuccessful => {
+                connection_progress_to_modify
+                    .update_stage(ConnectionStage::TcpConnectionEstablished);
+            }
+            _ => todo!("Write logic for updating the connection progress"),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -95,6 +141,7 @@ impl OverallConnectionStatus {
 mod tests {
     use super::*;
     use crate::test_utils::main_cryptde;
+    use masq_lib::blockchains::chains::Chain;
 
     #[test]
     fn able_to_create_overall_connection_status() {
@@ -122,15 +169,14 @@ mod tests {
                         starting_descriptor: node_desc_1.clone(),
                         current_descriptor: node_desc_1,
                         connection_stage: ConnectionStage::StageZero,
-                        previous_pass_targets: HashSet::new()
                     },
                     ConnectionProgress {
                         starting_descriptor: node_desc_2.clone(),
                         current_descriptor: node_desc_2,
                         connection_stage: ConnectionStage::StageZero,
-                        previous_pass_targets: HashSet::new()
                     }
-                ]
+                ],
+                previous_pass_targets: HashSet::new()
             }
         );
     }
@@ -158,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn overall_connection_status_is_iterable() {
+    fn starting_descriptors_are_iterable() {
         let node_desc_1 = NodeDescriptor::try_from((
             main_cryptde(),
             "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345",
@@ -172,7 +218,7 @@ mod tests {
         let initial_node_descriptors = vec![node_desc_1.clone(), node_desc_2.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
-        let mut result = subject.iter();
+        let mut result = subject.iter_starting_descriptors();
 
         assert_eq!(result.next(), Some(&node_desc_1));
         assert_eq!(result.next(), Some(&node_desc_2));
@@ -200,5 +246,35 @@ mod tests {
         assert_eq!(removed_desc_1, node_desc_1);
         assert_eq!(removed_desc_2, node_desc_2);
         assert_eq!(subject, OverallConnectionStatus::new(vec![]));
+    }
+
+    #[test]
+    fn updates_the_connection_stage_to_tcp_connection_established() {
+        let node_decriptor = NodeDescriptor {
+            blockchain: Chain::EthRopsten,
+            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
+            node_addr_opt: None,
+        };
+        let initial_node_descriptors = vec![node_decriptor.clone()];
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+
+        subject.update_connection_stage(
+            node_decriptor.encryption_public_key.clone(),
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+        );
+
+        assert_eq!(
+            subject,
+            OverallConnectionStatus {
+                can_make_routes: false,
+                stage: OverallConnectionStage::NotConnected,
+                progress: vec![ConnectionProgress {
+                    starting_descriptor: node_decriptor.clone(),
+                    current_descriptor: node_decriptor,
+                    connection_stage: ConnectionStage::TcpConnectionEstablished
+                }],
+                previous_pass_targets: Default::default()
+            }
+        )
     }
 }

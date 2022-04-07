@@ -382,7 +382,7 @@ impl Debug for NeighborhoodSubs {
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeQueryResponseMetadata {
     pub public_key: PublicKey,
-    pub node_addr_opt: Option<NodeAddr>,
+    pub node_addr_opt: Option<NodeAddr>, // Why is it an Option?
     pub rate_pack: RatePack,
 }
 
@@ -474,15 +474,15 @@ pub struct RemoveNeighborMessage {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum ConnectionProgressStage {
-    TcpConnectionEstablished,
+pub enum ConnectionProgressEvent {
+    TcpConnectionSuccessful,
     TcpConnectionFailed,
 }
 
 #[derive(Clone, Debug, Message, PartialEq)]
 pub struct ConnectionProgressMessage {
     pub public_key: PublicKey,
-    pub stage: ConnectionProgressStage,
+    pub event: ConnectionProgressEvent,
 }
 
 #[derive(Clone, Debug, Message, PartialEq)]
