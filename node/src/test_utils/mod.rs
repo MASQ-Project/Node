@@ -531,6 +531,11 @@ pub mod unshared_test_utils {
     use std::thread;
     use std::time::Duration;
 
+    #[derive(Message)]
+    pub struct AssertionsMessage<A: Actor> {
+        pub assertions: Box<dyn FnOnce(&mut A) + Send>,
+    }
+
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
         let mut app_args = vec!["MASQNode".to_string()];
         app_args.append(&mut array_of_borrows_to_vec(&args));

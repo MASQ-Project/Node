@@ -254,8 +254,9 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ConnectionProgressMessage, ctx: &mut Self::Context) -> Self::Result {
-        //todo!("Write how to handle the ConnectionProgressMessage");
-        // self.overall_connection_status.
+        self.overall_connection_status
+            .update_connection_stage(msg.public_key, msg.event);
+        // todo!("Write how to handle the ConnectionProgressMessage");
     }
 }
 
@@ -1330,13 +1331,27 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
+    use crate::test_utils::unshared_test_utils::{
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
+    };
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::neighborhood::overall_connection_status::{ConnectionProgress, ConnectionStage};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+
+    impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
+        type Result = ();
+
+        fn handle(
+            &mut self,
+            msg: AssertionsMessage<Neighborhood>,
+            ctx: &mut Self::Context,
+        ) -> Self::Result {
+            (msg.assertions)(self)
+        }
+    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -1609,16 +1624,15 @@ mod tests {
         let node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
         let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
         let public_key = PublicKey::new(&b"booga"[..]);
-        let node_descriptor = NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
+        let node_descriptor =
+            NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
         let subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr,
-                        vec![
-                            node_descriptor.clone()
-                        ],
+                        vec![node_descriptor.clone()],
                         rate_pack(100),
                     ),
                 },
@@ -1627,15 +1641,18 @@ mod tests {
                 "neighborhood_handles_connection_progress_message",
             ),
         );
-        let addr =subject.start();
+        let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
-        let assertions = Box::new(|actor: &Neighborhood|{
-            assert_eq!(actor.overall_connection_status.progress,vec![ConnectionProgress{
-                starting_descriptor: node_descriptor.clone(),
-                current_descriptor: node_descriptor,
-                connection_stage: ConnectionStage::TcpConnectionEstablished
-            }]);
+        let assertions = Box::new(|actor: &mut Neighborhood| {
+            assert_eq!(
+                actor.overall_connection_status.progress,
+                vec![ConnectionProgress {
+                    starting_descriptor: node_descriptor.clone(),
+                    current_descriptor: node_descriptor,
+                    connection_stage: ConnectionStage::TcpConnectionEstablished
+                }]
+            );
         });
         let connection_progress_message = ConnectionProgressMessage {
             public_key,
@@ -1644,22 +1661,9 @@ mod tests {
 
         cpm_recipient.try_send(connection_progress_message).unwrap();
 
-        addr.try_send(AssertionMessage{ assertions }).unwrap();
+        addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(),0);
-    }
-
-    #[derive(Message)]
-    struct AssertionMessage{
-        assertions: Box<dyn FnOnce(&Neighborhood) + Send>
-    }
-
-    impl Handler<AssertionMessage> for Neighborhood{
-        type Result = ();
-
-        fn handle(&mut self, msg: AssertionMessage, ctx: &mut Self::Context) -> Self::Result {
-            (msg.assertions)(self)
-        }
+        assert_eq!(system.run(), 0);
     }
 
     #[test]
