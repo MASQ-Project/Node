@@ -137,16 +137,16 @@ impl ReceivableDao for ReceivableDaoReal {
             .expect("Internal error");
 
         stmt.query_map([], |row| {
-            let balance_result = row.get(0);
-            let last_received_timestamp_result = row.get(1);
-            let wallet: Result<Wallet, rusqlite::Error> = row.get(2);
+            let balance_result = row.get::<usize, i64>(0);
+            let last_received_timestamp_result = row.get::<usize, i64>(1);
+            let wallet = row.get::<usize, Wallet>(2);
             match (balance_result, last_received_timestamp_result, wallet) {
                 (Ok(balance), Ok(last_received_timestamp), Ok(wallet)) => Ok(ReceivableAccount {
                     wallet,
                     balance,
                     last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
                 }),
-                _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
+                tuple => panic!("receivables(): Database is corrupt: RECEIVABLE table columns and/or types: {:?}", tuple),
             }
         })
         .expect("Database is corrupt")
@@ -244,7 +244,7 @@ impl ReceivableDao for ReceivableDaoReal {
                     balance,
                     last_received_timestamp: dao_utils::from_time_t(last_paid_timestamp),
                 }),
-                _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
+                tuple => panic!("top_records(): Database is corrupt: RECEIVABLE table columns and/or types: {:?}", tuple),
             }
         })
         .expect("Database is corrupt")
@@ -271,7 +271,7 @@ impl ReceivableDao for ReceivableDaoReal {
                     Ok(0u64)
                 }
                 Err(e) => panic!(
-                    "Database is corrupt: RECEIVABLE table columns and/or types: {:?}",
+                    "total(): Database is corrupt: RECEIVABLE table columns and/or types: {:?}",
                     e
                 ),
             }
@@ -368,7 +368,7 @@ impl ReceivableDaoReal {
                 balance,
                 last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
             }),
-            _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
+            tuple => panic!("row_to_account(): Database is corrupt: RECEIVABLE table columns and/or types: {:?}", tuple),
         }
     }
 }

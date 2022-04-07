@@ -18,7 +18,6 @@ use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
 use multinode_integration_tests_lib::utils::{config_dao, database_conn, receivable_dao};
 
 #[test]
-#[ignore]
 fn debtors_are_credited_once_but_not_twice() {
     let mbcs_port = find_free_port();
     let ui_port = find_free_port();
@@ -76,7 +75,7 @@ fn debtors_are_credited_once_but_not_twice() {
             ) values (\
                 '0x3333333333333333333333333333333333333333',
                 1000000,
-                '2001-09-11'
+                '2001-09-11' <-- This is undoubtedly the problem; should be an integer
             )",
             )
             .unwrap();
