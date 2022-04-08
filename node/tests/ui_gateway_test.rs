@@ -123,7 +123,10 @@ fn dead_clients_are_dumped_integration() {
     drop(client_1);
 
     #[cfg(target_os = "windows")]
-    client_2.send(UiDescriptorRequest {});
+    client_2.send(UiChangePasswordRequest {
+        old_password_opt: Some("boooga".to_string()),
+        new_password: "wow".to_string(),
+    });
     let broadcasts: Vec<UiLogBroadcast> = (0..2)
         .map(|_| client_2.skip_until_received().unwrap())
         .collect();
