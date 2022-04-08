@@ -494,7 +494,10 @@ impl StreamHandlerPool {
                     "No existing stream keyed by {}: creating one to {}", sw_key, peer_addr
                 );
 
-                let subs = self.self_subs_opt.clone().expect("Neighborhood Unbound");
+                let subs = self
+                    .self_subs_opt
+                    .clone()
+                    .expect("StreamHandlerPool Unbound");
                 let add_stream_sub = subs.add_sub;
                 let node_query_response_sub = subs.node_query_response;
                 let connection_progress_sub_ok = self
@@ -505,8 +508,8 @@ impl StreamHandlerPool {
                     .connection_progress_sub_opt
                     .clone()
                     .expect("Neighborhood Unbound");
-                let remove_sub = subs.remove_sub;
-                let tell_neighborhood = self
+                let remove_stream_sub = subs.remove_sub;
+                let remove_neighbor_sub = self
                     .remove_neighbor_sub_opt
                     .clone()
                     .expect("Neighborhood Unbound");
@@ -551,7 +554,7 @@ impl StreamHandlerPool {
                     })
                     .map_err(move |err| { // connection was unsuccessful
                         error!(logger_me, "Stream to {} does not exist and could not be connected; discarding {} bytes: {}", peer_addr, msg_data_len, err);
-                        remove_sub.try_send(RemoveStreamMsg {
+                        remove_stream_sub.try_send(RemoveStreamMsg {
                             peer_addr: peer_addr_e,
                             local_addr: SocketAddr::new (localhost(), 0), // irrelevant; stream was never opened
                             stream_type: RemovedStreamType::Clandestine,
@@ -559,7 +562,7 @@ impl StreamHandlerPool {
                         }).expect("StreamHandlerPool is dead");
 
                         let remove_node_message = RemoveNeighborMessage { public_key: key_clone_err.clone() };
-                        tell_neighborhood.try_send(remove_node_message).expect("Neighborhood is Dead");
+                        remove_neighbor_sub.try_send(remove_node_message).expect("Neighborhood is Dead");
                         let connection_progress_message = ConnectionProgressMessage {
                             public_key: key_clone_err,
                             event: ConnectionProgressEvent::TcpConnectionFailed

@@ -107,10 +107,12 @@ impl OverallConnectionStatus {
             .find(|connection_progress| {
                 connection_progress.current_descriptor.encryption_public_key == public_key
             })
-            .expect(&*format!(
-                "Unable to find the node in connections with public key: {}",
-                public_key
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "Unable to find the node in connections with public key: {}",
+                    public_key
+                )
+            });
 
         match event {
             ConnectionProgressEvent::TcpConnectionSuccessful => {
