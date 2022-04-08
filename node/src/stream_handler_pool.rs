@@ -494,22 +494,22 @@ impl StreamHandlerPool {
                     "No existing stream keyed by {}: creating one to {}", sw_key, peer_addr
                 );
 
-                let subs = self.self_subs_opt.clone().expect("Internal error");
+                let subs = self.self_subs_opt.clone().expect("Neighborhood Unbound");
                 let add_stream_sub = subs.add_sub;
                 let node_query_response_sub = subs.node_query_response;
                 let connection_progress_sub_ok = self
                     .connection_progress_sub_opt
                     .clone()
-                    .expect("Internal Error");
+                    .expect("Neighborhood Unbound");
                 let connection_progress_sub_err = self
                     .connection_progress_sub_opt
                     .clone()
-                    .expect("Internal Error");
+                    .expect("Neighborhood Unbound");
                 let remove_sub = subs.remove_sub;
                 let tell_neighborhood = self
                     .remove_neighbor_sub_opt
                     .clone()
-                    .expect("Internal error");
+                    .expect("Neighborhood Unbound");
 
                 self.stream_writers
                     .insert(StreamWriterKey::from(peer_addr), None);
@@ -857,7 +857,7 @@ mod tests {
                 })
                 .unwrap();
 
-            sub_tx.send(subject_subs).expect("Internal Error");
+            sub_tx.send(subject_subs).expect("Neighborhood Unbound");
             system.run();
         });
 

@@ -107,7 +107,10 @@ impl OverallConnectionStatus {
             .find(|connection_progress| {
                 connection_progress.current_descriptor.encryption_public_key == public_key
             })
-            .unwrap();
+            .expect(&*format!(
+                "Unable to find the node in connections with public key: {}",
+                public_key
+            ));
 
         match event {
             ConnectionProgressEvent::TcpConnectionSuccessful => {
@@ -276,5 +279,23 @@ mod tests {
                 previous_pass_targets: Default::default()
             }
         )
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to find the node in connections with public key")]
+    fn panics_at_updating_the_connection_stage_if_a_node_is_not_a_part_of_connections() {
+        let node_decriptor = NodeDescriptor {
+            blockchain: Chain::EthRopsten,
+            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
+            node_addr_opt: None,
+        };
+        let initial_node_descriptors = vec![node_decriptor.clone()];
+        let non_existing_node_s_pub_key = PublicKey::from(vec![1, 1, 1]);
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+
+        subject.update_connection_stage(
+            non_existing_node_s_pub_key,
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+        );
     }
 }
