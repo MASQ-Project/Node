@@ -33,7 +33,7 @@ fn setup_results_are_broadcast_to_all_uis_integration() {
 
     stdin_handle_setupper.type_command("setup --log-level error");
 
-    thread::sleep(Duration::from_millis(300));
+    thread::sleep(Duration::from_millis(1000));
     stdin_handle_setupper.type_command("exit");
     stdin_handle_receiver.type_command("exit");
     let (stdout_setupper, _, _) = setupper_handle.stop();
