@@ -407,8 +407,7 @@ impl WebSocketSupervisorReal {
     ) {
         match error {
             WebSocketError::IoError(e)
-                if e.kind() == ErrorKind::BrokenPipe
-                    || e.kind() == ErrorKind::ConnectionAborted =>
+                if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset =>
             {
                 warning!(
                     Logger::new("WebSocketSupervisor"),
@@ -519,7 +518,7 @@ mod tests {
     use actix::System;
     use actix::{Actor, Addr};
     use crossbeam_channel::bounded;
-    use futures::future::lazy;
+    use futures::lazy;
     use masq_lib::constants::UNMARSHAL_ERROR;
     use masq_lib::messages::{
         FromMessageBody, UiShutdownRequest, UiStartOrder, UiUnmarshalError, NODE_UI_PROTOCOL,
@@ -717,46 +716,45 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn data_describing_newly_connected_client_is_filled_properly() {
+    fn data_attributed_to_a_newly_connected_client_is_proper() {
         init_test_logging();
         let port = find_free_port();
         let (tx, rx) = bounded(1);
         let (ui_gateway, _, _) = make_recorder();
-        let join_handle = thread::spawn(move || {
-            let system = System::new("logs_unexpected_binary_ping_pong_websocket_messages");
+        thread::spawn(move || {
+            let system = System::new("data_attributed_to_a_newly_connected_client_is_proper");
             let ui_message_sub = subs(ui_gateway);
             let subject = lazy(move || {
-                let supervisor = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
-                let inner_clone = supervisor.inner.clone();
-                tx.send(inner_clone).unwrap();
+                let subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
+                tx.send(Arc::clone(&subject.inner)).unwrap();
                 Ok(())
             });
             actix::spawn(subject);
-            let background_system = System::current();
-            thread::spawn(move || {
-                thread::sleep(Duration::from_millis(500));
-                background_system.stop();
-            });
             system.run();
         });
-        let _client = await_value(Some((100, 1000)), || {
-            UiConnection::make(port, NODE_UI_PROTOCOL)
-        })
-        .unwrap();
-        let inner_clone = rx.recv().unwrap();
-        let locked_inner = inner_clone.lock().unwrap();
-        assert_eq!(locked_inner.port, port);
-        assert_eq!(locked_inner.next_client_id, 1);
-        let client_socket_addr = *locked_inner.socket_addr_by_client_id.get(&0).unwrap();
+        wait_for_server(port);
+        let mail = rx.recv().unwrap();
+
+        let client = make_client(port, "MASQNode-UIv2").unwrap();
+
+        let socket_addr = client.local_addr().unwrap();
+        let websocket_supervisor_inner = mail.lock().unwrap();
+        assert_eq!(websocket_supervisor_inner.next_client_id, 1);
         assert_eq!(
-            locked_inner
-                .client_id_by_socket_addr
-                .get(&client_socket_addr),
-            Some(&0)
+            websocket_supervisor_inner
+                .socket_addr_by_client_id
+                .get(&0)
+                .unwrap(),
+            &socket_addr
         );
-        assert!(!locked_inner.client_by_id.is_empty());
-        join_handle.join().unwrap();
+        assert_eq!(
+            websocket_supervisor_inner
+                .client_id_by_socket_addr
+                .get(&socket_addr)
+                .unwrap(),
+            &0
+        );
+        assert!(websocket_supervisor_inner.client_by_id.get(&0).is_some())
     }
 
     #[test]
@@ -1181,11 +1179,11 @@ mod tests {
     #[test]
     fn can_handle_connection_aborted_flush_failure_after_send() {
         init_test_logging();
-        let flush_error = WebSocketError::IoError(Error::from(ErrorKind::ConnectionAborted));
+        let flush_error = WebSocketError::IoError(Error::from(ErrorKind::ConnectionReset));
         let assertion_on_retention_of_the_client = None;
         flush_failure_test_body(flush_error, assertion_on_retention_of_the_client);
         TestLogHandler::new().exists_log_containing(
-            "WARN: WebSocketSupervisor: Client 1234: ConnectionAborted, dropping its reference",
+            "WARN: WebSocketSupervisor: Client 1234: ConnectionReset, dropping its reference",
         );
     }
 
