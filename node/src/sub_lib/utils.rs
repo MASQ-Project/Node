@@ -12,6 +12,9 @@ use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[cfg(test)]
+use std::any::Any;
+
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
     ErrorKind::ConnectionAborted,
@@ -144,10 +147,21 @@ pub trait NotifyLaterHandle<T> {
         interval: Duration,
         closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
     ) -> SpawnHandle;
+
+    as_any_dcl!();
 }
 
+#[derive(Default)]
 pub struct NotifyLaterHandleReal<T> {
     phantom: PhantomData<T>,
+}
+
+impl<T> NotifyLaterHandleReal<T> {
+    pub fn new() -> Self {
+        Self {
+            phantom: PhantomData::default(),
+        }
+    }
 }
 
 impl<T: Message + 'static> Default for Box<dyn NotifyLaterHandle<T>> {
@@ -158,7 +172,7 @@ impl<T: Message + 'static> Default for Box<dyn NotifyLaterHandle<T>> {
     }
 }
 
-impl<T: Message> NotifyLaterHandle<T> for NotifyLaterHandleReal<T> {
+impl<T: Message + 'static> NotifyLaterHandle<T> for NotifyLaterHandleReal<T> {
     fn notify_later<'a>(
         &'a self,
         msg: T,
@@ -167,6 +181,8 @@ impl<T: Message> NotifyLaterHandle<T> for NotifyLaterHandleReal<T> {
     ) -> SpawnHandle {
         closure(msg, interval)
     }
+
+    as_any_impl!();
 }
 
 pub trait NotifyHandle<T> {

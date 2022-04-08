@@ -13,6 +13,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
@@ -477,12 +478,20 @@ pub struct RemoveNeighborMessage {
 pub enum ConnectionProgressEvent {
     TcpConnectionSuccessful,
     TcpConnectionFailed,
+    NoGossipResponseReceived, // Change the stage of ConnectionProgress to Failed(NoGossipResponseReceived)
+    IntroductionGossipReceived(Option<NodeDescriptor>), // Change the stage of ConnectionProgress to NeighborshipEstablished, and run check_connectedness to check for three hops route
+    PassGossipReceived(Option<NodeDescriptor>), // Run handle_pass_gossip() for ConnectionProgress
 }
 
 #[derive(Clone, Debug, Message, PartialEq)]
 pub struct ConnectionProgressMessage {
     pub public_key: PublicKey,
     pub event: ConnectionProgressEvent,
+}
+
+#[derive(Clone, Debug, Message, PartialEq)]
+pub struct AskAboutDebutGossipResponseMessage {
+    pub public_key: PublicKey,
 }
 
 #[derive(Clone, Debug, Message, PartialEq)]
@@ -513,10 +522,24 @@ impl fmt::Display for GossipFailure_0v1 {
     }
 }
 
+pub struct NeighborhoodTools {
+    pub notify_later_ask_about_gossip:
+        Box<dyn NotifyLaterHandle<AskAboutDebutGossipResponseMessage>>,
+}
+
+impl NeighborhoodTools {
+    pub fn new() -> Self {
+        Self {
+            notify_later_ask_about_gossip: Box::new(NotifyLaterHandleReal::new()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde_real::CryptDEReal;
+    use crate::sub_lib::utils::NotifyLaterHandleReal;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
@@ -1122,5 +1145,15 @@ mod tests {
 
     fn assert_make_light(heavy: NeighborhoodMode, expected_value: NeighborhoodModeLight) {
         assert_eq!(heavy.make_light(), expected_value)
+    }
+
+    #[test]
+    fn neighborhood_tools_new_is_set_properly() {
+        let subject = NeighborhoodTools::new();
+        subject
+            .notify_later_ask_about_gossip
+            .as_any()
+            .downcast_ref::<NotifyLaterHandleReal<AskAboutDebutGossipResponseMessage>>()
+            .unwrap();
     }
 }

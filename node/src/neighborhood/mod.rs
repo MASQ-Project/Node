@@ -42,7 +42,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
@@ -53,6 +52,7 @@ use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
+use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
@@ -95,6 +95,7 @@ pub struct Neighborhood {
     persistent_config_opt: Option<Box<dyn PersistentConfiguration>>,
     db_password_opt: Option<String>,
     logger: Logger,
+    tools: NeighborhoodTools,
 }
 
 impl Actor for Neighborhood {
@@ -254,9 +255,18 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ConnectionProgressMessage, ctx: &mut Self::Context) -> Self::Result {
-        self.overall_connection_status
-            .update_connection_stage(msg.public_key, msg.event);
-        // todo!("Write how to handle the ConnectionProgressMessage");
+        match msg.event {
+            ConnectionProgressEvent::TcpConnectionSuccessful => {
+                self.overall_connection_status
+                    .update_connection_stage(msg.public_key, msg.event);
+                todo!("Send notify_later message from here (remember green message)");
+            }
+            ConnectionProgressEvent::TcpConnectionFailed => {
+                self.overall_connection_status
+                    .update_connection_stage(msg.public_key, msg.event);
+            }
+            _ => todo!("Take care of others"),
+        }
     }
 }
 
@@ -402,6 +412,7 @@ impl Neighborhood {
             persistent_config_opt: None,
             db_password_opt: config.db_password_opt.clone(),
             logger: Logger::new("Neighborhood"),
+            tools: NeighborhoodTools::new(),
         }
     }
 
@@ -1294,6 +1305,7 @@ mod tests {
     use actix::System;
     use itertools::Itertools;
     use serde_cbor;
+    use std::time::Duration;
     use sysinfo::Signal::Sys;
     use tokio::prelude::Future;
 
@@ -1313,7 +1325,9 @@ mod tests {
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
-    use crate::sub_lib::neighborhood::{ExpectedServices, NeighborhoodMode};
+    use crate::sub_lib::neighborhood::{
+        AskAboutDebutGossipResponseMessage, ExpectedServices, NeighborhoodMode,
+    };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -1332,7 +1346,7 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::unshared_test_utils::{
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, NotifyLaterHandleMock,
     };
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
@@ -1624,9 +1638,10 @@ mod tests {
         let node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
         let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
         let public_key = PublicKey::new(&b"booga"[..]);
+        let notify_later_ask_about_gossip_params_arc = Arc::new(Mutex::new(vec![]));
         let node_descriptor =
             NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
-        let subject = Neighborhood::new(
+        let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
                 NeighborhoodConfig {
@@ -1640,6 +1655,10 @@ mod tests {
                 None,
                 "neighborhood_handles_connection_progress_message",
             ),
+        );
+        subject.tools.notify_later_ask_about_gossip = Box::new(
+            NotifyLaterHandleMock::default()
+                .notify_later_params(&notify_later_ask_about_gossip_params_arc),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1655,7 +1674,7 @@ mod tests {
             );
         });
         let connection_progress_message = ConnectionProgressMessage {
-            public_key,
+            public_key: public_key.clone(),
             event: ConnectionProgressEvent::TcpConnectionSuccessful,
         };
 
@@ -1664,6 +1683,16 @@ mod tests {
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
+        let notify_later_ask_about_gossip_params =
+            notify_later_ask_about_gossip_params_arc.lock().unwrap();
+
+        assert_eq!(
+            *notify_later_ask_about_gossip_params,
+            vec![(
+                AskAboutDebutGossipResponseMessage { public_key },
+                Duration::from_millis(10)
+            )]
+        )
     }
 
     #[test]
