@@ -716,6 +716,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn data_attributed_to_a_newly_connected_client_is_proper() {
         init_test_logging();
         let port = find_free_port();
