@@ -5,6 +5,7 @@ use masq_lib::test_utils::utils::node_home_directory;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 use masq_lib::utils::localhost;
 use node_lib::test_utils::await_value;
+use regex::{Captures, Regex};
 use std::env;
 use std::io;
 use std::net::SocketAddr;
@@ -65,7 +66,7 @@ impl Drop for MASQNode {
 }
 
 impl MASQNode {
-    pub fn path_to_logfile(data_dir: &PathBuf) -> Box<Path> {
+    pub fn path_to_logfile(data_dir: &Path) -> Box<Path> {
         data_dir.join(CURRENT_LOGFILE_NAME).into_boxed_path()
     }
 
@@ -159,16 +160,95 @@ impl MASQNode {
 
     #[allow(dead_code)]
     pub fn wait_for_log(&mut self, pattern: &str, limit_ms: Option<u64>) {
+        Self::wait_for_match_at_directory(
+            pattern,
+            self.data_dir.as_path(),
+            &mut self.logfile_contents,
+            limit_ms,
+        );
+    }
+
+    pub fn wait_for_match_at_directory(
+        pattern: &str,
+        logfile_dir: &Path,
+        buffer: &mut String,
+        limit_ms: Option<u64>,
+    ) {
+        let logfile_path = Self::path_to_logfile(logfile_dir);
+        let do_with_finding = |buffer: &String, regex: &Regex| -> (Option<String>, bool) {
+            (None, regex.is_match(&buffer[..]))
+        };
+        Self::wait_for_log_at_directory(
+            pattern,
+            logfile_path.as_ref(),
+            buffer,
+            &do_with_finding,
+            limit_ms,
+        );
+    }
+
+    pub fn capture_log_at_directory(
+        pattern: &str,
+        logfile_dir: &Path,
+        buffer: &mut String,
+        groups: Vec<usize>,
+        required_number_of_captures: usize,
+        limit_ms: Option<u64>,
+    ) -> Vec<Vec<String>> {
+        let logfile_path = Self::path_to_logfile(logfile_dir);
+        let do_with_findings =
+            |buffer: &String, regex: &Regex| -> (Option<Vec<Vec<String>>>, bool) {
+                let captures = regex.captures_iter(&buffer[..]).collect::<Vec<Captures>>();
+                if captures.is_empty() {
+                    return (None, false);
+                }
+                if captures.len() < required_number_of_captures {
+                    return (None, false);
+                }
+                let structured_captures = (0..captures.len())
+                    .flat_map(|idx| {
+                        captures.get(idx).map(|capture| {
+                            groups
+                                .iter()
+                                .flat_map(|group| {
+                                    capture
+                                        .get(*group)
+                                        .map(|existing_match| existing_match.as_str().to_string())
+                                })
+                                .collect::<Vec<String>>()
+                        })
+                    })
+                    .collect::<Vec<Vec<String>>>();
+                (Some(structured_captures), true)
+            };
+        Self::wait_for_log_at_directory(
+            pattern,
+            logfile_path.as_ref(),
+            buffer,
+            &do_with_findings,
+            limit_ms,
+        )
+        .unwrap()
+    }
+
+    fn wait_for_log_at_directory<T>(
+        pattern: &str,
+        path_to_logfile: &Path,
+        buffer: &mut String,
+        do_with_output: &dyn Fn(&String, &Regex) -> (Option<T>, bool),
+        limit_ms: Option<u64>,
+    ) -> Option<T> {
         let regex = regex::Regex::new(pattern).unwrap();
         let real_limit_ms = limit_ms.unwrap_or(0xFFFFFFFF);
         let started_at = Instant::now();
-        let path_to_logfile = Self::path_to_logfile(&self.data_dir);
         loop {
             match std::fs::read_to_string(&path_to_logfile) {
                 Ok(contents) => {
-                    self.logfile_contents = contents;
-                    if regex.is_match(&self.logfile_contents[..]) {
-                        break;
+                    buffer.clear();
+                    buffer.push_str(&contents);
+                    let (result_opt, finished) = do_with_output(&buffer, &regex);
+                    if finished {
+                        break result_opt;
                     }
                 }
                 Err(e) => {
@@ -178,10 +258,10 @@ impl MASQNode {
             assert_eq!(
                 MASQNode::millis_since(started_at) < real_limit_ms,
                 true,
-                "Timeout: waited for more than {}ms without finding '{}' in these logs:\n{}\n",
+                "Timeout: waited for more than {}ms without finding '{}' in these logs:\n>>>>>>>>>>>>>>>>{}<<<<<<<<<<<<<<<<<\n",
                 real_limit_ms,
                 pattern,
-                self.logfile_contents
+                buffer
             );
             thread::sleep(Duration::from_millis(200));
         }

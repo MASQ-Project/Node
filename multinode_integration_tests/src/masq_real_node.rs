@@ -1110,12 +1110,12 @@ impl MASQRealNode {
         .expect("Can't add exception to allow input that is respondent to past output");
     }
 
-    fn regex() -> Regex {
+    fn descriptor_regex() -> Regex {
         Regex::new(r"MASQ Node local descriptor: (masq://.+:.+@[\d.]*:[\d,]*)").unwrap()
     }
 
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
-        let regex = Self::regex();
+        let regex = Self::descriptor_regex();
         let mut retries_left = 10;
         loop {
             println!("Checking for {} startup", name);
@@ -1475,7 +1475,7 @@ mod tests {
     #[test]
     fn regex_captures_descriptor() {
         let text = "scajcbakbcskjbcbackjbb MASQ Node local descriptor: masq://dev:BrrLUksswnE8GOQQMpwcAjk2hOX4HEmaTcBloBpPuE0@: jajca[cjscpajpojsc";
-        let regex = MASQRealNode::regex();
+        let regex = MASQRealNode::descriptor_regex();
         let captured = regex.captures(text).unwrap();
 
         let result = captured.get(1).unwrap();
