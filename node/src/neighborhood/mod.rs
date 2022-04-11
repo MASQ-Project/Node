@@ -12,13 +12,14 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 
-use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
 use actix::Recipient;
 use actix::{Actor, System};
+use actix::{Addr, AsyncContext};
 use itertools::Itertools;
 use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::UiShutdownRequest;
@@ -42,13 +43,13 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{AskAboutDebutGossipResponseMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
@@ -258,8 +259,15 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
         match msg.event {
             ConnectionProgressEvent::TcpConnectionSuccessful => {
                 self.overall_connection_status
-                    .update_connection_stage(msg.public_key, msg.event);
-                todo!("Send notify_later message from here (remember green message)");
+                    .update_connection_stage(msg.public_key.clone(), msg.event);
+                let message = AskAboutDebutGossipResponseMessage {
+                    public_key: msg.public_key,
+                };
+                self.tools.notify_later_ask_about_gossip.notify_later(
+                    message,
+                    self.tools.ask_about_gossip_interval,
+                    Box::new(|message, duration| ctx.notify_later(message, duration)),
+                );
             }
             ConnectionProgressEvent::TcpConnectionFailed => {
                 self.overall_connection_status
@@ -267,6 +275,18 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
             }
             _ => todo!("Take care of others"),
         }
+    }
+}
+
+impl Handler<AskAboutDebutGossipResponseMessage> for Neighborhood {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: AskAboutDebutGossipResponseMessage,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        todo!()
     }
 }
 
@@ -1660,6 +1680,7 @@ mod tests {
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_ask_about_gossip_params_arc),
         );
+        subject.tools.ask_about_gossip_interval = Duration::from_millis(10);
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
@@ -1692,7 +1713,7 @@ mod tests {
                 AskAboutDebutGossipResponseMessage { public_key },
                 Duration::from_millis(10)
             )]
-        )
+        );
     }
 
     #[test]

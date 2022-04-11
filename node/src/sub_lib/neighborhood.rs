@@ -31,6 +31,7 @@ use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::time::Duration;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 1,
@@ -525,12 +526,15 @@ impl fmt::Display for GossipFailure_0v1 {
 pub struct NeighborhoodTools {
     pub notify_later_ask_about_gossip:
         Box<dyn NotifyLaterHandle<AskAboutDebutGossipResponseMessage>>,
+    // TODO: Should we change the above field to constant
+    pub ask_about_gossip_interval: Duration,
 }
 
 impl NeighborhoodTools {
     pub fn new() -> Self {
         Self {
             notify_later_ask_about_gossip: Box::new(NotifyLaterHandleReal::new()),
+            ask_about_gossip_interval: Duration::from_secs(10),
         }
     }
 }
@@ -1155,5 +1159,6 @@ mod tests {
             .as_any()
             .downcast_ref::<NotifyLaterHandleReal<AskAboutDebutGossipResponseMessage>>()
             .unwrap();
+        assert_eq!(subject.ask_about_gossip_interval, Duration::from_secs(10));
     }
 }
