@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::neighborhood::overall_connection_status::ConnectionStageErrors::TcpConnectionFailed;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
 use openssl::init;
@@ -20,6 +21,19 @@ pub enum ConnectionStage {
     Failed(ConnectionStageErrors),
 }
 
+impl TryFrom<&ConnectionStage> for usize {
+    type Error = ();
+
+    fn try_from(connection_stage: &ConnectionStage) -> Result<Self, Self::Error> {
+        match connection_stage {
+            ConnectionStage::StageZero => Ok(0),
+            ConnectionStage::TcpConnectionEstablished => Ok(1),
+            ConnectionStage::NeighborshipEstablished => Ok(2),
+            ConnectionStage::Failed(_) => Err(()),
+        }
+    }
+}
+
 #[derive(PartialEq, Debug)]
 pub struct ConnectionProgress {
     pub starting_descriptor: NodeDescriptor,
@@ -37,8 +51,21 @@ impl ConnectionProgress {
     }
 
     pub fn update_stage(&mut self, connection_stage: ConnectionStage) {
+        let current_stage = usize::try_from((&self.connection_stage));
+        let new_stage = usize::try_from((&connection_stage));
+
+        if let (Ok(current_stage_num), Ok(new_stage_num)) = (current_stage, new_stage) {
+            if new_stage_num != current_stage_num + 1 {
+                panic!(
+                    "Can't update the stage from {:?} to {:?}",
+                    self.connection_stage, connection_stage
+                )
+            }
+        }
+
         self.connection_stage = connection_stage;
-        // todo!("Add checks whether it should be allowed to change stage or not");
+
+        // TODO: Handle Backward Stage Changes (maybe you would like to do that)
     }
 
     pub fn handle_pass_gossip(&mut self, new_node_descriptor: NodeDescriptor) {
@@ -115,9 +142,15 @@ impl OverallConnectionStatus {
             });
 
         match event {
-            ConnectionProgressEvent::TcpConnectionSuccessful => {
-                connection_progress_to_modify
-                    .update_stage(ConnectionStage::TcpConnectionEstablished);
+            ConnectionProgressEvent::TcpConnectionSuccessful => connection_progress_to_modify
+                .update_stage(ConnectionStage::TcpConnectionEstablished),
+
+            ConnectionProgressEvent::TcpConnectionFailed => connection_progress_to_modify
+                .update_stage(ConnectionStage::Failed(TcpConnectionFailed)),
+
+            ConnectionProgressEvent::IntroductionGossipReceived(new_descriptor_opt) => {
+                // TODO: Write some code for receiving the new descriptor (e.g. send debut gossip again)
+                connection_progress_to_modify.update_stage(ConnectionStage::NeighborshipEstablished)
             }
             _ => todo!("Write logic for updating the connection progress"),
         }
@@ -145,6 +178,7 @@ impl OverallConnectionStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::neighborhood::overall_connection_status::ConnectionStageErrors::TcpConnectionFailed;
     use crate::test_utils::main_cryptde;
     use masq_lib::blockchains::chains::Chain;
 
@@ -284,6 +318,75 @@ mod tests {
     }
 
     #[test]
+    fn updates_the_connection_stage_to_failed_when_tcp_connection_fails() {
+        let node_decriptor = NodeDescriptor {
+            blockchain: Chain::EthRopsten,
+            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
+            node_addr_opt: None,
+        };
+        let initial_node_descriptors = vec![node_decriptor.clone()];
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+
+        subject.update_connection_stage(
+            node_decriptor.encryption_public_key.clone(),
+            ConnectionProgressEvent::TcpConnectionFailed,
+        );
+
+        assert_eq!(
+            subject,
+            OverallConnectionStatus {
+                can_make_routes: false,
+                stage: OverallConnectionStage::NotConnected,
+                progress: vec![ConnectionProgress {
+                    starting_descriptor: node_decriptor.clone(),
+                    current_descriptor: node_decriptor,
+                    connection_stage: ConnectionStage::Failed(TcpConnectionFailed)
+                }],
+                previous_pass_targets: Default::default()
+            }
+        )
+    }
+
+    #[test]
+    fn updates_the_connection_stage_to_neighborship_established() {
+        let node_decriptor = NodeDescriptor {
+            blockchain: Chain::EthRopsten,
+            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
+            node_addr_opt: None,
+        };
+        let new_node_decriptor = NodeDescriptor {
+            blockchain: Chain::EthRopsten,
+            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
+            node_addr_opt: None,
+        };
+        let initial_node_descriptors = vec![node_decriptor.clone()];
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+        subject.update_connection_stage(
+            node_decriptor.encryption_public_key.clone(),
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+        );
+
+        subject.update_connection_stage(
+            node_decriptor.encryption_public_key.clone(),
+            ConnectionProgressEvent::IntroductionGossipReceived(Some(new_node_decriptor)),
+        );
+
+        assert_eq!(
+            subject,
+            OverallConnectionStatus {
+                can_make_routes: false,
+                stage: OverallConnectionStage::NotConnected,
+                progress: vec![ConnectionProgress {
+                    starting_descriptor: node_decriptor.clone(),
+                    current_descriptor: node_decriptor,
+                    connection_stage: ConnectionStage::NeighborshipEstablished
+                }],
+                previous_pass_targets: Default::default()
+            }
+        )
+    }
+
+    #[test]
     #[should_panic(expected = "Unable to find the node in connections with public key")]
     fn panics_at_updating_the_connection_stage_if_a_node_is_not_a_part_of_connections() {
         let node_decriptor = NodeDescriptor {
@@ -298,6 +401,45 @@ mod tests {
         subject.update_connection_stage(
             non_existing_node_s_pub_key,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+        );
+    }
+
+    #[test]
+    fn connection_stage_can_be_converted_to_number() {
+        assert_eq!(usize::try_from(&ConnectionStage::StageZero), Ok(0));
+        assert_eq!(
+            usize::try_from(&ConnectionStage::TcpConnectionEstablished),
+            Ok(1)
+        );
+        assert_eq!(
+            usize::try_from(&ConnectionStage::NeighborshipEstablished),
+            Ok(2)
+        );
+        assert_eq!(
+            usize::try_from(&ConnectionStage::Failed(TcpConnectionFailed)),
+            Err(())
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't update the stage from StageZero to NeighborshipEstablished")]
+    fn can_t_establish_neighborhsip_without_having_a_tcp_connection() {
+        let node_decriptor = NodeDescriptor {
+            blockchain: Chain::EthRopsten,
+            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
+            node_addr_opt: None,
+        };
+        let new_node_decriptor = NodeDescriptor {
+            blockchain: Chain::EthRopsten,
+            encryption_public_key: PublicKey::from(vec![1, 1, 1]),
+            node_addr_opt: None,
+        };
+        let initial_node_descriptors = vec![node_decriptor.clone()];
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+
+        subject.update_connection_stage(
+            node_decriptor.encryption_public_key.clone(),
+            ConnectionProgressEvent::IntroductionGossipReceived(Some(new_node_decriptor)),
         );
     }
 }
