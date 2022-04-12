@@ -5,10 +5,16 @@ use crate::daemon::launch_verifier::LaunchVerification::{
 };
 use masq_lib::logger::Logger;
 use masq_lib::messages::NODE_UI_PROTOCOL;
+use masq_lib::utils::ExpectValue;
+use std::cell::RefCell;
+use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
 use sysinfo::{ProcessExt, ProcessStatus, Signal, SystemExt};
-use websocket::{ClientBuilder, OwnedMessage};
+use web3::types::Res;
+use websocket::client::ParseError;
+use websocket::sync::Client;
+use websocket::{ClientBuilder, OwnedMessage, WebSocketResult};
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
 // because they depend on being able to fail twice and still succeed.
@@ -25,18 +31,20 @@ pub trait VerifierTools {
 }
 
 pub struct VerifierToolsReal {
+    client_builder: RefCell<Box<dyn ClientBuilderWrapper>>,
     logger: Logger,
 }
 
 impl VerifierTools for VerifierToolsReal {
     fn can_connect_to_ui_gateway(&self, ui_port: u16) -> bool {
-        let mut builder = match ClientBuilder::new(format!("ws://127.0.0.1:{}", ui_port).as_str()) {
-            Ok(builder) => builder.add_protocol(NODE_UI_PROTOCOL),
-            Err(e) => panic!("{:?}", e),
-        };
-        match builder.connect_insecure() {
+        let mut client_builder_ref = self.client_builder.borrow_mut();
+        if let Err(e) = client_builder_ref.initiate_client_builder(ui_port) {
+            todo!() //panic!("{:?}", e)
+        }
+        client_builder_ref.add_protocol(NODE_UI_PROTOCOL);
+        match client_builder_ref.connect_insecure() {
             Ok(mut client) => {
-                match client.send_message(&OwnedMessage::Close(None)) {
+                match client.send_message(OwnedMessage::Close(None)) {
                     Ok(_) => (),
                     Err(e) => todo!("test drive me in {}", e),
                 };
@@ -83,6 +91,7 @@ impl Default for VerifierToolsReal {
 impl VerifierToolsReal {
     pub fn new() -> Self {
         Self {
+            client_builder: RefCell::new(Box::new(ClientBuilderWrapperReal::default())),
             logger: Logger::new("VerifierTools"),
         }
     }
@@ -194,6 +203,63 @@ impl LaunchVerifierReal {
                 return true;
             }
         }
+    }
+}
+
+pub trait ClientWrapper {
+    fn send_message(&mut self, message: OwnedMessage) -> WebSocketResult<()>;
+}
+
+struct ClientWrapperReal {
+    client: Client<TcpStream>,
+}
+
+impl ClientWrapper for ClientWrapperReal {
+    fn send_message(&mut self, message: OwnedMessage) -> WebSocketResult<()> {
+        self.client.send_message(&message)
+    }
+}
+
+pub trait ClientBuilderWrapper {
+    fn initiate_client_builder(&mut self, port: u16) -> Result<(), ParseError>;
+    fn add_protocol(&self, protocol: &str);
+    fn connect_insecure(&mut self) -> WebSocketResult<Box<dyn ClientWrapper>>;
+}
+
+#[derive(Default)]
+struct ClientBuilderWrapperReal<'a> {
+    builder_opt: RefCell<Option<ClientBuilder<'a>>>,
+}
+
+impl ClientBuilderWrapper for ClientBuilderWrapperReal<'_> {
+    fn initiate_client_builder(&mut self, port: u16) -> Result<(), ParseError> {
+        //TODO untested??
+        self.builder_opt.replace(Some(
+            ClientBuilder::new(format!("ws://127.0.0.1:{}", port).as_str()).map_err(|_| {
+                unimplemented!();
+                ParseError::IdnaError
+            })?,
+        ));
+        Ok(())
+    }
+
+    fn add_protocol(&self, protocol: &str) {
+        let updated_builder = self
+            .builder_opt
+            .borrow_mut()
+            .take()
+            .expectv("client builder")
+            .add_protocol(protocol);
+        self.builder_opt.replace(Some(updated_builder));
+    }
+
+    fn connect_insecure(&mut self) -> WebSocketResult<Box<dyn ClientWrapper>> {
+        self.builder_opt
+            .borrow_mut()
+            .as_mut()
+            .expectv("client builder")
+            .connect_insecure()
+            .map(|client| Box::new(ClientWrapperReal { client }) as Box<dyn ClientWrapper>)
     }
 }
 
@@ -358,6 +424,9 @@ mod tests {
             let mut server = Server::bind(SocketAddr::new(localhost(), port)).unwrap();
             tx.send(()).unwrap();
             let upgrade = server.accept().expect("Couldn't accept connection");
+            if !upgrade.protocols().contains(&NODE_UI_PROTOCOL.to_string()){
+                panic!("bad handshake")
+            }
             let client = upgrade.accept().unwrap();
             let (mut reader, _) = client.split().unwrap();
             let message = reader.recv_message().unwrap();
