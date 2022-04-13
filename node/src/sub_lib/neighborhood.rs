@@ -481,7 +481,7 @@ pub enum ConnectionProgressEvent {
     TcpConnectionFailed,
     NoGossipResponseReceived, // Change the stage of ConnectionProgress to Failed(NoGossipResponseReceived)
     IntroductionGossipReceived(Option<NodeDescriptor>), // Change the stage of ConnectionProgress to NeighborshipEstablished, and run check_connectedness to check for three hops route
-    PassGossipReceived(Option<NodeDescriptor>), // Run handle_pass_gossip() for ConnectionProgress
+    PassGossipReceived(NodeDescriptor), // Run handle_pass_gossip() for ConnectionProgress
 }
 
 #[derive(Clone, Debug, Message, PartialEq)]

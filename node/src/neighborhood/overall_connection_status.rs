@@ -4,7 +4,8 @@ use crate::neighborhood::overall_connection_status::ConnectionStageErrors::TcpCo
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
 use openssl::init;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
 use std::ops::Deref;
 
 #[derive(PartialEq, Debug)]
@@ -96,6 +97,8 @@ pub struct OverallConnectionStatus {
     // previous_pass_targets is used to stop the cycle of infinite pass gossips
     // in case it receives a node descriptor that is already a part of this hash set.
     previous_pass_targets: HashSet<NodeDescriptor>,
+
+    pub by_socket_addr: HashMap<SocketAddr, NodeDescriptor>,
 }
 
 impl OverallConnectionStatus {
@@ -114,6 +117,7 @@ impl OverallConnectionStatus {
             stage: OverallConnectionStage::NotConnected,
             progress,
             previous_pass_targets: HashSet::new(),
+            by_socket_addr: Default::default(),
         }
     }
 
@@ -164,6 +168,21 @@ impl OverallConnectionStatus {
         let removed_connection_progress = self.progress.remove(index);
         removed_connection_progress.starting_descriptor
     }
+
+    pub fn get_node_descriptor_by_socket_addr(
+        &self,
+        socket_addr: SocketAddr,
+    ) -> Option<NodeDescriptor> {
+        todo!("Write Me!")
+    }
+
+    pub fn add_node_descriptor_by_socket_addr(
+        &self,
+        node_descriptor: &NodeDescriptor,
+        socket_addr: &SocketAddr,
+    ) {
+        todo!("Write Me!")
+    }
 }
 
 // Some Steps to follow ==>
@@ -179,8 +198,10 @@ impl OverallConnectionStatus {
 mod tests {
     use super::*;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::TcpConnectionFailed;
+    use crate::sub_lib::node_addr::NodeAddr;
     use crate::test_utils::main_cryptde;
     use masq_lib::blockchains::chains::Chain;
+    use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
     fn able_to_create_overall_connection_status() {
@@ -215,7 +236,8 @@ mod tests {
                         connection_stage: ConnectionStage::StageZero,
                     }
                 ],
-                previous_pass_targets: HashSet::new()
+                previous_pass_targets: HashSet::new(),
+                by_socket_addr: Default::default()
             }
         );
     }
@@ -312,7 +334,8 @@ mod tests {
                     current_descriptor: node_decriptor,
                     connection_stage: ConnectionStage::TcpConnectionEstablished
                 }],
-                previous_pass_targets: Default::default()
+                previous_pass_targets: Default::default(),
+                by_socket_addr: Default::default()
             }
         )
     }
@@ -342,7 +365,8 @@ mod tests {
                     current_descriptor: node_decriptor,
                     connection_stage: ConnectionStage::Failed(TcpConnectionFailed)
                 }],
-                previous_pass_targets: Default::default()
+                previous_pass_targets: Default::default(),
+                by_socket_addr: Default::default()
             }
         )
     }
@@ -381,7 +405,8 @@ mod tests {
                     current_descriptor: node_decriptor,
                     connection_stage: ConnectionStage::NeighborshipEstablished
                 }],
-                previous_pass_targets: Default::default()
+                previous_pass_targets: Default::default(),
+                by_socket_addr: Default::default()
             }
         )
     }
@@ -441,5 +466,28 @@ mod tests {
             node_decriptor.encryption_public_key.clone(),
             ConnectionProgressEvent::IntroductionGossipReceived(Some(new_node_decriptor)),
         );
+    }
+
+    #[test]
+    fn able_to_add_node_descriptors_by_socket_addr() {
+        let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 5678);
+        let node_descriptor = NodeDescriptor {
+            blockchain: Chain::EthRopsten,
+            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
+            node_addr_opt: Some(NodeAddr::from(&socket_addr)),
+        };
+        let subject = OverallConnectionStatus::new(vec![]);
+
+        subject.add_node_descriptor_by_socket_addr(&node_descriptor, &socket_addr);
+
+        assert_eq!(
+            subject.by_socket_addr.get(&socket_addr).unwrap(),
+            &node_descriptor
+        );
+    }
+
+    #[test]
+    fn can_retrieve_node_descriptors_by_socket_addr() {
+        todo!("Write me after finishing the above test")
     }
 }

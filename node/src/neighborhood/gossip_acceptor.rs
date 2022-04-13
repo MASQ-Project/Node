@@ -492,6 +492,7 @@ impl GossipHandler for PassHandler {
         agrs: Vec<AccessibleGossipRecord>,
         _gossip_source: SocketAddr,
     ) -> GossipAcceptanceResult {
+        todo!("send the connection progress message");
         let gossip = GossipBuilder::new(database)
             .node(database.root().public_key(), true)
             .build();
@@ -1120,11 +1121,14 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, make_meaningless_db, make_node_record, make_node_record_f,
     };
+    use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
+    use actix::Actor;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::convert::TryInto;
     use std::str::FromStr;
@@ -2542,11 +2546,14 @@ mod tests {
 
     #[test]
     fn pass_is_properly_handled() {
+        todo!("fix me");
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let subject = GossipAcceptorReal::new(main_cryptde());
-
+        // let (neighborhood, _, recording_arc) = make_recorder();
+        // let addr = neighborhood.start();
+        // let cpm_recipient = addr.recipient();
         let result = subject.handle(&mut db, gossip.try_into().unwrap(), gossip_source);
 
         let expected_relay_gossip = GossipBuilder::new(&db)
@@ -2561,6 +2568,13 @@ mod tests {
             result
         );
         assert_eq!(1, db.keys().len());
+        // neighborhood receives
+        // let recording = recording_arc.lock().unwrap();
+        // let received_message: &ConnectionProgressMessage = recording.get_record(0);
+        // assert_eq!(received_message, &ConnectionProgressMessage {
+        //     public_key: ,
+        //     event: ConnectionProgressEvent::PassGossipReceived(pass_target.node_descriptor())
+        // });
     }
 
     #[test]

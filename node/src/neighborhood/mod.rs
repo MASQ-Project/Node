@@ -273,6 +273,9 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                 self.overall_connection_status
                     .update_connection_stage(msg.public_key, msg.event);
             }
+            ConnectionProgressEvent::PassGossipReceived(node_descriptor) => {
+                todo!("test drive me");
+            }
             _ => todo!("Take care of others"),
         }
     }
@@ -525,6 +528,7 @@ impl Neighborhood {
     }
 
     fn send_debut_gossip(&mut self) {
+        todo!("break the flow");
         if self.overall_connection_status.is_empty() {
             info!(self.logger, "Empty. No Nodes to report to; continuing");
             return;
@@ -3715,20 +3719,20 @@ mod tests {
                 .unwrap();
         }
         let cryptde: &dyn CryptDE = main_cryptde();
-        let neighbor = make_node_record(1234, true);
+        let debut_target = NodeDescriptor::try_from((
+            main_cryptde(), // Used to provide default cryptde
+            "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
+        ))
+        .unwrap();
+        let debut_target_clone = debut_target.clone();
         let (hopper, _, hopper_recording) = make_recorder();
-        let neighbor_inside = neighbor.clone();
         let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[1234]),
-                        vec![NodeDescriptor::from((
-                            &neighbor_inside,
-                            Chain::EthRopsten,
-                            cryptde,
-                        ))],
+                        vec![debut_target.clone()],
                         rate_pack(100),
                     ),
                 },
@@ -3740,18 +3744,32 @@ mod tests {
         subject.data_directory = data_dir;
         let this_node = subject.neighborhood_database.root().clone();
         let system = System::new("node_gossips_to_neighbors_on_startup");
+        let debut_target_socket_addr: SocketAddr =
+            debut_target.clone().node_addr_opt.unwrap().into();
+        let assertions = Box::new(move |actor: &mut Neighborhood| {
+            assert_eq!(
+                actor
+                    .overall_connection_status
+                    .get_node_descriptor_by_socket_addr(debut_target_socket_addr)
+                    .unwrap(),
+                debut_target_clone
+            );
+            // TODO: Make sure that collection contains only a single pair
+        });
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
-        let sub = addr.recipient::<StartMessage>();
+        let sub = addr.clone().recipient::<StartMessage>();
 
         sub.try_send(StartMessage {}).unwrap();
 
+        addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         system.run();
         let locked_recording = hopper_recording.lock().unwrap();
         let package_ref: &NoLookupIncipientCoresPackage = locked_recording.get_record(0);
-        let neighbor_node_cryptde = CryptDENull::from(neighbor.public_key(), TEST_DEFAULT_CHAIN);
+        let neighbor_node_cryptde =
+            CryptDENull::from(&debut_target.encryption_public_key, TEST_DEFAULT_CHAIN);
         let decrypted_payload = neighbor_node_cryptde.decode(&package_ref.payload).unwrap();
         let gossip = match serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap() {
             MessageType::Gossip(vd) => Gossip_0v1::try_from(vd).unwrap(),
