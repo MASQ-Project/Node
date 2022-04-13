@@ -286,7 +286,7 @@ impl Handler<AskAboutDebutGossipResponseMessage> for Neighborhood {
         msg: AskAboutDebutGossipResponseMessage,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        todo!()
+        todo!("You hit the todo! for the handler of AskAboutDebutGossipResponseMessage");
     }
 }
 
@@ -1372,6 +1372,7 @@ mod tests {
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
+    use crate::neighborhood::overall_connection_status::ConnectionStageErrors::TcpConnectionFailed;
     use crate::neighborhood::overall_connection_status::{ConnectionProgress, ConnectionStage};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
@@ -1651,7 +1652,7 @@ mod tests {
     }
 
     #[test]
-    pub fn neighborhood_handles_connection_progress_message() {
+    pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_established() {
         init_test_logging();
         let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
@@ -1673,7 +1674,7 @@ mod tests {
                 },
                 earning_wallet.clone(),
                 None,
-                "neighborhood_handles_connection_progress_message",
+                "neighborhood_handles_connection_progress_message_with_tcp_connection_established",
             ),
         );
         subject.tools.notify_later_ask_about_gossip = Box::new(
@@ -1714,6 +1715,72 @@ mod tests {
                 Duration::from_millis(10)
             )]
         );
+    }
+
+    #[test]
+    pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_failed() {
+        init_test_logging();
+        let cryptde: &dyn CryptDE = main_cryptde();
+        let earning_wallet = make_wallet("earning");
+        let node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
+        let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
+        let public_key = PublicKey::new(&b"booga"[..]);
+        // let notify_later_ask_about_gossip_params_arc = Arc::new(Mutex::new(vec![]));
+        let node_descriptor =
+            NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
+        let mut subject = Neighborhood::new(
+            cryptde,
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        this_node_addr,
+                        vec![node_descriptor.clone()],
+                        rate_pack(100),
+                    ),
+                },
+                earning_wallet.clone(),
+                None,
+                "neighborhood_handles_connection_progress_message_with_tcp_connection_established",
+            ),
+        );
+        // subject.tools.notify_later_ask_about_gossip = Box::new(
+        //     NotifyLaterHandleMock::default()
+        //         .notify_later_params(&notify_later_ask_about_gossip_params_arc),
+        // );
+        // subject.tools.ask_about_gossip_interval = Duration::from_millis(10);
+        let addr = subject.start();
+        let cpm_recipient = addr.clone().recipient();
+        let system = System::new("testing");
+        let assertions = Box::new(|actor: &mut Neighborhood| {
+            assert_eq!(
+                actor.overall_connection_status.progress,
+                vec![ConnectionProgress {
+                    starting_descriptor: node_descriptor.clone(),
+                    current_descriptor: node_descriptor,
+                    connection_stage: ConnectionStage::Failed(TcpConnectionFailed)
+                }]
+            );
+        });
+        let connection_progress_message = ConnectionProgressMessage {
+            public_key: public_key.clone(),
+            event: ConnectionProgressEvent::TcpConnectionFailed,
+        };
+
+        cpm_recipient.try_send(connection_progress_message).unwrap();
+
+        addr.try_send(AssertionsMessage { assertions }).unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        // let notify_later_ask_about_gossip_params =
+        //     notify_later_ask_about_gossip_params_arc.lock().unwrap();
+        //
+        // assert_eq!(
+        //     *notify_later_ask_about_gossip_params,
+        //     vec![(
+        //         AskAboutDebutGossipResponseMessage { public_key },
+        //         Duration::from_millis(10)
+        //     )]
+        // );
     }
 
     #[test]
