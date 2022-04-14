@@ -259,9 +259,9 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
         match msg.event {
             ConnectionProgressEvent::TcpConnectionSuccessful => {
                 self.overall_connection_status
-                    .update_connection_stage(msg.public_key.clone(), msg.event);
+                    .update_connection_stage(msg.peer_addr, msg.event);
                 let message = AskAboutDebutGossipResponseMessage {
-                    public_key: msg.public_key,
+                    debut_target_addr: msg.peer_addr,
                 };
                 self.tools.notify_later_ask_about_gossip.notify_later(
                     message,
@@ -271,7 +271,7 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
             }
             ConnectionProgressEvent::TcpConnectionFailed => {
                 self.overall_connection_status
-                    .update_connection_stage(msg.public_key, msg.event);
+                    .update_connection_stage(msg.peer_addr, msg.event);
             }
             ConnectionProgressEvent::PassGossipReceived(node_descriptor) => {
                 todo!("test drive me");
@@ -528,7 +528,6 @@ impl Neighborhood {
     }
 
     fn send_debut_gossip(&mut self) {
-        todo!("break the flow");
         if self.overall_connection_status.is_empty() {
             info!(self.logger, "Empty. No Nodes to report to; continuing");
             return;
@@ -538,7 +537,7 @@ impl Neighborhood {
             .gossip_producer
             .produce_debut(&self.neighborhood_database);
         self.overall_connection_status
-            .iter_starting_descriptors()
+            .iter_initial_node_descriptors()
             .for_each(|node_descriptor| {
                 if let Some(node_addr) = &node_descriptor.node_addr_opt {
                     self.hopper_no_lookup
@@ -632,7 +631,7 @@ impl Neighborhood {
     fn handle_gossip_failure(&mut self, failure_source: SocketAddr, failure: GossipFailure_0v1) {
         let tuple_opt = match self
             .overall_connection_status
-            .iter_starting_descriptors()
+            .iter_initial_node_descriptors()
             .find_position(|n| match &n.node_addr_opt {
                 None => false,
                 Some(node_addr) => node_addr.ip_addr() == failure_source.ip(),
@@ -1549,6 +1548,7 @@ mod tests {
         expected = "--neighbors node descriptors must have IP address and port list, not 'masq://eth-ropsten:AwQFBg@:'"
     )]
     fn node_with_neighbor_config_having_no_node_addr_panics() {
+        todo!("This test is not panicking for the right situation.");
         let data_dir = ensure_node_home_directory_exists(
             "neighborhood/mod",
             "node_with_neighbor_config_having_no_node_addr_panics",
@@ -1660,12 +1660,15 @@ mod tests {
         init_test_logging();
         let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
-        let node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
+        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
+        let node_addr = NodeAddr::new(&node_ip_addr, &[5678]);
+        let node_ip_addr_clone = node_ip_addr.clone();
         let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
         let public_key = PublicKey::new(&b"booga"[..]);
         let notify_later_ask_about_gossip_params_arc = Arc::new(Mutex::new(vec![]));
         let node_descriptor =
             NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
+        let node_descriptor_clone = node_descriptor.clone();
         let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
@@ -1689,18 +1692,18 @@ mod tests {
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
-        let assertions = Box::new(|actor: &mut Neighborhood| {
+        let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
                 vec![ConnectionProgress {
-                    starting_descriptor: node_descriptor.clone(),
-                    current_descriptor: node_descriptor,
+                    initial_node_descriptor: node_descriptor_clone,
+                    current_peer_addr: node_ip_addr_clone,
                     connection_stage: ConnectionStage::TcpConnectionEstablished
                 }]
             );
         });
         let connection_progress_message = ConnectionProgressMessage {
-            public_key: public_key.clone(),
+            peer_addr: node_addr.ip_addr(),
             event: ConnectionProgressEvent::TcpConnectionSuccessful,
         };
 
@@ -1715,7 +1718,9 @@ mod tests {
         assert_eq!(
             *notify_later_ask_about_gossip_params,
             vec![(
-                AskAboutDebutGossipResponseMessage { public_key },
+                AskAboutDebutGossipResponseMessage {
+                    debut_target_addr: node_addr.ip_addr(),
+                },
                 Duration::from_millis(10)
             )]
         );
@@ -1726,10 +1731,10 @@ mod tests {
         init_test_logging();
         let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
-        let node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
+        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
+        let node_addr = NodeAddr::new(&node_ip_addr, &[5678]);
         let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
         let public_key = PublicKey::new(&b"booga"[..]);
-        // let notify_later_ask_about_gossip_params_arc = Arc::new(Mutex::new(vec![]));
         let node_descriptor =
             NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
         let mut subject = Neighborhood::new(
@@ -1747,26 +1752,21 @@ mod tests {
                 "neighborhood_handles_connection_progress_message_with_tcp_connection_established",
             ),
         );
-        // subject.tools.notify_later_ask_about_gossip = Box::new(
-        //     NotifyLaterHandleMock::default()
-        //         .notify_later_params(&notify_later_ask_about_gossip_params_arc),
-        // );
-        // subject.tools.ask_about_gossip_interval = Duration::from_millis(10);
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
-        let assertions = Box::new(|actor: &mut Neighborhood| {
+        let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
                 vec![ConnectionProgress {
-                    starting_descriptor: node_descriptor.clone(),
-                    current_descriptor: node_descriptor,
+                    initial_node_descriptor: node_descriptor.clone(),
+                    current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::Failed(TcpConnectionFailed)
                 }]
             );
         });
         let connection_progress_message = ConnectionProgressMessage {
-            public_key: public_key.clone(),
+            peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::TcpConnectionFailed,
         };
 
@@ -1775,16 +1775,6 @@ mod tests {
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
-        // let notify_later_ask_about_gossip_params =
-        //     notify_later_ask_about_gossip_params_arc.lock().unwrap();
-        //
-        // assert_eq!(
-        //     *notify_later_ask_about_gossip_params,
-        //     vec![(
-        //         AskAboutDebutGossipResponseMessage { public_key },
-        //         Duration::from_millis(10)
-        //     )]
-        // );
     }
 
     #[test]
@@ -3746,16 +3736,6 @@ mod tests {
         let system = System::new("node_gossips_to_neighbors_on_startup");
         let debut_target_socket_addr: SocketAddr =
             debut_target.clone().node_addr_opt.unwrap().into();
-        let assertions = Box::new(move |actor: &mut Neighborhood| {
-            assert_eq!(
-                actor
-                    .overall_connection_status
-                    .get_node_descriptor_by_socket_addr(debut_target_socket_addr)
-                    .unwrap(),
-                debut_target_clone
-            );
-            // TODO: Make sure that collection contains only a single pair
-        });
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -3763,7 +3743,6 @@ mod tests {
 
         sub.try_send(StartMessage {}).unwrap();
 
-        addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         system.run();
         let locked_recording = hopper_recording.lock().unwrap();

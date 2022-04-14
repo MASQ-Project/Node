@@ -480,19 +480,20 @@ pub enum ConnectionProgressEvent {
     TcpConnectionSuccessful,
     TcpConnectionFailed,
     NoGossipResponseReceived, // Change the stage of ConnectionProgress to Failed(NoGossipResponseReceived)
-    IntroductionGossipReceived(Option<NodeDescriptor>), // Change the stage of ConnectionProgress to NeighborshipEstablished, and run check_connectedness to check for three hops route
-    PassGossipReceived(NodeDescriptor), // Run handle_pass_gossip() for ConnectionProgress
+    // TODO: Introduction never comes without an IP Address
+    IntroductionGossipReceived(Option<IpAddr>), // Change the stage of ConnectionProgress to NeighborshipEstablished, and run check_connectedness to check for three hops route
+    PassGossipReceived(IpAddr),                 // Run handle_pass_gossip() for ConnectionProgress
 }
 
 #[derive(Clone, Debug, Message, PartialEq)]
 pub struct ConnectionProgressMessage {
-    pub public_key: PublicKey,
+    pub peer_addr: IpAddr,
     pub event: ConnectionProgressEvent,
 }
 
 #[derive(Clone, Debug, Message, PartialEq)]
 pub struct AskAboutDebutGossipResponseMessage {
-    pub public_key: PublicKey,
+    pub debut_target_addr: IpAddr,
 }
 
 #[derive(Clone, Debug, Message, PartialEq)]

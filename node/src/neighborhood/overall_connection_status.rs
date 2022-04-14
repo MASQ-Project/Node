@@ -5,7 +5,7 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
 use openssl::init;
 use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::ops::Deref;
 
 #[derive(PartialEq, Debug)]
@@ -37,16 +37,22 @@ impl TryFrom<&ConnectionStage> for usize {
 
 #[derive(PartialEq, Debug)]
 pub struct ConnectionProgress {
-    pub starting_descriptor: NodeDescriptor,
-    pub current_descriptor: NodeDescriptor,
+    pub initial_node_descriptor: NodeDescriptor,
+    pub current_peer_addr: IpAddr,
     pub connection_stage: ConnectionStage,
 }
 
 impl ConnectionProgress {
-    pub fn new(node_descriptor: NodeDescriptor) -> Self {
+    pub fn new(node_descriptor: &NodeDescriptor) -> Self {
+        let node_addr = node_descriptor.node_addr_opt.as_ref().unwrap_or_else(|| {
+            panic!(
+                "Unable to receive node addr for the descriptor {:?}",
+                node_descriptor
+            )
+        });
         Self {
-            starting_descriptor: node_descriptor.clone(),
-            current_descriptor: node_descriptor,
+            initial_node_descriptor: node_descriptor.clone(),
+            current_peer_addr: node_addr.ip_addr(),
             connection_stage: ConnectionStage::StageZero,
         }
     }
@@ -95,21 +101,15 @@ pub struct OverallConnectionStatus {
     // each element may or may not be corresponding to the descriptors entered by user.
     pub progress: Vec<ConnectionProgress>,
     // previous_pass_targets is used to stop the cycle of infinite pass gossips
-    // in case it receives a node descriptor that is already a part of this hash set.
-    previous_pass_targets: HashSet<NodeDescriptor>,
-
-    pub by_socket_addr: HashMap<SocketAddr, NodeDescriptor>,
+    // in case it receives an ip address that is already a part of this hash set.
+    previous_pass_targets: HashSet<IpAddr>,
 }
 
 impl OverallConnectionStatus {
     pub fn new(initial_node_descriptors: Vec<NodeDescriptor>) -> Self {
         let progress = initial_node_descriptors
             .iter()
-            .map(|node_descriptor| ConnectionProgress {
-                starting_descriptor: node_descriptor.clone(),
-                current_descriptor: node_descriptor.clone(),
-                connection_stage: ConnectionStage::StageZero,
-            })
+            .map(|node_descriptor| ConnectionProgress::new(&node_descriptor))
             .collect();
 
         Self {
@@ -117,31 +117,24 @@ impl OverallConnectionStatus {
             stage: OverallConnectionStage::NotConnected,
             progress,
             previous_pass_targets: HashSet::new(),
-            by_socket_addr: Default::default(),
         }
     }
 
-    pub fn iter_starting_descriptors(&self) -> impl Iterator<Item = &NodeDescriptor> {
+    pub fn iter_initial_node_descriptors(&self) -> impl Iterator<Item = &NodeDescriptor> {
         self.progress
             .iter()
-            .map(|connection_progress| &connection_progress.starting_descriptor)
+            .map(|connection_progress| &connection_progress.initial_node_descriptor)
     }
 
-    pub fn update_connection_stage(
-        &mut self,
-        public_key: PublicKey,
-        event: ConnectionProgressEvent,
-    ) {
+    pub fn update_connection_stage(&mut self, peer_addr: IpAddr, event: ConnectionProgressEvent) {
         let mut connection_progress_to_modify = self
             .progress
             .iter_mut()
-            .find(|connection_progress| {
-                connection_progress.current_descriptor.encryption_public_key == public_key
-            })
+            .find(|connection_progress| connection_progress.current_peer_addr == peer_addr)
             .unwrap_or_else(|| {
                 panic!(
-                    "Unable to find the node in connections with public key: {}",
-                    public_key
+                    "Unable to find the node in connections with IP Address: {}",
+                    peer_addr
                 )
             });
 
@@ -166,22 +159,7 @@ impl OverallConnectionStatus {
 
     pub fn remove(&mut self, index: usize) -> NodeDescriptor {
         let removed_connection_progress = self.progress.remove(index);
-        removed_connection_progress.starting_descriptor
-    }
-
-    pub fn get_node_descriptor_by_socket_addr(
-        &self,
-        socket_addr: SocketAddr,
-    ) -> Option<NodeDescriptor> {
-        todo!("Write Me!")
-    }
-
-    pub fn add_node_descriptor_by_socket_addr(
-        &self,
-        node_descriptor: &NodeDescriptor,
-        socket_addr: &SocketAddr,
-    ) {
-        todo!("Write Me!")
+        removed_connection_progress.initial_node_descriptor
     }
 }
 
@@ -202,6 +180,19 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use masq_lib::blockchains::chains::Chain;
     use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    #[should_panic(
+        expected = "Unable to receive node addr for the descriptor NodeDescriptor { blockchain: EthRopsten, encryption_public_key: AAAA, node_addr_opt: None }"
+    )]
+    fn can_not_create_a_new_connection_without_node_addr() {
+        let descriptor_with_no_ip_address = NodeDescriptor {
+            blockchain: Chain::EthRopsten,
+            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
+            node_addr_opt: None, // NodeAddr consists of IP Address and Ports
+        };
+        let connection_progress = ConnectionProgress::new(&descriptor_with_no_ip_address);
+    }
 
     #[test]
     fn able_to_create_overall_connection_status() {
@@ -225,19 +216,10 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![
-                    ConnectionProgress {
-                        starting_descriptor: node_desc_1.clone(),
-                        current_descriptor: node_desc_1,
-                        connection_stage: ConnectionStage::StageZero,
-                    },
-                    ConnectionProgress {
-                        starting_descriptor: node_desc_2.clone(),
-                        current_descriptor: node_desc_2,
-                        connection_stage: ConnectionStage::StageZero,
-                    }
+                    ConnectionProgress::new(&node_desc_1),
+                    ConnectionProgress::new(&node_desc_2)
                 ],
                 previous_pass_targets: HashSet::new(),
-                by_socket_addr: Default::default()
             }
         );
     }
@@ -279,7 +261,7 @@ mod tests {
         let initial_node_descriptors = vec![node_desc_1.clone(), node_desc_2.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
-        let mut result = subject.iter_starting_descriptors();
+        let mut result = subject.iter_initial_node_descriptors();
 
         assert_eq!(result.next(), Some(&node_desc_1));
         assert_eq!(result.next(), Some(&node_desc_2));
@@ -311,16 +293,17 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_tcp_connection_established() {
+        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
         let node_decriptor = NodeDescriptor {
             blockchain: Chain::EthRopsten,
             encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: None,
+            node_addr_opt: Some(NodeAddr::new(&node_ip_addr, &vec![1, 2, 3])),
         };
         let initial_node_descriptors = vec![node_decriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         subject.update_connection_stage(
-            node_decriptor.encryption_public_key.clone(),
+            node_decriptor.node_addr_opt.as_ref().unwrap().ip_addr(),
             ConnectionProgressEvent::TcpConnectionSuccessful,
         );
 
@@ -330,28 +313,28 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
-                    starting_descriptor: node_decriptor.clone(),
-                    current_descriptor: node_decriptor,
+                    initial_node_descriptor: node_decriptor.clone(),
+                    current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::TcpConnectionEstablished
                 }],
                 previous_pass_targets: Default::default(),
-                by_socket_addr: Default::default()
             }
         )
     }
 
     #[test]
     fn updates_the_connection_stage_to_failed_when_tcp_connection_fails() {
+        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
         let node_decriptor = NodeDescriptor {
             blockchain: Chain::EthRopsten,
             encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: None,
+            node_addr_opt: Some(NodeAddr::new(&node_ip_addr, &vec![1, 2, 3])),
         };
         let initial_node_descriptors = vec![node_decriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         subject.update_connection_stage(
-            node_decriptor.encryption_public_key.clone(),
+            node_ip_addr.clone(),
             ConnectionProgressEvent::TcpConnectionFailed,
         );
 
@@ -361,38 +344,34 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
-                    starting_descriptor: node_decriptor.clone(),
-                    current_descriptor: node_decriptor,
+                    initial_node_descriptor: node_decriptor.clone(),
+                    current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::Failed(TcpConnectionFailed)
                 }],
                 previous_pass_targets: Default::default(),
-                by_socket_addr: Default::default()
             }
         )
     }
 
     #[test]
     fn updates_the_connection_stage_to_neighborship_established() {
+        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
         let node_decriptor = NodeDescriptor {
             blockchain: Chain::EthRopsten,
             encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: None,
-        };
-        let new_node_decriptor = NodeDescriptor {
-            blockchain: Chain::EthRopsten,
-            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: None,
+            node_addr_opt: Some(NodeAddr::new(&node_ip_addr, &vec![1, 2, 3])),
         };
         let initial_node_descriptors = vec![node_decriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+        let new_node_ip_addr: IpAddr = Ipv4Addr::new(5, 6, 7, 8).into();
         subject.update_connection_stage(
-            node_decriptor.encryption_public_key.clone(),
+            node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
         );
 
         subject.update_connection_stage(
-            node_decriptor.encryption_public_key.clone(),
-            ConnectionProgressEvent::IntroductionGossipReceived(Some(new_node_decriptor)),
+            node_ip_addr,
+            ConnectionProgressEvent::IntroductionGossipReceived(Some(new_node_ip_addr)),
         );
 
         assert_eq!(
@@ -401,30 +380,30 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
-                    starting_descriptor: node_decriptor.clone(),
-                    current_descriptor: node_decriptor,
+                    initial_node_descriptor: node_decriptor.clone(),
+                    current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::NeighborshipEstablished
                 }],
                 previous_pass_targets: Default::default(),
-                by_socket_addr: Default::default()
             }
         )
     }
 
     #[test]
-    #[should_panic(expected = "Unable to find the node in connections with public key")]
+    #[should_panic(expected = "Unable to find the node in connections with IP Address: 5.6.7.8")]
     fn panics_at_updating_the_connection_stage_if_a_node_is_not_a_part_of_connections() {
+        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
         let node_decriptor = NodeDescriptor {
             blockchain: Chain::EthRopsten,
             encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: None,
+            node_addr_opt: Some(NodeAddr::new(&node_ip_addr, &vec![1, 2, 3])),
         };
         let initial_node_descriptors = vec![node_decriptor.clone()];
-        let non_existing_node_s_pub_key = PublicKey::from(vec![1, 1, 1]);
+        let non_existing_node_s_ip_addr: IpAddr = Ipv4Addr::new(5, 6, 7, 8).into();
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         subject.update_connection_stage(
-            non_existing_node_s_pub_key,
+            non_existing_node_s_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
         );
     }
@@ -449,45 +428,19 @@ mod tests {
     #[test]
     #[should_panic(expected = "Can't update the stage from StageZero to NeighborshipEstablished")]
     fn can_t_establish_neighborhsip_without_having_a_tcp_connection() {
+        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
         let node_decriptor = NodeDescriptor {
             blockchain: Chain::EthRopsten,
             encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: None,
+            node_addr_opt: Some(NodeAddr::new(&node_ip_addr, &vec![1, 2, 3])),
         };
-        let new_node_decriptor = NodeDescriptor {
-            blockchain: Chain::EthRopsten,
-            encryption_public_key: PublicKey::from(vec![1, 1, 1]),
-            node_addr_opt: None,
-        };
+        let new_node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
         let initial_node_descriptors = vec![node_decriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         subject.update_connection_stage(
-            node_decriptor.encryption_public_key.clone(),
-            ConnectionProgressEvent::IntroductionGossipReceived(Some(new_node_decriptor)),
+            node_ip_addr,
+            ConnectionProgressEvent::IntroductionGossipReceived(Some(new_node_ip_addr)),
         );
-    }
-
-    #[test]
-    fn able_to_add_node_descriptors_by_socket_addr() {
-        let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 5678);
-        let node_descriptor = NodeDescriptor {
-            blockchain: Chain::EthRopsten,
-            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: Some(NodeAddr::from(&socket_addr)),
-        };
-        let subject = OverallConnectionStatus::new(vec![]);
-
-        subject.add_node_descriptor_by_socket_addr(&node_descriptor, &socket_addr);
-
-        assert_eq!(
-            subject.by_socket_addr.get(&socket_addr).unwrap(),
-            &node_descriptor
-        );
-    }
-
-    #[test]
-    fn can_retrieve_node_descriptors_by_socket_addr() {
-        todo!("Write me after finishing the above test")
     }
 }

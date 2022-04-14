@@ -522,12 +522,11 @@ impl StreamHandlerPool {
                     self.clandestine_discriminator_factories.clone();
                 let msg_data_len = msg.context.data.len();
                 let peer_addr_e = peer_addr;
-                let key_clone_ok = msg
+                let key = msg
                     .result
                     .clone()
                     .map(|d| d.public_key)
                     .expect("Key magically disappeared");
-                let key_clone_err = key_clone_ok.clone();
                 let sub = self
                     .dispatcher_subs_opt
                     .as_ref()
@@ -545,9 +544,8 @@ impl StreamHandlerPool {
                             port_configuration: PortConfiguration::new(clandestine_discriminator_factories, true),
                         }).expect("StreamHandlerPool is dead");
                         node_query_response_sub.try_send(msg).expect("StreamHandlerPool is dead");
-
                         let connection_progress_message = ConnectionProgressMessage {
-                            public_key: key_clone_ok,
+                            peer_addr: peer_addr.ip(),
                             event: ConnectionProgressEvent::TcpConnectionSuccessful
                         };
                         connection_progress_sub_ok.try_send(connection_progress_message).expect("Neighborhood is dead");
@@ -561,10 +559,10 @@ impl StreamHandlerPool {
                             sub,
                         }).expect("StreamHandlerPool is dead");
 
-                        let remove_node_message = RemoveNeighborMessage { public_key: key_clone_err.clone() };
+                        let remove_node_message = RemoveNeighborMessage { public_key: key.clone() };
                         remove_neighbor_sub.try_send(remove_node_message).expect("Neighborhood is Dead");
                         let connection_progress_message = ConnectionProgressMessage {
-                            public_key: key_clone_err,
+                            peer_addr: peer_addr.ip(),
                             event: ConnectionProgressEvent::TcpConnectionFailed
                         };
                         connection_progress_sub_err.try_send(connection_progress_message).expect("Neighborhood is dead");
@@ -1259,6 +1257,7 @@ mod tests {
             .unwrap();
 
         neighborhood_awaiter.await_message_count(1);
+        let target_ip_addr = IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5));
         let node_query_msg =
             Recording::get::<DispatcherNodeQueryMessage>(&neighborhood_recording_arc, 0);
         subject_subs
@@ -1266,10 +1265,7 @@ mod tests {
             .try_send(DispatcherNodeQueryResponse {
                 result: Some(NodeQueryResponseMetadata::new(
                     public_key.clone(),
-                    Some(NodeAddr::new(
-                        &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
-                        &[7000],
-                    )),
+                    Some(NodeAddr::new(&target_ip_addr, &[7000])),
                     rate_pack(100),
                 )),
                 context: node_query_msg.context,
@@ -1301,7 +1297,7 @@ mod tests {
         assert_eq!(
             connection_progress_message,
             ConnectionProgressMessage {
-                public_key,
+                peer_addr: target_ip_addr,
                 event: ConnectionProgressEvent::TcpConnectionSuccessful
             }
         );
@@ -1702,7 +1698,7 @@ mod tests {
         assert_eq!(
             connection_progress_message,
             ConnectionProgressMessage {
-                public_key: key,
+                peer_addr: peer_addr.ip(),
                 event: ConnectionProgressEvent::TcpConnectionFailed
             }
         );

@@ -1329,6 +1329,7 @@ mod tests {
 
     #[test]
     fn bad_dns_lookup_produces_log_and_sends_error_response() {
+        // TODO: This test fails sometimes for unknown reason, usually when a set of tests are run
         init_test_logging();
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
@@ -1372,6 +1373,7 @@ mod tests {
         TestLogHandler::new().await_log_containing(
             "ERROR: ProxyClient: Could not find IP address for host that.try: io error",
             1000,
+            // TODO: Changing the time limit to 3000 millis, fixed the test, but we don't want to do this probably
         );
         proxy_client_awaiter.await_message_count(2);
         let recording = proxy_client_recording_arc.lock().unwrap();
