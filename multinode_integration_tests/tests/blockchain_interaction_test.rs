@@ -86,12 +86,26 @@ fn debtors_are_credited_once_but_not_twice() {
                 panic!("Couldn't execute insert statement: {:?}", msg);
             }
         }
+        let mut stmt = conn
+            .prepare(
+                "update config set value = '1000' where name = 'start_block'",
+            )
+            .unwrap();
+        match stmt.execute([]) {
+            Ok(_) => (),
+            Err(e) => {
+                let msg = format!("{:?}", e);
+                panic!("Couldn't execute update statement: {:?}", msg);
+            }
+        }
     }
     {
-        // Use the config DAO to set the start block to 1000
-        let mut config_dao = config_dao(&node);
-        let xactn = config_dao.start_transaction().unwrap();
-        xactn.set("start_block", Some("1000".to_string())).unwrap();
+        // Use the config DAO to verify that the start block was correctly set
+        let config_dao = config_dao(&node);
+        assert_eq!(
+            config_dao.get("start_block").unwrap().value_opt.unwrap(),
+            "1000"
+        );
     }
     let ui_client = node.make_ui(ui_port);
     // Command a scan log
