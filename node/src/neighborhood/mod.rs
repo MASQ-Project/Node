@@ -539,37 +539,33 @@ impl Neighborhood {
         self.overall_connection_status
             .iter_initial_node_descriptors()
             .for_each(|node_descriptor| {
-                if let Some(node_addr) = &node_descriptor.node_addr_opt {
-                    self.hopper_no_lookup
-                        .as_ref()
-                        .expect("unbound hopper")
-                        .try_send(
-                            NoLookupIncipientCoresPackage::new(
-                                self.cryptde,
-                                &node_descriptor.encryption_public_key,
-                                node_addr,
-                                MessageType::Gossip(gossip.clone().into()),
-                            )
-                            .expectv("public key"),
+                let node_addr = &node_descriptor.node_addr_opt.expect(
+                    "Node descriptor without IP Address got through Neighborhood constructor.",
+                );
+                self.hopper_no_lookup
+                    .as_ref()
+                    .expect("unbound hopper")
+                    .try_send(
+                        NoLookupIncipientCoresPackage::new(
+                            self.cryptde,
+                            &node_descriptor.encryption_public_key,
+                            node_addr,
+                            MessageType::Gossip(gossip.clone().into()),
                         )
-                        .expect("hopper is dead");
-                    trace!(
-                        self.logger,
-                        "Sent Gossip: {}",
-                        gossip.to_dot_graph(
-                            self.neighborhood_database.root(),
-                            (
-                                &node_descriptor.encryption_public_key,
-                                &node_descriptor.node_addr_opt
-                            ),
-                        )
-                    );
-                } else {
-                    panic!(
-                        "--neighbors node descriptors must have IP address and port list, not '{}'",
-                        node_descriptor.to_string(self.cryptde)
+                        .expectv("public key"),
                     )
-                }
+                    .expect("hopper is dead");
+                trace!(
+                    self.logger,
+                    "Sent Gossip: {}",
+                    gossip.to_dot_graph(
+                        self.neighborhood_database.root(),
+                        (
+                            &node_descriptor.encryption_public_key,
+                            &node_descriptor.node_addr_opt
+                        ),
+                    )
+                )
             });
     }
 
@@ -1541,62 +1537,6 @@ mod tests {
         assert_eq!(recording.len(), 0);
         TestLogHandler::new()
             .exists_log_containing("INFO: Neighborhood: Empty. No Nodes to report to; continuing");
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "--neighbors node descriptors must have IP address and port list, not 'masq://eth-ropsten:AwQFBg@:'"
-    )]
-    fn node_with_neighbor_config_having_no_node_addr_panics() {
-        todo!("This test is not panicking for the right situation.");
-        let data_dir = ensure_node_home_directory_exists(
-            "neighborhood/mod",
-            "node_with_neighbor_config_having_no_node_addr_panics",
-        );
-        {
-            let _ = DbInitializerReal::default()
-                .initialize(&data_dir, true, MigratorConfig::test_default())
-                .unwrap();
-        }
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let neighbor_node = make_node_record(3456, true);
-        let system = System::new("node_with_bad_neighbor_config_panics");
-        let node_descriptor = NodeDescriptor {
-            blockchain: Chain::EthRopsten,
-            encryption_public_key: cryptde
-                .descriptor_fragment_to_first_contact_public_key(
-                    &cryptde.public_key_to_descriptor_fragment(neighbor_node.public_key()),
-                )
-                .expect("Internal error"),
-            node_addr_opt: None,
-        };
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                        vec![node_descriptor],
-                        rate_pack(100),
-                    ),
-                },
-                earning_wallet.clone(),
-                consuming_wallet.clone(),
-                "node_with_neighbor_config_having_no_node_addr_panics",
-            ),
-        );
-        subject.data_directory = data_dir;
-        let addr = subject.start();
-        let sub = addr.clone().recipient::<StartMessage>();
-        let peer_actors = peer_actors_builder().build();
-        addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        sub.try_send(StartMessage {}).unwrap();
-
-        System::current().stop_with_code(0);
-        system.run();
     }
 
     #[test]
