@@ -539,7 +539,7 @@ impl Neighborhood {
         self.overall_connection_status
             .iter_initial_node_descriptors()
             .for_each(|node_descriptor| {
-                let node_addr = &node_descriptor.node_addr_opt.expect(
+                let node_addr = &node_descriptor.node_addr_opt.as_ref().expect(
                     "Node descriptor without IP Address got through Neighborhood constructor.",
                 );
                 self.hopper_no_lookup
