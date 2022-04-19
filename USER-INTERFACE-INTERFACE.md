@@ -880,7 +880,7 @@ Node.
 ```
 ##### Description:
 This message instructs the Node to perform a payables scan, a pending-payables scan, or a receivables scan, depending 
-on the `name` parameter. This will be an extra, additional scan will not affect the Node's regular schedule of 
+on the `name` parameter. This will be an extra, additional scan and will not affect the Node's regular schedule of 
 autonomous scans, if any, except that it's possible that it may delay a regular autonomous scan if the Node is busy 
 with your scan when the autonomous scan is scheduled.
 

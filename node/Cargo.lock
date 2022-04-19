@@ -2044,7 +2044,6 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "sha1",
- "simple-server",
  "tiny-bip39",
  "tiny-hderive",
  "uint 0.9.1",

@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::unsigned_to_signed;
-use crate::blockchain::blockchain_interface::Transaction;
+use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
@@ -39,7 +39,7 @@ pub trait ReceivableDao: Send {
     fn more_money_receivable(&self, wallet: &Wallet, amount: u64)
         -> Result<(), ReceivableDaoError>;
 
-    fn more_money_received(&mut self, transactions: Vec<Transaction>);
+    fn more_money_received(&mut self, transactions: Vec<BlockchainTransaction>);
 
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
@@ -95,7 +95,7 @@ impl ReceivableDao for ReceivableDaoReal {
         }
     }
 
-    fn more_money_received(&mut self, payments: Vec<Transaction>) {
+    fn more_money_received(&mut self, payments: Vec<BlockchainTransaction>) {
         self.try_multi_insert_payment(&payments)
             .unwrap_or_else(|e| {
                 let mut report_lines =
@@ -315,7 +315,7 @@ impl ReceivableDaoReal {
 
     fn try_multi_insert_payment(
         &mut self,
-        payments: &[Transaction],
+        payments: &[BlockchainTransaction],
     ) -> Result<(), ReceivableDaoError> {
         let tx = match self.conn.transaction() {
             Ok(t) => t,
@@ -416,7 +416,7 @@ mod tests {
                 .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
-        let payments = vec![Transaction {
+        let payments = vec![BlockchainTransaction {
             block_number: 42u64,
             from: make_wallet("some_address"),
             gwei_amount: 18446744073709551615,
@@ -445,7 +445,7 @@ mod tests {
         }
         let mut subject = ReceivableDaoReal::new(conn);
 
-        let payments = vec![Transaction {
+        let payments = vec![BlockchainTransaction {
             block_number: 42u64,
             from: make_wallet("some_address"),
             gwei_amount: 18446744073709551615,
@@ -477,7 +477,7 @@ mod tests {
         }
         let mut subject = ReceivableDaoReal::new(conn);
 
-        let payments = vec![Transaction {
+        let payments = vec![BlockchainTransaction {
             block_number: 42u64,
             from: make_wallet("some_address"),
             gwei_amount: 18446744073709551615,
@@ -601,12 +601,12 @@ mod tests {
 
         let (status1, status2) = {
             let transactions = vec![
-                Transaction {
+                BlockchainTransaction {
                     from: debtor1.clone(),
                     gwei_amount: 1200u64,
                     block_number: 35u64,
                 },
-                Transaction {
+                BlockchainTransaction {
                     from: debtor2.clone(),
                     gwei_amount: 2300u64,
                     block_number: 57u64,
@@ -655,7 +655,7 @@ mod tests {
         );
 
         let status = {
-            let transactions = vec![Transaction {
+            let transactions = vec![BlockchainTransaction {
                 from: debtor.clone(),
                 gwei_amount: 2300u64,
                 block_number: 33u64,
@@ -674,17 +674,17 @@ mod tests {
             ConnectionWrapperMock::default().transaction_result(Err(Error::InvalidQuery));
         let mut receivable_dao = ReceivableDaoReal::new(Box::new(conn_mock));
         let payments = vec![
-            Transaction {
+            BlockchainTransaction {
                 block_number: 1234567890,
                 from: Wallet::new("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
                 gwei_amount: 123456789123456789,
             },
-            Transaction {
+            BlockchainTransaction {
                 block_number: 2345678901,
                 from: Wallet::new("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"),
                 gwei_amount: 234567891234567891,
             },
-            Transaction {
+            BlockchainTransaction {
                 block_number: 3456789012,
                 from: Wallet::new("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
                 gwei_amount: 345678912345678912,

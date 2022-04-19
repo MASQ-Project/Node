@@ -45,7 +45,7 @@ use crate::accountant::receivable_dao::{
 use crate::accountant::tools::accountant_tools::{Scanner, Scanners, TransactionConfirmationTools};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
-use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
+use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
@@ -96,7 +96,7 @@ pub struct ResponseSkeleton {
 
 #[derive(Debug, Eq, Message, PartialEq)]
 pub struct ReceivedPayments {
-    pub payments: Vec<Transaction>,
+    pub payments: Vec<BlockchainTransaction>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1323,7 +1323,7 @@ mod tests {
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainError;
-    use crate::blockchain::blockchain_interface::Transaction;
+    use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::bootstrapper::BootstrapperConfig;
@@ -2168,12 +2168,12 @@ mod tests {
     #[test]
     fn accountant_receives_new_payments_to_the_receivables_dao() {
         let earning_wallet = make_wallet("earner3000");
-        let expected_receivable_1 = Transaction {
+        let expected_receivable_1 = BlockchainTransaction {
             block_number: 7,
             from: make_wallet("wallet0"),
             gwei_amount: 456,
         };
-        let expected_receivable_2 = Transaction {
+        let expected_receivable_2 = BlockchainTransaction {
             block_number: 13,
             from: make_wallet("wallet1"),
             gwei_amount: 10000,

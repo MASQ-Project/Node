@@ -14,12 +14,15 @@ pub struct ScanCommand {
     name: String,
 }
 
+const SCAN_SUBCOMMAND_ABOUT: &str = "Orders the Node to perform an immediate scan of the indicated type";
+const SCAN_SUBCOMMAND_HELP: &str = "Type of the scan that should be triggered";
+
 pub fn scan_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("scan")
-        .about("Orders the Node to perform an immediate scan of the indicated type")
+        .about(SCAN_SUBCOMMAND_ABOUT)
         .arg(
             Arg::with_name("name")
-                .help("Type of the scan that should be triggered")
+                .help(SCAN_SUBCOMMAND_HELP)
                 .index(1)
                 .possible_values(&["payables", "receivables", "pendingpayables"])
                 .required(true)
@@ -70,6 +73,12 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiScanRequest};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq! (SCAN_SUBCOMMAND_ABOUT, "Orders the Node to perform an immediate scan of the indicated type");
+        assert_eq! (SCAN_SUBCOMMAND_HELP, "Type of the scan that should be triggered");
+    }
 
     #[test]
     fn testing_command_factory_here() {

@@ -120,25 +120,18 @@ impl MASQNodeUIClient {
                     Some(UiTrafficConverter::new_unmarshal(&string).unwrap())
                 }
                 OwnedMessage::Close(_) => {
-                    unimplemented!("Close");
+                    panic!("Close message unexpected");
                 }
-                _unexpected => {
-                    unimplemented!("Unexpected");
+                unexpected => {
+                    panic!("Unexpected message: {:?}", unexpected);
                 }
             },
             Err(WebSocketError::NoDataAvailable) => None,
             Err(WebSocketError::IoError(e)) if e.kind() == ErrorKind::WouldBlock => None,
             Err(WebSocketError::IoError(e)) if e.kind() == ErrorKind::TimedOut => None,
             Err(e) => {
-                unimplemented!("{:?}", e)
+                panic!("{:?}", e)
             }
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-
-    #[test]
-    fn nothing() {}
 }
