@@ -19,11 +19,58 @@ lazy_static! {
     pub static ref TEMPORARY_CONSUMING_WALLET: Wallet = Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
 }
 
-#[derive(Clone, PartialEq, Debug)]
-pub struct AccountantConfig {
-    pub payables_scan_interval: Duration,
-    pub receivables_scan_interval: Duration,
+lazy_static! {
+    pub static ref DEFAULT_PAYMENT_THRESHOLDS: PaymentThresholds = PaymentThresholds {
+        debt_threshold_gwei: 1_000_000_000,
+        maturity_threshold_sec: 1200,
+        payment_grace_period_sec: 1200,
+        permanent_debt_allowed_gwei: 500_000_000,
+        threshold_interval_sec: 21600,
+        unban_below_gwei: 500_000_000,
+    };
+}
+
+lazy_static! {
+    pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
+        pending_payable_scan_interval: Duration::from_secs(600),
+        payable_scan_interval: Duration::from_secs(600),
+        receivable_scan_interval: Duration::from_secs(600)
+    };
+}
+
+//please, alphabetical order
+#[derive(PartialEq, Debug, Clone, Copy, Default)]
+pub struct PaymentThresholds {
+    pub debt_threshold_gwei: i64,
+    pub maturity_threshold_sec: i64,
+    pub payment_grace_period_sec: i64,
+    pub permanent_debt_allowed_gwei: i64,
+    pub threshold_interval_sec: i64,
+    pub unban_below_gwei: i64,
+}
+
+//this code is used in tests in Accountant
+impl PaymentThresholds {
+    pub fn sugg_and_grace(&self, now: i64) -> i64 {
+        now - self.maturity_threshold_sec - self.payment_grace_period_sec
+    }
+
+    pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
+        self.sugg_and_grace(now) - self.threshold_interval_sec
+    }
+}
+
+#[derive(PartialEq, Debug, Clone, Copy, Default)]
+pub struct ScanIntervals {
     pub pending_payable_scan_interval: Duration,
+    pub payable_scan_interval: Duration,
+    pub receivable_scan_interval: Duration,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct AccountantConfig {
+    pub scan_intervals: ScanIntervals,
+    pub payment_thresholds: PaymentThresholds,
     pub when_pending_too_long_sec: u64,
 }
 
@@ -94,11 +141,15 @@ pub struct FinancialStatisticsMessage {
 
 #[cfg(test)]
 mod tests {
-    use crate::sub_lib::accountant::{DEFAULT_EARNING_WALLET, TEMPORARY_CONSUMING_WALLET};
+    use crate::sub_lib::accountant::{
+        PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
+        DEFAULT_SCAN_INTERVALS, TEMPORARY_CONSUMING_WALLET,
+    };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
     use std::str::FromStr;
+    use std::time::Duration;
 
     #[test]
     fn constants_have_correct_values() {
@@ -106,7 +157,21 @@ mod tests {
             Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
         let temporary_consuming_wallet_expected: Wallet =
             Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
-
+        let payment_thresholds_expected = PaymentThresholds {
+            debt_threshold_gwei: 1_000_000_000,
+            maturity_threshold_sec: 1200,
+            payment_grace_period_sec: 1200,
+            permanent_debt_allowed_gwei: 500_000_000,
+            threshold_interval_sec: 21600,
+            unban_below_gwei: 500_000_000,
+        };
+        let scan_intervals_expected = ScanIntervals {
+            pending_payable_scan_interval: Duration::from_secs(600),
+            payable_scan_interval: Duration::from_secs(600),
+            receivable_scan_interval: Duration::from_secs(600),
+        };
+        assert_eq!(*DEFAULT_SCAN_INTERVALS, scan_intervals_expected);
+        assert_eq!(*DEFAULT_PAYMENT_THRESHOLDS, payment_thresholds_expected);
         assert_eq!(*DEFAULT_EARNING_WALLET, default_earning_wallet_expected);
         assert_eq!(
             *TEMPORARY_CONSUMING_WALLET,

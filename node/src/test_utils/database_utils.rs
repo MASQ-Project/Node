@@ -91,7 +91,12 @@ pub fn retrieve_config_row(conn: &dyn ConnectionWrapper, name: &str) -> (Option<
             };
             Ok((value_opt, encrypted_flag))
         })
-        .unwrap_or_else(|e| panic!("panicked at {} for statement: {}", e, sql))
+        .unwrap_or_else(|e| {
+            panic!(
+                "panicked at {} for statement: {} on parameter '{}'",
+                e, sql, name
+            )
+        })
 }
 
 pub fn query_specific_schema_information(

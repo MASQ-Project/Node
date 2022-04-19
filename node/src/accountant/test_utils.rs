@@ -11,7 +11,7 @@ use crate::accountant::pending_payable_dao::{
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::{Accountant, PaymentCurves, PendingPayableId};
+use crate::accountant::{Accountant, PendingPayableId};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::Transaction;
@@ -20,10 +20,11 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::AccountantConfig;
+use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
 use rusqlite::{Connection, Error, OptionalExtension};
@@ -131,7 +132,11 @@ impl AccountantBuilder {
     }
 
     pub fn build(self) -> Accountant {
-        let config = self.config.unwrap_or(Default::default());
+        let config = self.config.unwrap_or({
+            let mut config = BootstrapperConfig::default();
+            config.accountant_config_opt = Some(make_populated_accountant_config_with_defaults());
+            config
+        });
         let payable_dao_factory = self
             .payable_dao_factory
             .unwrap_or(Box::new(PayableDaoFactoryMock::new(PayableDaoMock::new())));
@@ -441,9 +446,9 @@ pub struct ReceivableDaoMock {
     more_money_received_parameters: Arc<Mutex<Vec<Vec<Transaction>>>>,
     more_money_received_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     receivables_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-    new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentCurves)>>>,
+    new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentThresholds)>>>,
     new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-    paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentCurves>>>,
+    paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentThresholds>>>,
     paid_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
     top_records_results: RefCell<Vec<Vec<ReceivableAccount>>>,
@@ -487,12 +492,12 @@ impl ReceivableDao for ReceivableDaoMock {
     fn new_delinquencies(
         &self,
         now: SystemTime,
-        payment_curves: &PaymentCurves,
+        payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
         self.new_delinquencies_parameters
             .lock()
             .unwrap()
-            .push((now, payment_curves.clone()));
+            .push((now, payment_thresholds.clone()));
         if self.new_delinquencies_results.borrow().is_empty()
             && self.have_new_delinquencies_shutdown_the_system
         {
@@ -502,11 +507,11 @@ impl ReceivableDao for ReceivableDaoMock {
         self.new_delinquencies_results.borrow_mut().remove(0)
     }
 
-    fn paid_delinquencies(&self, payment_curves: &PaymentCurves) -> Vec<ReceivableAccount> {
+    fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount> {
         self.paid_delinquencies_parameters
             .lock()
             .unwrap()
-            .push(payment_curves.clone());
+            .push(payment_thresholds.clone());
         self.paid_delinquencies_results.borrow_mut().remove(0)
     }
 
@@ -556,7 +561,7 @@ impl ReceivableDaoMock {
 
     pub fn new_delinquencies_parameters(
         mut self,
-        parameters: &Arc<Mutex<Vec<(SystemTime, PaymentCurves)>>>,
+        parameters: &Arc<Mutex<Vec<(SystemTime, PaymentThresholds)>>>,
     ) -> Self {
         self.new_delinquencies_parameters = parameters.clone();
         self
@@ -569,7 +574,7 @@ impl ReceivableDaoMock {
 
     pub fn paid_delinquencies_parameters(
         mut self,
-        parameters: &Arc<Mutex<Vec<PaymentCurves>>>,
+        parameters: &Arc<Mutex<Vec<PaymentThresholds>>>,
     ) -> Self {
         self.paid_delinquencies_parameters = parameters.clone();
         self
@@ -650,7 +655,7 @@ pub fn bc_from_ac_plus_earning_wallet(
     earning_wallet: Wallet,
 ) -> BootstrapperConfig {
     let mut bc = BootstrapperConfig::new();
-    bc.accountant_config = ac;
+    bc.accountant_config_opt = Some(ac);
     bc.earning_wallet = earning_wallet;
     bc
 }
@@ -661,7 +666,7 @@ pub fn bc_from_ac_plus_wallets(
     earning_wallet: Wallet,
 ) -> BootstrapperConfig {
     let mut bc = BootstrapperConfig::new();
-    bc.accountant_config = ac;
+    bc.accountant_config_opt = Some(ac);
     bc.consuming_wallet_opt = Some(consuming_wallet);
     bc.earning_wallet = earning_wallet;
     bc

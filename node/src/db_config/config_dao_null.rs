@@ -4,11 +4,44 @@ use crate::database::db_initializer::{DbInitializerReal, CURRENT_SCHEMA_VERSION}
 use crate::db_config::config_dao::{
     ConfigDao, ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord, ConfigDaoWrite,
 };
+use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
+use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::ETH_MAINNET_CONTRACT_CREATION_BLOCK;
+use masq_lib::constants::DEFAULT_GAS_PRICE;
 use rusqlite::Transaction;
 use std::collections::HashMap;
+
+/*
+
+This class exists because the Daemon uses the same configuration code that the Node uses, and
+that configuration code requires access to the database...except that the Daemon isn't allowed
+access to the database, so it's given this configuration DAO instead. This DAO provides plain-vanilla
+default values when read, and claims to have successfully written values (which are actually
+thrown away) when updated.
+
+Theoretically, the Daemon could be given access to the real database, but there are a few problems
+that would need to be overcome first.
+
+1. The database must be created by a normal user, not by root--or at least once it's finished it
+must _look_ as though it were created by a normal user. The Daemon must always run as root, and
+may not give up its privilege. This is not an insurmountable problem, but it is a problem.
+
+2. The database can't be located until the chain is known, because the chain is part of the
+directory to the database. Every setup command has the potential to need access to the database,
+but there's no easy way to ensure that the first setup command establishes the chain.
+
+3. If the database needs to be migrated from its schema version to the Daemon's schema version,
+and the migration involves secret fields, then the migration will need the database password.
+Again, the password will be needed the moment the database is first connected, which will probably
+be when the first setup command is given, and there's no easy way to ensure that the first setup
+command establishes the password.
+
+4. If two different processes have simultaneous write access to the same database, one process may
+make changes that the other process doesn't know about.  This is another problem that is not
+insurmountable, but it would need to be considered and coded around.
+
+ */
 
 pub struct ConfigDaoNull {
     data: HashMap<String, (Option<String>, bool)>,
@@ -78,10 +111,16 @@ impl Default for ConfigDaoNull {
                 false,
             ),
         );
-        data.insert("gas_price".to_string(), (Some("1".to_string()), false));
+        data.insert(
+            "gas_price".to_string(),
+            (Some(DEFAULT_GAS_PRICE.to_string()), false),
+        );
         data.insert(
             "start_block".to_string(),
-            (Some(ETH_MAINNET_CONTRACT_CREATION_BLOCK.to_string()), false),
+            (
+                Some(Chain::default().rec().contract_creation_block.to_string()),
+                false,
+            ),
         );
         data.insert("consuming_wallet_private_key".to_string(), (None, true));
         data.insert("example_encrypted".to_string(), (None, true));
@@ -97,6 +136,18 @@ impl Default for ConfigDaoNull {
             "schema_version".to_string(),
             (Some(format!("{}", CURRENT_SCHEMA_VERSION)), false),
         );
+        data.insert(
+            "payment_thresholds".to_string(),
+            (Some(DEFAULT_PAYMENT_THRESHOLDS.to_string()), false),
+        );
+        data.insert(
+            "rate_pack".to_string(),
+            (Some(DEFAULT_RATE_PACK.to_string()), false),
+        );
+        data.insert(
+            "scan_intervals".to_string(),
+            (Some(DEFAULT_SCAN_INTERVALS.to_string()), false),
+        );
         Self { data }
     }
 }
@@ -108,6 +159,7 @@ mod tests {
     use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoReal;
     use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::{DEFAULT_CHAIN, ETH_MAINNET_CONTRACT_CREATION_BLOCK};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
 
@@ -139,7 +191,7 @@ mod tests {
             subject.get("start_block").unwrap(),
             ConfigDaoRecord::new(
                 "start_block",
-                Some(&ETH_MAINNET_CONTRACT_CREATION_BLOCK.to_string()),
+                Some(&DEFAULT_CHAIN.rec().contract_creation_block.to_string()),
                 false
             )
         );
@@ -147,6 +199,26 @@ mod tests {
         assert_eq!(
             subject.get("consuming_wallet_private_key").unwrap(),
             ConfigDaoRecord::new("consuming_wallet_private_key", None, true)
+        );
+        assert_eq!(
+            subject.get("payment_thresholds").unwrap(),
+            ConfigDaoRecord::new(
+                "payment_thresholds",
+                Some(&DEFAULT_PAYMENT_THRESHOLDS.to_string()),
+                false
+            )
+        );
+        assert_eq!(
+            subject.get("rate_pack").unwrap(),
+            ConfigDaoRecord::new("rate_pack", Some(&DEFAULT_RATE_PACK.to_string()), false)
+        );
+        assert_eq!(
+            subject.get("scan_intervals").unwrap(),
+            ConfigDaoRecord::new(
+                "scan_intervals",
+                Some(&DEFAULT_SCAN_INTERVALS.to_string()),
+                false
+            )
         );
     }
 
@@ -162,21 +234,19 @@ mod tests {
             .unwrap();
         let real_config_dao = ConfigDaoReal::new(conn);
         let subject = ConfigDaoNull::default();
-        let real_pairs = real_config_dao
-            .get_all()
-            .unwrap()
-            .into_iter()
-            .map(|r| (r.name, r.encrypted))
-            .collect::<HashSet<(String, bool)>>();
+        let real_pairs = return_parameter_pairs(&real_config_dao);
 
-        let null_pairs = subject
-            .get_all()
-            .unwrap()
-            .into_iter()
-            .map(|r| (r.name, r.encrypted))
-            .collect::<HashSet<(String, bool)>>();
+        let null_pairs = return_parameter_pairs(&subject);
 
         assert_eq!(null_pairs, real_pairs);
+    }
+
+    fn return_parameter_pairs(dao: &dyn ConfigDao) -> HashSet<(String, bool)> {
+        dao.get_all()
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.name, r.encrypted))
+            .collect()
     }
 
     #[test]

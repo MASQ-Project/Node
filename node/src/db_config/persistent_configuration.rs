@@ -1,20 +1,24 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::db_config::typed_config_layer::{
-    decode_bytes, decode_u64, encode_bytes, encode_u64, TypedConfigLayerError,
+    decode_bytes, decode_combined_params, decode_u64, encode_bytes, encode_u64,
+    TypedConfigLayerError,
 };
+use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use rustc_hex::{FromHex, ToHex};
+use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
@@ -28,6 +32,7 @@ pub enum PersistentConfigError {
     BadPortNumber(String),
     BadNumberFormat(String),
     BadHexFormat(String),
+    BadCoupledParamsFormat(String),
     BadMnemonicSeed(PlainData),
     BadDerivationPathFormat(String),
     BadAddressFormat(String),
@@ -42,6 +47,9 @@ impl From<TypedConfigLayerError> for PersistentConfigError {
             TypedConfigLayerError::BadHexFormat(msg) => PersistentConfigError::BadHexFormat(msg),
             TypedConfigLayerError::BadNumberFormat(msg) => {
                 PersistentConfigError::BadNumberFormat(msg)
+            }
+            TypedConfigLayerError::BadCombinedParamsFormat(msg) => {
+                PersistentConfigError::BadCoupledParamsFormat(msg)
             }
         }
     }
@@ -86,15 +94,6 @@ pub trait PersistentConfiguration {
         old_password_opt: Option<String>,
         new_password: &str,
     ) -> Result<(), PersistentConfigError>;
-    fn clandestine_port(&self) -> Result<u16, PersistentConfigError>;
-    fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError>;
-    fn gas_price(&self) -> Result<u64, PersistentConfigError>;
-    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
-    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
-    fn set_mapping_protocol(
-        &mut self,
-        value: Option<AutomapProtocol>,
-    ) -> Result<(), PersistentConfigError>;
     // WARNING: Actors should get consuming-wallet information from their startup config, not from here
     fn consuming_wallet(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get consuming-wallet information from their startup config, not from here
@@ -102,15 +101,23 @@ pub trait PersistentConfiguration {
         &self,
         db_password: &str,
     ) -> Result<Option<String>, PersistentConfigError>;
+    fn clandestine_port(&self) -> Result<u16, PersistentConfigError>;
+    fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
-    fn set_wallet_info(
+    fn gas_price(&self) -> Result<u64, PersistentConfigError>;
+    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
+    fn set_mapping_protocol(
         &mut self,
-        consuming_wallet_private_key: &str,
-        earning_wallet_address: &str,
-        db_password: &str,
+        value: Option<AutomapProtocol>,
+    ) -> Result<(), PersistentConfigError>;
+    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError>;
+    fn set_neighborhood_mode(
+        &mut self,
+        value: NeighborhoodModeLight,
     ) -> Result<(), PersistentConfigError>;
     fn past_neighbors(
         &self,
@@ -123,11 +130,18 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
-    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError>;
-    fn set_neighborhood_mode(
+    fn set_wallet_info(
         &mut self,
-        value: NeighborhoodModeLight,
+        consuming_wallet_private_key: &str,
+        earning_wallet_address: &str,
+        db_password: &str,
     ) -> Result<(), PersistentConfigError>;
+    fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError>;
+    fn set_payment_thresholds(&mut self, curves: String) -> Result<(), PersistentConfigError>;
+    fn rate_pack(&self) -> Result<RatePack, PersistentConfigError>;
+    fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError>;
+    fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError>;
+    fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError>;
 }
 
 pub struct PersistentConfigurationReal {
@@ -191,57 +205,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(writer.commit()?)
     }
 
-    fn clandestine_port(&self) -> Result<u16, PersistentConfigError> {
-        let unchecked_port = match decode_u64(self.get("clandestine_port")?)? {
-            None => panic!("ever-supplied clandestine_port value missing; database is corrupt!"),
-            Some(port) => port,
-        };
-        if (unchecked_port < u64::from(LOWEST_USABLE_INSECURE_PORT))
-            || (unchecked_port > u64::from(HIGHEST_USABLE_PORT))
-        {
-            panic!("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
-                LOWEST_USABLE_INSECURE_PORT,
-                HIGHEST_USABLE_PORT,
-                unchecked_port
-            );
-        }
-        let port = unchecked_port as u16;
-        Ok(port)
-    }
-
-    fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError> {
-        if port < LOWEST_USABLE_INSECURE_PORT {
-            return Err(PersistentConfigError::BadPortNumber(format!(
-                "Must be greater than 1024; not {}",
-                port
-            )));
-        }
-        if TcpListener::bind(SocketAddrV4::new(Ipv4Addr::from(0), port)).is_err() {
-            return Err(PersistentConfigError::BadPortNumber(format!(
-                "Must be open port: {} is in use",
-                port
-            )));
-        }
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("clandestine_port", encode_u64(Some(u64::from(port)))?)?;
-        Ok(writer.commit()?)
-    }
-
-    fn gas_price(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.get("gas_price")?) {
-            Ok(val) => {
-                Ok(val.expect("ever-supplied gas_price value missing; database is corrupt!"))
-            }
-            Err(e) => Err(PersistentConfigError::from(e)),
-        }
-    }
-
-    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("gas_price", encode_u64(Some(gas_price))?)?;
-        Ok(writer.commit()?)
-    }
-
     fn consuming_wallet(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError> {
         self.consuming_wallet_private_key(db_password)
             .map(|key_opt| {
@@ -280,6 +243,42 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
+    fn clandestine_port(&self) -> Result<u16, PersistentConfigError> {
+        let unchecked_port = match decode_u64(self.get("clandestine_port")?)? {
+            None => Self::missing_value_panic("clandestine_port"),
+            Some(port) => port,
+        };
+        if (unchecked_port < u64::from(LOWEST_USABLE_INSECURE_PORT))
+            || (unchecked_port > u64::from(HIGHEST_USABLE_PORT))
+        {
+            panic!("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
+                LOWEST_USABLE_INSECURE_PORT,
+                HIGHEST_USABLE_PORT,
+                unchecked_port
+            );
+        }
+        let port = unchecked_port as u16;
+        Ok(port)
+    }
+
+    fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError> {
+        if port < LOWEST_USABLE_INSECURE_PORT {
+            return Err(PersistentConfigError::BadPortNumber(format!(
+                "Must be greater than 1024; not {}",
+                port
+            )));
+        }
+        if TcpListener::bind(SocketAddrV4::new(Ipv4Addr::from(0), port)).is_err() {
+            return Err(PersistentConfigError::BadPortNumber(format!(
+                "Must be open port: {} is in use",
+                port
+            )));
+        }
+        let mut writer = self.dao.start_transaction()?;
+        writer.set("clandestine_port", encode_u64(Some(u64::from(port)))?)?;
+        Ok(writer.commit()?)
+    }
+
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError> {
         match self.earning_wallet_address()? {
             None => Ok(None),
@@ -295,6 +294,102 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError> {
         Ok(self.get("earning_wallet_address")?)
+    }
+
+    fn gas_price(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.get("gas_price")?) {
+            Ok(val) => {
+                Ok(val.expect("ever-supplied gas_price value missing; database is corrupt!"))
+            }
+            Err(e) => Err(PersistentConfigError::from(e)),
+        }
+    }
+
+    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
+        self.simple_set_method("gas_price", gas_price)
+    }
+
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
+        let result = self
+            .get("mapping_protocol")?
+            .map(|val| AutomapProtocol::from_str(&val));
+        match result {
+            None => Ok(None),
+            Some(Ok(protocol)) => Ok(Some(protocol)),
+            Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)),
+        }
+    }
+
+    fn set_mapping_protocol(
+        &mut self,
+        value: Option<AutomapProtocol>,
+    ) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        writer.set("mapping_protocol", value.map(|v| v.to_string()))?;
+        Ok(writer.commit()?)
+    }
+
+    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
+        NeighborhoodModeLight::from_str(
+            self.get("neighborhood_mode")?
+                .expect("ever-supplied value is missing: neighborhood-mode; database is corrupt!")
+                .as_str(),
+        )
+        .map_err(PersistentConfigError::UninterpretableValue)
+    }
+
+    fn set_neighborhood_mode(
+        &mut self,
+        value: NeighborhoodModeLight,
+    ) -> Result<(), PersistentConfigError> {
+        self.simple_set_method("neighborhood_mode", value)
+    }
+
+    fn past_neighbors(
+        &self,
+        db_password: &str,
+    ) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError> {
+        let bytes_opt = decode_bytes(self.scl.decrypt(
+            self.get_record("past_neighbors")?,
+            Some(db_password.to_string()),
+            &self.dao,
+        )?)?;
+        match bytes_opt {
+            None => Ok (None),
+            Some (bytes) => Ok(Some(serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(bytes.as_slice())
+                .expect ("Can't continue; past neighbors configuration is corrupt and cannot be deserialized."))),
+        }
+    }
+
+    fn set_past_neighbors(
+        &mut self,
+        node_descriptors_opt: Option<Vec<NodeDescriptor>>,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        let plain_data_opt = node_descriptors_opt.map(|node_descriptors| {
+            PlainData::new(
+                &serde_cbor::ser::to_vec(&node_descriptors).expect("Serialization failed"),
+            )
+        });
+        let mut writer = self.dao.start_transaction()?;
+        writer.set(
+            "past_neighbors",
+            self.scl.encrypt(
+                "past_neighbors",
+                encode_bytes(plain_data_opt)?,
+                Some(db_password.to_string()),
+                &writer,
+            )?,
+        )?;
+        Ok(writer.commit()?)
+    }
+
+    fn start_block(&self) -> Result<u64, PersistentConfigError> {
+        self.simple_get_method(decode_u64, "start_block")
+    }
+
+    fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
+        self.simple_set_method("start_block", value)
     }
 
     fn set_wallet_info(
@@ -347,96 +442,31 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(writer.commit()?)
     }
 
-    fn past_neighbors(
-        &self,
-        db_password: &str,
-    ) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError> {
-        let bytes_opt = decode_bytes(self.scl.decrypt(
-            self.get_record("past_neighbors")?,
-            Some(db_password.to_string()),
-            &self.dao,
-        )?)?;
-        match bytes_opt {
-            None => Ok (None),
-            Some (bytes) => Ok(Some(serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(bytes.as_slice())
-                .expect ("Can't continue; past neighbors configuration is corrupt and cannot be deserialized."))),
-        }
-    }
-
-    fn set_past_neighbors(
-        &mut self,
-        node_descriptors_opt: Option<Vec<NodeDescriptor>>,
-        db_password: &str,
-    ) -> Result<(), PersistentConfigError> {
-        let plain_data_opt = node_descriptors_opt.map(|node_descriptors| {
-            PlainData::new(
-                &serde_cbor::ser::to_vec(&node_descriptors).expect("Serialization failed"),
-            )
-        });
-        let mut writer = self.dao.start_transaction()?;
-        writer.set(
-            "past_neighbors",
-            self.scl.encrypt(
-                "past_neighbors",
-                encode_bytes(plain_data_opt)?,
-                Some(db_password.to_string()),
-                &writer,
-            )?,
-        )?;
-        Ok(writer.commit()?)
-    }
-
-    fn start_block(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.get("start_block")?) {
-            Ok(val) => {
-                Ok(val.expect("ever-supplied start_block value missing; database is corrupt!"))
-            }
-            Err(e) => Err(PersistentConfigError::from(e)),
-        }
-    }
-
-    fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("start_block", encode_u64(Some(value))?)?;
-        Ok(writer.commit()?)
-    }
-
-    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
-        let result = self
-            .get("mapping_protocol")?
-            .map(|val| AutomapProtocol::from_str(&val));
-        match result {
-            None => Ok(None),
-            Some(Ok(protocol)) => Ok(Some(protocol)),
-            Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)),
-        }
-    }
-
-    fn set_mapping_protocol(
-        &mut self,
-        value: Option<AutomapProtocol>,
-    ) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("mapping_protocol", value.map(|v| v.to_string()))?;
-        Ok(writer.commit()?)
-    }
-
-    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
-        NeighborhoodModeLight::from_str(
-            self.get("neighborhood_mode")?
-                .expect("ever-supplied value neighborhood_mode is missing; database is corrupt!")
-                .as_str(),
+    fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError> {
+        self.combined_params_get_method(
+            |str: &str| PaymentThresholds::try_from(str),
+            "payment_thresholds",
         )
-        .map_err(PersistentConfigError::UninterpretableValue)
     }
 
-    fn set_neighborhood_mode(
-        &mut self,
-        value: NeighborhoodModeLight,
-    ) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("neighborhood_mode", Some(value.to_string()))?;
-        Ok(writer.commit()?)
+    fn set_payment_thresholds(&mut self, curves: String) -> Result<(), PersistentConfigError> {
+        self.simple_set_method("payment_thresholds", curves)
+    }
+
+    fn rate_pack(&self) -> Result<RatePack, PersistentConfigError> {
+        self.combined_params_get_method(|str: &str| RatePack::try_from(str), "rate_pack")
+    }
+
+    fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError> {
+        self.simple_set_method("rate_pack", rate_pack)
+    }
+
+    fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError> {
+        self.combined_params_get_method(|str: &str| ScanIntervals::try_from(str), "scan_intervals")
+    }
+
+    fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError> {
+        self.simple_set_method("scan_intervals", intervals)
     }
 }
 
@@ -490,21 +520,74 @@ impl PersistentConfigurationReal {
                     record.name, name)
         })
     }
+
+    fn simple_set_method<T: Display>(
+        &mut self,
+        parameter_name: &str,
+        value: T,
+    ) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        writer.set(parameter_name, Some(value.to_string()))?;
+        Ok(writer.commit()?)
+    }
+
+    fn simple_get_method<T>(
+        &self,
+        decoder: fn(Option<String>) -> Result<Option<T>, TypedConfigLayerError>,
+        parameter: &str,
+    ) -> Result<T, PersistentConfigError> {
+        match decoder(self.get(parameter)?)? {
+            None => Self::missing_value_panic(parameter),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn combined_params_get_method<'a, T, C>(
+        &'a self,
+        values_parser: C,
+        parameter: &'a str,
+    ) -> Result<T, PersistentConfigError>
+    where
+        C: Fn(&str) -> Result<T, String>,
+    {
+        match decode_combined_params(values_parser, self.get(parameter)?)? {
+            None => Self::missing_value_panic(parameter),
+            Some(rate) => Ok(rate),
+        }
+    }
+
+    fn missing_value_panic(parameter_name: &str) -> ! {
+        panic!(
+            "ever-supplied value missing: {}; database is corrupt!",
+            parameter_name
+        )
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::{ConfigDaoMock, ConfigDaoWriteableMock};
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
     use crate::test_utils::main_cryptde;
     use bip39::{Language, MnemonicType};
+    use lazy_static::lazy_static;
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, find_free_port};
+    use paste::paste;
+    use std::convert::TryFrom;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
     use tiny_hderive::bip32::ExtendedPrivKey;
+
+    lazy_static! {
+        static ref CONFIG_TABLE_PARAMETERS: Vec<String> = list_of_config_parameters();
+    }
 
     #[test]
     fn from_config_dao_error() {
@@ -560,6 +643,10 @@ mod tests {
             (
                 TypedConfigLayerError::BadNumberFormat("booga".to_string()),
                 PersistentConfigError::BadNumberFormat("booga".to_string()),
+            ),
+            (
+                TypedConfigLayerError::BadCombinedParamsFormat("booga".to_string()),
+                PersistentConfigError::BadCoupledParamsFormat("booga".to_string()),
             ),
         ]
         .into_iter()
@@ -679,7 +766,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied clandestine_port value missing; database is corrupt!")]
+    #[should_panic(
+        expected = "ever-supplied value missing: clandestine_port; database is corrupt!"
+    )]
     fn clandestine_port_panics_if_none_got_from_database() {
         let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "clandestine_port",
@@ -1402,7 +1491,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied start_block value missing; database is corrupt!")]
+    #[should_panic(expected = "ever-supplied value missing: start_block; database is corrupt!")]
     fn start_block_does_not_tolerate_optional_output() {
         let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "start_block",
@@ -1659,25 +1748,6 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_mode_detects_specific_error() {
-        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
-            "neighborhood_mode",
-            Some("blah"),
-            false,
-        )));
-        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-
-        let result = subject.neighborhood_mode();
-
-        assert_eq!(
-            result,
-            Err(PersistentConfigError::UninterpretableValue(
-                "Invalid value read for neighborhood mode: blah".to_string()
-            ))
-        );
-    }
-
-    #[test]
     fn set_neighborhood_mode_works() {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoWriteableMock::new()
@@ -1699,5 +1769,182 @@ mod tests {
                 Some("consume-only".to_string())
             )]
         );
+    }
+
+    macro_rules! persistent_config_plain_data_assertions_for_simple_get_method {
+        ($parameter_name: literal,$expected_in_database: literal, $expected_result: expr) => {
+            paste! {
+                let get_params_arc = Arc::new(Mutex::new(vec![]));
+                let config_dao = ConfigDaoMock::new()
+                    .get_params(&get_params_arc)
+                    .get_result(Ok(ConfigDaoRecord::new(
+                        $parameter_name,
+                        Some($expected_in_database),
+                        false,
+                    )));
+                let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+                let result = subject.[<$parameter_name>]().unwrap();
+
+                assert_eq!(result, $expected_result);
+                let get_params = get_params_arc.lock().unwrap();
+                assert_eq!(*get_params, vec![$parameter_name.to_string()]);
+            }
+            assert_eq!(
+                CONFIG_TABLE_PARAMETERS
+                    .iter()
+                    .filter(|parameter_name| parameter_name.as_str() == $parameter_name)
+                    .count(),
+                1,
+                "this parameter '{}' is not in the config table",
+                $parameter_name
+            )
+        };
+    }
+
+    macro_rules! persistent_config_plain_data_assertions_for_simple_set_method {
+        ($parameter_name: literal,$set_value: expr) => {
+            paste! {
+                let set_params_arc = Arc::new(Mutex::new(vec![]));
+                let config_dao = ConfigDaoWriteableMock::new()
+                    .set_params(&set_params_arc)
+                    .set_result(Ok(()))
+                    .commit_result(Ok(()));
+                let mut subject = PersistentConfigurationReal::new(Box::new(
+                    ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
+                ));
+
+                let result = subject.[<set_ $parameter_name>]($set_value);
+
+                assert!(result.is_ok());
+                let set_params = set_params_arc.lock().unwrap();
+                assert_eq!(
+                    *set_params,
+                    vec![(
+                        $parameter_name.to_string(),
+                        Some($set_value.to_string())
+                    )]
+                );
+            }
+        };
+    }
+
+    macro_rules! getter_method_plain_data_does_not_tolerate_none_value {
+        ($parameter_name: literal) => {
+            paste! {
+                let config_dao = ConfigDaoMock::new()
+                    .get_result(Ok(ConfigDaoRecord::new(
+                        $parameter_name,
+                        None,
+                        false,
+                    )));
+                let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+                let _ = subject.[<$parameter_name>]();
+            }
+        };
+    }
+
+    #[test]
+    fn rate_pack_get_method_works() {
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "rate_pack",
+            "7|11|15|20",
+            RatePack {
+                routing_byte_rate: 7,
+                routing_service_rate: 11,
+                exit_byte_rate: 15,
+                exit_service_rate: 20,
+            }
+        );
+    }
+
+    #[test]
+    fn rate_pack_set_method_works() {
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "rate_pack",
+            "7|11|15|20".to_string()
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "ever-supplied value missing: rate_pack; database is corrupt!")]
+    fn rate_pack_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("rate_pack");
+    }
+
+    #[test]
+    fn scan_intervals_get_method_works() {
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "scan_intervals",
+            "40|60|50",
+            ScanIntervals {
+                pending_payable_scan_interval: Duration::from_secs(40),
+                payable_scan_interval: Duration::from_secs(60),
+                receivable_scan_interval: Duration::from_secs(50),
+            }
+        );
+    }
+
+    #[test]
+    fn scan_interval_set_method_works() {
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "scan_intervals",
+            "111|123|110".to_string()
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "ever-supplied value missing: scan_intervals; database is corrupt!")]
+    fn scan_intervals_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("scan_intervals");
+    }
+
+    #[test]
+    fn payment_thresholds_get_method_works() {
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "payment_thresholds",
+            "100000|1000|1000|20000|1000|20000",
+            PaymentThresholds {
+                threshold_interval_sec: 1000,
+                debt_threshold_gwei: 100000,
+                payment_grace_period_sec: 1000,
+                maturity_threshold_sec: 1000,
+                permanent_debt_allowed_gwei: 20000,
+                unban_below_gwei: 20000,
+            }
+        );
+    }
+
+    #[test]
+    fn payment_thresholds_set_method_works() {
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "payment_thresholds",
+            "1050|100050|1050|1050|20040|20040".to_string()
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: payment_thresholds; database is corrupt!"
+    )]
+    fn payment_thresholds_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("payment_thresholds");
+    }
+
+    fn list_of_config_parameters() -> Vec<String> {
+        let home_dir = ensure_node_home_directory_exists(
+            "persistent_configuration",
+            "current_config_table_schema",
+        );
+        let db_conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let mut statement = db_conn.prepare("select name from config").unwrap();
+        statement
+            .query_map([], |row| Ok(row.get(0).unwrap()))
+            .unwrap()
+            .flatten()
+            .collect()
     }
 }
