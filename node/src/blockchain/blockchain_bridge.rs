@@ -371,7 +371,7 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::Payable;
     use crate::blockchain::blockchain_interface::{
-        BlockchainError, BlockchainTransactionError, Transaction,
+        BlockchainError, BlockchainTransactionError, PaidReceivable,
     };
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
@@ -908,12 +908,12 @@ mod tests {
         let amount = 42;
         let amount2 = 55;
         let expected_transactions = vec![
-            Transaction {
+            PaidReceivable {
                 block_number: 7,
                 from: earning_wallet.clone(),
                 gwei_amount: amount,
             },
-            Transaction {
+            PaidReceivable {
                 block_number: 9,
                 from: earning_wallet.clone(),
                 gwei_amount: amount2,

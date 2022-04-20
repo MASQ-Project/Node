@@ -7,7 +7,6 @@ use actix::Message;
 use actix::Recipient;
 use lazy_static::lazy_static;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
@@ -127,16 +126,10 @@ pub struct ReportExitServiceConsumedMessage {
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
-pub struct GetFinancialStatisticsMessage {
-    pub client_id: u64,
-}
-
-#[derive(Clone, PartialEq, Debug, Message, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FinancialStatisticsMessage {
-    pub pending_credit: i64,
-    pub pending_debt: i64,
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct FinancialStatistics {
+    pub total_paid_payable: u64,
+    pub total_paid_receivable: u64,
 }
 
 #[cfg(test)]

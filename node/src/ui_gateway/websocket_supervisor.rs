@@ -8,7 +8,6 @@ use futures::stream::SplitSink;
 use futures::Future;
 use futures::Sink;
 use futures::Stream;
-use itertools::Itertools;
 use masq_lib::constants::UNMARSHAL_ERROR;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL};
@@ -119,19 +118,37 @@ impl WebSocketSupervisorReal {
         Ok(Box::new(WebSocketSupervisorReal { inner }))
     }
 
+    fn filter_clients<'a, P>(
+        locked_inner: &'a mut MutexGuard<WebSocketSupervisorInner>,
+        predicate: P,
+    ) -> Vec<(u64, &'a mut dyn ClientWrapper)>
+    where
+        P: FnMut(&(&u64, &mut Box<dyn ClientWrapper>)) -> bool,
+    {
+        locked_inner
+            .client_by_id
+            .iter_mut()
+            .filter(predicate)
+            .map(|(id, item)| (*id, item.as_mut()))
+            .collect()
+    }
+
     fn send_msg(locked_inner: &mut MutexGuard<WebSocketSupervisorInner>, msg: NodeToUiMessage) {
-        let client_ids = match msg.target {
-            MessageTarget::ClientId(n) => vec![n],
-            MessageTarget::AllExcept(n) => locked_inner
-                .client_by_id
-                .keys()
-                .filter(|k| k != &&n)
-                .copied()
-                .collect_vec(),
-            MessageTarget::AllClients => locked_inner.client_by_id.keys().copied().collect_vec(),
+        let clients = match msg.target {
+            MessageTarget::ClientId(n) => {
+                let clients = Self::filter_clients(locked_inner, |(id, _)| **id == n);
+                if !clients.is_empty() {
+                    clients
+                } else {
+                    Self::log_absent_client(n);
+                    return;
+                }
+            }
+            MessageTarget::AllExcept(n) => Self::filter_clients(locked_inner, |(id, _)| **id != n),
+            MessageTarget::AllClients => Self::filter_clients(locked_inner, |_| true),
         };
         let json = UiTrafficConverter::new_marshal(msg.body);
-        Self::send_to_clients(locked_inner, client_ids, json);
+        Self::send_to_clients(clients, json);
     }
 
     fn remove_failures<I, E: Debug>(
@@ -371,16 +388,8 @@ impl WebSocketSupervisorReal {
         ok::<(), ()>(())
     }
 
-    fn send_to_clients(
-        locked_inner: &mut MutexGuard<WebSocketSupervisorInner>,
-        client_ids: Vec<u64>,
-        json: String,
-    ) {
-        client_ids.into_iter().for_each(|client_id| {
-            let client = locked_inner
-                .client_by_id
-                .get_mut(&client_id)
-                .unwrap_or_else(|| panic!("Tried to send to a nonexistent client {}", client_id));
+    fn send_to_clients(clients: Vec<(u64, &mut dyn ClientWrapper)>, json: String) {
+        clients.into_iter().for_each(|(client_id, client)| {
             match client.send(OwnedMessage::Text(json.clone())) {
                 Ok(_) => match client.flush() {
                     Ok(_) => (),
@@ -440,6 +449,14 @@ impl WebSocketSupervisorReal {
                 });
             }
         }
+    }
+
+    fn log_absent_client(client_id: u64) {
+        warning!(
+            Logger::new("WebsocketSupervisor"),
+            "WebsocketSupervisor: WARN: Tried to send to an absent client {}",
+            client_id
+        )
     }
 }
 
@@ -1013,26 +1030,11 @@ mod tests {
     #[test]
     fn can_handle_flush_failure_after_send() {
         init_test_logging();
-        let (ui_gateway, _, _) = make_recorder();
-        let from_ui_message_sub = subs(ui_gateway);
-        let client = ClientWrapperMock::new()
+        let mut client = ClientWrapperMock::new()
             .send_result(Ok(()))
             .flush_result(Err(WebSocketError::NoDataAvailable));
-        let mut client_by_id: HashMap<u64, Box<dyn ClientWrapper>> = HashMap::new();
-        client_by_id.insert(1234, Box::new(client));
-        let inner_arc = Arc::new(Mutex::new(WebSocketSupervisorInner {
-            port: 0,
-            next_client_id: 0,
-            from_ui_message_sub,
-            client_id_by_socket_addr: Default::default(),
-            client_by_id,
-        }));
 
-        WebSocketSupervisorReal::send_to_clients(
-            &mut inner_arc.lock().unwrap(),
-            vec![1234],
-            "json".to_string(),
-        );
+        WebSocketSupervisorReal::send_to_clients(vec![(1234, &mut client)], "json".to_string());
 
         TestLogHandler::new().exists_log_containing ("WARN: WebSocketSupervisor: Client 1234 dropped its connection before it could be flushed");
     }
@@ -1304,8 +1306,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Tried to send to a nonexistent client")]
     fn send_msg_fails_to_look_up_client_to_send_to() {
+        init_test_logging();
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
@@ -1326,5 +1328,8 @@ mod tests {
         actix::spawn(lazy_future);
         System::current().stop();
         system.run();
+        TestLogHandler::new().exists_log_containing(
+            "WebsocketSupervisor: WARN: Tried to send to an absent client 7",
+        );
     }
 }

@@ -78,12 +78,7 @@ fn initialization_sequence_integration() {
             ("data-directory", Some(&data_directory.to_str().unwrap())),
         ]))
         .unwrap();
-    let financials_request = UiFinancialsRequest {
-        payable_minimum_amount: 0,
-        payable_maximum_age: 0,
-        receivable_minimum_amount: 0,
-        receivable_maximum_age: 0,
-    };
+    let financials_request = UiFinancialsRequest {};
     let context_id = 1234;
 
     //<UiFinancialsRequest, UiFinancialsResponse>
