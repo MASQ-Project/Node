@@ -576,26 +576,19 @@ pub struct UiReceivableAccount {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct UiFinancialsRequest {
-    #[serde(rename = "payableMinimumAmount")]
-    pub payable_minimum_amount: u64,
-    #[serde(rename = "payableMaximumAge")]
-    pub payable_maximum_age: u64,
-    #[serde(rename = "receivableMinimumAmount")]
-    pub receivable_minimum_amount: u64,
-    #[serde(rename = "receivableMaximumAge")]
-    pub receivable_maximum_age: u64,
-}
+pub struct UiFinancialsRequest {}
 conversation_message!(UiFinancialsRequest, "financials");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiFinancialsResponse {
-    pub payables: Vec<UiPayableAccount>,
-    #[serde(rename = "totalPayable")]
-    pub total_payable: u64,
-    pub receivables: Vec<UiReceivableAccount>,
-    #[serde(rename = "totalReceivable")]
-    pub total_receivable: u64,
+    #[serde(rename = "totalUnpaidAndPendingPayable")]
+    pub total_unpaid_and_pending_payable: u64,
+    #[serde(rename = "totalPaidPayable")]
+    pub total_paid_payable: u64,
+    #[serde(rename = "totalUnpaidReceivable")]
+    pub total_unpaid_receivable: i64,
+    #[serde(rename = "totalPaidReceivable")]
+    pub total_paid_receivable: u64,
 }
 conversation_message!(UiFinancialsResponse, "financials");
 
@@ -782,43 +775,28 @@ mod tests {
     }
 
     #[test]
-    fn ui_financials_methods_were_correctly_generated() {
-        let subject = UiFinancialsResponse {
-            payables: vec![],
-            total_payable: 0,
-            receivables: vec![],
-            total_receivable: 0,
+    fn ui_descriptor_methods_were_correctly_generated() {
+        let subject = UiDescriptorResponse {
+            node_descriptor_opt: Some("descriptor".to_string()),
         };
 
-        assert_eq!(subject.opcode(), "financials");
+        assert_eq!(subject.opcode(), "descriptor");
         assert_eq!(subject.is_conversational(), true);
     }
 
     #[test]
-    fn can_serialize_ui_financials_response() {
-        let subject = UiFinancialsResponse {
-            payables: vec![UiPayableAccount {
-                wallet: "wallet".to_string(),
-                age: 3456,
-                amount: 4567,
-                pending_payable_hash_opt: Some("Oxab45c6e2c3d1f6c231".to_string()),
-            }],
-            total_payable: 1234,
-            receivables: vec![UiReceivableAccount {
-                wallet: "tellaw".to_string(),
-                age: 6789,
-                amount: 7890,
-            }],
-            total_receivable: 2345,
+    fn can_serialize_ui_descriptor_response() {
+        let subject = UiDescriptorResponse {
+            node_descriptor_opt: None,
         };
         let subject_json = serde_json::to_string(&subject).unwrap();
 
-        let result: MessageBody = UiFinancialsResponse::tmb(subject, 1357);
+        let result: MessageBody = UiDescriptorResponse::tmb(subject, 1357);
 
         assert_eq!(
             result,
             MessageBody {
-                opcode: "financials".to_string(),
+                opcode: "descriptor".to_string(),
                 path: Conversation(1357),
                 payload: Ok(subject_json)
             }
@@ -826,13 +804,10 @@ mod tests {
     }
 
     #[test]
-    fn can_deserialize_ui_financials_response_with_bad_opcode() {
+    fn can_deserialize_ui_descriptor_response_with_bad_opcode() {
         let json = r#"
             {
-                "payables": [],
-                "totalPayable": 1234,
-                "receivables": [],
-                "totalReceivable": 2345
+                "nodeDescriptorOpt": "descriptor"
             }
         "#
         .to_string();
@@ -842,60 +817,57 @@ mod tests {
             payload: Ok(json),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body.clone());
+        let result: Result<(UiDescriptorResponse, u64), UiMessageError> =
+            UiDescriptorResponse::fmb(message_body.clone());
 
         assert_eq!(result, Err(UnexpectedMessage(message_body)))
     }
 
     #[test]
-    fn can_deserialize_ui_financials_response_with_bad_path() {
+    fn can_deserialize_ui_descriptor_response_with_bad_path() {
         let json = r#"
             {
-                "payables": [],
-                "totalPayable": 1234,
-                "receivables": [],
-                "totalReceivable": 2345
+                "nodeDescriptorOpt": "descriptor"
             }
         "#
         .to_string();
         let message_body = MessageBody {
-            opcode: "financials".to_string(),
+            opcode: "descriptor".to_string(),
             path: FireAndForget,
             payload: Ok(json),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body.clone());
+        let result: Result<(UiDescriptorResponse, u64), UiMessageError> =
+            UiDescriptorResponse::fmb(message_body.clone());
 
         assert_eq!(result, Err(UnexpectedMessage(message_body)))
     }
 
     #[test]
-    fn can_deserialize_ui_financials_response_with_bad_payload() {
+    fn can_deserialize_ui_descriptor_response_with_bad_payload() {
         let message_body = MessageBody {
-            opcode: "financials".to_string(),
+            opcode: "descriptor".to_string(),
             path: Conversation(1234),
             payload: Err((100, "error".to_string())),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body.clone());
+        let result: Result<(UiDescriptorResponse, u64), UiMessageError> =
+            UiDescriptorResponse::fmb(message_body.clone());
 
         assert_eq!(result, Err(PayloadError(message_body)))
     }
 
     #[test]
-    fn can_deserialize_unparseable_ui_financials_response() {
+    fn can_deserialize_unparseable_ui_descriptor_response() {
         let json = "} - unparseable - {".to_string();
         let message_body = MessageBody {
-            opcode: "financials".to_string(),
+            opcode: "descriptor".to_string(),
             path: Conversation(1234),
             payload: Ok(json),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body.clone());
+        let result: Result<(UiDescriptorResponse, u64), UiMessageError> =
+            UiDescriptorResponse::fmb(message_body.clone());
 
         assert_eq!(
             result,
@@ -907,51 +879,27 @@ mod tests {
     }
 
     #[test]
-    fn can_deserialize_ui_financials_response() {
+    fn can_deserialize_ui_descriptor_response() {
         let json = r#"
             {
-                "payables": [{
-                    "wallet": "wallet",
-                    "age": 3456,
-                    "amount": 4567,
-                    "pendingPayableHashOpt": "Oxab45c6e2c3d1f6c231"
-                }],
-                "totalPayable": 1234,
-                "receivables": [{
-                    "wallet": "tellaw",
-                    "age": 6789,
-                    "amount": 7890
-                }],
-                "totalReceivable": 2345
+                "nodeDescriptorOpt": "descriptor"
             }
         "#
         .to_string();
         let message_body = MessageBody {
-            opcode: "financials".to_string(),
+            opcode: "descriptor".to_string(),
             path: Conversation(4321),
             payload: Ok(json),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body);
+        let result: Result<(UiDescriptorResponse, u64), UiMessageError> =
+            UiDescriptorResponse::fmb(message_body);
 
         assert_eq!(
             result,
             Ok((
-                UiFinancialsResponse {
-                    payables: vec![UiPayableAccount {
-                        wallet: "wallet".to_string(),
-                        age: 3456,
-                        amount: 4567,
-                        pending_payable_hash_opt: Some("Oxab45c6e2c3d1f6c231".to_string())
-                    }],
-                    total_payable: 1234,
-                    receivables: vec![UiReceivableAccount {
-                        wallet: "tellaw".to_string(),
-                        age: 6789,
-                        amount: 7890
-                    }],
-                    total_receivable: 2345
+                UiDescriptorResponse {
+                    node_descriptor_opt: Some("descriptor".to_string())
                 },
                 4321
             ))
