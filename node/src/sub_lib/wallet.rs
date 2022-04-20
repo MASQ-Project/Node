@@ -8,8 +8,7 @@ use ethsign::{PublicKey, Signature};
 use rusqlite::types::{FromSql, FromSqlError, ToSqlOutput, Value, ValueRef};
 use rusqlite::ToSql;
 use rustc_hex::ToHex;
-use serde::de;
-use serde::{ser::SerializeStruct, Serialize, Serializer};
+use serde::{de, ser::SerializeStruct, Serialize, Serializer};
 use serde_json::{self, json};
 use std::convert::TryInto;
 use std::fmt::{Display, Error, Formatter};
@@ -318,8 +317,8 @@ impl<'de> serde::Deserialize<'de> for Wallet {
                 E: serde::de::Error,
             {
                 match value {
-                    b"address" => serde::__private::Ok(WalletField::Address),
-                    _ => serde::__private::Ok(WalletField::__Ignore),
+                    b"address" => Ok(WalletField::Address),
+                    _ => Ok(WalletField::__Ignore),
                 }
             }
         }
@@ -381,7 +380,7 @@ impl<'de> serde::Deserialize<'de> for Wallet {
                                         serde::de::MapAccess::next_value::<Vec<u8>>(&mut map)?;
                                     let mut address = [0u8; 20];
                                     address.copy_from_slice(bytes.as_slice());
-                                    Some(Address { 0: address })
+                                    Some(Address::from(address))
                                 }
                             }
                         }
@@ -394,7 +393,7 @@ impl<'de> serde::Deserialize<'de> for Wallet {
                 }
                 let address = match possible_address {
                     Some(address) => address,
-                    None => serde::__private::de::missing_field("address")?,
+                    None => return Err(<A::Error as de::Error>::missing_field("address")),
                 };
                 Ok(Wallet {
                     kind: WalletKind::Address(address),
