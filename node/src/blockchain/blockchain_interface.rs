@@ -35,13 +35,13 @@ const TRANSACTION_LITERAL: H256 = H256([
 const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
-pub struct Transaction {
+pub struct PaidReceivable {
     pub block_number: u64,
     pub from: Wallet,
     pub gwei_amount: u64,
 }
 
-impl fmt::Display for Transaction {
+impl fmt::Display for PaidReceivable {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
@@ -77,13 +77,13 @@ impl Display for BlockchainError {
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
 pub type Balance = BlockchainResult<web3::types::U256>;
 pub type Nonce = BlockchainResult<web3::types::U256>;
-pub type Transactions = BlockchainResult<Vec<Transaction>>;
+pub type PaidReceivables = BlockchainResult<Vec<PaidReceivable>>;
 pub type Receipt = BlockchainResult<Option<TransactionReceipt>>;
 
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
 
-    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions;
+    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> PaidReceivables;
 
     fn send_transaction(
         &self,
@@ -137,7 +137,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         self.chain.rec().contract
     }
 
-    fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> Transactions {
+    fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> PaidReceivables {
         let msg = "Can't retrieve transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
         Err(BlockchainError::QueryFailed(msg))
@@ -216,7 +216,7 @@ where
         self.chain.rec().contract
     }
 
-    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
+    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> PaidReceivables {
         debug!(
             self.logger,
             "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
@@ -241,7 +241,7 @@ where
         let logger = self.logger.clone();
         log_request
             .then(|logs| {
-                future::result::<Vec<Transaction>, BlockchainError>(match logs {
+                future::result::<Vec<PaidReceivable>, BlockchainError>(match logs {
                     Ok(logs) => {
                         if logs
                             .iter()
@@ -255,7 +255,7 @@ where
                                     Some(block_number) => {
                                         let amount: U256 = U256::from(log.data.0.as_slice());
                                         let gwei_amount = to_gwei(amount);
-                                        gwei_amount.map(|gwei_amount| Transaction {
+                                        gwei_amount.map(|gwei_amount| PaidReceivable {
                                             block_number: u64::try_from(block_number)
                                                 .expect("Internal Error"), // TODO: back to testing for overflow
                                             from: Wallet::from(log.topics[1]),
@@ -685,7 +685,7 @@ mod tests {
         );
         assert_eq!(
             result,
-            vec![Transaction {
+            vec![PaidReceivable {
                 block_number: 4_974_179u64,
                 from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
                 gwei_amount: 4_503_599u64,

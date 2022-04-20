@@ -1555,13 +1555,7 @@ mod tests {
         subject_addr
             .try_send(make_bind_message(ui_gateway))
             .unwrap();
-        let body: MessageBody = UiFinancialsRequest {
-            payable_minimum_amount: 0,
-            payable_maximum_age: 0,
-            receivable_minimum_amount: 0,
-            receivable_maximum_age: 0,
-        }
-        .tmb(4321);
+        let body: MessageBody = UiFinancialsRequest {}.tmb(4321);
 
         subject_addr
             .try_send(NodeFromUiMessage {

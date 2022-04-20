@@ -5,7 +5,7 @@
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
-    Nonce, Receipt, SendTransactionInputs, Transaction, Transactions, REQUESTS_IN_PARALLEL,
+    Nonce, PaidReceivable, PaidReceivables, Receipt, SendTransactionInputs, REQUESTS_IN_PARALLEL,
 };
 use crate::blockchain::tool_wrappers::SendTransactionToolsWrapper;
 use crate::sub_lib::wallet::Wallet;
@@ -51,7 +51,7 @@ pub fn make_meaningless_seed() -> Seed {
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
-    retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<Transaction>>>>,
+    retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<PaidReceivable>>>>,
     send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
     send_transaction_results: RefCell<Vec<Result<(H256, SystemTime), BlockchainTransactionError>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
@@ -70,7 +70,7 @@ impl BlockchainInterfaceMock {
 
     pub fn retrieve_transactions_result(
         self,
-        result: Result<Vec<Transaction>, BlockchainError>,
+        result: Result<Vec<PaidReceivable>, BlockchainError>,
     ) -> Self {
         self.retrieve_transactions_results.borrow_mut().push(result);
         self
@@ -135,7 +135,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.contract_address_results.borrow_mut().remove(0)
     }
 
-    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> Transactions {
+    fn retrieve_transactions(&self, start_block: u64, recipient: &Wallet) -> PaidReceivables {
         self.retrieve_transactions_parameters
             .lock()
             .unwrap()
