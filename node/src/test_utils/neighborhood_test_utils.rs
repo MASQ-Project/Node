@@ -7,10 +7,14 @@ use crate::neighborhood::{AccessibleGossipRecord, Neighborhood};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
-use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
+use crate::sub_lib::neighborhood::{
+    ConnectionProgressMessage, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor,
+};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::recorder::{make_recorder, Recording};
 use crate::test_utils::*;
+use actix::{Actor, Recipient};
 use ethereum_types::H160;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -273,4 +277,12 @@ impl From<&NodeRecord> for AccessibleGossipRecord {
             inner: node_record.inner.clone(),
         }
     }
+}
+
+pub fn make_cpm_recipient() -> (Recipient<ConnectionProgressMessage>, Arc<Mutex<Recording>>) {
+    let (recorder, _, recording_arc) = make_recorder();
+    let addr = recorder.start();
+    let recipient = addr.recipient();
+
+    (recipient, recording_arc)
 }
