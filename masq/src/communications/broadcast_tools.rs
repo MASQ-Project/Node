@@ -6,6 +6,7 @@ pub(in crate::communications) mod tools {
     use masq_lib::short_writeln;
     use masq_lib::ui_gateway::MessageBody;
     use std::io::Write;
+    //tested within broadcast_handler.rs
 
     pub fn handle_node_is_dead_while_f_f_on_the_way_broadcast(
         body: UiUndeliveredFireAndForget,
@@ -40,7 +41,7 @@ pub(in crate::communications) mod tools {
         term_interface: &TerminalWrapper,
     ) {
         let _lock = term_interface.lock();
-        write!(stdout, "\n{:?}: {}\n\n", body.log_level, body.msg).expect("write! failed");
+        write!(stdout, "\n\n>>  {:?}: {}\n\n", body.log_level, body.msg).expect("write! failed");
         stdout.flush().expect("flush failed");
     }
 }

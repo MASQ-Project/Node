@@ -209,7 +209,7 @@ mod tests {
         let stdout = handle.stdout_so_far();
         assert_eq!(
             stdout,
-            "\nInfo: Empty. No Nodes to report to; continuing\n\n",
+            "\n\n>>  Info: Empty. No Nodes to report to; continuing\n\n",
         );
         assert_eq!(
             handle.stderr_so_far(),
@@ -488,7 +488,7 @@ Cannot handle crash request: Node is not running.
             log_level: SerializableLogLevel::Info,
         };
 
-        let broadcast_output = "\nInfo: Empty. No Nodes to report to; continuing\n\n";
+        let broadcast_output = "\n\n>>  Info: Empty. No Nodes to report to; continuing\n\n";
 
         assertion_for_handle_broadcast(handle_ui_log_broadcast, ui_log_broadcast, broadcast_output)
     }

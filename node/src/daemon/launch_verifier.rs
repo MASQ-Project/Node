@@ -11,7 +11,6 @@ use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
 use sysinfo::{ProcessExt, ProcessStatus, Signal, SystemExt};
-use web3::types::Res;
 use websocket::client::ParseError;
 use websocket::sync::Client;
 use websocket::{ClientBuilder, OwnedMessage, WebSocketResult};
@@ -38,18 +37,13 @@ pub struct VerifierToolsReal {
 impl VerifierTools for VerifierToolsReal {
     fn can_connect_to_ui_gateway(&self, ui_port: u16) -> bool {
         let mut client_builder_ref = self.client_builder.borrow_mut();
-        if let Err(e) = client_builder_ref.initiate_client_builder(ui_port) {
-            todo!() //panic!("{:?}", e)
+        let url_address = format!("ws://127.0.0.1:{}", ui_port);
+        if let Err(e) = client_builder_ref.initiate_client_builder(&url_address) {
+            panic!("client builder: {:?}", e)
         }
         client_builder_ref.add_protocol(NODE_UI_PROTOCOL);
         match client_builder_ref.connect_insecure() {
-            Ok(mut client) => {
-                match client.send_message(OwnedMessage::Close(None)) {
-                    Ok(_) => (),
-                    Err(e) => todo!("test drive me in {}", e),
-                };
-                true
-            }
+            Ok(mut client) => client.send_message(OwnedMessage::Close(None)).is_ok(),
             Err(_) => false,
         }
     }
@@ -221,25 +215,19 @@ impl ClientWrapper for ClientWrapperReal {
 }
 
 pub trait ClientBuilderWrapper {
-    fn initiate_client_builder(&mut self, port: u16) -> Result<(), ParseError>;
+    fn initiate_client_builder(&mut self, address: &str) -> Result<(), ParseError>;
     fn add_protocol(&self, protocol: &str);
     fn connect_insecure(&mut self) -> WebSocketResult<Box<dyn ClientWrapper>>;
 }
-
+//format!("ws://127.0.0.1:{}", port).as_str()
 #[derive(Default)]
 struct ClientBuilderWrapperReal<'a> {
     builder_opt: RefCell<Option<ClientBuilder<'a>>>,
 }
 
 impl ClientBuilderWrapper for ClientBuilderWrapperReal<'_> {
-    fn initiate_client_builder(&mut self, port: u16) -> Result<(), ParseError> {
-        //TODO untested??
-        self.builder_opt.replace(Some(
-            ClientBuilder::new(format!("ws://127.0.0.1:{}", port).as_str()).map_err(|_| {
-                unimplemented!();
-                ParseError::IdnaError
-            })?,
-        ));
+    fn initiate_client_builder(&mut self, address: &str) -> Result<(), ParseError> {
+        self.builder_opt.replace(Some(ClientBuilder::new(address)?));
         Ok(())
     }
 
@@ -269,14 +257,13 @@ mod tests {
     use crate::daemon::launch_verifier::LaunchVerification::{
         CleanFailure, InterventionRequired, Launched,
     };
-    use crate::daemon::mocks::VerifierToolsMock;
-    use masq_lib::utils::{find_free_port, localhost};
-    use std::net::SocketAddr;
+    use crate::daemon::mocks::{ClientBuilderWrapperMock, ClientWrapperMock, VerifierToolsMock};
+    use masq_lib::utils::find_free_port;
     use std::process::{Child, Command};
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
-    use websocket::server::sync::Server;
-    use websocket::OwnedMessage;
+    use websocket::url::ParseError::RelativeUrlWithoutBase;
+    use websocket::{OwnedMessage, WebSocketError};
 
     #[test]
     fn constants_have_correct_values() {
@@ -417,41 +404,81 @@ mod tests {
 
     #[test]
     fn can_connect_to_ui_gateway_handles_success() {
-        use crossbeam_channel::unbounded;
-        let port = find_free_port();
-        let (tx, rx) = unbounded();
-        let thread_handle = thread::spawn(move || {
-            let mut server = Server::bind(SocketAddr::new(localhost(), port)).unwrap();
-            tx.send(()).unwrap();
-            let upgrade = server.accept().expect("Couldn't accept connection");
-            if !upgrade.protocols().contains(&NODE_UI_PROTOCOL.to_string()){
-                panic!("bad handshake")
-            }
-            let client = upgrade.accept().unwrap();
-            let (mut reader, _) = client.split().unwrap();
-            let message = reader.recv_message().unwrap();
-            match message {
-                OwnedMessage::Close(None) => (),
-                _ => panic!("Close message did not arrive"),
-            }
-        });
+        let port = 45554;
+        let initiate_client_params_arc = Arc::new(Mutex::new(vec![]));
+        let add_protocol_params_arc = Arc::new(Mutex::new(vec![]));
+        let send_message_params_arc = Arc::new(Mutex::new(vec![]));
         let subject = VerifierToolsReal::new();
-        rx.recv().unwrap();
+        let client = ClientWrapperMock::default()
+            .send_message_params(&send_message_params_arc)
+            .send_message_result(Ok(()));
+        let client_builder = ClientBuilderWrapperMock::default()
+            .initiate_client_builder_params(&initiate_client_params_arc)
+            .initiate_client_builder_result(Ok(()))
+            .add_protocol_params(&add_protocol_params_arc)
+            .connect_insecure_result(Ok(Box::new(client)));
+        subject.client_builder.replace(Box::new(client_builder));
 
         let result = subject.can_connect_to_ui_gateway(port);
 
         assert_eq!(result, true);
-        thread_handle.join().unwrap()
+        let initial_client_params = initiate_client_params_arc.lock().unwrap();
+        assert_eq!(
+            *initial_client_params,
+            vec!["ws://127.0.0.1:45554".to_string()]
+        );
+        let add_protocol_params = add_protocol_params_arc.lock().unwrap();
+        assert_eq!(*add_protocol_params, vec![NODE_UI_PROTOCOL.to_string()]);
+        let send_message_params = send_message_params_arc.lock().unwrap();
+        assert_eq!(*send_message_params, vec![OwnedMessage::Close(None)])
     }
 
     #[test]
-    fn can_connect_to_ui_gateway_handles_failure() {
+    fn can_connect_to_ui_gateway_handles_connection_failure() {
         let port = find_free_port();
         let subject = VerifierToolsReal::new();
 
         let result = subject.can_connect_to_ui_gateway(port);
 
         assert_eq!(result, false);
+    }
+
+    #[test]
+    #[should_panic(expected = "client builder: InvalidDomainCharacter")]
+    fn can_connect_to_ui_gateway_panics_on_initiate_client_builder() {
+        let port = 7889;
+        let subject = VerifierToolsReal::new();
+        let client_builder = ClientBuilderWrapperMock::default()
+            .initiate_client_builder_result(Err(ParseError::InvalidDomainCharacter));
+        subject.client_builder.replace(Box::new(client_builder));
+
+        subject.can_connect_to_ui_gateway(port);
+    }
+
+    #[test]
+    fn can_connect_to_ui_gateway_handles_close_message_send_failure() {
+        let port = 6578;
+        let subject = VerifierToolsReal::new();
+        let client = ClientWrapperMock::default()
+            .send_message_result(Err(WebSocketError::ProtocolError("Oh, my bad")));
+        let client_builder = ClientBuilderWrapperMock::default()
+            .initiate_client_builder_result(Ok(()))
+            .connect_insecure_result(Ok(Box::new(client)));
+        subject.client_builder.replace(Box::new(client_builder));
+
+        let result = subject.can_connect_to_ui_gateway(port);
+
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn client_builder_handles_initialization_error() {
+        let url_address = "foolish";
+        let mut subject = ClientBuilderWrapperReal::default();
+
+        let result = subject.initiate_client_builder(url_address);
+
+        assert_eq!(result, Err(RelativeUrlWithoutBase))
     }
 
     fn make_long_running_child() -> Child {
