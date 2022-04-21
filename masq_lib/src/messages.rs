@@ -5,8 +5,6 @@ use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use itertools::Itertools;
-use serde::__private::fmt::Error;
-use serde::__private::Formatter;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,7 +21,7 @@ pub enum UiMessageError {
 }
 
 impl fmt::Display for UiMessageError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             UnexpectedMessage(message_body) if message_body.path == FireAndForget => {
                 write!(f, "Unexpected one-way message with opcode '{}'\n{:?}", message_body.opcode,
