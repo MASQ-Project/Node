@@ -6,7 +6,8 @@ pub(in crate::communications) mod tools {
     use masq_lib::short_writeln;
     use masq_lib::ui_gateway::MessageBody;
     use std::io::Write;
-    //tested within broadcast_handler.rs
+
+    //tested in broadcast_handler.rs
 
     pub fn handle_node_is_dead_while_f_f_on_the_way_broadcast(
         body: UiUndeliveredFireAndForget,

@@ -258,7 +258,7 @@ impl MASQNode {
             assert_eq!(
                 MASQNode::millis_since(started_at) < real_limit_ms,
                 true,
-                "Timeout: waited for more than {}ms without finding '{}' in these logs:\n>>>>>>>>>>>>>>>>{}<<<<<<<<<<<<<<<<<\n",
+                "Timeout: waited for more than {}ms without finding '{}' in these logs:\n{}\n",
                 real_limit_ms,
                 pattern,
                 buffer

@@ -219,7 +219,7 @@ pub trait ClientBuilderWrapper {
     fn add_protocol(&self, protocol: &str);
     fn connect_insecure(&mut self) -> WebSocketResult<Box<dyn ClientWrapper>>;
 }
-//format!("ws://127.0.0.1:{}", port).as_str()
+
 #[derive(Default)]
 struct ClientBuilderWrapperReal<'a> {
     builder_opt: RefCell<Option<ClientBuilder<'a>>>,

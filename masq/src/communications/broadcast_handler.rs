@@ -495,7 +495,7 @@ Cannot handle crash request: Node is not running.
 
     fn assertion_for_handle_broadcast<F, U>(
         broadcast_handler: F,
-        broadcast_body: U,
+        broadcast_msg: U,
         broadcast_desired_output: &str,
     ) where
         F: FnOnce(U, &mut dyn Write, &TerminalWrapper) + Copy,
@@ -515,7 +515,7 @@ Cannot handle crash request: Node is not running.
             Box::new(stdout_clone),
             synchronizer,
             broadcast_handler,
-            broadcast_body.clone(),
+            broadcast_msg.clone(),
             rx.clone(),
         );
 
@@ -537,7 +537,7 @@ Cannot handle crash request: Node is not running.
             Box::new(stdout_second_clone),
             synchronizer_clone_idle,
             broadcast_handler,
-            broadcast_body,
+            broadcast_msg,
             rx,
         );
 

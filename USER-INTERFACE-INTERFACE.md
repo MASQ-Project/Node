@@ -714,17 +714,22 @@ retain a mnemonic phrase.
 "logLevel": <String>
 ```
 ##### Description:
-This broadcast is intended to give the user immediate information about various events in the Node. It is a reaction
-that follows after the Node's execution flow hits a log with severity `Info`, `Warn` or `Error`.
-Every such situation will produce this broadcast, while standard logging to the log file remains unchanged
-and happens simultaneously. (Plans are to make different messages to print to the file and prettier and user-friendlier
-meant for the UI, but more preparation must go before we can do that). 
-The level of logs constraining the output from messages of `Debug` and `Trace` logs is now steadily given by the `Info`
-level. However, we may consider make it adjustable later on.
+This broadcast intends to give the user an immediate notification about a significant event that just occurred in
+the Node. At a bit lower level, this is a reaction to when the execution flow crosses any place with logging that bears
+a severity of `Info`, `Warn` or `Error`. Every such situation produces this broadcast along with the usual,
+long-adopted way of writing a log into a file and so both happen simultaneously. 
+
+Certain plans are to diverge between what is going to be printed to the log file and what is going to be given to
+the UI, while the letter in a prettier and user-friendlier form, but more preparation must go before we can implement
+that. 
+
+The log level constraining the UI output from less important messages (`Debug` and `Trace`) is now steadily given 
+by the `Info` level. However, we may consider make it adjustable if there is a demand like that.
 
 `msg` is the message describing a passed event. 
 
-`logLevel` indicates what severity the event had. It can only be a string value from this list: `Info`, `Warn`, `Error`.
+`logLevel` indicates what severity the reported event had. It can only be a string from this list: `Info`, `Warn`,
+`Error`.
 
 #### `newPassword`
 ##### Direction: Broadcast

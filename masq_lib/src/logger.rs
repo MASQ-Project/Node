@@ -175,8 +175,8 @@ impl Logger {
         match (self.level_enabled(level), level.le(&UI_MESSAGE_LOG_LEVEL)) {
             (true, true) => {
                 let msg = log_function();
-                Self::transmit(msg.clone(), level.into());
-                self.log(level, msg);
+                self.log(level, msg.clone());
+                Self::transmit(msg, level.into());
             }
             (true, false) => self.log(level, log_function()),
             (false, true) => Self::transmit(log_function(), level.into()),
@@ -259,7 +259,7 @@ mod tests {
     use chrono::{DateTime, Local};
     use crossbeam_channel::{unbounded, Sender};
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::sync::{Arc, Barrier, Mutex};
+    use std::sync::{Arc, Barrier, Mutex, MutexGuard};
     use std::thread;
     use std::thread::ThreadId;
     use std::time::{Duration, SystemTime};
@@ -430,17 +430,21 @@ mod tests {
             },
         }
     }
+
     fn send_message_to_recipient() {
         let recipient = LOG_RECIPIENT_OPT.lock().unwrap();
         recipient.as_ref().unwrap().try_send(create_msg()).unwrap()
     }
 
+    fn prepare_test_environment<'a>() -> MutexGuard<'a, ()> {
+        let guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
+        LOG_RECIPIENT_OPT.lock().unwrap().take();
+        guard
+    }
+
     #[test]
     fn prepare_log_recipient_works() {
-        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        {
-            LOG_RECIPIENT_OPT.lock().unwrap().take();
-        }
+        let _guard = prepare_test_environment();
         let message_container_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new("prepare log recipient");
         let ui_gateway = TestUiGateway::new(0, &message_container_arc);
@@ -463,10 +467,7 @@ mod tests {
 
     #[test]
     fn prepare_log_recipient_should_be_called_only_once_panic() {
-        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        {
-            LOG_RECIPIENT_OPT.lock().unwrap().take();
-        }
+        let _guard = prepare_test_environment();
         let ui_gateway = TestUiGateway::new(0, &Arc::new(Mutex::new(vec![])));
         let recipient: Recipient<NodeToUiMessage> = ui_gateway.start().recipient();
         prepare_log_recipient(recipient.clone());
@@ -499,18 +500,23 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "The level you're converting is below log broadcast level.")]
-    fn conversion_between_levels_below_log_broadcast_level_should_panic() {
+    fn conversion_from_too_low_level_panics_for_debug() {
         let level_below_broadcast_level = Level::Debug;
         let _serializable_level_below_broadcast_level: SerializableLogLevel =
             level_below_broadcast_level.into();
     }
 
     #[test]
+    #[should_panic(expected = "The level you're converting is below log broadcast level.")]
+    fn conversion_from_too_low_level_panics_for_trace() {
+        let level_below_broadcast_level = Level::Trace;
+        let _serializable_level_below_broadcast_level: SerializableLogLevel =
+            level_below_broadcast_level.into();
+    }
+
+    #[test]
     fn transmit_fn_can_handle_no_recipients() {
-        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        {
-            LOG_RECIPIENT_OPT.lock().unwrap().take();
-        }
+        let _guard = prepare_test_environment();
         let system = System::new("Trying to transmit with no recipient");
 
         Logger::transmit("Some message".to_string(), Level::Warn.into());
@@ -581,7 +587,7 @@ mod tests {
 
         logger.info(log_function);
 
-        system.run();
+        system.run(); //shut down after receiving the expected count of messages
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
             *ui_gateway_recording,
@@ -613,7 +619,7 @@ mod tests {
 
         logger.warning(log_function);
 
-        system.run(); //shut down by matching the Actor's expected count of received messages
+        system.run(); //shut down after receiving the expected count of messages
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
             *ui_gateway_recording,
@@ -632,10 +638,7 @@ mod tests {
     #[test]
     fn logger_format_is_correct() {
         init_test_logging();
-        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        {
-            LOG_RECIPIENT_OPT.lock().unwrap().take();
-        }
+        let _guard = prepare_test_environment();
         let one_logger = Logger::new("logger_format_is_correct_one");
         let another_logger = Logger::new("logger_format_is_correct_another");
 
@@ -698,10 +701,7 @@ mod tests {
     #[test]
     fn info_is_not_computed_when_log_level_is_warn() {
         init_test_logging();
-        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        {
-            LOG_RECIPIENT_OPT.lock().unwrap().take();
-        }
+        let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Warn);
         let log_function = move || "info 445566".to_string();
 
@@ -713,10 +713,7 @@ mod tests {
     #[test]
     fn warning_is_not_computed_when_log_level_is_error() {
         init_test_logging();
-        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        {
-            LOG_RECIPIENT_OPT.lock().unwrap().take();
-        }
+        let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Error);
         let log_function = move || "warning 335566".to_string();
 
@@ -761,10 +758,7 @@ mod tests {
 
     #[test]
     fn info_is_computed_when_log_level_is_info() {
-        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        {
-            LOG_RECIPIENT_OPT.lock().unwrap().take();
-        }
+        let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Info);
         let signal = Arc::new(Mutex::new(Some(false)));
         let signal_c = signal.clone();
@@ -781,10 +775,7 @@ mod tests {
 
     #[test]
     fn warn_is_computed_when_log_level_is_warn() {
-        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        {
-            LOG_RECIPIENT_OPT.lock().unwrap().take();
-        }
+        let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Warn);
         let signal = Arc::new(Mutex::new(Some(false)));
         let signal_c = signal.clone();
@@ -802,10 +793,7 @@ mod tests {
 
     #[test]
     fn error_is_computed_when_log_level_is_error() {
-        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        {
-            LOG_RECIPIENT_OPT.lock().unwrap().take();
-        }
+        let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Error);
         let signal = Arc::new(Mutex::new(Some(false)));
         let signal_c = signal.clone();
@@ -823,10 +811,7 @@ mod tests {
     #[test]
     fn macros_work() {
         init_test_logging();
-        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        {
-            LOG_RECIPIENT_OPT.lock().unwrap().take();
-        }
+        let _guard = prepare_test_environment();
         let logger = Logger::new("test");
 
         trace!(logger, "trace! {}", 42);
