@@ -102,7 +102,7 @@ pub struct OverallConnectionStatus {
     pub progress: Vec<ConnectionProgress>,
     // previous_pass_targets is used to stop the cycle of infinite pass gossips
     // in case it receives an ip address that is already a part of this hash set.
-    previous_pass_targets: HashSet<IpAddr>,
+    // previous_pass_targets: HashSet<IpAddr>,
 }
 
 impl OverallConnectionStatus {
@@ -116,7 +116,6 @@ impl OverallConnectionStatus {
             can_make_routes: false,
             stage: OverallConnectionStage::NotConnected,
             progress,
-            previous_pass_targets: HashSet::new(),
         }
     }
 
@@ -219,7 +218,6 @@ mod tests {
                     ConnectionProgress::new(&node_desc_1),
                     ConnectionProgress::new(&node_desc_2)
                 ],
-                previous_pass_targets: HashSet::new(),
             }
         );
     }
@@ -317,7 +315,6 @@ mod tests {
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::TcpConnectionEstablished
                 }],
-                previous_pass_targets: Default::default(),
             }
         )
     }
@@ -348,7 +345,6 @@ mod tests {
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::Failed(TcpConnectionFailed)
                 }],
-                previous_pass_targets: Default::default(),
             }
         )
     }
@@ -384,7 +380,6 @@ mod tests {
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::NeighborshipEstablished
                 }],
-                previous_pass_targets: Default::default(),
             }
         )
     }
