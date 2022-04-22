@@ -480,6 +480,7 @@ pub enum ConnectionProgressEvent {
     TcpConnectionSuccessful,
     TcpConnectionFailed,
     NoGossipResponseReceived, // Change the stage of ConnectionProgress to Failed(NoGossipResponseReceived)
+    DeadEndFound,
     // TODO: Introduction never comes without an IP Address
     IntroductionGossipReceived(Option<IpAddr>), // Change the stage of ConnectionProgress to NeighborshipEstablished, and run check_connectedness to check for three hops route
     PassGossipReceived(IpAddr),                 // Run handle_pass_gossip() for ConnectionProgress

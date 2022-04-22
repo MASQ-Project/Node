@@ -13,15 +13,17 @@ use crate::sub_lib::node_addr::NodeAddr;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use std::alloc::System;
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 /// Note: if you decide to change this, make sure you test thoroughly. Values less than 5 may lead
 /// to inability to grow the network beyond a very small size; values greater than 5 may lead to
 /// Gossip storms.
-pub const MAX_DEGREE: usize = 5;
+const MAX_DEGREE: usize = 5;
+const PASS_GOSSIP_EXPIRED_TIME: Duration = Duration::from_secs(60);
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum GossipAcceptanceResult {
@@ -63,6 +65,7 @@ trait GossipHandler: NamedType + Send /* Send because lazily-written tests requi
         gossip_source: SocketAddr,
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult;
+    as_any_dcl!();
 }
 
 struct DebutHandler {
@@ -510,13 +513,38 @@ impl GossipHandler for PassHandler {
             .node_addr_opt
             .clone()
             .expect("Pass lost its NodeAddr");
-        let connection_progress_message = ConnectionProgressMessage {
-            peer_addr: _gossip_source.ip(),
-            event: ConnectionProgressEvent::PassGossipReceived(pass_target_node_addr.ip_addr()),
+        let pass_target_ip_addr = pass_target_node_addr.ip_addr();
+        // 1. If the IP is not present - add the ip with timestamp and continue as follows
+        // 2. If the IP is present - we'll check for the timestamp
+        //    a) if timestamp is of near time [Infinite Loop of Pass Gossips] - we'll send a CPM saying Failed
+        //    b) if timestamp is old - update the timestamp and continue the below process
+        let send_cpm = |event: ConnectionProgressEvent| {
+            let connection_progress_message = ConnectionProgressMessage {
+                peer_addr: _gossip_source.ip(),
+                event,
+            };
+            cpm_recipient
+                .try_send(connection_progress_message)
+                .expect("System is dead.");
         };
-        cpm_recipient
-            .try_send(connection_progress_message)
-            .expect("System is dead.");
+        self.previous_pass_targets
+            .borrow_mut()
+            .entry(pass_target_ip_addr)
+            .and_modify(|mut timestamp| {
+                let duration_since = SystemTime::now()
+                    .duration_since(*timestamp)
+                    .expect("Failed to calculate duration for pass target timestamp.");
+                if duration_since <= PASS_GOSSIP_EXPIRED_TIME {
+                    todo!("Handle 2 a");
+                    send_cpm(ConnectionProgressEvent::DeadEndFound);
+                }
+                todo!("handle 2 b");
+                *timestamp = SystemTime::now();
+            })
+            .or_insert(SystemTime::now());
+        send_cpm(ConnectionProgressEvent::PassGossipReceived(
+            pass_target_ip_addr,
+        ));
         let gossip = GossipBuilder::new(database)
             .node(database.root().public_key(), true)
             .build();
@@ -526,6 +554,8 @@ impl GossipHandler for PassHandler {
             pass_target_node_addr,
         )
     }
+
+    as_any_impl!();
 }
 
 impl PassHandler {
@@ -1166,8 +1196,11 @@ mod tests {
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::{Actor, Recipient, System};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use std::borrow::BorrowMut;
     use std::convert::TryInto;
+    use std::ops::Deref;
     use std::str::FromStr;
+    use std::time::Duration;
 
     #[test]
     fn constants_have_correct_values() {
@@ -2675,9 +2708,11 @@ mod tests {
         let cpm_recipient = addr.recipient();
         subject.cpm_recipient = cpm_recipient;
         let system = System::new("pass_is_properly_handled");
+        let initial_timestamp = SystemTime::now();
 
         let result = subject.handle(&mut db, gossip.try_into().unwrap(), gossip_source);
 
+        let final_timestamp = SystemTime::now();
         let expected_relay_gossip = GossipBuilder::new(&db)
             .node(root_node.public_key(), true)
             .build();
@@ -2694,15 +2729,27 @@ mod tests {
         assert_eq!(system.run(), 0);
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
+        let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
         assert_eq!(
             received_message,
             &ConnectionProgressMessage {
                 peer_addr: gossip_source.ip(),
-                event: ConnectionProgressEvent::PassGossipReceived(
-                    pass_target.node_addr_opt().unwrap().ip_addr()
-                )
+                event: ConnectionProgressEvent::PassGossipReceived(pass_target_ip_addr)
             }
         );
+        // 1. Receive Pass Handler Here
+        // 2. Check whether the length of HashMap named previous_pass_targets has increased
+        // 3. Assert whether the appended value is same as the received pass target
+
+        let concrete_gossip_handler = subject.gossip_handlers.get(1).unwrap();
+        let pass_handler = concrete_gossip_handler
+            .as_any()
+            .downcast_ref::<PassHandler>()
+            .unwrap();
+        let previous_pass_targets = pass_handler.previous_pass_targets.borrow();
+        let timestamp = previous_pass_targets.get(&pass_target_ip_addr).unwrap();
+        assert_eq!(previous_pass_targets.len(), 1);
+        assert!(initial_timestamp <= *timestamp && *timestamp <= final_timestamp);
     }
 
     #[test]
