@@ -12,8 +12,11 @@ use crate::sub_lib::neighborhood::{
 use crate::sub_lib::node_addr::NodeAddr;
 use actix::Recipient;
 use masq_lib::logger::Logger;
-use std::collections::HashSet;
+use std::alloc::System;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
+use std::time::SystemTime;
 
 /// Note: if you decide to change this, make sure you test thoroughly. Values less than 5 may lead
 /// to inability to grow the network beyond a very small size; values greater than 5 may lead to
@@ -449,7 +452,10 @@ impl DebutHandler {
     }
 }
 
-struct PassHandler {}
+#[derive(PartialEq, Debug)]
+struct PassHandler {
+    previous_pass_targets: RefCell<HashMap<IpAddr, SystemTime>>,
+}
 
 impl NamedType for PassHandler {
     fn type_name(&self) -> &'static str {
@@ -524,7 +530,9 @@ impl GossipHandler for PassHandler {
 
 impl PassHandler {
     fn new() -> PassHandler {
-        PassHandler {}
+        PassHandler {
+            previous_pass_targets: RefCell::new(Default::default()),
+        }
     }
 }
 
@@ -2643,7 +2651,21 @@ mod tests {
     // 5. Update the stage to Failed in case not received
 
     #[test]
+    fn pass_handler_is_constructed_properly() {
+        let pass_handler = PassHandler::new();
+
+        assert_eq!(
+            pass_handler,
+            PassHandler {
+                previous_pass_targets: RefCell::new(HashMap::new())
+            }
+        );
+    }
+
+    #[test]
     fn pass_is_properly_handled() {
+        // This test also tests whether the Connection Progress Message is sent from
+        // the handle() of PassHandler
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let (gossip, pass_target, gossip_source) = make_pass(2345);
