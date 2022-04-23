@@ -12,7 +12,7 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
-use crate::bootstrapper::cryptdes_ref;
+use crate::bootstrapper::CryptdePair;
 use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
@@ -66,14 +66,9 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
     ) -> StreamHandlerPoolSubs {
         self.t
             .validate_database_chain(persist_config, config.blockchain_bridge_config.chain);
-        let (main_cryptde, alias_cryptde) = self.t.cryptdes_ref();
-        self.t.prepare_initial_messages(
-            main_cryptde,
-            alias_cryptde,
-            config,
-            persist_config,
-            actor_factory,
-        )
+        let cryptdes = self.t.cryptde_pair();
+        self.t
+            .prepare_initial_messages(cryptdes, config, persist_config, actor_factory)
     }
 }
 
@@ -86,13 +81,12 @@ impl ActorSystemFactoryReal {
 pub trait ActorSystemFactoryTools: Send {
     fn prepare_initial_messages(
         &self,
-        main_cryptde: &'static dyn CryptDE,
-        alias_cryptde: &'static dyn CryptDE,
+        cryptdes: CryptdePair,
         config: BootstrapperConfig,
         persistent_config: &mut dyn PersistentConfiguration,
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs;
-    fn cryptdes_ref(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE);
+    fn cryptde_pair(&self) -> CryptdePair;
     fn validate_database_chain(
         &self,
         persistent_config: &dyn PersistentConfiguration,
@@ -107,21 +101,19 @@ pub struct ActorSystemFactoryToolsReal {
 impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
     fn prepare_initial_messages(
         &self,
-        main_cryptde: &'static dyn CryptDE,
-        alias_cryptde: &'static dyn CryptDE,
+        cryptdes: CryptdePair,
         config: BootstrapperConfig,
         persistent_config: &mut dyn PersistentConfiguration,
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs {
         let db_initializer = DbInitializerReal::default();
-        // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
         let proxy_server_subs =
-            actor_factory.make_and_start_proxy_server(main_cryptde, alias_cryptde, &config);
+            actor_factory.make_and_start_proxy_server(cryptdes.main, cryptdes.alias, &config);
         let proxy_client_subs_opt = if !config.neighborhood_config.mode.is_consume_only() {
             Some(
                 actor_factory.make_and_start_proxy_client(ProxyClientConfig {
-                    cryptde: main_cryptde,
+                    cryptde: cryptdes.main,
                     dns_servers: config.dns_servers.clone(),
                     exit_service_rate: config
                         .neighborhood_config
@@ -136,8 +128,8 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
             None
         };
         let hopper_subs = actor_factory.make_and_start_hopper(HopperConfig {
-            main_cryptde,
-            alias_cryptde,
+            main_cryptde: cryptdes.main,
+            alias_cryptde: cryptdes.alias,
             per_routing_service: config
                 .neighborhood_config
                 .mode
@@ -152,7 +144,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
             crashable: is_crashable(&config),
         });
         let blockchain_bridge_subs = actor_factory.make_and_start_blockchain_bridge(&config);
-        let neighborhood_subs = actor_factory.make_and_start_neighborhood(main_cryptde, &config);
+        let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptdes.main, &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
             &config,
             &config.data_directory.clone(),
@@ -219,9 +211,8 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         stream_handler_pool_subs
     }
 
-    //TODO create a struct carrying cryptdes???
-    fn cryptdes_ref(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
-        cryptdes_ref()
+    fn cryptde_pair(&self) -> CryptdePair {
+        CryptdePair::default()
     }
 
     fn validate_database_chain(
@@ -277,9 +268,7 @@ impl ActorSystemFactoryToolsReal {
                 unreachable!("get_public_ip would've returned AllProtocolsFailed first")
             }
             (old_protocol, new_protocol) => {
-                if old_protocol == new_protocol {
-                    return;
-                } else {
+                if old_protocol != new_protocol {
                     persistent_config
                         .set_mapping_protocol(new_protocol)
                         .expect("write of mapping protocol failed")
@@ -599,7 +588,6 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
@@ -613,6 +601,7 @@ mod tests {
         make_populated_accountant_config_with_defaults, CleanUpMessage, DummyActor,
     };
     use crate::test_utils::{alias_cryptde, rate_pack};
+    use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
@@ -652,30 +641,29 @@ mod tests {
             >,
         >,
         prepare_initial_messages_results: RefCell<Vec<StreamHandlerPoolSubs>>,
-        cryptdes_results: RefCell<Vec<(&'static dyn CryptDE, &'static dyn CryptDE)>>, //first main, second alias
+        cryptde_pair_results: RefCell<Vec<CryptdePair>>,
         validate_database_chain_params: Arc<Mutex<Vec<Chain>>>,
     }
 
     impl ActorSystemFactoryTools for ActorSystemFactoryToolsMock {
         fn prepare_initial_messages(
             &self,
-            main_cryptde: &'static dyn CryptDE,
-            alias_cryptde: &'static dyn CryptDE,
+            cryptdes: CryptdePair,
             config: BootstrapperConfig,
             _persistent_config: &mut dyn PersistentConfiguration,
             actor_factory: Box<dyn ActorFactory>,
         ) -> StreamHandlerPoolSubs {
             self.prepare_initial_messages_params.lock().unwrap().push((
-                Box::new(<&CryptDENull>::from(main_cryptde).clone()),
-                Box::new(<&CryptDENull>::from(alias_cryptde).clone()),
+                Box::new(<&CryptDENull>::from(cryptdes.main).clone()),
+                Box::new(<&CryptDENull>::from(cryptdes.alias).clone()),
                 config,
                 actor_factory,
             ));
             self.prepare_initial_messages_results.borrow_mut().remove(0)
         }
 
-        fn cryptdes_ref(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
-            self.cryptdes_results.borrow_mut().remove(0)
+        fn cryptde_pair(&self) -> CryptdePair {
+            self.cryptde_pair_results.borrow_mut().remove(0)
         }
 
         fn validate_database_chain(
@@ -694,8 +682,8 @@ mod tests {
     }
 
     impl ActorSystemFactoryToolsMock {
-        pub fn cryptdes_result(self, result: (&'static dyn CryptDE, &'static dyn CryptDE)) -> Self {
-            self.cryptdes_results.borrow_mut().push(result);
+        pub fn cryptdes_result(self, result: CryptdePair) -> Self {
+            self.cryptde_pair_results.borrow_mut().push(result);
             self
         }
 
@@ -1104,8 +1092,7 @@ mod tests {
         );
 
         let _ = subject.prepare_initial_messages(
-            main_cryptde(),
-            alias_cryptde(),
+            make_cryptde_pair(),
             config.clone(),
             &mut PersistentConfigurationMock::new(),
             Box::new(actor_factory),
@@ -1224,8 +1211,7 @@ mod tests {
         );
 
         let _ = subject.prepare_initial_messages(
-            main_cryptde(),
-            alias_cryptde(),
+            make_cryptde_pair(),
             config.clone(),
             &mut PersistentConfigurationMock::new(),
             Box::new(actor_factory),
@@ -1357,8 +1343,7 @@ mod tests {
         subject.automap_control_factory = Box::new(AutomapControlFactoryMock::new());
 
         let _ = subject.prepare_initial_messages(
-            main_cryptde(),
-            alias_cryptde(),
+            make_cryptde_pair(),
             config.clone(),
             &mut PersistentConfigurationMock::new(),
             Box::new(actor_factory),
@@ -1540,8 +1525,7 @@ mod tests {
         let system = System::new("MASQNode");
 
         let _ = subject.prepare_initial_messages(
-            main_cryptde(),
-            alias_cryptde(),
+            make_cryptde_pair(),
             config.clone(),
             &mut PersistentConfigurationMock::new(),
             Box::new(actor_factory),
@@ -1779,7 +1763,10 @@ mod tests {
                 "believe or not, supplied for nothing but prevention of panicking".to_string(),
             );
         let tools = ActorSystemFactoryToolsMock::default()
-            .cryptdes_result((main_cryptde, alias_cryptde))
+            .cryptdes_result(CryptdePair {
+                main: main_cryptde,
+                alias: alias_cryptde,
+            })
             .validate_database_chain_params(&database_chain_assertion_params_arc)
             .prepare_initial_messages_params(&prepare_initial_messages_params_arc)
             .prepare_initial_messages_result(stream_holder_pool_subs);

@@ -78,8 +78,18 @@ fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
     }
 }
 
-pub fn cryptdes_ref<'a>() -> (&'a dyn CryptDE, &'a dyn CryptDE) {
-    (main_cryptde_ref(), alias_cryptde_ref())
+pub struct CryptdePair {
+    pub main: &'static dyn CryptDE,
+    pub alias: &'static dyn CryptDE,
+}
+
+impl Default for CryptdePair {
+    fn default() -> Self {
+        CryptdePair {
+            main: main_cryptde_ref(),
+            alias: alias_cryptde_ref(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -461,13 +471,13 @@ impl ConfiguredByPrivilege for Bootstrapper {
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
         let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
-        let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
+        let cryptdes = Bootstrapper::initialize_cryptdes(
             &main_cryptde_null_opt,
             &alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
         let node_descriptor = Bootstrapper::make_local_descriptor(
-            cryptde_ref,
+            cryptdes.main,
             self.config.neighborhood_config.mode.node_addr_opt(),
             self.config.blockchain_bridge_config.chain,
         );
@@ -478,7 +488,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         match &self.config.neighborhood_config.mode {
             NeighborhoodMode::Standard(node_addr, _, _)
                 if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) => {} // node_addr still coming
-            _ => Bootstrapper::report_local_descriptor(cryptde_ref, &self.config.node_descriptor), // here or not coming
+            _ => Bootstrapper::report_local_descriptor(cryptdes.main, &self.config.node_descriptor), // here or not coming
         }
         let stream_handler_pool_subs = self.actor_system_factory.make_and_start_actors(
             self.config.clone(),
@@ -513,10 +523,10 @@ impl Bootstrapper {
     }
 
     #[cfg(test)] // The real ones are private, but ActorSystemFactory needs to use them for testing
-    pub fn pub_initialize_cryptdes_for_testing<'a, 'b>(
+    pub fn pub_initialize_cryptdes_for_testing(
         main_cryptde_null_opt: &Option<&dyn CryptDE>,
         alias_cryptde_null_opt: &Option<&dyn CryptDE>,
-    ) -> (&'a dyn CryptDE, &'b dyn CryptDE) {
+    ) -> CryptdePair {
         Self::initialize_cryptdes(
             main_cryptde_null_opt,
             alias_cryptde_null_opt,
@@ -524,11 +534,11 @@ impl Bootstrapper {
         )
     }
 
-    fn initialize_cryptdes<'a, 'b>(
+    fn initialize_cryptdes(
         main_cryptde_null_opt: &Option<&dyn CryptDE>,
         alias_cryptde_null_opt: &Option<&dyn CryptDE>,
         chain: Chain,
-    ) -> (&'a dyn CryptDE, &'b dyn CryptDE) {
+    ) -> CryptdePair {
         unsafe {
             Self::initialize_single_cryptde(main_cryptde_null_opt, &mut MAIN_CRYPTDE_BOX_OPT, chain)
         };
@@ -539,7 +549,7 @@ impl Bootstrapper {
                 chain,
             )
         }
-        cryptdes_ref()
+        CryptdePair::default()
     }
 
     fn initialize_single_cryptde(
@@ -1433,12 +1443,12 @@ mod tests {
     #[test]
     fn initialize_cryptde_without_cryptde_null_uses_cryptde_real() {
         let _lock = INITIALIZATION.lock();
-        let (cryptde_init, _) = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+        let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
 
-        assert_eq!(main_cryptde_ref().public_key(), cryptde_init.public_key());
+        assert_eq!(main_cryptde_ref().public_key(), cryptdes.main.public_key());
         // Brittle assertion: this may not be true forever
         let cryptde_null = main_cryptde();
-        assert!(cryptde_init.public_key().len() > cryptde_null.public_key().len());
+        assert!(cryptdes.main.public_key().len() > cryptde_null.public_key().len());
     }
 
     #[test]
@@ -1447,11 +1457,11 @@ mod tests {
         let cryptde_null = main_cryptde().clone();
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
-        let (cryptde, _) =
+        let cryptdes =
             Bootstrapper::initialize_cryptdes(&Some(cryptde_null), &None, TEST_DEFAULT_CHAIN);
 
-        assert_eq!(cryptde.public_key(), &cryptde_null_public_key);
-        assert_eq!(main_cryptde_ref().public_key(), cryptde.public_key());
+        assert_eq!(cryptdes.main.public_key(), &cryptde_null_public_key);
+        assert_eq!(main_cryptde_ref().public_key(), cryptdes.main.public_key());
     }
 
     #[test]
@@ -1463,16 +1473,15 @@ mod tests {
             &[3456u16, 4567u16],
         );
         let cryptde_ref = {
-            let (cryptde_ref, _) =
-                Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+            let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
             let descriptor = Bootstrapper::make_local_descriptor(
-                cryptde_ref,
+                cryptdes.main,
                 Some(node_addr),
                 TEST_DEFAULT_CHAIN,
             );
-            Bootstrapper::report_local_descriptor(cryptde_ref, &descriptor);
+            Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
 
-            cryptde_ref
+            cryptdes.main
         };
         let expected_descriptor = format!(
             "masq://eth-ropsten:{}@2.3.4.5:3456/4567",
@@ -1506,18 +1515,19 @@ mod tests {
     fn initialize_cryptdes_and_report_local_descriptor_without_ip_address() {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
-        let (main_cryptde_ref, alias_cryptde_ref) = {
-            let (main_cryptde_ref, alias_cryptde_ref) =
-                Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+        let cryptdes = {
+            let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
             let descriptor =
-                Bootstrapper::make_local_descriptor(main_cryptde_ref, None, TEST_DEFAULT_CHAIN);
-            Bootstrapper::report_local_descriptor(main_cryptde_ref, &descriptor);
+                Bootstrapper::make_local_descriptor(cryptdes.main, None, TEST_DEFAULT_CHAIN);
+            Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
 
-            (main_cryptde_ref, alias_cryptde_ref)
+            cryptdes
         };
         let expected_descriptor = format!(
             "masq://eth-ropsten:{}@:",
-            main_cryptde_ref.public_key_to_descriptor_fragment(main_cryptde_ref.public_key())
+            cryptdes
+                .main
+                .public_key_to_descriptor_fragment(cryptdes.main.public_key())
         );
         TestLogHandler::new().exists_log_containing(
             format!(
@@ -1543,8 +1553,8 @@ mod tests {
             ));
             assert_eq!(decrypted_data, expected_data)
         };
-        assert_round_trip(main_cryptde_ref);
-        assert_round_trip(alias_cryptde_ref);
+        assert_round_trip(cryptdes.main);
+        assert_round_trip(cryptdes.alias);
     }
 
     #[test]
