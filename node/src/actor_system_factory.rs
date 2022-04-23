@@ -258,7 +258,7 @@ impl ActorSystemFactoryToolsReal {
         exit_process(1, &format!("Automap failure: {}{:?}", prefix, error));
     }
 
-    fn maybe_write_protocol_down(
+    fn maybe_save_usual_protocol(
         automap_control: &dyn AutomapControl,
         persistent_config: &mut dyn PersistentConfiguration,
         b_config_entry_opt: Option<AutomapProtocol>,
@@ -307,7 +307,7 @@ impl ActorSystemFactoryToolsReal {
                     return; // never happens; handle_automap_error doesn't return.
                 }
             };
-            Self::maybe_write_protocol_down(
+            Self::maybe_save_usual_protocol(
                 automap_control.as_ref(),
                 persistent_config,
                 config.mapping_protocol_opt,
@@ -1227,7 +1227,7 @@ mod tests {
     }
 
     #[test]
-    fn automap_protocol_discovery_is_written_into_the_db_when_none_from_before() {
+    fn discovered_automap_protocol_is_written_into_the_db() {
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let (tx, _rx) = unbounded();
         let mut config = BootstrapperConfig::default();
@@ -1258,12 +1258,12 @@ mod tests {
     }
 
     #[test]
-    fn automap_protocol_discovery_is_not_set_if_indifferent_from_last_time() {
+    fn automap_protocol_is_not_saved_if_indifferent_from_last_time() {
         let config_entry = Some(AutomapProtocol::Igdp);
         let automap_control =
             AutomapControlMock::default().get_mapping_protocol_result(Some(AutomapProtocol::Igdp));
 
-        ActorSystemFactoryToolsReal::maybe_write_protocol_down(
+        ActorSystemFactoryToolsReal::maybe_save_usual_protocol(
             &automap_control,
             &mut PersistentConfigurationMock::new(),
             config_entry,
@@ -1273,7 +1273,7 @@ mod tests {
     }
 
     #[test]
-    fn automap_protocol_discovery_is_set_if_both_values_populated_but_different() {
+    fn automap_protocol_is_saved_if_both_values_populated_but_different() {
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
@@ -1282,7 +1282,7 @@ mod tests {
         let automap_control =
             AutomapControlMock::default().get_mapping_protocol_result(Some(AutomapProtocol::Igdp));
 
-        ActorSystemFactoryToolsReal::maybe_write_protocol_down(
+        ActorSystemFactoryToolsReal::maybe_save_usual_protocol(
             &automap_control,
             &mut persistent_config,
             config_entry,
@@ -1296,11 +1296,11 @@ mod tests {
     #[should_panic(
         expected = "entered unreachable code: get_public_ip would've returned AllProtocolsFailed first"
     )]
-    fn automap_usual_protocol_with_some_and_then_none_is_not_possible() {
+    fn automap_usual_protocol_beginning_with_some_and_then_none_is_not_possible() {
         let config_entry = Some(AutomapProtocol::Pmp);
         let automap_control = AutomapControlMock::default().get_mapping_protocol_result(None);
 
-        ActorSystemFactoryToolsReal::maybe_write_protocol_down(
+        ActorSystemFactoryToolsReal::maybe_save_usual_protocol(
             &automap_control,
             &mut PersistentConfigurationMock::default(),
             config_entry,
