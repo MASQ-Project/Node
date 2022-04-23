@@ -27,3 +27,6 @@ path = "src/main.rs"
 [lib]
 name = "automap_lib"
 path = "src/lib.rs"
+
+[features]
+no_test_share = []

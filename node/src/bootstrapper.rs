@@ -60,7 +60,7 @@ use tokio::prelude::Stream;
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 
-pub fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
+fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         MAIN_CRYPTDE_BOX_OPT
             .as_ref()
@@ -69,13 +69,17 @@ pub fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     }
 }
 
-pub fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
+fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         ALIAS_CRYPTDE_BOX_OPT
             .as_ref()
             .expect("Internal error: Alias CryptDE uninitialized")
             .as_ref()
     }
+}
+
+pub fn cryptdes_ref<'a>() -> (&'a dyn CryptDE, &'a dyn CryptDE) {
+    (main_cryptde_ref(), alias_cryptde_ref())
 }
 
 #[derive(Clone, Debug)]
@@ -484,7 +488,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
                 false,
                 MigratorConfig::panic_on_migration(),
             )
-            .as_ref(),
+            .as_mut(),
         );
 
         self.listener_handlers
@@ -535,7 +539,7 @@ impl Bootstrapper {
                 chain,
             )
         }
-        (main_cryptde_ref(), alias_cryptde_ref())
+        cryptdes_ref()
     }
 
     fn initialize_single_cryptde(
@@ -2074,7 +2078,7 @@ mod tests {
             &self,
             config: BootstrapperConfig,
             _actor_factory: Box<dyn ActorFactory>,
-            _persist_config: &dyn PersistentConfiguration,
+            _persist_config: &mut dyn PersistentConfiguration,
         ) -> StreamHandlerPoolSubs {
             let mut parameter_guard = self.dnss.lock().unwrap();
             let parameter_ref = parameter_guard.deref_mut();
