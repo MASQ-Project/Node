@@ -161,12 +161,9 @@ impl MockBlockchainClientServer {
         let notifier = self.notifier.clone();
         let join_handle = thread::spawn(move || {
             let conn = loop {
-                eprintln!("Checking for stopper");
                 if stopper_rx.try_recv().is_ok() {
-                    eprintln!("Stopper found. Stopping...");
                     return;
                 }
-                eprintln!("Accepting...");
                 match listener.accept() {
                     Ok((conn, _)) => break conn,
                     Err(e) if e.kind() == ErrorKind::WouldBlock => (),
@@ -175,7 +172,6 @@ impl MockBlockchainClientServer {
                 };
                 thread::sleep(Duration::from_millis(100));
             };
-            eprintln!("Connection accepted");
             drop(listener);
             conn.set_nonblocking(true).unwrap();
             let mut conn_state = ConnectionState {
@@ -207,9 +203,7 @@ impl MockBlockchainClientServer {
         notifier_tx: Sender<()>,
     ) {
         loop {
-            eprintln!("Checking for stopper");
             if stopper_rx.try_recv().is_ok() {
-                eprintln!("Stopper found; stopping");
                 break;
             }
             Self::receive_body(conn_state);
@@ -235,9 +229,8 @@ impl MockBlockchainClientServer {
         let offset = conn_state.receive_buffer_occupied;
         let limit = conn_state.receive_buffer.len();
         if conn_state.receive_buffer_occupied >= limit {
-            todo!("Panic if the buffer gets all full up")
+            panic! ("{}-byte receive buffer overflowed; increase size or fix test", conn_state.receive_buffer.len());
         }
-        eprintln!("Checking for incoming request data");
         let len = match conn_state
             .conn
             .read(&mut conn_state.receive_buffer[offset..limit])
@@ -248,7 +241,6 @@ impl MockBlockchainClientServer {
             Err(e) if e.kind() == ErrorKind::WouldBlock => return,
             Err(e) => panic!("{:?}", e),
         };
-        eprintln!("Received {} bytes", len);
         conn_state.receive_buffer_occupied += len;
         let chunk = String::from_utf8_lossy(
             &conn_state.receive_buffer[offset..conn_state.receive_buffer_occupied],

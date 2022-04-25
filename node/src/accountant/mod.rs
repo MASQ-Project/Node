@@ -2257,7 +2257,7 @@ mod tests {
 
         system.run();
         let tlh = TestLogHandler::new();
-        tlh.await_log_containing("INFO: Accountant: Scanning for payables", 1000u64);
+        tlh.await_log_containing("INFO: Accountant: Scanning for payables", 1000);
         tlh.exists_log_containing(&format!(
             "INFO: Accountant: Scanning for receivables to {}",
             make_wallet("hi")
@@ -2428,7 +2428,7 @@ mod tests {
         let pending_payable_fingerprint_record = PendingPayableFingerprint {
             rowid_opt: Some(45454),
             timestamp: SystemTime::now(),
-            hash: H256::from_uint(&U256::from(565u64)),
+            hash: H256::from_uint(&U256::from(565)),
             attempt_opt: Some(1),
             amount: 4589,
             process_error: None,
@@ -2629,7 +2629,7 @@ mod tests {
         send_start_message!(subject_subs);
 
         System::current().stop();
-        system.run();
+        assert_eq! (system.run(), 0);
         // no panics because of recalcitrant DAOs; therefore DAOs were not called; therefore test passes
         TestLogHandler::new().exists_log_containing(
             "Started with --scans off; declining to begin database and blockchain scans",
@@ -2859,7 +2859,7 @@ mod tests {
         let payable_fingerprint_1 = PendingPayableFingerprint {
             rowid_opt: Some(555),
             timestamp: from_time_t(210_000_000),
-            hash: H256::from_uint(&U256::from(45678u64)),
+            hash: H256::from_uint(&U256::from(45678)),
             attempt_opt: Some(0),
             amount: 4444,
             process_error: None,
@@ -2867,7 +2867,7 @@ mod tests {
         let payable_fingerprint_2 = PendingPayableFingerprint {
             rowid_opt: Some(550),
             timestamp: from_time_t(210_000_100),
-            hash: H256::from_uint(&U256::from(112233u64)),
+            hash: H256::from_uint(&U256::from(112233)),
             attempt_opt: Some(0),
             amount: 7999,
             process_error: None,
@@ -4678,7 +4678,7 @@ mod tests {
 
     #[test]
     fn unsigned_to_signed_handles_zero() {
-        let result = unsigned_to_signed(0u64);
+        let result = unsigned_to_signed(0);
 
         assert_eq!(result, Ok(0i64));
     }
