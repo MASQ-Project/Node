@@ -518,19 +518,6 @@ impl GossipHandler for PassHandler {
             .clone()
             .expect("Pass lost its NodeAddr");
         let pass_target_ip_addr = pass_target_node_addr.ip_addr();
-        // 1. If the IP Address is not present:
-        //      - Append IP Address and Timestamp
-        //      - Send CPM with event PassGossipReceived(IpAddr)
-        //      - Send GossipAcceptanceResult with a Reply
-        // 2. If the IP is present:
-        //    a) If timestamp is within PASS_GOSSIP_EXPIRED_TIME [Infinite Loop of Pass Gossips]
-        //          - Update Timestamp of that IP Address
-        //          - Send CPM with event DeadEndFound
-        //          - Send GossipAcceptanceResult with <SOME-ENUM-VARIANT>
-        //    b) Else [Timestamp is old, we may want to retry with this pass target]
-        //          - Update Timestamp of that IP Address
-        //          - Send CPM with event PassGossipReceived(IpAddr)
-        //          - Send GossipAcceptanceResult with a Reply
         let send_cpm = |event: ConnectionProgressEvent| {
             let connection_progress_message = ConnectionProgressMessage {
                 peer_addr: _gossip_source.ip(),
@@ -540,33 +527,43 @@ impl GossipHandler for PassHandler {
                 .try_send(connection_progress_message)
                 .expect("System is dead.");
         };
-        self.previous_pass_targets
-            .borrow_mut()
-            .entry(pass_target_ip_addr)
-            .and_modify(|mut timestamp| {
+        let gossip_acceptance_reply = || {
+            let gossip = GossipBuilder::new(database)
+                .node(database.root().public_key(), true)
+                .build();
+            GossipAcceptanceResult::Reply(
+                gossip,
+                pass_agr.inner.public_key.clone(),
+                pass_target_node_addr,
+            )
+        };
+
+        let mut hash_map = self.previous_pass_targets.borrow_mut();
+        let gossip_acceptance_result = match hash_map.get_mut(&pass_target_ip_addr) {
+            None => {
+                hash_map.insert(pass_target_ip_addr, SystemTime::now());
+                send_cpm(ConnectionProgressEvent::PassGossipReceived(
+                    pass_target_ip_addr,
+                ));
+                gossip_acceptance_reply()
+            }
+            Some(timestamp) => {
                 let duration_since = SystemTime::now()
                     .duration_since(*timestamp)
                     .expect("Failed to calculate duration for pass target timestamp.");
-                if duration_since <= PASS_GOSSIP_EXPIRED_TIME {
-                    todo!("Handle when pass target hasn't expired yet");
-                    send_cpm(ConnectionProgressEvent::DeadEndFound);
-                    // return from the handle()
-                }
-                todo!("Handle when pass target has expired a long time ago");
                 *timestamp = SystemTime::now();
-            })
-            .or_insert(SystemTime::now());
-        send_cpm(ConnectionProgressEvent::PassGossipReceived(
-            pass_target_ip_addr,
-        ));
-        let gossip = GossipBuilder::new(database)
-            .node(database.root().public_key(), true)
-            .build();
-        GossipAcceptanceResult::Reply(
-            gossip,
-            pass_agr.inner.public_key.clone(),
-            pass_target_node_addr,
-        )
+                if duration_since <= PASS_GOSSIP_EXPIRED_TIME {
+                    send_cpm(ConnectionProgressEvent::DeadEndFound);
+                    GossipAcceptanceResult::Ignored
+                } else {
+                    send_cpm(ConnectionProgressEvent::PassGossipReceived(
+                        pass_target_ip_addr,
+                    ));
+                    gossip_acceptance_reply()
+                }
+            }
+        };
+        gossip_acceptance_result
     }
 }
 
@@ -2807,15 +2804,9 @@ mod tests {
         );
 
         let final_timestamp = SystemTime::now();
-        match result {
-            GossipAcceptanceResult::Reply(_, _, _) => (),
-            other => panic!(
-                "Expected GossipAcceptanceResult::Reply but received {:?}",
-                other
-            ),
-        }
         System::current().stop();
         assert_eq!(system.run(), 0);
+        assert_eq!(result, GossipAcceptanceResult::Ignored);
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
         assert_eq!(
