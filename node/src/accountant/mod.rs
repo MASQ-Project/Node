@@ -1337,11 +1337,7 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::unshared_test_utils::{
-        make_accountant_config_null, make_populated_accountant_config_with_defaults,
-        prove_that_crash_request_handler_is_hooked_up, CleanUpMessage, DummyActor,
-        NotifyHandleMock, NotifyLaterHandleMock,
-    };
+    use crate::test_utils::unshared_test_utils::{make_accountant_config_null, make_populated_accountant_config_with_defaults, prove_that_crash_request_handler_is_hooked_up, NotifyHandleMock, NotifyLaterHandleMock, SystemKillerActor};
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use web3::types::{TransactionReceipt, H256};
 
@@ -2901,11 +2897,8 @@ mod tests {
             })
             .unwrap();
 
-        let dummy_actor = DummyActor::new(None);
-        let dummy_addr = dummy_actor.start();
-        dummy_addr
-            .try_send(CleanUpMessage { sleep_ms: 10 })
-            .unwrap();
+        let killer = SystemKillerActor::new (Duration::from_millis(10));
+        killer.start();
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(blockchain_bridge_recording.len(), 1);
