@@ -232,6 +232,10 @@ impl AutomapControlReal {
     ) -> Result<ProtocolInfo<T>, AutomapError> {
         let mut transactors_ref_mut = self.transactors.borrow_mut();
         if let Some(usual_protocol) = self.usual_protocol_opt {
+            debug!(
+                self.logger,
+                "Using a previously discovered protocol: {}", usual_protocol
+            );
             let transactor = transactors_ref_mut
                 .iter_mut()
                 .find(|t| t.protocol() == usual_protocol)

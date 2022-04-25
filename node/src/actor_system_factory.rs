@@ -39,6 +39,7 @@ use automap_lib::control_layer::automap_control::{
 };
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
+use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
@@ -224,7 +225,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         let demanded = chain.rec().literal_identifier.to_string();
         if demanded != from_db {
             panic!(
-                "Database with the wrong chain name detected; expected: {}, was: {}",
+                "Database with a wrong chain name detected; expected: {}, was: {}",
                 demanded, from_db
             )
         }
@@ -269,6 +270,12 @@ impl ActorSystemFactoryToolsReal {
             }
             (old_protocol, new_protocol) => {
                 if old_protocol != new_protocol {
+                    debug!(
+                        Logger::new("ActorSystemFactory"),
+                        "Saving a new mapping protocol '{:?}'; used to be '{:?}'",
+                        new_protocol,
+                        old_protocol
+                    );
                     persistent_config
                         .set_mapping_protocol(new_protocol)
                         .expect("write of mapping protocol failed")
@@ -1719,7 +1726,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Database with the wrong chain name detected; expected: eth-ropsten, was: eth-mainnet"
+        expected = "Database with a wrong chain name detected; expected: eth-ropsten, was: eth-mainnet"
     )]
     fn make_and_start_actors_does_not_tolerate_differences_in_setup_chain_and_database_chain() {
         let mut bootstrapper_config = BootstrapperConfig::new();
