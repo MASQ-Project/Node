@@ -100,9 +100,6 @@ pub struct OverallConnectionStatus {
     // Stores the progress for initial node descriptors,
     // each element may or may not be corresponding to the descriptors entered by user.
     pub progress: Vec<ConnectionProgress>,
-    // previous_pass_targets is used to stop the cycle of infinite pass gossips
-    // in case it receives an ip address that is already a part of this hash set.
-    // previous_pass_targets: HashSet<IpAddr>,
 }
 
 impl OverallConnectionStatus {
