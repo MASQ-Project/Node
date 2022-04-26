@@ -8,6 +8,8 @@ use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::type_name_of;
+#[cfg(test)]
+use std::any::Any;
 use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -144,6 +146,7 @@ pub trait NotifyLaterHandle<T> {
         interval: Duration,
         closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
     ) -> SpawnHandle;
+    as_any_dcl!();
 }
 
 pub struct NotifyLaterHandleReal<T> {
@@ -158,7 +161,7 @@ impl<T: Message + 'static> Default for Box<dyn NotifyLaterHandle<T>> {
     }
 }
 
-impl<T: Message> NotifyLaterHandle<T> for NotifyLaterHandleReal<T> {
+impl<T: Message + 'static> NotifyLaterHandle<T> for NotifyLaterHandleReal<T> {
     fn notify_later<'a>(
         &'a self,
         msg: T,
@@ -167,10 +170,12 @@ impl<T: Message> NotifyLaterHandle<T> for NotifyLaterHandleReal<T> {
     ) -> SpawnHandle {
         closure(msg, interval)
     }
+    as_any_impl!();
 }
 
 pub trait NotifyHandle<T> {
     fn notify<'a>(&'a self, msg: T, closure: Box<dyn FnMut(T) + 'a>);
+    as_any_dcl!();
 }
 
 impl<T: Message + 'static> Default for Box<dyn NotifyHandle<T>> {
@@ -185,10 +190,11 @@ pub struct NotifyHandleReal<T> {
     phantom: PhantomData<T>,
 }
 
-impl<T: Message> NotifyHandle<T> for NotifyHandleReal<T> {
+impl<T: Message + 'static> NotifyHandle<T> for NotifyHandleReal<T> {
     fn notify<'a>(&'a self, msg: T, mut closure: Box<dyn FnMut(T) + 'a>) {
         closure(msg)
     }
+    as_any_impl!();
 }
 
 #[cfg(test)]

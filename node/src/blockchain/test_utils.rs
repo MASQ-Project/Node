@@ -2,29 +2,30 @@
 
 #![cfg(test)]
 
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+use crate::blockchain::blockchain_interface::{
+    Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
+    Nonce, Receipt, SendTransactionInputs, REQUESTS_IN_PARALLEL,
+};
+use crate::blockchain::tool_wrappers::SendTransactionToolsWrapper;
+use crate::sub_lib::wallet::Wallet;
+use actix::Recipient;
+use bip39::{Language, Mnemonic, Seed};
+use ethereum_types::H256;
+use jsonrpc_core as rpc;
+use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use actix::Recipient;
-use bip39::{Language, Mnemonic, Seed};
-use ethereum_types::H256;
-use jsonrpc_core as rpc;
-use lazy_static::lazy_static;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::Error as Web3Error;
 use web3::{RequestId, Transport};
 
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::blockchain::blockchain_interface::{
-    Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
-    Nonce, Receipt, RetrievedTransactions, SendTransactionInputs, REQUESTS_IN_PARALLEL,
-};
-use crate::blockchain::tool_wrappers::SendTransactionToolsWrapper;
-use crate::sub_lib::wallet::Wallet;
+use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -53,7 +54,8 @@ pub fn make_meaningless_seed() -> Seed {
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
-    retrieve_transactions_results: RefCell<Vec<Result<RetrievedTransactions, BlockchainError>>>,
+    retrieve_transactions_results:
+        RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
     send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
     send_transaction_results: RefCell<Vec<Result<(H256, SystemTime), BlockchainTransactionError>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
@@ -72,7 +74,7 @@ impl BlockchainInterfaceMock {
 
     pub fn retrieve_transactions_result(
         self,
-        result: Result<RetrievedTransactions, BlockchainError>,
+        result: Result<RetrievedBlockchainTransactions, BlockchainError>,
     ) -> Self {
         self.retrieve_transactions_results.borrow_mut().push(result);
         self
@@ -141,7 +143,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         &self,
         start_block: u64,
         recipient: &Wallet,
-    ) -> Result<RetrievedTransactions, BlockchainError> {
+    ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         self.retrieve_transactions_parameters
             .lock()
             .unwrap()

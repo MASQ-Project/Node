@@ -443,7 +443,8 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::Payable;
     use crate::blockchain::blockchain_interface::{
-        BlockchainError, BlockchainTransactionError, RetrievedTransactions, Transaction,
+        BlockchainError, BlockchainTransaction, BlockchainTransactionError,
+        RetrievedBlockchainTransactions,
     };
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
@@ -1038,15 +1039,15 @@ mod tests {
         let earning_wallet = make_wallet("somewallet");
         let amount = 42;
         let amount2 = 55;
-        let expected_transactions = RetrievedTransactions {
+        let expected_transactions = RetrievedBlockchainTransactions {
             new_start_block: 1234,
             transactions: vec![
-                Transaction {
+                BlockchainTransaction {
                     block_number: 7,
                     from: earning_wallet.clone(),
                     gwei_amount: amount,
                 },
-                Transaction {
+                BlockchainTransaction {
                     block_number: 9,
                     from: earning_wallet.clone(),
                     gwei_amount: amount2,
@@ -1106,7 +1107,7 @@ mod tests {
     fn processing_of_received_payments_continues_even_if_no_payments_are_detected() {
         init_test_logging();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
-            .retrieve_transactions_result(Ok(RetrievedTransactions {
+            .retrieve_transactions_result(Ok(RetrievedBlockchainTransactions {
                 new_start_block: 7,
                 transactions: vec![],
             }));
@@ -1189,9 +1190,9 @@ mod tests {
             .start_block_result(Ok(1234))
             .set_start_block_result(Err(PersistentConfigError::TransactionError));
         let blockchain_interface = BlockchainInterfaceMock::default().retrieve_transactions_result(
-            Ok(RetrievedTransactions {
+            Ok(RetrievedBlockchainTransactions {
                 new_start_block: 1234,
-                transactions: vec![Transaction {
+                transactions: vec![BlockchainTransaction {
                     block_number: 1000,
                     from: make_wallet("somewallet"),
                     gwei_amount: 2345,

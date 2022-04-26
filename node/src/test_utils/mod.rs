@@ -517,7 +517,7 @@ pub mod unshared_test_utils {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use actix::{Actor, Addr, Context, Handler, System};
     use actix::{AsyncContext, Message, SpawnHandle};
-    use crossbeam_channel::{Receiver, Sender};
+    use crossbeam_channel::{unbounded, Receiver, Sender};
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -527,7 +527,6 @@ pub mod unshared_test_utils {
     use std::num::ParseIntError;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
-    use std::thread;
     use std::time::Duration;
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
@@ -650,17 +649,14 @@ pub mod unshared_test_utils {
     ) {
         let system = System::new("test");
         let addr: Addr<T> = actor.start();
-        let dummy_actor = DummyActor::new(None);
-        let dummy_address = dummy_actor.start();
+        let killer = SystemKillerActor::new(Duration::from_millis(2000));
+        killer.start();
 
         addr.try_send(NodeFromUiMessage {
             client_id: 0,
             body: UiCrashRequest::new(crash_key, "panic message").tmb(0),
         })
         .unwrap();
-        dummy_address
-            .try_send(CleanUpMessage { sleep_ms: 2000 })
-            .unwrap();
         system.run();
         panic!("test failed")
     }
@@ -678,34 +674,6 @@ pub mod unshared_test_utils {
         pub sleep_ms: u64,
     }
 
-    pub struct DummyActor {
-        system_stop_signal_opt: Option<Sender<()>>,
-    }
-
-    impl DummyActor {
-        pub fn new(system_stop_signal: Option<Sender<()>>) -> Self {
-            Self {
-                system_stop_signal_opt: system_stop_signal,
-            }
-        }
-    }
-
-    impl Actor for DummyActor {
-        type Context = Context<Self>;
-    }
-
-    impl Handler<CleanUpMessage> for DummyActor {
-        type Result = ();
-
-        fn handle(&mut self, msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
-            thread::sleep(Duration::from_millis(msg.sleep_ms));
-            if let Some(sender) = &self.system_stop_signal_opt {
-                let _ = sender.send(());
-            };
-            System::current().stop();
-        }
-    }
-
     pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
         (0..s.len())
             .step_by(2)
@@ -715,6 +683,8 @@ pub mod unshared_test_utils {
 
     pub struct SystemKillerActor {
         after: Duration,
+        tx: Sender<()>,
+        rx: Receiver<()>,
     }
 
     impl Actor for SystemKillerActor {
@@ -731,12 +701,18 @@ pub mod unshared_test_utils {
 
         fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
             System::current().stop();
+            self.tx.try_send(()).expect("Receiver is dead");
         }
     }
 
     impl SystemKillerActor {
         pub fn new(after: Duration) -> Self {
-            Self { after }
+            let (tx, rx) = unbounded();
+            Self { after, tx, rx }
+        }
+
+        pub fn receiver(&self) -> Receiver<()> {
+            self.rx.clone()
         }
     }
 

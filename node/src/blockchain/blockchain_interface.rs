@@ -35,13 +35,13 @@ const TRANSACTION_LITERAL: H256 = H256([
 const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
-pub struct Transaction {
+pub struct BlockchainTransaction {
     pub block_number: u64,
     pub from: Wallet,
     pub gwei_amount: u64,
 }
 
-impl fmt::Display for Transaction {
+impl fmt::Display for BlockchainTransaction {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
@@ -80,9 +80,9 @@ pub type Nonce = BlockchainResult<web3::types::U256>;
 pub type Receipt = BlockchainResult<Option<TransactionReceipt>>;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RetrievedTransactions {
+pub struct RetrievedBlockchainTransactions {
     pub new_start_block: u64,
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<BlockchainTransaction>,
 }
 
 pub trait BlockchainInterface {
@@ -92,7 +92,7 @@ pub trait BlockchainInterface {
         &self,
         start_block: u64,
         recipient: &Wallet,
-    ) -> Result<RetrievedTransactions, BlockchainError>;
+    ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 
     fn send_transaction(
         &self,
@@ -150,7 +150,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         &self,
         _start_block: u64,
         _recipient: &Wallet,
-    ) -> Result<RetrievedTransactions, BlockchainError> {
+    ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         let msg = "Can't retrieve transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
         Err(BlockchainError::QueryFailed(msg))
@@ -233,7 +233,7 @@ where
         &self,
         start_block: u64,
         recipient: &Wallet,
-    ) -> Result<RetrievedTransactions, BlockchainError> {
+    ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         debug!(
             self.logger,
             "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
@@ -258,7 +258,7 @@ where
         let logger = self.logger.clone();
         log_request
             .then(|logs| {
-                future::result::<RetrievedTransactions, BlockchainError>(match logs {
+                future::result::<RetrievedBlockchainTransactions, BlockchainError>(match logs {
                     Ok(logs) => {
                         if logs
                             .iter()
@@ -266,13 +266,13 @@ where
                         {
                             Err(BlockchainError::InvalidResponse)
                         } else {
-                            let transactions: Vec<Transaction> = logs
+                            let transactions: Vec<BlockchainTransaction> = logs
                                 .iter()
                                 .filter_map(|log: &Log| match log.block_number {
                                     Some(block_number) => {
                                         let amount: U256 = U256::from(log.data.0.as_slice());
                                         let gwei_amount = to_gwei(amount);
-                                        gwei_amount.map(|gwei_amount| Transaction {
+                                        gwei_amount.map(|gwei_amount| BlockchainTransaction {
                                             block_number: u64::try_from(block_number)
                                                 .expect("Internal Error"),
                                             from: Wallet::from(log.topics[1]),
@@ -283,12 +283,17 @@ where
                                 })
                                 .collect();
                             debug!(logger, "Retrieved transactions: {:?}", transactions);
-                            // Get the block number of the last transaction, unless there are no
+                            // Get the largest transaction block number, unless there are no
                             // transactions, in which case use start_block.
-                            let last_transaction_block = transactions
-                                .iter()
-                                .fold(start_block, |_, elem| elem.block_number);
-                            Ok(RetrievedTransactions {
+                            let last_transaction_block =
+                                transactions.iter().fold(start_block, |so_far, elem| {
+                                    if elem.block_number > so_far {
+                                        elem.block_number
+                                    } else {
+                                        so_far
+                                    }
+                                });
+                            Ok(RetrievedBlockchainTransactions {
                                 new_start_block: last_transaction_block + 1,
                                 transactions,
                             })
@@ -677,11 +682,56 @@ mod tests {
     }
 
     #[test]
+    fn blockchain_interface_non_clandestine_handles_no_retrieved_transactions() {
+        let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
+        let port = find_free_port();
+        let test_server = TestServer::start(
+            port,
+            vec![br#"{"jsonrpc":"2.0","id":3,"result":[]}"#.to_vec()],
+        );
+
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            event_loop_handle,
+            TEST_DEFAULT_CHAIN,
+        );
+
+        let result = subject
+            .retrieve_transactions(
+                42,
+                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+            )
+            .unwrap();
+
+        let requests = test_server.requests_so_far();
+        let bodies: Vec<Value> = requests
+            .into_iter()
+            .map(|request| serde_json::from_slice(&request.body()).unwrap())
+            .collect();
+        assert_eq!(
+            format!("\"0x000000000000000000000000{}\"", &to[2..]),
+            bodies[0]["params"][0]["topics"][2].to_string(),
+        );
+        assert_eq!(
+            result,
+            RetrievedBlockchainTransactions {
+                new_start_block: 42 + 1,
+                transactions: vec![]
+            }
+        )
+    }
+
+    #[test]
     fn blockchain_interface_non_clandestine_retrieves_transactions() {
         let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
         let port = find_free_port();
         let test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
+            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"},{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be662","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0680","transactionIndex":"0x0"}]}"#.to_vec(),
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
@@ -703,20 +753,32 @@ mod tests {
             .unwrap();
 
         let requests = test_server.requests_so_far();
-        let body: Value = serde_json::from_slice(&requests[0].body()).unwrap();
+        let bodies: Vec<Value> = requests
+            .into_iter()
+            .map(|request| serde_json::from_slice(&request.body()).unwrap())
+            .collect();
         assert_eq!(
             format!("\"0x000000000000000000000000{}\"", &to[2..]),
-            body["params"][0]["topics"][2].to_string(),
+            bodies[0]["params"][0]["topics"][2].to_string(),
         );
         assert_eq!(
             result,
-            RetrievedTransactions {
-                new_start_block: 0x4be663 + 1,
-                transactions: vec![Transaction {
-                    block_number: 4_974_179,
-                    from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-                    gwei_amount: 4_503_599,
-                }]
+            RetrievedBlockchainTransactions {
+                new_start_block: 4_974_179 + 1,
+                transactions: vec![
+                    BlockchainTransaction {
+                        block_number: 4_974_179,
+                        from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
+                            .unwrap(),
+                        gwei_amount: 4_503_599,
+                    },
+                    BlockchainTransaction {
+                        block_number: 4_974_178,
+                        from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
+                            .unwrap(),
+                        gwei_amount: 4_503_599,
+                    },
+                ]
             }
         )
     }
@@ -830,7 +892,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(RetrievedTransactions {
+            Ok(RetrievedBlockchainTransactions {
                 new_start_block: 43,
                 transactions: vec![]
             })
