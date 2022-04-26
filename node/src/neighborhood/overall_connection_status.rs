@@ -1,6 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::neighborhood::overall_connection_status::ConnectionStageErrors::TcpConnectionFailed;
+use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
+    DeadEndFound, TcpConnectionFailed,
+};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
 use openssl::init;
@@ -12,6 +14,7 @@ use std::ops::Deref;
 pub enum ConnectionStageErrors {
     TcpConnectionFailed,
     NoGossipResponseReceived,
+    DeadEndFound,
 }
 
 #[derive(PartialEq, Debug)]
@@ -151,6 +154,9 @@ impl OverallConnectionStatus {
             ConnectionProgressEvent::PassGossipReceived(new_pass_target) => {
                 connection_progress_to_modify.handle_pass_gossip(new_pass_target);
             }
+            ConnectionProgressEvent::DeadEndFound => {
+                connection_progress_to_modify.update_stage(ConnectionStage::Failed(DeadEndFound))
+            }
             _ => todo!("Write logic for updating the connection progress"),
         }
     }
@@ -177,7 +183,9 @@ impl OverallConnectionStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neighborhood::overall_connection_status::ConnectionStageErrors::TcpConnectionFailed;
+    use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
+        DeadEndFound, TcpConnectionFailed,
+    };
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::test_utils::main_cryptde;
     use masq_lib::blockchains::chains::Chain;
@@ -430,6 +438,34 @@ mod tests {
                     initial_node_descriptor: node_descriptor.clone(),
                     current_peer_addr: new_node_ip_addr,
                     connection_stage: ConnectionStage::StageZero
+                }],
+            }
+        )
+    }
+
+    #[test]
+    fn updates_connection_stage_to_failed_when_dead_end_is_found() {
+        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let initial_node_descriptors = vec![node_descriptor.clone()];
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+        let new_node_ip_addr: IpAddr = Ipv4Addr::new(5, 6, 7, 8).into();
+        subject.update_connection_stage(
+            node_ip_addr,
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+        );
+
+        subject.update_connection_stage(node_ip_addr, ConnectionProgressEvent::DeadEndFound);
+
+        assert_eq!(
+            subject,
+            OverallConnectionStatus {
+                can_make_routes: false,
+                stage: OverallConnectionStage::NotConnected,
+                progress: vec![ConnectionProgress {
+                    initial_node_descriptor: node_descriptor.clone(),
+                    current_peer_addr: node_ip_addr,
+                    connection_stage: ConnectionStage::Failed(DeadEndFound)
                 }],
             }
         )
