@@ -279,7 +279,8 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                     .update_connection_stage(msg.peer_addr, msg.event);
             }
             ConnectionProgressEvent::PassGossipReceived(node_descriptor) => {
-                todo!("test drive me");
+                self.overall_connection_status
+                    .update_connection_stage(msg.peer_addr, msg.event);
             }
             _ => todo!("Take care of others"),
         }
@@ -1737,6 +1738,62 @@ mod tests {
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::TcpConnectionFailed,
+        };
+
+        cpm_recipient.try_send(connection_progress_message).unwrap();
+
+        addr.try_send(AssertionsMessage { assertions }).unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+    }
+
+    #[test]
+    fn neighborhood_handles_a_connection_progress_message_with_pass_gossip_received() {
+        init_test_logging();
+        let cryptde: &dyn CryptDE = main_cryptde();
+        let earning_wallet = make_wallet("earning");
+        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
+        let node_addr = NodeAddr::new(&node_ip_addr, &[5678]);
+        let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
+        let public_key = PublicKey::new(&b"booga"[..]);
+        let node_descriptor =
+            NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
+        let mut subject = Neighborhood::new(
+            cryptde,
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        this_node_addr,
+                        vec![node_descriptor.clone()],
+                        rate_pack(100),
+                    ),
+                },
+                earning_wallet.clone(),
+                None,
+                "neighborhood_handles_a_connection_progress_message_with_pass_gossip_received",
+            ),
+        );
+        subject.overall_connection_status.update_connection_stage(
+            node_ip_addr,
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+        );
+        let addr = subject.start();
+        let cpm_recipient = addr.clone().recipient();
+        let system = System::new("testing");
+        let new_pass_target = IpAddr::from_str("10.20.30.40").unwrap();
+        let assertions = Box::new(move |actor: &mut Neighborhood| {
+            assert_eq!(
+                actor.overall_connection_status.progress,
+                vec![ConnectionProgress {
+                    initial_node_descriptor: node_descriptor.clone(),
+                    current_peer_addr: new_pass_target,
+                    connection_stage: ConnectionStage::StageZero
+                }]
+            );
+        });
+        let connection_progress_message = ConnectionProgressMessage {
+            peer_addr: node_ip_addr,
+            event: ConnectionProgressEvent::PassGossipReceived(new_pass_target),
         };
 
         cpm_recipient.try_send(connection_progress_message).unwrap();
