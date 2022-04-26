@@ -143,16 +143,12 @@ impl AccountantBuilder {
         let banned_dao_factory = self
             .banned_dao_factory
             .unwrap_or(Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new())));
-        let config_dao_factory = self
-            .config_dao_factory
-            .unwrap_or(Box::new(ConfigDaoFactoryMock::new(ConfigDaoMock::new())));
         let accountant = Accountant::new(
             &config,
             payable_dao_factory,
             receivable_dao_factory,
             pending_payable_dao_factory,
             banned_dao_factory,
-            config_dao_factory,
         );
         accountant
     }

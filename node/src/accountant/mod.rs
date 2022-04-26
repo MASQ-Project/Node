@@ -60,7 +60,6 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 use web3::types::{TransactionReceipt, H256};
 use masq_lib::crash_point::CrashPoint;
-use crate::db_config::config_dao::ConfigDaoFactory;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 
@@ -407,7 +406,6 @@ impl Accountant {
         receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
         pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
         banned_dao_factory: Box<dyn BannedDaoFactory>,
-        config_dao_factory: Box<dyn ConfigDaoFactory>
     ) -> Accountant {
         Accountant {
             config: *config
@@ -1298,7 +1296,7 @@ mod tests {
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::test_utils::{bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ConfigDaoFactoryMock};
+    use crate::accountant::test_utils::{bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock};
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::tools::accountant_tools::{NullScanner, ReceivablesScanner};
     use crate::accountant::Accountant;
@@ -1322,7 +1320,6 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{make_accountant_config_null, make_populated_accountant_config_with_defaults, prove_that_crash_request_handler_is_hooked_up, NotifyHandleMock, NotifyLaterHandleMock, SystemKillerActor};
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use web3::types::{TransactionReceipt, H256};
-    use crate::db_config::mocks::ConfigDaoMock;
 
     #[derive(Default)]
     struct PayableThresholdToolsMock {
@@ -1425,10 +1422,6 @@ mod tests {
         let banned_dao = BannedDaoMock::new();
         let banned_dao_factory =
             BannedDaoFactoryMock::new(banned_dao).called(&banned_dao_factory_called);
-        let config_dao_factory_called = Rc::new(RefCell::new(false));
-        let config_dao = ConfigDaoMock::new();
-        let config_dao_factory =
-            ConfigDaoFactoryMock::new(config_dao).called(&config_dao_factory_called);
 
         let _ = Accountant::new(
             &config,
@@ -1436,7 +1429,6 @@ mod tests {
             Box::new(receivable_dao_factory),
             Box::new(pending_payable_dao_factory),
             Box::new(banned_dao_factory),
-            Box::new (config_dao_factory),
         );
 
         assert_eq!(payable_dao_factory_called.as_ref(), &RefCell::new(true));
@@ -1446,7 +1438,6 @@ mod tests {
             &RefCell::new(true)
         );
         assert_eq!(banned_dao_factory_called.as_ref(), &RefCell::new(true));
-        assert_eq!(config_dao_factory_called.as_ref(), &RefCell::new(true));
     }
 
     #[test]
@@ -1461,7 +1452,6 @@ mod tests {
             PendingPayableDaoMock::default(),
         ));
         let banned_dao_factory = Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new()));
-        let config_dao_factory = Box::new(ConfigDaoFactoryMock::new(ConfigDaoMock::new()));
 
         let result = Accountant::new(
             &bootstrapper_config,
@@ -1469,7 +1459,6 @@ mod tests {
             receivable_dao_factory,
             pending_payable_dao_factory,
             banned_dao_factory,
-            config_dao_factory,
         );
 
         let transaction_confirmation_tools = result.tools;

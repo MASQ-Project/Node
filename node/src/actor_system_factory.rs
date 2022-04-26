@@ -43,7 +43,6 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
-use crate::database::dao_utils::DaoFactoryReal;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -413,11 +412,6 @@ impl ActorFactory for ActorFactoryReal {
         let receivable_dao_factory = Accountant::dao_factory(data_directory);
         let pending_payable_dao_factory = Accountant::dao_factory(data_directory);
         let banned_dao_factory = Accountant::dao_factory(data_directory);
-        let config_dao_factory = DaoFactoryReal::new(
-            data_directory,
-            true,
-            MigratorConfig::migration_suppressed(),
-        );
         banned_cache_loader.load(connection_or_panic(
             db_initializer,
             data_directory,
@@ -432,7 +426,6 @@ impl ActorFactory for ActorFactoryReal {
                 Box::new(receivable_dao_factory),
                 Box::new(pending_payable_dao_factory),
                 Box::new(banned_dao_factory),
-                Box::new(config_dao_factory),
             )
         });
         Accountant::make_subs_from(&addr)
