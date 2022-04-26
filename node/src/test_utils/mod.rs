@@ -516,7 +516,7 @@ pub mod unshared_test_utils {
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use actix::{Actor, Addr, Context, Handler, System};
+    use actix::{Actor, Addr, AsyncContext, Context, Handler, System};
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{Receiver, Sender};
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
@@ -731,12 +731,15 @@ pub mod unshared_test_utils {
         }
     }
 
-    impl<T: Message + Clone> NotifyLaterHandle<T> for NotifyLaterHandleMock<T> {
+    impl<M,A> NotifyLaterHandle<M,A> for NotifyLaterHandleMock<M>
+    where M: Message + Clone,
+          A: Actor<Context = Context<A>>
+    {
         fn notify_later<'a>(
             &'a self,
-            msg: T,
+            msg: M,
             interval: Duration,
-            mut closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
+            ctx:&'a mut Context<A> ,
         ) -> SpawnHandle {
             self.notify_later_params
                 .lock()
@@ -745,7 +748,8 @@ pub mod unshared_test_utils {
             if !cfg!(test) {
                 panic!("this shouldn't run outside a test")
             }
-            closure(msg, interval)
+            ctx.notify_later(msg,interval)
+            //TODO what about adding conditional sending? with bool
         }
     }
 
@@ -771,14 +775,17 @@ pub mod unshared_test_utils {
         }
     }
 
-    impl<T: Message + Clone> NotifyHandle<T> for NotifyHandleMock<T> {
-        fn notify<'a>(&'a self, msg: T, mut closure: Box<dyn FnMut(T) + 'a>) {
+    impl<M,A> NotifyHandle<M,A> for NotifyHandleMock<M>
+    where M: Message + Clone,
+          A: Actor<Context = Context<A>>
+    {
+        fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
             self.notify_params.lock().unwrap().push(msg.clone());
             if !cfg!(test) {
                 panic!("this shouldn't run outside a test")
             }
             if self.do_you_want_to_proceed_after {
-                closure(msg)
+                ctx.notify(msg)
             }
         }
     }
