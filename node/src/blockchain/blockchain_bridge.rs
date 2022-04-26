@@ -443,7 +443,8 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::Payable;
     use crate::blockchain::blockchain_interface::{
-        BlockchainError, BlockchainTransactionError, RetrievedBlockchainTransactions, BlockchainTransaction,
+        BlockchainError, BlockchainTransaction, BlockchainTransactionError,
+        RetrievedBlockchainTransactions,
     };
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;

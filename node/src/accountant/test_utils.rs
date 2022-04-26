@@ -119,7 +119,7 @@ impl AccountantBuilder {
     }
 
     pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {
-        self.config_dao_factory = Some(Box::new (ConfigDaoFactoryMock::new (config_dao)));
+        self.config_dao_factory = Some(Box::new(ConfigDaoFactoryMock::new(config_dao)));
         self
     }
 

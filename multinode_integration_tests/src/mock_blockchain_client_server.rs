@@ -122,7 +122,7 @@ pub struct MockBlockchainClientServer {
 
 impl Drop for MockBlockchainClientServer {
     fn drop(&mut self) {
-        if let Some (thread_info) = self.thread_info_opt.take() {
+        if let Some(thread_info) = self.thread_info_opt.take() {
             let _ = thread_info.stopper.try_send(());
             if let Err(e) = thread_info.join_handle.join() {
                 let msg = match e.downcast_ref::<&'static str>() {
@@ -133,9 +133,11 @@ impl Drop for MockBlockchainClientServer {
                     },
                 };
                 if thread::panicking() {
-                    eprintln! ("MockBlockchainClientServer service thread also panicked: {}", msg);
-                }
-                else {
+                    eprintln!(
+                        "MockBlockchainClientServer service thread also panicked: {}",
+                        msg
+                    );
+                } else {
                     panic!("{}", msg);
                 }
             }
@@ -229,7 +231,10 @@ impl MockBlockchainClientServer {
         let offset = conn_state.receive_buffer_occupied;
         let limit = conn_state.receive_buffer.len();
         if conn_state.receive_buffer_occupied >= limit {
-            panic! ("{}-byte receive buffer overflowed; increase size or fix test", conn_state.receive_buffer.len());
+            panic!(
+                "{}-byte receive buffer overflowed; increase size or fix test",
+                conn_state.receive_buffer.len()
+            );
         }
         let len = match conn_state
             .conn
@@ -357,7 +362,6 @@ mod tests {
     use std::net::{SocketAddr, TcpStream};
     use std::ops::Add;
     use std::time::{Duration, Instant};
-    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
 
     use masq_lib::utils::{find_free_port, localhost};
 
@@ -470,7 +474,7 @@ mod tests {
         let port = find_free_port();
         let (notifier, notified) = unbounded();
         let subject = MockBlockchainClientServer::builder(port)
-            .notifier (notifier)
+            .notifier(notifier)
             .begin_batch()
             .response(1234u64, 40)
             .error(1234, "My tummy hurts", None as Option<()>)
@@ -504,7 +508,7 @@ mod tests {
             &response_body,
             r#"[{"jsonrpc": "2.0", "result": 1234, "id": 40}, {"jsonrpc": "2.0", "error": {"code": 1234, "message": "My tummy hurts"}}]"#
         );
-        assert_eq!(notified.try_recv(), Ok (()));
+        assert_eq!(notified.try_recv(), Ok(()));
         assert_eq!(notified.try_recv().is_err(), true);
 
         let request = make_post(r#"{"jsonrpc": "2.0", "method": "second", "id": 42}"#);
@@ -516,7 +520,7 @@ mod tests {
             &response_body,
             r#"{"jsonrpc": "2.0", "result": {"name":"Billy","age":15}, "id": 42}"#
         );
-        assert_eq!(notified.try_recv(), Ok (()));
+        assert_eq!(notified.try_recv(), Ok(()));
         assert_eq!(notified.try_recv().is_err(), true);
 
         let request = make_post(r#"{"jsonrpc": "2.0", "method": "third", "id": 42}"#);
@@ -528,7 +532,7 @@ mod tests {
             &response_body,
             r#"{"jsonrpc": "2.0", "error": {"code": 4321, "message": "Taxation is theft!", "data": {"name":"Stanley","age":37}}}"#
         );
-        assert_eq!(notified.try_recv(), Ok (()));
+        assert_eq!(notified.try_recv(), Ok(()));
         assert_eq!(notified.try_recv().is_err(), true);
 
         let requests = subject.requests();

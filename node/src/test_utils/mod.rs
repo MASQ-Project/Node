@@ -517,7 +517,7 @@ pub mod unshared_test_utils {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use actix::{Actor, Addr, Context, Handler, System};
     use actix::{AsyncContext, Message, SpawnHandle};
-    use crossbeam_channel::{Receiver, Sender, unbounded};
+    use crossbeam_channel::{unbounded, Receiver, Sender};
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -649,7 +649,7 @@ pub mod unshared_test_utils {
     ) {
         let system = System::new("test");
         let addr: Addr<T> = actor.start();
-        let killer = SystemKillerActor::new (Duration::from_millis (2000));
+        let killer = SystemKillerActor::new(Duration::from_millis(2000));
         killer.start();
 
         addr.try_send(NodeFromUiMessage {
@@ -701,7 +701,7 @@ pub mod unshared_test_utils {
 
         fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
             System::current().stop();
-            self.tx.try_send (()).expect ("Receiver is dead");
+            self.tx.try_send(()).expect("Receiver is dead");
         }
     }
 
@@ -711,7 +711,7 @@ pub mod unshared_test_utils {
             Self { after, tx, rx }
         }
 
-        pub fn receiver (&self) -> Receiver<()> {
+        pub fn receiver(&self) -> Receiver<()> {
             self.rx.clone()
         }
     }

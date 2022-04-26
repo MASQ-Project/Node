@@ -285,16 +285,14 @@ where
                             debug!(logger, "Retrieved transactions: {:?}", transactions);
                             // Get the largest transaction block number, unless there are no
                             // transactions, in which case use start_block.
-                            let last_transaction_block = transactions
-                                .iter()
-                                .fold(start_block, |so_far, elem|
+                            let last_transaction_block =
+                                transactions.iter().fold(start_block, |so_far, elem| {
                                     if elem.block_number > so_far {
                                         elem.block_number
-                                    }
-                                    else {
+                                    } else {
                                         so_far
                                     }
-                                );
+                                });
                             Ok(RetrievedBlockchainTransactions {
                                 new_start_block: last_transaction_block + 1,
                                 transactions,
@@ -687,9 +685,10 @@ mod tests {
     fn blockchain_interface_non_clandestine_handles_no_retrieved_transactions() {
         let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
         let port = find_free_port();
-        let test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":3,"result":[]}"#.to_vec(),
-        ]);
+        let test_server = TestServer::start(
+            port,
+            vec![br#"{"jsonrpc":"2.0","id":3,"result":[]}"#.to_vec()],
+        );
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -712,7 +711,7 @@ mod tests {
         let requests = test_server.requests_so_far();
         let bodies: Vec<Value> = requests
             .into_iter()
-            .map (|request| serde_json::from_slice(&request.body()).unwrap())
+            .map(|request| serde_json::from_slice(&request.body()).unwrap())
             .collect();
         assert_eq!(
             format!("\"0x000000000000000000000000{}\"", &to[2..]),
@@ -756,7 +755,7 @@ mod tests {
         let requests = test_server.requests_so_far();
         let bodies: Vec<Value> = requests
             .into_iter()
-            .map (|request| serde_json::from_slice(&request.body()).unwrap())
+            .map(|request| serde_json::from_slice(&request.body()).unwrap())
             .collect();
         assert_eq!(
             format!("\"0x000000000000000000000000{}\"", &to[2..]),
@@ -769,12 +768,14 @@ mod tests {
                 transactions: vec![
                     BlockchainTransaction {
                         block_number: 4_974_179,
-                        from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+                        from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
+                            .unwrap(),
                         gwei_amount: 4_503_599,
                     },
                     BlockchainTransaction {
                         block_number: 4_974_178,
-                        from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+                        from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
+                            .unwrap(),
                         gwei_amount: 4_503_599,
                     },
                 ]

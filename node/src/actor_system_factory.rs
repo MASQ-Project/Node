@@ -574,7 +574,9 @@ mod tests {
         make_ui_gateway_subs_from_recorder, Recording,
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::test_utils::unshared_test_utils::{make_populated_accountant_config_with_defaults, SystemKillerActor};
+    use crate::test_utils::unshared_test_utils::{
+        make_populated_accountant_config_with_defaults, SystemKillerActor,
+    };
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
@@ -1490,9 +1492,9 @@ mod tests {
         F: FnOnce() -> Recipient<NodeFromUiMessage>,
     {
         let system = System::new("test");
-        let killer = SystemKillerActor::new (Duration::from_millis (1500));
+        let killer = SystemKillerActor::new(Duration::from_millis(1500));
         let mercy_signal_rx = killer.receiver();
-        Arbiter::start (|_| killer);
+        Arbiter::start(|_| killer);
         let ui_node_addr = actor_initialization();
         let crash_request = UiCrashRequest {
             actor: actor_crash_key.to_string(),

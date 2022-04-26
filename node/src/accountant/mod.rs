@@ -10,9 +10,7 @@ pub mod test_utils;
 use masq_lib::constants::SCAN_ERROR;
 
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
-use masq_lib::ui_gateway::{
-    MessageBody, MessagePath, MessageTarget,
-};
+use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
@@ -44,6 +42,7 @@ use actix::Handler;
 use actix::Message;
 use actix::Recipient;
 use itertools::Itertools;
+use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiFinancialsResponse;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
@@ -59,7 +58,6 @@ use std::ops::Add;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use web3::types::{TransactionReceipt, H256};
-use masq_lib::crash_point::CrashPoint;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 
@@ -1296,7 +1294,12 @@ mod tests {
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::test_utils::{bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock};
+    use crate::accountant::test_utils::{
+        bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
+        make_receivable_account, BannedDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock,
+        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock,
+        ReceivableDaoMock,
+    };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::tools::accountant_tools::{NullScanner, ReceivablesScanner};
     use crate::accountant::Accountant;
@@ -1317,7 +1320,11 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::unshared_test_utils::{make_accountant_config_null, make_populated_accountant_config_with_defaults, prove_that_crash_request_handler_is_hooked_up, NotifyHandleMock, NotifyLaterHandleMock, SystemKillerActor};
+    use crate::test_utils::unshared_test_utils::{
+        make_accountant_config_null, make_populated_accountant_config_with_defaults,
+        prove_that_crash_request_handler_is_hooked_up, NotifyHandleMock, NotifyLaterHandleMock,
+        SystemKillerActor,
+    };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use web3::types::{TransactionReceipt, H256};
 
@@ -2557,7 +2564,7 @@ mod tests {
         send_start_message!(subject_subs);
 
         System::current().stop();
-        assert_eq! (system.run(), 0);
+        assert_eq!(system.run(), 0);
         // no panics because of recalcitrant DAOs; therefore DAOs were not called; therefore test passes
         TestLogHandler::new().exists_log_containing(
             "Started with --scans off; declining to begin database and blockchain scans",
@@ -2825,7 +2832,7 @@ mod tests {
             })
             .unwrap();
 
-        let killer = SystemKillerActor::new (Duration::from_millis(10));
+        let killer = SystemKillerActor::new(Duration::from_millis(10));
         killer.start();
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
