@@ -55,7 +55,7 @@ pub trait ReceivableDao: Send {
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount>;
 
-    fn total(&self) -> u64;
+    fn total(&self) -> i64;
 }
 
 pub trait ReceivableDaoFactory {
@@ -252,7 +252,7 @@ impl ReceivableDao for ReceivableDaoReal {
         .collect()
     }
 
-    fn total(&self) -> u64 {
+    fn total(&self) -> i64 {
         let mut stmt = self
             .conn
             .prepare("select sum(balance) from receivable")
@@ -260,7 +260,7 @@ impl ReceivableDao for ReceivableDaoReal {
         match stmt.query_row([], |row| {
             let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
             match total_balance_result {
-                Ok(total_balance) => Ok(total_balance as u64),
+                Ok(total_balance) => Ok(total_balance),
                 Err(e)
                     if e == rusqlite::Error::InvalidColumnType(
                         0,
@@ -268,7 +268,7 @@ impl ReceivableDao for ReceivableDaoReal {
                         Type::Null,
                     ) =>
                 {
-                    Ok(0u64)
+                    Ok(0)
                 }
                 Err(e) => panic!(
                     "Database is corrupt: RECEIVABLE table columns and/or types: {:?}",

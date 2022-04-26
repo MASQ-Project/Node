@@ -74,6 +74,7 @@ pub struct AccountantBuilder {
     receivable_dao_factory: Option<Box<dyn ReceivableDaoFactory>>,
     pending_payable_dao_factory: Option<Box<dyn PendingPayableDaoFactory>>,
     banned_dao_factory: Option<Box<dyn BannedDaoFactory>>,
+    config_dao_factory: Option<Box<dyn ConfigDaoFactory>>,
 }
 
 impl Default for AccountantBuilder {
@@ -84,6 +85,7 @@ impl Default for AccountantBuilder {
             receivable_dao_factory: None,
             pending_payable_dao_factory: None,
             banned_dao_factory: None,
+            config_dao_factory: None,
         }
     }
 }
@@ -116,6 +118,11 @@ impl AccountantBuilder {
         self
     }
 
+    pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {
+        self.config_dao_factory = Some(Box::new (ConfigDaoFactoryMock::new (config_dao)));
+        self
+    }
+
     pub fn build(self) -> Accountant {
         let config = self.config.unwrap_or({
             let mut config = BootstrapperConfig::default();
@@ -136,12 +143,16 @@ impl AccountantBuilder {
         let banned_dao_factory = self
             .banned_dao_factory
             .unwrap_or(Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new())));
+        let config_dao_factory = self
+            .config_dao_factory
+            .unwrap_or(Box::new(ConfigDaoFactoryMock::new(ConfigDaoMock::new())));
         let accountant = Accountant::new(
             &config,
             payable_dao_factory,
             receivable_dao_factory,
             pending_payable_dao_factory,
             banned_dao_factory,
+            config_dao_factory,
         );
         accountant
     }
@@ -427,7 +438,7 @@ pub struct ReceivableDaoMock {
     paid_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
     top_records_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-    total_results: RefCell<Vec<u64>>,
+    total_results: RefCell<Vec<i64>>,
     pub have_new_delinquencies_shutdown_the_system: bool,
 }
 
@@ -498,7 +509,7 @@ impl ReceivableDao for ReceivableDaoMock {
         self.top_records_results.borrow_mut().remove(0)
     }
 
-    fn total(&self) -> u64 {
+    fn total(&self) -> i64 {
         self.total_results.borrow_mut().remove(0)
     }
 }
@@ -570,7 +581,7 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn total_result(self, result: u64) -> Self {
+    pub fn total_result(self, result: i64) -> Self {
         self.total_results.borrow_mut().push(result);
         self
     }

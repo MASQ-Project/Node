@@ -234,9 +234,9 @@ impl PayableDao for PayableDaoReal {
             .prepare("select sum(balance) from payable")
             .expect("Internal error");
         match stmt.query_row([], |row| {
-            let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
+            let total_balance_result: Result<u64, rusqlite::Error> = row.get(0);
             match total_balance_result {
-                Ok(total_balance) => Ok(total_balance as u64),
+                Ok(total_balance) => Ok(total_balance),
                 Err(e)
                     if e == rusqlite::Error::InvalidColumnType(
                         0,
@@ -244,7 +244,7 @@ impl PayableDao for PayableDaoReal {
                         Type::Null,
                     ) =>
                 {
-                    Ok(0u64)
+                    Ok(0)
                 }
                 Err(e) => panic!(
                     "Database is corrupt: PAYABLE table columns and/or types: {:?}",

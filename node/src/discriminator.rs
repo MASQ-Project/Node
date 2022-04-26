@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::masquerader::{MasqueradeError, Masquerader};
 use crate::sub_lib::framer::Framer;
+use core::fmt::Debug;
 use masq_lib::logger::Logger;
-use serde::__private::fmt::Debug;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct UnmaskedChunk {

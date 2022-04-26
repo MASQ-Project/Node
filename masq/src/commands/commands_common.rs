@@ -11,8 +11,10 @@ use masq_lib::ui_gateway::MessageBody;
 use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Display;
+use std::io::Write;
 
 pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000;
+pub const STANDARD_COLUMN_WIDTH: usize = 33;
 
 #[derive(Debug, PartialEq)]
 pub enum CommandError {
@@ -95,6 +97,16 @@ impl From<ContextError> for CommandError {
     }
 }
 
+pub(in crate::commands) fn dump_parameter_line(stream: &mut dyn Write, name: &str, value: &str) {
+    short_writeln!(
+        stream,
+        "{:width$} {}",
+        name,
+        value,
+        width = STANDARD_COLUMN_WIDTH
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,6 +122,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(STANDARD_COMMAND_TIMEOUT_MILLIS, 1000);
+        assert_eq!(STANDARD_COLUMN_WIDTH, 33)
     }
 
     #[test]
