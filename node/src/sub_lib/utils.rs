@@ -139,7 +139,10 @@ fn crash_request_analyzer(
     }
 }
 
-pub trait NotifyLaterHandle<T, A: Actor<Context = Context<A>>> {
+pub trait NotifyLaterHandle<T, A>
+where
+    A: Actor<Context = Context<A>>,
+{
     fn notify_later(
         &self,
         msg: T,
@@ -182,7 +185,10 @@ where
     as_any_impl!();
 }
 
-pub trait NotifyHandle<T, A: Actor<Context = Context<A>>> {
+pub trait NotifyHandle<T, A>
+where
+    A: Actor<Context = Context<A>>,
+{
     fn notify<'a>(&'a self, msg: T, ctx: &'a mut Context<A>);
     as_any_dcl!();
 }
