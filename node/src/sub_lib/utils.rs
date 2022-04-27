@@ -145,7 +145,7 @@ pub trait NotifyLaterHandle<T, A: Actor<Context = Context<A>>> {
         msg: T,
         interval: Duration,
         ctx: &mut Context<A>,
-    ) -> SpawnHandle;
+    ) -> Box<dyn NLSpawnHandleWrapper>;
     as_any_dcl!();
 }
 
@@ -153,9 +153,10 @@ pub struct NotifyLaterHandleReal<T> {
     phantom: PhantomData<T>,
 }
 
-impl<M,A> Default for Box<dyn NotifyLaterHandle<M,A>>
-where M: Message + 'static,
-      A: Actor<Context = Context<A>> + Handler<M>
+impl<M, A> Default for Box<dyn NotifyLaterHandle<M, A>>
+where
+    M: Message + 'static,
+    A: Actor<Context = Context<A>> + Handler<M>,
 {
     fn default() -> Self {
         Box::new(NotifyLaterHandleReal {
@@ -164,29 +165,32 @@ where M: Message + 'static,
     }
 }
 
-impl<M,A> NotifyLaterHandle<M,A> for NotifyLaterHandleReal<M>
-where M: Message + 'static,
-      A: Actor<Context = Context<A>> + Handler<M>
+impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleReal<M>
+where
+    M: Message + 'static,
+    A: Actor<Context = Context<A>> + Handler<M>,
 {
     fn notify_later(
         &self,
         msg: M,
         interval: Duration,
-        ctx: &mut Context<A>
-    ) -> SpawnHandle {
-        ctx.notify_later(msg,interval)
+        ctx: &mut Context<A>,
+    ) -> Box<dyn NLSpawnHandleWrapper> {
+        let handle = ctx.notify_later(msg, interval);
+        Box::new(NLSpawnHandleWrapperReal::new(handle))
     }
     as_any_impl!();
 }
 
-pub trait NotifyHandle<T,A:Actor<Context = Context<A>>> {
+pub trait NotifyHandle<T, A: Actor<Context = Context<A>>> {
     fn notify<'a>(&'a self, msg: T, ctx: &'a mut Context<A>);
     as_any_dcl!();
 }
 
-impl <M,A> Default for Box<dyn NotifyHandle<M,A>>
-where   M: Message + 'static,
-        A: Actor<Context = Context<A>> + Handler<M>
+impl<M, A> Default for Box<dyn NotifyHandle<M, A>>
+where
+    M: Message + 'static,
+    A: Actor<Context = Context<A>> + Handler<M>,
 {
     fn default() -> Self {
         Box::new(NotifyHandleReal {
@@ -195,13 +199,35 @@ where   M: Message + 'static,
     }
 }
 
+pub trait NLSpawnHandleWrapper {
+    fn handle(self) -> SpawnHandle;
+}
+
+pub struct NLSpawnHandleWrapperReal {
+    handle: SpawnHandle,
+}
+
+impl NLSpawnHandleWrapperReal {
+    pub fn new(handle: SpawnHandle) -> Self {
+        Self { handle }
+    }
+}
+
+impl NLSpawnHandleWrapper for NLSpawnHandleWrapperReal {
+    fn handle(self) -> SpawnHandle {
+        self.handle
+    }
+}
+
 pub struct NotifyHandleReal<T> {
     phantom: PhantomData<T>,
 }
 
-impl<M,A> NotifyHandle<M,A> for NotifyHandleReal<M>
-where M: Message + 'static,
-      A: Actor<Context = Context<A>> + Handler<M> {
+impl<M, A> NotifyHandle<M, A> for NotifyHandleReal<M>
+where
+    M: Message + 'static,
+    A: Actor<Context = Context<A>> + Handler<M>,
+{
     fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
         ctx.notify(msg)
     }
@@ -218,15 +244,15 @@ pub fn make_new_test_multi_config<'a>(
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Add;
-    use actix::{Addr, AsyncContext, Handler, Running, System};
     use super::*;
     use crate::apps::app_node;
+    use actix::{Handler, System};
+    use crossbeam_channel::{unbounded, Sender};
     use log::Level;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::multi_config::CommandLineVcl;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::sub_lib::peer_actors::StartMessage;
+    use std::ops::Sub;
 
     #[test]
     fn indicates_dead_stream_identifies_dead_stream_errors() {
@@ -391,59 +417,114 @@ mod tests {
     }
 
     struct NotifyHandlesTestActor {
-        notify_later_handle_real_opt: Option<NotifyLaterHandleReal<NotifyHandlesProbeMessage>>,
-        notify_handle_real_opt: Option<NotifyHandleReal<NotifyHandlesProbeMessage>>
+        responder: Sender<FindingInfo>,
+        message_counter: usize,
+        notify_later_handle_real: NotifyLaterHandleReal<NotifyHandlesProbeMessage>,
+        notify_handle_real: NotifyHandleReal<NotifyHandlesProbeMessage>,
     }
+
+    struct FindingInfo {
+        id: usize,
+        started: SystemTime,
+        received: SystemTime,
+    }
+
+    impl NotifyHandlesTestActor {
+        fn new(responder: Sender<FindingInfo>) -> Self {
+            Self {
+                responder,
+                message_counter: 0,
+                notify_later_handle_real: NotifyLaterHandleReal {
+                    phantom: Default::default(),
+                },
+                notify_handle_real: NotifyHandleReal {
+                    phantom: Default::default(),
+                },
+            }
+        }
+    }
+
+    const DELAYED: u64 = 55;
 
     impl Actor for NotifyHandlesTestActor {
         type Context = Context<Self>;
 
         fn started(&mut self, ctx: &mut Self::Context) {
-            if let Some(handle) = self.notify_handle_real_opt.as_ref(){
-                handle.notify(NotifyHandlesProbeMessage::new(None),ctx);
-            } else if let Some(handle) = self.notify_later_handle_real_opt.as_ref(){
-                let interval = Duration::from_millis(333);
-                handle.notify_later(NotifyHandlesProbeMessage::new(Some(interval)),interval,ctx);
-            } else {
-                panic!( "One handle must be picked to be tested!")
-            }
+            self.notify_handle_real
+                .notify(NotifyHandlesProbeMessage::new(0), ctx);
+            let interval = Duration::from_millis(DELAYED);
+            self.notify_later_handle_real.notify_later(
+                NotifyHandlesProbeMessage::new(1),
+                interval,
+                ctx,
+            );
         }
     }
 
     #[derive(Message)]
-    struct NotifyHandlesProbeMessage{
-        interval_opt: Option<Duration>,
-        start_time: SystemTime
+    struct NotifyHandlesProbeMessage {
+        id: usize,
+        start_time: SystemTime,
     }
 
-    impl NotifyHandlesProbeMessage{
-        fn new(interval_opt: Option<Duration>)->Self{
-            Self{ interval_opt, start_time: SystemTime::now() }
+    impl NotifyHandlesProbeMessage {
+        fn new(id: usize) -> Self {
+            Self {
+                id,
+                start_time: SystemTime::now(),
+            }
         }
     }
 
-    impl Handler<NotifyHandlesProbeMessage> for NotifyHandlesTestActor{
+    impl Handler<NotifyHandlesProbeMessage> for NotifyHandlesTestActor {
         type Result = ();
 
-        fn handle(&mut self, msg: NotifyHandlesProbeMessage, ctx: &mut Self::Context) -> Self::Result {
-            let now = SystemTime::now();
-            let start_time = msg.start_time;
-            if let Some(interval) = msg.interval_opt {
-                assert!(now > start_time.add(interval))
-            } else {
-                let with_margin = start_time * 1.3;
-                assert!(with_margin > now)
+        fn handle(
+            &mut self,
+            msg: NotifyHandlesProbeMessage,
+            _ctx: &mut Self::Context,
+        ) -> Self::Result {
+            let info = FindingInfo {
+                id: msg.id,
+                started: msg.start_time,
+                received: SystemTime::now(),
+            };
+            self.responder.send(info).unwrap();
+            self.message_counter += 1;
+            if self.message_counter == 2 {
+                System::current().stop()
             }
-            System::current().stop()
         }
     }
 
     #[test]
-    fn notify_handle_real_sends_the_message_correctly(){
-        let test_actor = NotifyHandlesTestActor{ notify_later_handle_real_opt: None, notify_handle_real_opt: Some(Default::default()) };
-        let address = test_actor.start();
-        let system = System::new("notify_handle_test");
+    fn notify_handles_real_sends_their_messages_correctly() {
+        let (sender, receiver) = unbounded();
+        let test_actor = NotifyHandlesTestActor::new(sender);
+        let _ = test_actor.start();
+        let system = System::new("notify_handles_test");
 
-        assert_eq!(system.run(),0)
+        system.run();
+
+        let mut data = Vec::new();
+        (0..2).for_each(|_| data.push(receiver.recv().unwrap()));
+        let first_message = data.remove(0);
+        assert_eq!(first_message.id, 0);
+        let notify_exec_duration = first_message
+            .received
+            .duration_since(first_message.started)
+            .unwrap();
+        let second_message = data.remove(0);
+        let notify_later_exec_duration = second_message
+            .received
+            .duration_since(second_message.started)
+            .unwrap();
+        let safe_assumption = DELAYED - (DELAYED as f64 * 0.1) as u64;
+        assert!(
+            notify_exec_duration
+                < notify_later_exec_duration.sub(Duration::from_millis(safe_assumption))
+        );
+        assert!(notify_exec_duration < Duration::from_millis(DELAYED));
+        assert!(notify_later_exec_duration >= Duration::from_millis(DELAYED));
     }
 }

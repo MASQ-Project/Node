@@ -514,10 +514,12 @@ pub mod unshared_test_utils {
         AccountantConfig, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
     };
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-    use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
+    use crate::sub_lib::utils::{
+        NLSpawnHandleWrapper, NLSpawnHandleWrapperReal, NotifyHandle, NotifyLaterHandle,
+    };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use actix::{Actor, Addr, AsyncContext, Context, Handler, System};
-    use actix::{Message, SpawnHandle};
+    use actix::Message;
+    use actix::{Actor, Addr, AsyncContext, Context, Handler, SpawnHandle, System};
     use crossbeam_channel::{Receiver, Sender};
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
@@ -713,13 +715,15 @@ pub mod unshared_test_utils {
     }
 
     pub struct NotifyLaterHandleMock<T> {
-        notify_later_params: Arc<Mutex<Vec<(T, Duration)>>>, //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself
+        notify_later_params: Arc<Mutex<Vec<(T, Duration)>>>,
+        do_you_want_to_proceed_after: bool,
     }
 
     impl<T: Message> Default for NotifyLaterHandleMock<T> {
         fn default() -> Self {
             Self {
                 notify_later_params: Arc::new(Mutex::new(vec![])),
+                do_you_want_to_proceed_after: false,
             }
         }
     }
@@ -729,18 +733,24 @@ pub mod unshared_test_utils {
             self.notify_later_params = params.clone();
             self
         }
+
+        pub fn enable_proceeding(mut self) -> Self {
+            self.do_you_want_to_proceed_after = true;
+            self
+        }
     }
 
-    impl<M,A> NotifyLaterHandle<M,A> for NotifyLaterHandleMock<M>
-    where M: Message + Clone,
-          A: Actor<Context = Context<A>>
+    impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleMock<M>
+    where
+        M: Message + 'static + Clone,
+        A: Actor<Context = Context<A>> + Handler<M>,
     {
         fn notify_later<'a>(
             &'a self,
             msg: M,
             interval: Duration,
-            ctx:&'a mut Context<A> ,
-        ) -> SpawnHandle {
+            ctx: &'a mut Context<A>,
+        ) -> Box<dyn NLSpawnHandleWrapper> {
             self.notify_later_params
                 .lock()
                 .unwrap()
@@ -748,15 +758,26 @@ pub mod unshared_test_utils {
             if !cfg!(test) {
                 panic!("this shouldn't run outside a test")
             }
-            ctx.notify_later(msg,interval)
-            //TODO what about adding conditional sending? with bool
+            if self.do_you_want_to_proceed_after {
+                let handle = ctx.notify_later(msg, interval);
+                Box::new(NLSpawnHandleWrapperReal::new(handle))
+            } else {
+                Box::new(NLSpawnHandleWrapperNull {})
+            }
+        }
+    }
+
+    pub struct NLSpawnHandleWrapperNull {}
+
+    impl NLSpawnHandleWrapper for NLSpawnHandleWrapperNull {
+        fn handle(self) -> SpawnHandle {
+            intentionally_blank!()
         }
     }
 
     pub struct NotifyHandleMock<T> {
-        //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself as the subject
         notify_params: Arc<Mutex<Vec<T>>>,
-        pub do_you_want_to_proceed_after: bool,
+        do_you_want_to_proceed_after: bool,
     }
 
     impl<T: Message> Default for NotifyHandleMock<T> {
@@ -773,11 +794,17 @@ pub mod unshared_test_utils {
             self.notify_params = params.clone();
             self
         }
+
+        pub fn enable_proceeding(mut self) -> Self {
+            self.do_you_want_to_proceed_after = true;
+            self
+        }
     }
 
-    impl<M,A> NotifyHandle<M,A> for NotifyHandleMock<M>
-    where M: Message + Clone,
-          A: Actor<Context = Context<A>>
+    impl<M, A> NotifyHandle<M, A> for NotifyHandleMock<M>
+    where
+        M: Message + 'static + Clone,
+        A: Actor<Context = Context<A>> + Handler<M>,
     {
         fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
             self.notify_params.lock().unwrap().push(msg.clone());
