@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
-    DeadEndFound, TcpConnectionFailed,
+    DeadEndFound, NoGossipResponseReceived, TcpConnectionFailed,
 };
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
@@ -10,14 +10,14 @@ use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Deref;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum ConnectionStageErrors {
     TcpConnectionFailed,
     NoGossipResponseReceived,
     DeadEndFound,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum ConnectionStage {
     StageZero,
     TcpConnectionEstablished,
@@ -38,7 +38,7 @@ impl TryFrom<&ConnectionStage> for usize {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ConnectionProgress {
     pub initial_node_descriptor: NodeDescriptor,
     pub current_peer_addr: IpAddr,
@@ -128,7 +128,7 @@ impl OverallConnectionStatus {
             .map(|connection_progress| &connection_progress.initial_node_descriptor)
     }
 
-    pub fn update_connection_stage(&mut self, peer_addr: IpAddr, event: ConnectionProgressEvent) {
+    pub fn get_connection_progress(&mut self, peer_addr: IpAddr) -> &mut ConnectionProgress {
         let mut connection_progress_to_modify = self
             .progress
             .iter_mut()
@@ -139,6 +139,32 @@ impl OverallConnectionStatus {
                     peer_addr
                 )
             });
+
+        connection_progress_to_modify
+    }
+
+    pub fn get_connection_progress_by_desc(
+        &self,
+        initial_node_descriptor: &NodeDescriptor,
+    ) -> &ConnectionProgress {
+        let connection_progress = self
+            .progress
+            .iter()
+            .find(|connection_progress| {
+                &connection_progress.initial_node_descriptor == initial_node_descriptor
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "Unable to find the node in connections with Node Descriptor: {:?}",
+                    initial_node_descriptor
+                )
+            });
+
+        connection_progress
+    }
+
+    pub fn update_connection_stage(&mut self, peer_addr: IpAddr, event: ConnectionProgressEvent) {
+        let mut connection_progress_to_modify = self.get_connection_progress(peer_addr);
 
         match event {
             ConnectionProgressEvent::TcpConnectionSuccessful => connection_progress_to_modify
@@ -156,6 +182,10 @@ impl OverallConnectionStatus {
             }
             ConnectionProgressEvent::DeadEndFound => {
                 connection_progress_to_modify.update_stage(ConnectionStage::Failed(DeadEndFound))
+            }
+            ConnectionProgressEvent::NoGossipResponseReceived => {
+                connection_progress_to_modify
+                    .update_stage(ConnectionStage::Failed(NoGossipResponseReceived));
             }
             _ => todo!("Write logic for updating the connection progress"),
         }
@@ -274,6 +304,58 @@ mod tests {
         let subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         assert_eq!(subject.is_empty(), false);
+    }
+
+    #[test]
+    fn can_receive_mut_ref_of_connection_progress_from_peer_addr() {
+        let peer_1_ip = IpAddr::from_str("1.2.3.4").unwrap();
+        let peer_2_ip = IpAddr::from_str("5.6.7.8").unwrap();
+        let peer_3_ip = IpAddr::from_str("9.0.1.2").unwrap();
+
+        let desc_1 = make_node_descriptor_from_ip(peer_1_ip);
+        let desc_2 = make_node_descriptor_from_ip(peer_2_ip);
+        let desc_3 = make_node_descriptor_from_ip(peer_3_ip);
+
+        let initial_node_descriptors = vec![desc_1.clone(), desc_2.clone(), desc_3.clone()];
+
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+
+        assert_eq!(
+            subject.get_connection_progress(peer_1_ip),
+            &mut ConnectionProgress::new(&desc_1)
+        );
+        assert_eq!(
+            subject.get_connection_progress(peer_2_ip),
+            &mut ConnectionProgress::new(&desc_2)
+        );
+        assert_eq!(
+            subject.get_connection_progress(peer_3_ip),
+            &mut ConnectionProgress::new(&desc_3)
+        );
+    }
+
+    #[test]
+    fn can_receive_connection_progress_from_initial_node_desc() {
+        let desc_1 = make_node_descriptor_from_ip(IpAddr::from_str("1.2.3.4").unwrap());
+        let desc_2 = make_node_descriptor_from_ip(IpAddr::from_str("5.6.7.8").unwrap());
+        let desc_3 = make_node_descriptor_from_ip(IpAddr::from_str("9.0.1.2").unwrap());
+
+        let initial_node_descriptors = vec![desc_1.clone(), desc_2.clone(), desc_3.clone()];
+
+        let subject = OverallConnectionStatus::new(initial_node_descriptors);
+
+        assert_eq!(
+            subject.get_connection_progress_by_desc(&desc_1),
+            &ConnectionProgress::new(&desc_1)
+        );
+        assert_eq!(
+            subject.get_connection_progress_by_desc(&desc_2),
+            &ConnectionProgress::new(&desc_2)
+        );
+        assert_eq!(
+            subject.get_connection_progress_by_desc(&desc_1),
+            &ConnectionProgress::new(&desc_1)
+        );
     }
 
     #[test]
@@ -466,6 +548,37 @@ mod tests {
                     initial_node_descriptor: node_descriptor.clone(),
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::Failed(DeadEndFound)
+                }],
+            }
+        )
+    }
+
+    #[test]
+    fn updates_connection_stage_to_failed_when_no_response_is_received() {
+        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let initial_node_descriptors = vec![node_descriptor.clone()];
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+        let new_node_ip_addr: IpAddr = Ipv4Addr::new(5, 6, 7, 8).into();
+        subject.update_connection_stage(
+            node_ip_addr,
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+        );
+
+        subject.update_connection_stage(
+            node_ip_addr,
+            ConnectionProgressEvent::NoGossipResponseReceived,
+        );
+
+        assert_eq!(
+            subject,
+            OverallConnectionStatus {
+                can_make_routes: false,
+                stage: OverallConnectionStage::NotConnected,
+                progress: vec![ConnectionProgress {
+                    initial_node_descriptor: node_descriptor.clone(),
+                    current_peer_addr: node_ip_addr,
+                    connection_stage: ConnectionStage::Failed(NoGossipResponseReceived)
                 }],
             }
         )

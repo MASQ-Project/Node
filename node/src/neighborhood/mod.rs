@@ -35,7 +35,11 @@ use crate::db_config::persistent_configuration::{
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
-use crate::neighborhood::overall_connection_status::OverallConnectionStatus;
+use crate::neighborhood::overall_connection_status::ConnectionStage::Failed;
+use crate::neighborhood::overall_connection_status::ConnectionStageErrors::NoGossipResponseReceived;
+use crate::neighborhood::overall_connection_status::{
+    ConnectionProgress, ConnectionStage, OverallConnectionStatus,
+};
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PublicKey;
@@ -266,7 +270,10 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                 self.overall_connection_status
                     .update_connection_stage(msg.peer_addr, msg.event);
                 let message = AskAboutDebutGossipResponseMessage {
-                    debut_target_addr: msg.peer_addr,
+                    prev_connection_progress: self
+                        .overall_connection_status
+                        .get_connection_progress(msg.peer_addr)
+                        .clone(),
                 };
                 self.tools.notify_later_ask_about_gossip.notify_later(
                     message,
@@ -299,7 +306,17 @@ impl Handler<AskAboutDebutGossipResponseMessage> for Neighborhood {
         msg: AskAboutDebutGossipResponseMessage,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        todo!("You hit the todo! for the handler of AskAboutDebutGossipResponseMessage");
+        let new_connection_progress = self
+            .overall_connection_status
+            .get_connection_progress_by_desc(&msg.prev_connection_progress.initial_node_descriptor);
+
+        if msg.prev_connection_progress == *new_connection_progress {
+            // No change, hence no response was received
+            self.overall_connection_status.update_connection_stage(
+                msg.prev_connection_progress.current_peer_addr,
+                ConnectionProgressEvent::NoGossipResponseReceived,
+            );
+        }
     }
 }
 
@@ -1389,7 +1406,7 @@ mod tests {
 
     use super::*;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
-        DeadEndFound, TcpConnectionFailed,
+        DeadEndFound, NoGossipResponseReceived, TcpConnectionFailed,
     };
     use crate::neighborhood::overall_connection_status::{ConnectionProgress, ConnectionStage};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -1668,15 +1685,17 @@ mod tests {
         subject.tools.ask_about_gossip_interval = Duration::from_millis(10);
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
+        let beginning_connection_progress = ConnectionProgress {
+            initial_node_descriptor: node_descriptor_clone,
+            current_peer_addr: node_ip_addr_clone,
+            connection_stage: ConnectionStage::TcpConnectionEstablished,
+        };
+        let beginning_connection_progress_clone = beginning_connection_progress.clone();
         let system = System::new("testing");
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
-                vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor_clone,
-                    current_peer_addr: node_ip_addr_clone,
-                    connection_stage: ConnectionStage::TcpConnectionEstablished
-                }]
+                vec![beginning_connection_progress_clone]
             );
         });
         let connection_progress_message = ConnectionProgressMessage {
@@ -1695,11 +1714,74 @@ mod tests {
             *notify_later_ask_about_gossip_params,
             vec![(
                 AskAboutDebutGossipResponseMessage {
-                    debut_target_addr: node_addr.ip_addr(),
+                    prev_connection_progress: beginning_connection_progress,
                 },
                 Duration::from_millis(10)
             )]
         );
+    }
+
+    #[test]
+    fn ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received() {
+        init_test_logging();
+        let cryptde: &dyn CryptDE = main_cryptde();
+        let earning_wallet = make_wallet("earning");
+        let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
+        let initial_desc_public_key = PublicKey::new(&b"booga"[..]);
+        let initial_desc_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
+        let initial_desc_node_addr = NodeAddr::new(&initial_desc_ip_addr, &[5678]);
+        let initial_node_descriptor = NodeDescriptor::from((
+            &initial_desc_public_key,
+            &initial_desc_node_addr,
+            Chain::EthRopsten,
+            cryptde,
+        ));
+        let mut subject = Neighborhood::new(
+            cryptde,
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        this_node_addr,
+                        vec![initial_node_descriptor.clone()],
+                        rate_pack(100),
+                    ),
+                },
+                earning_wallet.clone(),
+                None,
+                "ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received",
+            ),
+        );
+        subject.overall_connection_status.update_connection_stage(
+            initial_desc_ip_addr,
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+        );
+        let beginning_connection_progress = ConnectionProgress {
+            initial_node_descriptor: initial_node_descriptor.clone(),
+            current_peer_addr: initial_desc_ip_addr,
+            connection_stage: ConnectionStage::TcpConnectionEstablished,
+        };
+        let addr = subject.start();
+        let recipient: Recipient<AskAboutDebutGossipResponseMessage> = addr.clone().recipient();
+        let aadgrm = AskAboutDebutGossipResponseMessage {
+            prev_connection_progress: beginning_connection_progress.clone(),
+        };
+        let system = System::new("testing");
+        let assertions = Box::new(move |actor: &mut Neighborhood| {
+            assert_eq!(
+                actor.overall_connection_status.progress,
+                vec![ConnectionProgress {
+                    initial_node_descriptor: initial_node_descriptor.clone(),
+                    current_peer_addr: initial_desc_ip_addr,
+                    connection_stage: ConnectionStage::Failed(NoGossipResponseReceived),
+                }]
+            );
+        });
+
+        recipient.try_send(aadgrm).unwrap();
+
+        addr.try_send(AssertionsMessage { assertions }).unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
     }
 
     #[test]

@@ -2,6 +2,7 @@
 
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
+use crate::neighborhood::overall_connection_status::ConnectionProgress;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -494,7 +495,7 @@ pub struct ConnectionProgressMessage {
 
 #[derive(Clone, Debug, Message, PartialEq)]
 pub struct AskAboutDebutGossipResponseMessage {
-    pub debut_target_addr: IpAddr,
+    pub prev_connection_progress: ConnectionProgress,
 }
 
 #[derive(Clone, Debug, Message, PartialEq)]
@@ -573,6 +574,10 @@ mod tests {
                 exit_byte_rate: 0,
                 exit_service_rate: 0,
             }
+        );
+        assert_eq!(
+            NeighborhoodTools::new().ask_about_gossip_interval,
+            Duration::from_secs(10)
         );
     }
 
