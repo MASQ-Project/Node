@@ -477,7 +477,7 @@ mod tests {
 
         subject.update_connection_stage(
             node_ip_addr,
-            ConnectionProgressEvent::IntroductionGossipReceived(Some(new_node_ip_addr)),
+            ConnectionProgressEvent::IntroductionGossipReceived(new_node_ip_addr),
         );
 
         assert_eq!(
@@ -635,7 +635,7 @@ mod tests {
 
         subject.update_connection_stage(
             node_ip_addr,
-            ConnectionProgressEvent::IntroductionGossipReceived(Some(new_node_ip_addr)),
+            ConnectionProgressEvent::IntroductionGossipReceived(new_node_ip_addr),
         );
     }
 

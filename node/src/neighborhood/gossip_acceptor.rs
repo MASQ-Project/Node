@@ -629,7 +629,7 @@ impl GossipHandler for IntroductionHandler {
             let (introducer, introducee) = Self::identify_players(agrs, gossip_source)
                 .expect("Introduction not properly qualified");
             let introducer_key = introducer.inner.public_key.clone();
-            match self.update_database(database, cryptde, introducer) {
+            match self.update_database(database, cryptde, introducer.clone()) {
                 Ok(_) => (),
                 Err(e) => {
                     return GossipAcceptanceResult::Ban(format!(
@@ -638,6 +638,15 @@ impl GossipHandler for IntroductionHandler {
                     ));
                 }
             }
+            let connection_progess_message = ConnectionProgressMessage {
+                peer_addr: introducer.node_addr_opt.unwrap().ip_addr(),
+                event: ConnectionProgressEvent::IntroductionGossipReceived(
+                    introducee.node_addr_opt.as_ref().unwrap().ip_addr(),
+                ),
+            };
+            cpm_recipient
+                .try_send(connection_progess_message)
+                .expect("Neighborhood is dead");
             let (debut, target_key, target_node_addr) =
                 GossipAcceptorReal::make_debut_triple(database, &introducee)
                     .expect("Introduction not properly qualified");
@@ -1205,6 +1214,7 @@ mod tests {
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::{Actor, Recipient, System};
     use libc::time;
+    use log::logger;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::borrow::BorrowMut;
     use std::convert::TryInto;
@@ -2687,6 +2697,36 @@ mod tests {
                 .has_half_neighbor(src_node.public_key()),
             true,
         );
+    }
+
+    #[test]
+    fn introduction_gossip_handler_sends_cpm_for_neighborship_established() {
+        let cryptde = main_cryptde();
+        let root_node = make_node_record(1234, true);
+        let mut db = db_from_node(&root_node);
+        let subject = IntroductionHandler::new(Logger::new("test"));
+        let (gossip, gossip_source) = make_introduction(0, 1);
+        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        let (introducer, introducee) =
+            IntroductionHandler::identify_players(agrs.clone(), gossip_source).unwrap();
+        let new_ip = introducee.node_addr_opt.unwrap().ip_addr();
+        let system =
+            System::new("introduction_gossip_handler_sends_cpm_for_neighborship_established");
+
+        subject.handle(cryptde, &mut db, agrs, gossip_source, &cpm_recipient);
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        let recording = recording_arc.lock().unwrap();
+        let received_message: &ConnectionProgressMessage = recording.get_record(0);
+        assert_eq!(
+            received_message,
+            &ConnectionProgressMessage {
+                peer_addr: gossip_source.ip(),
+                event: ConnectionProgressEvent::IntroductionGossipReceived(new_ip)
+            }
+        )
     }
 
     // 1. TCP ConnectionEstablished
