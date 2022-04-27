@@ -515,7 +515,7 @@ pub mod unshared_test_utils {
     };
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::utils::{
-        NLSpawnHandleWrapper, NLSpawnHandleWrapperReal, NotifyHandle, NotifyLaterHandle,
+        NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use actix::Message;
@@ -714,28 +714,28 @@ pub mod unshared_test_utils {
             .collect()
     }
 
-    pub struct NotifyLaterHandleMock<T> {
-        notify_later_params: Arc<Mutex<Vec<(T, Duration)>>>,
-        do_you_want_to_proceed_after: bool,
+    pub struct NotifyLaterHandleMock<M> {
+        notify_later_params: Arc<Mutex<Vec<(M, Duration)>>>,
+        send_message_out: bool,
     }
 
-    impl<T: Message> Default for NotifyLaterHandleMock<T> {
+    impl<M: Message> Default for NotifyLaterHandleMock<M> {
         fn default() -> Self {
             Self {
                 notify_later_params: Arc::new(Mutex::new(vec![])),
-                do_you_want_to_proceed_after: false,
+                send_message_out: false,
             }
         }
     }
 
-    impl<T: Message> NotifyLaterHandleMock<T> {
-        pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(T, Duration)>>>) -> Self {
+    impl<M: Message> NotifyLaterHandleMock<M> {
+        pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(M, Duration)>>>) -> Self {
             self.notify_later_params = params.clone();
             self
         }
 
-        pub fn enable_proceeding(mut self) -> Self {
-            self.do_you_want_to_proceed_after = true;
+        pub fn permit_to_send_out(mut self) -> Self {
+            self.send_message_out = true;
             self
         }
     }
@@ -750,53 +750,50 @@ pub mod unshared_test_utils {
             msg: M,
             interval: Duration,
             ctx: &'a mut Context<A>,
-        ) -> Box<dyn NLSpawnHandleWrapper> {
+        ) -> Box<dyn NLSpawnHandleHolder> {
             self.notify_later_params
                 .lock()
                 .unwrap()
                 .push((msg.clone(), interval));
-            if !cfg!(test) {
-                panic!("this shouldn't run outside a test")
-            }
-            if self.do_you_want_to_proceed_after {
+            if self.send_message_out {
                 let handle = ctx.notify_later(msg, interval);
-                Box::new(NLSpawnHandleWrapperReal::new(handle))
+                Box::new(NLSpawnHandleHolderReal::new(handle))
             } else {
-                Box::new(NLSpawnHandleWrapperNull {})
+                Box::new(NLSpawnHandleHolderNull {})
             }
         }
     }
 
-    pub struct NLSpawnHandleWrapperNull {}
+    pub struct NLSpawnHandleHolderNull {}
 
-    impl NLSpawnHandleWrapper for NLSpawnHandleWrapperNull {
+    impl NLSpawnHandleHolder for NLSpawnHandleHolderNull {
         fn handle(self) -> SpawnHandle {
             intentionally_blank!()
         }
     }
 
-    pub struct NotifyHandleMock<T> {
-        notify_params: Arc<Mutex<Vec<T>>>,
-        do_you_want_to_proceed_after: bool,
+    pub struct NotifyHandleMock<M> {
+        notify_params: Arc<Mutex<Vec<M>>>,
+        send_message_out: bool,
     }
 
-    impl<T: Message> Default for NotifyHandleMock<T> {
+    impl<M: Message> Default for NotifyHandleMock<M> {
         fn default() -> Self {
             Self {
                 notify_params: Arc::new(Mutex::new(vec![])),
-                do_you_want_to_proceed_after: false,
+                send_message_out: false,
             }
         }
     }
 
-    impl<T: Message> NotifyHandleMock<T> {
-        pub fn notify_params(mut self, params: &Arc<Mutex<Vec<T>>>) -> Self {
+    impl<M: Message> NotifyHandleMock<M> {
+        pub fn notify_params(mut self, params: &Arc<Mutex<Vec<M>>>) -> Self {
             self.notify_params = params.clone();
             self
         }
 
-        pub fn enable_proceeding(mut self) -> Self {
-            self.do_you_want_to_proceed_after = true;
+        pub fn permit_to_send_out(mut self) -> Self {
+            self.send_message_out = true;
             self
         }
     }
@@ -808,10 +805,7 @@ pub mod unshared_test_utils {
     {
         fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
             self.notify_params.lock().unwrap().push(msg.clone());
-            if !cfg!(test) {
-                panic!("this shouldn't run outside a test")
-            }
-            if self.do_you_want_to_proceed_after {
+            if self.send_message_out {
                 ctx.notify(msg)
             }
         }

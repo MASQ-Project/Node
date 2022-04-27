@@ -139,21 +139,21 @@ fn crash_request_analyzer(
     }
 }
 
-pub trait NotifyLaterHandle<T, A>
+pub trait NotifyLaterHandle<M, A>
 where
     A: Actor<Context = Context<A>>,
 {
     fn notify_later(
         &self,
-        msg: T,
+        msg: M,
         interval: Duration,
         ctx: &mut Context<A>,
-    ) -> Box<dyn NLSpawnHandleWrapper>;
+    ) -> Box<dyn NLSpawnHandleHolder>;
     as_any_dcl!();
 }
 
-pub struct NotifyLaterHandleReal<T> {
-    phantom: PhantomData<T>,
+pub struct NotifyLaterHandleReal<M> {
+    phantom: PhantomData<M>,
 }
 
 impl<M, A> Default for Box<dyn NotifyLaterHandle<M, A>>
@@ -178,18 +178,18 @@ where
         msg: M,
         interval: Duration,
         ctx: &mut Context<A>,
-    ) -> Box<dyn NLSpawnHandleWrapper> {
+    ) -> Box<dyn NLSpawnHandleHolder> {
         let handle = ctx.notify_later(msg, interval);
-        Box::new(NLSpawnHandleWrapperReal::new(handle))
+        Box::new(NLSpawnHandleHolderReal::new(handle))
     }
     as_any_impl!();
 }
 
-pub trait NotifyHandle<T, A>
+pub trait NotifyHandle<M, A>
 where
     A: Actor<Context = Context<A>>,
 {
-    fn notify<'a>(&'a self, msg: T, ctx: &'a mut Context<A>);
+    fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>);
     as_any_dcl!();
 }
 
@@ -205,28 +205,28 @@ where
     }
 }
 
-pub trait NLSpawnHandleWrapper {
+pub trait NLSpawnHandleHolder {
     fn handle(self) -> SpawnHandle;
 }
 
-pub struct NLSpawnHandleWrapperReal {
+pub struct NLSpawnHandleHolderReal {
     handle: SpawnHandle,
 }
 
-impl NLSpawnHandleWrapperReal {
+impl NLSpawnHandleHolderReal {
     pub fn new(handle: SpawnHandle) -> Self {
         Self { handle }
     }
 }
 
-impl NLSpawnHandleWrapper for NLSpawnHandleWrapperReal {
+impl NLSpawnHandleHolder for NLSpawnHandleHolderReal {
     fn handle(self) -> SpawnHandle {
         self.handle
     }
 }
 
-pub struct NotifyHandleReal<T> {
-    phantom: PhantomData<T>,
+pub struct NotifyHandleReal<M> {
+    phantom: PhantomData<M>,
 }
 
 impl<M, A> NotifyHandle<M, A> for NotifyHandleReal<M>
@@ -513,7 +513,7 @@ mod tests {
         system.run();
 
         let mut data = Vec::new();
-        (0..2).for_each(|_| data.push(receiver.recv().unwrap()));
+        (0..2).for_each(|_| data.push(receiver.recv_timeout(Duration::from_secs(60)).unwrap()));
         let first_message = data.remove(0);
         assert_eq!(first_message.id, 0);
         let notify_exec_duration = first_message

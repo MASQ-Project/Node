@@ -1818,7 +1818,7 @@ mod tests {
         subject.tools.notify_later_scan_for_receivable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc)
-                .enable_proceeding(),
+                .permit_to_send_out(),
         );
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
@@ -1921,7 +1921,7 @@ mod tests {
         subject.tools.notify_later_scan_for_pending_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_pending_payable_params_arc)
-                .enable_proceeding(),
+                .permit_to_send_out(),
         );
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
@@ -2008,7 +2008,7 @@ mod tests {
         subject.tools.notify_later_scan_for_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_payables_params_arc)
-                .enable_proceeding(),
+                .permit_to_send_out(),
         );
         let subject_addr = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
@@ -3584,16 +3584,16 @@ mod tests {
                 subject.scanners.receivables = Box::new(NullScanner);
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
-                    .enable_proceeding();
+                    .permit_to_send_out();
                 subject.tools.notify_later_scan_for_pending_payable =
                     Box::new(notify_later_half_mock);
                 let notify_half_mock = NotifyHandleMock::default()
                     .notify_params(&notify_cancel_failed_transaction_params_arc_cloned)
-                    .enable_proceeding();
+                    .permit_to_send_out();
                 subject.tools.notify_cancel_failed_transaction = Box::new(notify_half_mock);
                 let notify_half_mock = NotifyHandleMock::default()
                     .notify_params(&notify_confirm_transaction_params_arc_cloned)
-                    .enable_proceeding();
+                    .permit_to_send_out();
                 subject.tools.notify_confirm_transaction = Box::new(notify_half_mock);
                 subject
             });
