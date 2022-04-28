@@ -919,10 +919,15 @@ impl GossipHandler for StandardGossipHandler {
         gossip_source: SocketAddr,
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
+        // TODO: Check to see if there is a full neighborship between you and gossip source.
+        // TODO: We may use full_neighbor_keys(), to receive a HashSet of PubKeys
         let mut db_changed =
             self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
         db_changed = self.identify_and_update_obsolete_nodes(database, agrs) || db_changed;
         db_changed = self.handle_root_node(cryptde, database, gossip_source) || db_changed;
+        // TODO: Check Full Neighborship again
+        // TODO: If it changes from false to true then only change the CPM
+        // TODO: (first check, second_check)
         // If no Nodes need updating, return ::Ignored and don't change the database.
         // Otherwise, return ::Accepted.
         if db_changed {
@@ -1049,6 +1054,13 @@ impl StandardGossipHandler {
             .as_ref()
             .expect("Should have NodeAddr")
             .ip_addr()
+    }
+
+    fn check_full_neighbor(db: &NeighborhoodDatabase, gossip_source_ip: IpAddr) -> bool {
+        if let Some(node) = db.node_by_ip(&gossip_source_ip) {
+            return db.has_full_neighbor(db.root().public_key(), &node.inner.public_key);
+        }
+        false
     }
 }
 
@@ -1970,6 +1982,45 @@ mod tests {
         );
         assert_eq!(0, dest_db.root().version());
         assert_eq!(None, dest_db.node_by_key(&agrs[1].inner.public_key));
+    }
+
+    #[test]
+    fn check_full_neighbor_proves_that_gossip_source_is_a_full_neighbor() {
+        let root_node = make_node_record(1111, true); // This is us
+        let mut root_db = db_from_node(&root_node);
+        let full_neighbor = make_node_record(9012, true); // Full Neighbor
+        root_db.add_node(full_neighbor.clone()).unwrap();
+        root_db.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor.public_key());
+        let full_neighbor_ip = full_neighbor.node_addr_opt().unwrap().ip_addr();
+
+        let result = StandardGossipHandler::check_full_neighbor(&root_db, full_neighbor_ip);
+
+        assert_eq!(result, true);
+    }
+
+    #[test]
+    fn check_full_neighbor_proves_that_node_that_is_not_in_our_db_is_not_a_full_neighbor() {
+        let root_node = make_node_record(1111, true); // This is us
+        let mut root_db = db_from_node(&root_node);
+        let ip_not_in_our_db = IpAddr::from_str("1.2.3.4").unwrap();
+
+        let result = StandardGossipHandler::check_full_neighbor(&root_db, ip_not_in_our_db);
+
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn check_full_neighbor_proves_that_node_that_is_our_half_neighbor_is_not_a_full_neighbor() {
+        let root_node = make_node_record(1111, true); // This is us
+        let mut root_db = db_from_node(&root_node);
+        let half_neighbor = make_node_record(3456, true); // In DB, but half neighbor
+        root_db.add_node(half_neighbor.clone()).unwrap();
+        root_db.add_arbitrary_half_neighbor(half_neighbor.public_key(), root_node.public_key());
+        let ip_addr_of_half_neighbor = half_neighbor.node_addr_opt().unwrap().ip_addr();
+
+        let result = StandardGossipHandler::check_full_neighbor(&root_db, ip_addr_of_half_neighbor);
+
+        assert_eq!(result, false);
     }
 
     #[test]
