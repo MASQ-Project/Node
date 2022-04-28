@@ -514,10 +514,12 @@ pub mod unshared_test_utils {
         AccountantConfig, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
     };
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-    use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
+    use crate::sub_lib::utils::{
+        NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
+    };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use actix::{Actor, Addr, Context, Handler, System};
-    use actix::{Message, SpawnHandle};
+    use actix::Message;
+    use actix::{Actor, Addr, AsyncContext, Context, Handler, SpawnHandle, System};
     use crossbeam_channel::{Receiver, Sender};
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
@@ -712,73 +714,99 @@ pub mod unshared_test_utils {
             .collect()
     }
 
-    pub struct NotifyLaterHandleMock<T> {
-        notify_later_params: Arc<Mutex<Vec<(T, Duration)>>>, //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself
+    pub struct NotifyLaterHandleMock<M> {
+        notify_later_params: Arc<Mutex<Vec<(M, Duration)>>>,
+        send_message_out: bool,
     }
 
-    impl<T: Message> Default for NotifyLaterHandleMock<T> {
+    impl<M: Message> Default for NotifyLaterHandleMock<M> {
         fn default() -> Self {
             Self {
                 notify_later_params: Arc::new(Mutex::new(vec![])),
+                send_message_out: false,
             }
         }
     }
 
-    impl<T: Message> NotifyLaterHandleMock<T> {
-        pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(T, Duration)>>>) -> Self {
+    impl<M: Message> NotifyLaterHandleMock<M> {
+        pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(M, Duration)>>>) -> Self {
             self.notify_later_params = params.clone();
+            self
+        }
+
+        pub fn permit_to_send_out(mut self) -> Self {
+            self.send_message_out = true;
             self
         }
     }
 
-    impl<T: Message + Clone> NotifyLaterHandle<T> for NotifyLaterHandleMock<T> {
+    impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleMock<M>
+    where
+        M: Message + 'static + Clone,
+        A: Actor<Context = Context<A>> + Handler<M>,
+    {
         fn notify_later<'a>(
             &'a self,
-            msg: T,
+            msg: M,
             interval: Duration,
-            mut closure: Box<dyn FnMut(T, Duration) -> SpawnHandle + 'a>,
-        ) -> SpawnHandle {
+            ctx: &'a mut Context<A>,
+        ) -> Box<dyn NLSpawnHandleHolder> {
             self.notify_later_params
                 .lock()
                 .unwrap()
                 .push((msg.clone(), interval));
-            if !cfg!(test) {
-                panic!("this shouldn't run outside a test")
+            if self.send_message_out {
+                let handle = ctx.notify_later(msg, interval);
+                Box::new(NLSpawnHandleHolderReal::new(handle))
+            } else {
+                Box::new(NLSpawnHandleHolderNull {})
             }
-            closure(msg, interval)
         }
     }
 
-    pub struct NotifyHandleMock<T> {
-        //I care only about the params; realize that it's hard to test self addressed messages if you cannot mock yourself as the subject
-        notify_params: Arc<Mutex<Vec<T>>>,
-        pub do_you_want_to_proceed_after: bool,
+    pub struct NLSpawnHandleHolderNull {}
+
+    impl NLSpawnHandleHolder for NLSpawnHandleHolderNull {
+        fn handle(self) -> SpawnHandle {
+            intentionally_blank!()
+        }
     }
 
-    impl<T: Message> Default for NotifyHandleMock<T> {
+    pub struct NotifyHandleMock<M> {
+        notify_params: Arc<Mutex<Vec<M>>>,
+        send_message_out: bool,
+    }
+
+    impl<M: Message> Default for NotifyHandleMock<M> {
         fn default() -> Self {
             Self {
                 notify_params: Arc::new(Mutex::new(vec![])),
-                do_you_want_to_proceed_after: false,
+                send_message_out: false,
             }
         }
     }
 
-    impl<T: Message> NotifyHandleMock<T> {
-        pub fn notify_params(mut self, params: &Arc<Mutex<Vec<T>>>) -> Self {
+    impl<M: Message> NotifyHandleMock<M> {
+        pub fn notify_params(mut self, params: &Arc<Mutex<Vec<M>>>) -> Self {
             self.notify_params = params.clone();
+            self
+        }
+
+        pub fn permit_to_send_out(mut self) -> Self {
+            self.send_message_out = true;
             self
         }
     }
 
-    impl<T: Message + Clone> NotifyHandle<T> for NotifyHandleMock<T> {
-        fn notify<'a>(&'a self, msg: T, mut closure: Box<dyn FnMut(T) + 'a>) {
+    impl<M, A> NotifyHandle<M, A> for NotifyHandleMock<M>
+    where
+        M: Message + 'static + Clone,
+        A: Actor<Context = Context<A>> + Handler<M>,
+    {
+        fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
             self.notify_params.lock().unwrap().push(msg.clone());
-            if !cfg!(test) {
-                panic!("this shouldn't run outside a test")
-            }
-            if self.do_you_want_to_proceed_after {
-                closure(msg)
+            if self.send_message_out {
+                ctx.notify(msg)
             }
         }
     }
