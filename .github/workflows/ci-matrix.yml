@@ -13,6 +13,7 @@ jobs:
     strategy:
       matrix:
         os: [macOS-latest, ubuntu-latest, windows-latest]
+        release: [mac, linux, win]
     steps:
       - uses: actions/checkout@v3
       - name: Cache sccache results
@@ -45,6 +46,6 @@ jobs:
       - name: Publish ${{ matrix.os }}
         uses: actions/upload-artifact@v3
         with:
-          name: Node-${{ matrix.os }}
+          name: Node-${{ matrix.release }}
           path: results/generated/bin
           
