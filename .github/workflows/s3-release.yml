@@ -8,7 +8,6 @@ on:
 
 jobs:         
   deploy_to_s3:
-       needs: build
        runs-on: ubuntu-latest
        steps:
         - uses: actions/download-artifact@v3
@@ -28,4 +27,3 @@ jobs:
             AWS_REGION: 'us-west-2'
             DEST_DIR: 'Node/latest'
             SOURCE_DIR: ${{ steps.download.outputs.download-path }}
-            
