@@ -919,19 +919,33 @@ impl GossipHandler for StandardGossipHandler {
         gossip_source: SocketAddr,
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
-        // TODO: Check to see if there is a full neighborship between you and gossip source.
-        // TODO: We may use full_neighbor_keys(), to receive a HashSet of PubKeys
+        let initial_neighborship_status =
+            StandardGossipHandler::check_full_neighbor(&database, gossip_source.ip());
         let mut db_changed =
             self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
         db_changed = self.identify_and_update_obsolete_nodes(database, agrs) || db_changed;
         db_changed = self.handle_root_node(cryptde, database, gossip_source) || db_changed;
-        // TODO: Check Full Neighborship again
-        // TODO: If it changes from false to true then only change the CPM
-        // TODO: (first check, second_check)
+        let final_neighborship_status =
+            StandardGossipHandler::check_full_neighbor(&database, gossip_source.ip());
         // If no Nodes need updating, return ::Ignored and don't change the database.
         // Otherwise, return ::Accepted.
         if db_changed {
             trace!(self.logger, "Current database: {}", database.to_dot_graph());
+            match (initial_neighborship_status, final_neighborship_status) {
+                (false, false) => (), // Received gossip from a malefactor banned node
+                (false, true) => {
+                    // Received Reply for Acceptance of Debut Gossip
+                    let cpm = ConnectionProgressMessage {
+                        peer_addr: gossip_source.ip(),
+                        event: ConnectionProgressEvent::StandardGossipReceived,
+                    };
+                    cpm_recipient
+                        .try_send(cpm)
+                        .unwrap_or_else(|e| panic!("Neighborhood is dead: {}", e));
+                }
+                (true, false) => todo!("Don't Send CPM, maybe this won't happen"), // Somebody banned us.
+                (true, true) => todo!("Don't Send CPM"), // Standard Gossips received after Neighborship is established
+            }
             GossipAcceptanceResult::Accepted
         } else {
             debug!(
@@ -1225,7 +1239,7 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::{Actor, Recipient, System};
-    use libc::time;
+    use libc::{system, time};
     use log::logger;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::borrow::BorrowMut;
@@ -2176,6 +2190,7 @@ mod tests {
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let gossip_source: SocketAddr = src_root.node_addr_opt().unwrap().into();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let system = System::new("test");
 
         let qualifies_result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
         let handle_result = subject.handle(
@@ -2200,6 +2215,181 @@ mod tests {
         assert_eq!(
             &src_db.node_by_key(node_b_key).unwrap().inner,
             &dest_db.node_by_key(node_b_key).unwrap().inner
+        );
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), 0);
+    }
+
+    #[test]
+    fn no_cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_cannot_be_created() {
+        // (false, false)
+        let cryptde = main_cryptde();
+        let root_node = make_node_record(1111, true); // This is us
+        let mut root_db = db_from_node(&root_node);
+        // This node must not be neighbors with the root node.
+        let src_node = make_node_record(2222, true); // Full Neighbor
+        let src_node_socket_addr = SocketAddr::try_from(src_node.node_addr_opt().unwrap()).unwrap();
+        let mut src_db = db_from_node(&src_node);
+        let gossip = GossipBuilder::new(&src_db)
+            .node(src_node.public_key(), true)
+            .build();
+        let agrs = gossip.try_into().unwrap();
+        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
+        let system = System::new("test");
+
+        let result = subject.handle(
+            cryptde,
+            &mut root_db,
+            agrs,
+            src_node_socket_addr,
+            &cpm_recipient,
+        );
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), 0);
+        assert_eq!(result, GossipAcceptanceResult::Ignored);
+    }
+
+    #[test]
+    fn cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_is_created() {
+        // (false, true)
+        let cryptde = main_cryptde();
+        let root_node = make_node_record(1111, true); // This is us
+        let mut root_db = db_from_node(&root_node);
+        let src_node = make_node_record(2222, true); // Full Neighbor
+        let src_node_socket_addr = SocketAddr::try_from(src_node.node_addr_opt().unwrap()).unwrap();
+        let mut src_db = db_from_node(&src_node);
+        root_db.add_node(src_node.clone());
+        root_db.add_half_neighbor(src_node.public_key()).unwrap();
+        src_db.root_mut().increment_version();
+        src_db.add_node(root_node.clone());
+        src_db.add_half_neighbor(root_node.public_key()).unwrap();
+        src_db.root_mut().resign();
+        let gossip = GossipBuilder::new(&src_db)
+            .node(src_node.public_key(), true)
+            .build();
+        let agrs = gossip.try_into().unwrap();
+        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
+        let system = System::new("test");
+
+        let result = subject.handle(
+            cryptde,
+            &mut root_db,
+            agrs,
+            src_node_socket_addr,
+            &cpm_recipient,
+        );
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), 1);
+        let received_message = recording.get_record::<ConnectionProgressMessage>(0);
+        assert_eq!(
+            received_message,
+            &ConnectionProgressMessage {
+                peer_addr: src_node.node_addr_opt().unwrap().ip_addr(),
+                event: ConnectionProgressEvent::StandardGossipReceived
+            }
+        );
+    }
+
+    #[test]
+    fn cpm_is_not_sent_in_case_full_neighborship_exists_and_is_destroyed() {
+        // (true, false)
+        let cryptde = main_cryptde();
+        let root_node = make_node_record(1111, true); // This is us
+        let mut root_db = db_from_node(&root_node);
+        let src_node = make_node_record(2222, true); // Full Neighbor
+        let src_node_socket_addr = SocketAddr::try_from(src_node.node_addr_opt().unwrap()).unwrap();
+        let mut src_db = db_from_node(&src_node);
+        root_db.add_node(src_node.clone());
+        root_db.add_arbitrary_full_neighbor(root_node.public_key(), src_node.public_key());
+        src_db.root_mut().increment_version();
+        src_db.add_node(root_node.clone());
+        src_db.root_mut().resign();
+        let gossip = GossipBuilder::new(&src_db)
+            .node(src_node.public_key(), true)
+            .build();
+        let agrs = gossip.try_into().unwrap();
+        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
+        let system = System::new("test");
+
+        let result = subject.handle(
+            cryptde,
+            &mut root_db,
+            agrs,
+            src_node_socket_addr,
+            &cpm_recipient,
+        );
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), 1);
+        let received_message = recording.get_record::<ConnectionProgressMessage>(0);
+        assert_eq!(
+            received_message,
+            &ConnectionProgressMessage {
+                peer_addr: src_node.node_addr_opt().unwrap().ip_addr(),
+                event: ConnectionProgressEvent::StandardGossipReceived
+            }
+        );
+    }
+
+    #[test]
+    fn cpm_is_not_sent_in_case_full_neighborship_exists_and_continues() {
+        // (true, true)
+        let cryptde = main_cryptde();
+        let root_node = make_node_record(1111, true); // This is us
+        let mut root_db = db_from_node(&root_node);
+        let src_node = make_node_record(2222, true); // Full Neighbor
+        let src_node_socket_addr = SocketAddr::try_from(src_node.node_addr_opt().unwrap()).unwrap();
+        let mut src_db = db_from_node(&src_node);
+        root_db.add_node(src_node.clone());
+        root_db.add_arbitrary_full_neighbor(root_node.public_key(), src_node.public_key());
+        src_db.root_mut().increment_version();
+        src_db.add_node(root_node.clone());
+        src_db.add_arbitrary_full_neighbor(src_node.public_key(), root_node.public_key());
+        src_db.root_mut().resign();
+        let gossip = GossipBuilder::new(&src_db)
+            .node(src_node.public_key(), true)
+            .node(root_node.public_key(), true)
+            .build();
+        let agrs = gossip.try_into().unwrap();
+        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
+        let system = System::new("test");
+
+        let result = subject.handle(
+            cryptde,
+            &mut root_db,
+            agrs,
+            src_node_socket_addr,
+            &cpm_recipient,
+        );
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), 1);
+        let received_message = recording.get_record::<ConnectionProgressMessage>(0);
+        assert_eq!(
+            received_message,
+            &ConnectionProgressMessage {
+                peer_addr: src_node.node_addr_opt().unwrap().ip_addr(),
+                event: ConnectionProgressEvent::StandardGossipReceived
+            }
         );
     }
 
