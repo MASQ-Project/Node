@@ -174,8 +174,11 @@ impl OverallConnectionStatus {
                 .update_stage(ConnectionStage::Failed(TcpConnectionFailed)),
 
             ConnectionProgressEvent::IntroductionGossipReceived(new_descriptor_opt) => {
-                // TODO: Write some code for receiving the new descriptor (e.g. send debut gossip again)
                 connection_progress_to_modify.update_stage(ConnectionStage::NeighborshipEstablished)
+            }
+            ConnectionProgressEvent::StandardGossipReceived => {
+                connection_progress_to_modify
+                    .update_stage(ConnectionStage::NeighborshipEstablished);
             }
             ConnectionProgressEvent::PassGossipReceived(new_pass_target) => {
                 connection_progress_to_modify.handle_pass_gossip(new_pass_target);
@@ -187,7 +190,6 @@ impl OverallConnectionStatus {
                 connection_progress_to_modify
                     .update_stage(ConnectionStage::Failed(NoGossipResponseReceived));
             }
-            _ => todo!("Write logic for updating the connection progress"),
         }
     }
 
@@ -495,6 +497,37 @@ mod tests {
     }
 
     #[test]
+    fn updates_the_connection_stage_to_neighborship_established_when_standard_gossip_is_received() {
+        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let initial_node_descriptors = vec![node_descriptor.clone()];
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+        let new_node_ip_addr: IpAddr = Ipv4Addr::new(5, 6, 7, 8).into();
+        subject.update_connection_stage(
+            node_ip_addr,
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+        );
+
+        subject.update_connection_stage(
+            node_ip_addr,
+            ConnectionProgressEvent::StandardGossipReceived,
+        );
+
+        assert_eq!(
+            subject,
+            OverallConnectionStatus {
+                can_make_routes: false,
+                stage: OverallConnectionStage::NotConnected,
+                progress: vec![ConnectionProgress {
+                    initial_node_descriptor: node_descriptor.clone(),
+                    current_peer_addr: node_ip_addr,
+                    connection_stage: ConnectionStage::NeighborshipEstablished
+                }],
+            }
+        )
+    }
+
+    #[test]
     fn updates_the_connection_stage_to_stage_zero_when_pass_gossip_is_received() {
         let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
@@ -554,7 +587,7 @@ mod tests {
     }
 
     #[test]
-    fn updates_connection_stage_to_failed_when_no_response_is_received() {
+    fn updates_connection_stage_to_failed_when_no_gossip_response_is_received() {
         let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let initial_node_descriptors = vec![node_descriptor.clone()];
