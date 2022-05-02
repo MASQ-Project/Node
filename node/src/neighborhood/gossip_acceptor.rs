@@ -932,7 +932,10 @@ impl GossipHandler for StandardGossipHandler {
         if db_changed {
             trace!(self.logger, "Current database: {}", database.to_dot_graph());
             match (initial_neighborship_status, final_neighborship_status) {
-                (false, false) => (), // Received gossip from a malefactor banned node
+                (false, false) => {
+                    // Received gossip from a malefactor banned node (false, false)
+                    GossipAcceptanceResult::Ignored
+                }
                 (false, true) => {
                     // Received Reply for Acceptance of Debut Gossip
                     let cpm = ConnectionProgressMessage {
@@ -942,11 +945,14 @@ impl GossipHandler for StandardGossipHandler {
                     cpm_recipient
                         .try_send(cpm)
                         .unwrap_or_else(|e| panic!("Neighborhood is dead: {}", e));
+                    GossipAcceptanceResult::Accepted
                 }
-                (true, false) => todo!("Don't Send CPM, maybe this won't happen"), // Somebody banned us.
-                (true, true) => todo!("Don't Send CPM"), // Standard Gossips received after Neighborship is established
+                _ => {
+                    // Somebody banned us. (true, false)
+                    // Standard Gossips received after Neighborship is established (true, true)
+                    GossipAcceptanceResult::Accepted
+                }
             }
-            GossipAcceptanceResult::Accepted
         } else {
             debug!(
                 self.logger,
@@ -2335,15 +2341,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         let recording = recording_arc.lock().unwrap();
-        assert_eq!(recording.len(), 1);
-        let received_message = recording.get_record::<ConnectionProgressMessage>(0);
-        assert_eq!(
-            received_message,
-            &ConnectionProgressMessage {
-                peer_addr: src_node.node_addr_opt().unwrap().ip_addr(),
-                event: ConnectionProgressEvent::StandardGossipReceived
-            }
-        );
+        assert_eq!(recording.len(), 0);
     }
 
     #[test]
@@ -2382,15 +2380,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         let recording = recording_arc.lock().unwrap();
-        assert_eq!(recording.len(), 1);
-        let received_message = recording.get_record::<ConnectionProgressMessage>(0);
-        assert_eq!(
-            received_message,
-            &ConnectionProgressMessage {
-                peer_addr: src_node.node_addr_opt().unwrap().ip_addr(),
-                event: ConnectionProgressEvent::StandardGossipReceived
-            }
-        );
+        assert_eq!(recording.len(), 0);
     }
 
     #[test]
