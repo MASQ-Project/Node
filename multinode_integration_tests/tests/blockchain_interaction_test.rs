@@ -6,7 +6,7 @@ use log::Level;
 use regex::escape;
 use serde_derive::Serialize;
 
-use masq_lib::messages::{ScanType, ToMessageBody, UiScanRequest};
+use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiScanRequest, UiScanResponse};
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::MASQNodeUtils;
@@ -115,7 +115,9 @@ fn debtors_are_credited_once_but_not_twice() {
         }
         .tmb(1235),
     );
-    let _response = ui_client.wait_for_response(1235, Duration::from_secs(5));
+    let response = ui_client.wait_for_response(1235, Duration::from_secs(10));
+    let (_, context_id) = UiScanResponse::fmb(response).unwrap();
+    assert_eq! (context_id, 1235);
     // Kill the real Node
     node.kill_node();
     // Use the receivable DAO to verify that the receivable's balance has been adjusted

@@ -13,6 +13,7 @@ use regex::Regex;
 use serde::Serialize;
 
 use masq_lib::utils::localhost;
+use crate::masq_node_cluster::MASQNodeCluster;
 
 lazy_static! {
     static ref CONTENT_LENGTH_DETECTOR: Regex =
@@ -155,7 +156,7 @@ impl MockBlockchainClientServer {
     }
 
     pub fn start(&mut self) {
-        let listener = TcpListener::bind(SocketAddr::new(localhost(), self.port)).unwrap();
+        let listener = TcpListener::bind(SocketAddr::new(MASQNodeCluster::host_ip_addr(), self.port)).unwrap();
         listener.set_nonblocking(true).unwrap();
         let requests_arc = self.requests_arc.clone();
         let mut responses: Vec<String> = self.responses.drain(..).collect();
