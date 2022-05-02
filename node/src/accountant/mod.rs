@@ -3,10 +3,12 @@
 pub mod payable_dao;
 pub mod pending_payable_dao;
 pub mod receivable_dao;
+pub mod dao_utils;
 pub mod tools;
 
 #[cfg(test)]
 pub mod test_utils;
+
 
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
@@ -369,6 +371,7 @@ impl Accountant {
             "Chose {} qualified debts to pay",
             qualified_payables.len()
         );
+        //TODO do we evaluate payables_debug_summary() only if required?
         debug!(
             self.logger,
             "{}",
@@ -1091,7 +1094,7 @@ impl From<&PendingPayableFingerprint> for PendingPayableId {
     }
 }
 
-//TODO the data types should change with GH-497 (including signed => unsigned)
+//TODO the data types should change with GH-497 (including signed => unsigned)...so now!!
 trait PayableExceedThresholdTools {
     fn is_innocent_age(&self, age: u64, limit: u64) -> bool;
     fn is_innocent_balance(&self, balance: i64, limit: i64) -> bool;

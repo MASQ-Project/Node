@@ -27,11 +27,16 @@ use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMoc
 use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
-use rusqlite::{Connection, Error, OptionalExtension};
+use rusqlite::{Connection, Error, Transaction as RusqliteTransaction, OptionalExtension};
 use std::cell::RefCell;
+use std::fmt::Display;
+use std::ptr::addr_of;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use itertools::Either;
+use crate::accountant::dao_utils::{InsertConfiguration, InsertUpdateConfig, InsertUpdateCore, Table, UpdateConfiguration};
+use crate::database::connection_wrapper::ConnectionWrapper;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -871,6 +876,99 @@ pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccou
             _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
         }
     })
-    .optional()
-    .unwrap()
+        .optional()
+        .unwrap()
+}
+
+#[derive(Default)]
+pub struct InsertUpdateCoreMock {
+    update_params: Arc<Mutex<Vec<(String, String, String, Vec<String>)>>>, //trait-object-like params tested specially
+    update_results: RefCell<Vec<Result<(), String>>>,
+    upsert_params: Arc<Mutex<Vec<(String, String, Table, Vec<(String, String)>)>>>,
+    upsert_results: RefCell<Vec<Result<(), String>>>,
+    connection_wrapper_as_pointer_to_compare: Option<*const dyn ConnectionWrapper>,
+}
+
+impl InsertUpdateCore for InsertUpdateCoreMock {
+    fn insert(
+        &self,
+        conn: &dyn ConnectionWrapper,
+        config: &dyn InsertConfiguration,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn update<'a>(
+        &self,
+        conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,
+        config: &'a (dyn UpdateConfiguration<'a> + 'a),
+    ) -> Result<(), String> {
+        let owned_params: Vec<String> = config
+            .update_params()
+            .all_rusqlite_params()
+            .into_iter()
+            .map(|(str, _to_sql)| str.to_string())
+            .collect();
+        self.update_params.lock().unwrap().push((
+            config.select_sql(),
+            config.update_sql().to_string(),
+            config.table(),
+            owned_params,
+        ));
+        if let Some(conn_wrapp_pointer) = self.connection_wrapper_as_pointer_to_compare {
+            assert_eq!(conn_wrapp_pointer, addr_of!(*conn.left().unwrap()))
+        }
+        self.update_results.borrow_mut().remove(0)
+    }
+
+    fn upsert(
+        &self,
+        conn: &dyn ConnectionWrapper,
+        config: InsertUpdateConfig,
+    ) -> Result<(), String> {
+        let owned_params: Vec<(String, String)> = config
+            .params
+            .params()
+            .iter()
+            .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
+            .collect();
+        self.upsert_params.lock().unwrap().push((
+            config.update_sql.to_string(),
+            config.insert_sql.to_string(),
+            config.params.table(),
+            owned_params,
+        ));
+        if let Some(conn_wrapp_pointer) = self.connection_wrapper_as_pointer_to_compare {
+            assert_eq!(conn_wrapp_pointer, addr_of!(*conn))
+        }
+        self.upsert_results.borrow_mut().remove(0)
+    }
+}
+
+impl InsertUpdateCoreMock {
+    pub fn update_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(String, String, String, Vec<String>)>>>,
+    ) -> Self {
+        self.update_params = params.clone();
+        self
+    }
+
+    pub fn update_result(self, result: Result<(), String>) -> Self {
+        self.update_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn upsert_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(String, String, Table, Vec<(String, String)>)>>>,
+    ) -> Self {
+        self.upsert_params = params.clone();
+        self
+    }
+
+    pub fn upsert_results(self, result: Result<(), String>) -> Self {
+        self.upsert_results.borrow_mut().push(result);
+        self
+    }
 }

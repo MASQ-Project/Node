@@ -132,6 +132,13 @@ pub struct FinancialStatistics {
     pub total_paid_receivable: u64,
 }
 
+#[derive(PartialEq, Debug)]
+pub enum SignConversionError {
+    U64(String),
+    U128(String),
+    I128(String),
+}
+
 #[cfg(test)]
 mod tests {
     use crate::sub_lib::accountant::{
