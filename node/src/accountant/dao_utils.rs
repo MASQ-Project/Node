@@ -1,23 +1,21 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::connection_wrapper::ConnectionWrapper;
-use itertools::Either;
-use masq_lib::utils::ExpectValue;
-use rusqlite::types::Value;
-use rusqlite::ErrorCode::ConstraintViolation;
-use rusqlite::{Error, Statement, ToSql, Transaction};
-use simple_server::Handler;
-use std::any::Any;
-use std::fmt::{Display, Formatter};
-use web3::types::Res;
 use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::receivable_dao::ReceivableDaoError;
+use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::accountant::SignConversionError;
+use itertools::Either;
+use masq_lib::utils::ExpectValue;
+use rusqlite::ErrorCode::ConstraintViolation;
+use rusqlite::{Error, Statement, ToSql, Transaction};
+use std::any::Any;
+use std::fmt::{Display, Formatter};
 
 pub struct InsertUpdateConfig<'a> {
     pub insert_sql: &'a str,
     pub update_sql: &'a str,
-    pub params: ExtendedParams<'a>,
+    pub params: SQLExtParams<'a>,
+    pub table: Table
 }
 
 pub struct InsertConfig<'a> {
@@ -28,7 +26,8 @@ pub struct InsertConfig<'a> {
 
 pub struct UpdateConfig<'a> {
     pub update_sql: &'a str,
-    pub params: ExtendedParams<'a>,
+    pub params: SQLExtParams<'a>,
+    pub table: Table
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -46,6 +45,18 @@ impl Display for Table {
     }
 }
 
+impl From<String> for PayableDaoError {
+    fn from(_: String) -> Self {
+        todo!()
+    }
+}
+
+impl From<String> for ReceivableDaoError {
+    fn from(_: String) -> Self {
+        todo!()
+    }
+}
+
 pub trait ExtendedParamsMarker: ToSql + Display {
     fn countable_as_any(&self) -> &dyn Any {
         intentionally_blank!()
@@ -59,21 +70,16 @@ impl ExtendedParamsMarker for i128 {
 impl ExtendedParamsMarker for i64 {}
 impl ExtendedParamsMarker for &str {}
 
-pub struct ExtendedParams<'a> {
+pub struct SQLExtParams<'a> {
     params: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
-    table: Table,
 }
 
-impl<'a> ExtendedParams<'a> {
-    pub fn new(table: Table, params: Vec<(&'a str, &'a (dyn ExtendedParamsMarker + 'a))>) -> Self {
-        Self { params, table }
+impl<'a> SQLExtParams<'a> {
+    pub fn new(params: Vec<(&'a str, &'a (dyn ExtendedParamsMarker + 'a))>) -> Self {
+        Self { params }
     }
     pub fn params(&self) -> &Vec<(&'a str, &'a (dyn ExtendedParamsMarker + 'a))> {
         &self.params
-    }
-
-    pub fn table(&self) -> Table {
-        self.table
     }
 
     pub fn all_rusqlite_params(&'a self) -> Vec<(&'a str, &'a dyn ToSql)> {
@@ -160,24 +166,24 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
         match stm.execute(&*params) {
             Ok(_) => return Ok(()),
             Err(e)
-            if {
-                match e {
-                    Error::SqliteFailure(e, _) => match e.code {
-                        ConstraintViolation => true,
+                if {
+                    match e {
+                        Error::SqliteFailure(e, _) => match e.code {
+                            ConstraintViolation => true,
+                            _ => false,
+                        },
                         _ => false,
-                    },
-                    _ => false,
-                }
-            } =>
-                {
-                    self.update(Either::Left(conn), &config)
-                }
+                    }
+                } =>
+            {
+                self.update(Either::Left(conn), &config)
+            }
             Err(e) => {
                 let params = config.params.params();
                 let (wallet, amount) = Self::fetch_fundamentals(params)?;
                 Err(format!(
                     "Updating balance after invalid insertion for {} of {} Wei to {}; failing on: '{}'",
-                    config.params.table, amount, wallet, e
+                    config.table, amount, wallet, e
                 ))
             }
         }
@@ -186,7 +192,7 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
 
 pub trait FetchValue<'a> {
     fn fetch_balance_change(&'a self) -> Result<i128, String>;
-    fn fetch_wallet(&'a self) -> Result<(String), String>;
+    fn fetch_wallet(&'a self) -> Result<String, String>;
 }
 
 type ExtendedParamsVec<'a> = &'a Vec<(&'a str, &'a dyn ExtendedParamsMarker)>;
@@ -202,9 +208,9 @@ impl<'a> FetchValue<'a> for ExtendedParamsVec<'a> {
         }
     }
 
-    fn fetch_wallet(&'a self) -> Result<(String), String> {
+    fn fetch_wallet(&'a self) -> Result<String, String> {
         match self.iter().find(|(param_name, _)| *param_name == ":wallet") {
-            Some((_, value)) => Ok((value.to_string())),
+            Some((_, value)) => Ok(value.to_string()),
             None => Err("Missing parameter and value for the wallet address".to_string()),
         }
     }
@@ -223,7 +229,7 @@ impl InsertUpdateCoreReal {
             Either::Left(conn) => conn.prepare(query),
             Either::Right(tx) => tx.prepare(query),
         }
-            .expect("internal rusqlite error")
+        .expect("internal rusqlite error")
     }
 }
 
@@ -245,7 +251,7 @@ pub trait UpdateConfiguration<'a> {
     fn table(&self) -> String;
     fn select_sql(&self) -> String;
     fn update_sql(&self) -> &'a str;
-    fn update_params(&self) -> &ExtendedParams;
+    fn update_params(&self) -> &SQLExtParams;
     fn finalize_update_params<'b>(
         &'a self,
         updated_balance: &'b i128,
@@ -254,7 +260,7 @@ pub trait UpdateConfiguration<'a> {
         params_to_update.remove(
             params_to_update
                 .iter()
-                .position(|(name, val)| *name == ":balance")
+                .position(|(name, _)| *name == ":balance")
                 .expectv(":balance"),
         );
         params_to_update.insert(0, (":updated_balance", updated_balance));
@@ -264,36 +270,36 @@ pub trait UpdateConfiguration<'a> {
 
 impl<'a> UpdateConfiguration<'a> for InsertUpdateConfig<'a> {
     fn table(&self) -> String {
-        self.params.table.to_string()
+        self.table.to_string()
     }
 
     fn select_sql(&self) -> String {
-        select_statement(&self.params.table)
+        select_statement(&self.table)
     }
 
     fn update_sql(&self) -> &'a str {
         self.update_sql
     }
 
-    fn update_params(&self) -> &ExtendedParams {
+    fn update_params(&self) -> &SQLExtParams {
         &self.params
     }
 }
 
 impl<'a> UpdateConfiguration<'a> for UpdateConfig<'a> {
     fn table(&self) -> String {
-        self.params.table.to_string()
+        self.table.to_string()
     }
 
     fn select_sql(&self) -> String {
-        select_statement(&self.params.table)
+        select_statement(&self.table)
     }
 
     fn update_sql(&self) -> &'a str {
         self.update_sql
     }
 
-    fn update_params(&self) -> &ExtendedParams {
+    fn update_params(&self) -> &SQLExtParams {
         &self.params
     }
 }
@@ -313,18 +319,17 @@ pub fn update_receivable(
     amount: i128,
     last_received_time_stamp: i64,
 ) -> Result<(), ReceivableDaoError> {
-    let config = UpdateConfig {
+    Ok(core.update(Either::Right(transaction), &UpdateConfig {
         update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
-        params: ExtendedParams::new(
-            Table::Receivable,
+        params: SQLExtParams::new(
+   //         Table::Receivable,
             vec![
                 (":wallet", &wallet),
                 (":balance", &amount), //:balance is later recomputed into :updated_balance
                 (":last_received", &last_received_time_stamp),
-            ])
-    };
-    core.update(Either::Right(transaction), &config)
-        .map_err(receivable_rusqlite_err)
+            ]),
+        table: Table::Receivable
+    })?)
 }
 
 //insert_update
@@ -334,17 +339,16 @@ pub fn upsert_receivable(
     wallet: &str,
     amount: i128,
 ) -> Result<(), ReceivableDaoError> {
-    let config = InsertUpdateConfig{
+    Ok(core.upsert(conn,  InsertUpdateConfig{
         insert_sql: "insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet,:balance,strftime('%s','now'))",
         update_sql: "update receivable set balance = :updated_balance where wallet_address = :wallet",
-        params: ExtendedParams::new(
-            Table::Receivable,
+        params: SQLExtParams::new(
             vec![
                 (":wallet", &wallet),
                 (":balance", &amount)
-            ])
-    };
-    core.upsert(conn, config).map_err(receivable_rusqlite_err)
+            ]),
+        table: Table::Receivable,
+    })?)
 }
 
 pub fn upsert_payable_on_new_accrual(
@@ -353,17 +357,16 @@ pub fn upsert_payable_on_new_accrual(
     wallet: &str,
     amount: i128,
 ) -> Result<(), PayableDaoError> {
-    let config = InsertUpdateConfig{
+    Ok(core.upsert(conn, InsertUpdateConfig{
         insert_sql: "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (:wallet,:balance,strftime('%s','now'),null)",
         update_sql: "update payable set balance = :updated_balance where wallet_address = :wallet",
-        params: ExtendedParams::new(
-            Table::Payable,
+        params: SQLExtParams::new(
             vec![
                 (":wallet", &wallet),
                 (":balance", &amount)
-            ])
-    };
-    core.upsert(conn, config).map_err(payable_rusqlite_err)
+            ]),
+        table: Table::Payable,
+    })?)
 }
 
 //TODO this function may not need to be insert update but simply update
@@ -376,27 +379,18 @@ pub fn upsert_payable_on_confirmation(
     last_paid_timestamp: i64,
     transaction_hash: &str,
 ) -> Result<(), PayableDaoError> {
-    let config = InsertUpdateConfig{
+    Ok(core.upsert(conn, InsertUpdateConfig{
         insert_sql: "insert into payable (balance, last_paid_timestamp, pending_payment_transaction, wallet_address) values (:balance, :last_paid, :transaction, :wallet)",
         update_sql: "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payment_transaction = :transaction where wallet_address = :wallet",
-        params: ExtendedParams::new(
-            Table::Payable,
+        params: SQLExtParams::new(
             vec![
                 (":wallet", &wallet),
                 (":balance", &amount),
                 (":last_paid", &last_paid_timestamp),
                 (":transaction", &transaction_hash),
-            ])
-    };
-    core.upsert(conn, config).map_err(payable_rusqlite_err)
-}
-
-fn receivable_rusqlite_err(err: String) -> ReceivableDaoError {
-    ReceivableDaoError::RusqliteError(err)
-}
-
-fn payable_rusqlite_err(err: String) -> PayableDaoError {
-    PayableDaoError::RusqliteError(err)
+            ]),
+        table: Table::Payable,
+    })?)
 }
 
 pub fn reverse_sign(amount: i128) -> Result<i128, SignConversionError> {
@@ -411,15 +405,14 @@ mod tests {
     use crate::accountant::test_utils::InsertUpdateCoreMock;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::database::db_migrations::MigratorConfig;
     use itertools::{Either, Itertools};
-    use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::utils::array_of_borrows_to_vec;
     use rusqlite::types::ToSqlOutput;
     use rusqlite::{named_params, params, Connection, ToSql};
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
-    use masq_lib::utils::array_of_borrows_to_vec;
-    use crate::database::db_migrations::MigratorConfig;
 
     fn convert_params_to_debuggable_values<'a>(
         standard_params: Vec<(&'a str, &'a dyn ToSql)>,
@@ -443,14 +436,14 @@ mod tests {
     fn finalize_update_params_for_update_config_works() {
         let subject = UpdateConfig {
             update_sql: "blah",
-            params: ExtendedParams::new(
-                Table::Payable,
+            params: SQLExtParams::new(
                 vec![
                     (":something", &152_i64),
                     (":balance", &5555_i128),
                     (":something_else", &"foooo"),
                 ],
             ),
+            table: Table::Payable,
         };
 
         finalize_update_params_assertion(&subject)
@@ -461,14 +454,14 @@ mod tests {
         let subject = InsertUpdateConfig {
             insert_sql: "blah1",
             update_sql: "blah2",
-            params: ExtendedParams::new(
-                Table::Payable,
+            params: SQLExtParams::new(
                 vec![
                     (":something", &152_i64),
                     (":balance", &5555_i128),
                     (":something_else", &"foooo"),
                 ],
             ),
+            table:Table::Payable,
         };
 
         finalize_update_params_assertion(&subject)
@@ -535,7 +528,7 @@ mod tests {
             "update_receivable_works_positive",
         );
         let mut conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         insert_receivable_100_balance_100_last_time_stamp(conn_ref, wallet_address);
@@ -570,7 +563,7 @@ mod tests {
             "update_receivable_works_negative",
         );
         let mut conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         insert_receivable_100_balance_100_last_time_stamp(conn_ref, wallet_address);
@@ -605,7 +598,7 @@ mod tests {
             "insert_or_update_receivable_works_for_insert_positive",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         let err = read_row_receivable(conn_ref, wallet_address).unwrap_err();
@@ -631,7 +624,7 @@ mod tests {
             "insert_or_update_receivable_works_for_insert_negative",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         let err = read_row_receivable(conn_ref, wallet_address).unwrap_err();
@@ -657,7 +650,7 @@ mod tests {
             "insert_or_update_receivable_works_for_update_positive",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         insert_receivable_100_balance_100_last_time_stamp(conn_ref, wallet_address);
@@ -682,7 +675,7 @@ mod tests {
             "insert_or_update_receivable_works_for_update_negative",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         insert_receivable_100_balance_100_last_time_stamp(conn_ref, wallet_address);
@@ -707,7 +700,7 @@ mod tests {
             "insert_or_update_payable_works_for_insert_positive",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         let err = read_row_payable(conn_ref, wallet_address).unwrap_err();
@@ -740,7 +733,7 @@ mod tests {
             "insert_or_update_payable_works_for_insert_negative",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         let err = read_row_payable(conn_ref, wallet_address).unwrap_err();
@@ -773,7 +766,7 @@ mod tests {
             "insert_or_update_payable_works_for_update_positive",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         insert_payable_100_balance_100_last_time_stamp_transaction_hash_abc(
@@ -810,7 +803,7 @@ mod tests {
             "insert_or_update_payable_works_for_update_negative",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         insert_payable_100_balance_100_last_time_stamp_transaction_hash_abc(
@@ -847,7 +840,7 @@ mod tests {
             "insert_or_update_payable_for_our_payment_works_for_insert_positive",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         let err = read_row_payable(conn_ref, wallet_address).unwrap_err();
@@ -884,7 +877,7 @@ mod tests {
             "insert_or_update_payable_for_our_payment_works_for_insert_negative",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         let err = read_row_payable(conn_ref, wallet_address).unwrap_err();
@@ -921,7 +914,7 @@ mod tests {
             "insert_or_update_payable_for_our_payment_works_for_update_positive",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         insert_payable_100_balance_100_last_time_stamp_transaction_hash_abc(
@@ -962,7 +955,7 @@ mod tests {
             "insert_or_update_payable_for_our_payment_works_for_update_negative",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         insert_payable_100_balance_100_last_time_stamp_transaction_hash_abc(
@@ -1019,7 +1012,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(ReceivableDaoError::RusqliteError("SomethingWrong".to_string()))
+            Err(ReceivableDaoError::RusqliteError(
+                "SomethingWrong".to_string()
+            ))
         );
         let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
         let (select_sql, update_sql, table, sql_param_names) = insert_or_update_params.remove(0);
@@ -1057,9 +1052,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(
-                ReceivableDaoError::RusqliteError("SomethingWrong".to_string())
-            )
+            Err(ReceivableDaoError::RusqliteError(
+                "SomethingWrong".to_string()
+            ))
         );
         let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
         let (update_sql, insert_sql, table, sql_param_names) = insert_or_update_params.remove(0);
@@ -1100,9 +1095,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayableDaoError::RusqliteError(
-                "SomethingWrong".to_string()
-            ))
+            Err(PayableDaoError::RusqliteError("SomethingWrong".to_string()))
         );
         let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
         let (update_sql, insert_sql, table, sql_param_names) = insert_or_update_params.remove(0);
@@ -1147,9 +1140,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayableDaoError::RusqliteError(
-                "SomethingWrong".to_string()
-            ))
+            Err(PayableDaoError::RusqliteError("SomethingWrong".to_string()))
         );
         let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
         let (update_sql, insert_sql, table, sql_param_names) = insert_or_update_params.remove(0);
@@ -1178,10 +1169,10 @@ mod tests {
         let update_config = InsertUpdateConfig {
             insert_sql: "",
             update_sql: "",
-            params: ExtendedParams::new(
-                Table::Payable,
+            params: SQLExtParams::new(
                 vec![(":wallet", &wallet_address), (":balance", &amount_wei)],
             ),
+            table:Table::Payable,
         };
 
         let result = InsertUpdateCoreReal.update(Either::Left(&wrapped_conn), &update_config);
@@ -1197,7 +1188,7 @@ mod tests {
             "update_handles_error_on_a_row_due_to_unfitting_data_types",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         insert_payable_balance_last_time_stamp_transaction_hash_with_bad_data_types(
@@ -1208,7 +1199,8 @@ mod tests {
         let last_received_time_stamp_sec = 123_i64;
         let update_config = UpdateConfig {
             update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
-            params: ExtendedParams::new(Table::Payable,vec![(":wallet", &wallet_address), (":balance",&amount_wei), (":last_received", &last_received_time_stamp_sec)]),
+            params: SQLExtParams::new(vec![(":wallet", &wallet_address), (":balance", &amount_wei), (":last_received", &last_received_time_stamp_sec)]),
+            table:Table::Payable,
         };
 
         let result = InsertUpdateCoreReal.update(Either::Left(conn_ref), &update_config);
@@ -1224,7 +1216,7 @@ mod tests {
             "update_handles_error_on_a_row_due_to_bad_sql_params",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&path, true,MigratorConfig::test_default())
+            .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
         let mut stm = conn_ref.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?,?,strftime('%s','now'),null)").unwrap();
@@ -1233,7 +1225,8 @@ mod tests {
         let last_received_time_stamp_sec = 123_i64;
         let update_config = UpdateConfig {
             update_sql: "update receivable set balance = ?, last_received_timestamp = ? where wallet_address = ?",
-            params: ExtendedParams::new(Table::Payable,vec![(":woodstock", &wallet_address), (":hendrix", &last_received_time_stamp_sec),(":wallet",&wallet_address),(":balance",&amount_wei)]),
+            params: SQLExtParams::new( vec![(":woodstock", &wallet_address), (":hendrix", &last_received_time_stamp_sec), (":wallet", &wallet_address), (":balance", &amount_wei)]),
+            table:Table::Payable,
         };
 
         let result = InsertUpdateCoreReal.update(Either::Left(conn_ref), &update_config);

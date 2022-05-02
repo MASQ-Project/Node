@@ -2,6 +2,9 @@
 
 #![cfg(test)]
 
+use crate::accountant::dao_utils::{
+    InsertConfiguration, InsertUpdateConfig, InsertUpdateCore, Table, UpdateConfiguration,
+};
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
@@ -16,6 +19,7 @@ use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::PaidReceivable;
 use crate::bootstrapper::BootstrapperConfig;
+use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
@@ -27,16 +31,14 @@ use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMoc
 use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
-use rusqlite::{Connection, Error, Transaction as RusqliteTransaction, OptionalExtension};
+use itertools::Either;
+use rusqlite::{Connection, Error, OptionalExtension, Transaction as RusqliteTransaction};
 use std::cell::RefCell;
 use std::fmt::Display;
 use std::ptr::addr_of;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use itertools::Either;
-use crate::accountant::dao_utils::{InsertConfiguration, InsertUpdateConfig, InsertUpdateCore, Table, UpdateConfiguration};
-use crate::database::connection_wrapper::ConnectionWrapper;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -876,8 +878,8 @@ pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccou
             _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
         }
     })
-        .optional()
-        .unwrap()
+    .optional()
+    .unwrap()
 }
 
 #[derive(Default)]
@@ -935,7 +937,7 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
         self.upsert_params.lock().unwrap().push((
             config.update_sql.to_string(),
             config.insert_sql.to_string(),
-            config.params.table(),
+            config.table,
             owned_params,
         ));
         if let Some(conn_wrapp_pointer) = self.connection_wrapper_as_pointer_to_compare {

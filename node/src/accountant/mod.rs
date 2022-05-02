@@ -1,14 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+pub mod dao_utils;
 pub mod payable_dao;
 pub mod pending_payable_dao;
 pub mod receivable_dao;
-pub mod dao_utils;
 pub mod tools;
 
 #[cfg(test)]
 pub mod test_utils;
-
 
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
