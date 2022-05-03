@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize]
     branches:
       - master
+      - 'releases/**'
 
 jobs:
   build:
