@@ -3,7 +3,8 @@
 #![cfg(test)]
 
 use crate::accountant::dao_utils::{
-    InsertConfiguration, InsertUpdateConfig, InsertUpdateCore, Table, UpdateConfiguration,
+    InsertConfiguration, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError, Table,
+    UpdateConfiguration,
 };
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
@@ -885,9 +886,9 @@ pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccou
 #[derive(Default)]
 pub struct InsertUpdateCoreMock {
     update_params: Arc<Mutex<Vec<(String, String, String, Vec<String>)>>>, //trait-object-like params tested specially
-    update_results: RefCell<Vec<Result<(), String>>>,
+    update_results: RefCell<Vec<Result<(), InsertUpdateError>>>,
     upsert_params: Arc<Mutex<Vec<(String, String, Table, Vec<(String, String)>)>>>,
-    upsert_results: RefCell<Vec<Result<(), String>>>,
+    upsert_results: RefCell<Vec<Result<(), InsertUpdateError>>>,
     connection_wrapper_as_pointer_to_compare: Option<*const dyn ConnectionWrapper>,
 }
 
@@ -896,7 +897,7 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
         &self,
         conn: &dyn ConnectionWrapper,
         config: &dyn InsertConfiguration,
-    ) -> Result<(), Error> {
+    ) -> Result<(), InsertUpdateError> {
         todo!()
     }
 
@@ -904,7 +905,7 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
         &self,
         conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,
         config: &'a (dyn UpdateConfiguration<'a> + 'a),
-    ) -> Result<(), String> {
+    ) -> Result<(), InsertUpdateError> {
         let owned_params: Vec<String> = config
             .update_params()
             .all_rusqlite_params()
@@ -927,7 +928,7 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
         &self,
         conn: &dyn ConnectionWrapper,
         config: InsertUpdateConfig,
-    ) -> Result<(), String> {
+    ) -> Result<(), InsertUpdateError> {
         let owned_params: Vec<(String, String)> = config
             .params
             .params()
@@ -956,7 +957,7 @@ impl InsertUpdateCoreMock {
         self
     }
 
-    pub fn update_result(self, result: Result<(), String>) -> Self {
+    pub fn update_result(self, result: Result<(), InsertUpdateError>) -> Self {
         self.update_results.borrow_mut().push(result);
         self
     }
@@ -969,7 +970,7 @@ impl InsertUpdateCoreMock {
         self
     }
 
-    pub fn upsert_results(self, result: Result<(), String>) -> Self {
+    pub fn upsert_results(self, result: Result<(), InsertUpdateError>) -> Self {
         self.upsert_results.borrow_mut().push(result);
         self
     }
