@@ -16,7 +16,7 @@ jobs:
           - { name: macOS, os: macos-latest }
           - { name: Windows, os: windows-latest }
 
-    name: Build node on ${{ matrix.target.name }}
+    name: Build node on ${{ matrix.target.os }}
     runs-on: ${{ matrix.target.os }}
     steps:
       - uses: actions/checkout@v3
