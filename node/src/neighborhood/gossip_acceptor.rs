@@ -3260,6 +3260,7 @@ mod tests {
         dest_db.add_arbitrary_full_neighbor(dest_node.public_key(), third_node.public_key());
         src_db.add_arbitrary_full_neighbor(dest_node.public_key(), third_node.public_key());
         src_db.add_arbitrary_full_neighbor(src_node.public_key(), third_node.public_key());
+        src_db.add_arbitrary_full_neighbor(src_node.public_key(), dest_node.public_key());
         src_db
             .node_by_key_mut(src_node.public_key())
             .unwrap()
