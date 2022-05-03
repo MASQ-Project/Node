@@ -47,6 +47,7 @@ impl Payable {
     }
 }
 
+//there used to be a method 'accountant_status' but was turned into a test utility since never used in the production code
 pub trait PayableDao: Debug + Send {
     fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PayableDaoError>;
 
@@ -60,8 +61,6 @@ pub trait PayableDao: Debug + Send {
         &self,
         payment: &PendingPayableFingerprint,
     ) -> Result<(), PayableDaoError>;
-
-    //there used to be method 'accountant_status' but was turned into test utility since never used in the production code
 
     fn non_pending_payables(&self) -> Vec<PayableAccount>;
 
@@ -86,6 +85,7 @@ pub struct PayableDaoReal {
 }
 
 impl PayableDao for PayableDaoReal {
+    //TODO: YES
     fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PayableDaoError> {
         let signed_amount = unsigned_to_signed(amount).map_err(PayableDaoError::SignConversion)?;
         match self.try_increase_balance(wallet, signed_amount) {
@@ -97,6 +97,7 @@ impl PayableDao for PayableDaoReal {
         }
     }
 
+    //TODO: NO
     fn mark_pending_payable_rowid(
         &self,
         wallet: &Wallet,
@@ -121,6 +122,7 @@ impl PayableDao for PayableDaoReal {
         }
     }
 
+    //TODO: YES
     fn transaction_confirmed(
         &self,
         fingerprint: &PendingPayableFingerprint,
@@ -135,6 +137,7 @@ impl PayableDao for PayableDaoReal {
         .map_err(PayableDaoError::RusqliteError)
     }
 
+    //TODO: NO
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
         let mut stmt = self.conn
             .prepare("select wallet_address, balance, last_paid_timestamp from payable where pending_payable_rowid is null")
@@ -159,6 +162,7 @@ impl PayableDao for PayableDaoReal {
         .collect()
     }
 
+    //TODO: never used!!
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
         let min_amt = unsigned_to_signed(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
         let max_age = unsigned_to_signed(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);

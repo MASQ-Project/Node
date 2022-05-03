@@ -170,6 +170,7 @@ impl<'a> PendingPayableDaoReal<'a> {
     pub fn new(conn: Box<dyn ConnectionWrapper + 'a>) -> Self {
         Self { conn }
     }
+
     fn get_with_expect<T: rusqlite::types::FromSql>(row: &Row, index: usize) -> T {
         row.get(index).expect("database is corrupt")
     }

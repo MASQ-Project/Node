@@ -41,8 +41,10 @@ pub trait ReceivableDao: Send {
 
     fn more_money_received(&mut self, transactions: Vec<PaidReceivable>);
 
+    //TODO used just in tests to assert on other things
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
+    //TODO never used
     fn receivables(&self) -> Vec<ReceivableAccount>;
 
     fn new_delinquencies(
@@ -53,6 +55,7 @@ pub trait ReceivableDao: Send {
 
     fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount>;
 
+    //TODO never used
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount>;
 
     fn total(&self) -> i64;
@@ -74,6 +77,7 @@ pub struct ReceivableDaoReal {
 }
 
 impl ReceivableDao for ReceivableDaoReal {
+    //TODO: YES
     fn more_money_receivable(
         &self,
         wallet: &Wallet,
@@ -95,6 +99,7 @@ impl ReceivableDao for ReceivableDaoReal {
         }
     }
 
+    //TODO -- chop it, you can
     fn more_money_received(&mut self, payments: Vec<PaidReceivable>) {
         self.try_multi_insert_payment(&payments)
             .unwrap_or_else(|e| {
@@ -117,6 +122,7 @@ impl ReceivableDao for ReceivableDaoReal {
             })
     }
 
+    //TODO: NO
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
         let mut stmt = self
             .conn
@@ -130,6 +136,7 @@ impl ReceivableDao for ReceivableDaoReal {
         }
     }
 
+    //TODO: NO
     fn receivables(&self) -> Vec<ReceivableAccount> {
         let mut stmt = self
             .conn
@@ -154,6 +161,7 @@ impl ReceivableDao for ReceivableDaoReal {
         .collect()
     }
 
+    //TODO: NO
     fn new_delinquencies(
         &self,
         system_now: SystemTime,
@@ -189,6 +197,7 @@ impl ReceivableDao for ReceivableDaoReal {
         .collect()
     }
 
+    //TODO: NO
     fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount> {
         let sql = indoc!(
             r"
@@ -210,6 +219,7 @@ impl ReceivableDao for ReceivableDaoReal {
         .collect()
     }
 
+    //TODO: NO
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
         let min_amt = unsigned_to_signed(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
         let max_age = unsigned_to_signed(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
@@ -252,6 +262,7 @@ impl ReceivableDao for ReceivableDaoReal {
         .collect()
     }
 
+    //TODO: YES _ but different operations
     fn total(&self) -> i64 {
         let mut stmt = self
             .conn
@@ -290,6 +301,7 @@ impl ReceivableDaoReal {
         }
     }
 
+    //TODO: YES - direct replace
     fn try_update(&self, wallet: &Wallet, amount: i64) -> Result<bool, String> {
         let mut stmt = self
             .conn
@@ -303,6 +315,7 @@ impl ReceivableDaoReal {
         }
     }
 
+    //TODO: YES - direct replace
     fn try_insert(&self, wallet: &Wallet, amount: i64) -> Result<(), String> {
         let timestamp = dao_utils::to_time_t(SystemTime::now());
         let mut stmt = self.conn.prepare("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").expect("Internal error");
@@ -313,6 +326,7 @@ impl ReceivableDaoReal {
         }
     }
 
+    //TODO: YES - direct replace
     fn try_multi_insert_payment(
         &mut self,
         payments: &[PaidReceivable],
