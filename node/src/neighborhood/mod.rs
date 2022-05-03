@@ -84,7 +84,6 @@ pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
     hopper: Option<Recipient<IncipientCoresPackage>>,
     hopper_no_lookup: Option<Recipient<NoLookupIncipientCoresPackage>>,
-    is_connected_to_min_hop_count_radius: bool,
     connected_signal: Option<Recipient<StartMessage>>,
     _to_ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     gossip_acceptor_opt: Option<Box<dyn GossipAcceptor>>,
@@ -460,7 +459,6 @@ impl Neighborhood {
             hopper_no_lookup: None,
             connected_signal: None,
             _to_ui_message_sub: None,
-            is_connected_to_min_hop_count_radius: false,
             gossip_acceptor_opt: None,
             gossip_producer_opt: None,
             neighborhood_database,
@@ -761,6 +759,7 @@ impl Neighborhood {
         self.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
         self.check_connectedness();
         // TODO: Do we want to call this rarely, or do we want to move it?
+        // TODO: Maybe call check_connectedness() inside the new fn of overall_connection_status?
     }
 
     fn curate_past_neighbors(
@@ -801,7 +800,7 @@ impl Neighborhood {
     }
 
     fn check_connectedness(&mut self) {
-        if self.is_connected_to_min_hop_count_radius {
+        if self.overall_connection_status.can_make_routes() {
             return;
         }
         let msg = RouteQueryMessage {
@@ -811,7 +810,7 @@ impl Neighborhood {
             return_component_opt: Some(Component::ProxyServer),
         };
         if self.handle_route_query_message(msg).is_some() {
-            self.is_connected_to_min_hop_count_radius = true;
+            self.overall_connection_status.update_can_make_routes(true);
             self.connected_signal
                 .as_ref()
                 .expect("Accountant was not bound")
@@ -3390,7 +3389,7 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        assert_eq!(subject.is_connected_to_min_hop_count_radius, false);
+        assert_eq!(subject.overall_connection_status.can_make_routes(), false);
     }
 
     #[test]
@@ -3403,7 +3402,9 @@ mod tests {
         subject.gossip_acceptor_opt = Some(Box::new(DatabaseReplacementGossipAcceptor {
             replacement_database,
         }));
-        subject.is_connected_to_min_hop_count_radius = true;
+        subject
+            .overall_connection_status
+            .update_can_make_routes(true);
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -3415,7 +3416,7 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        assert_eq!(subject.is_connected_to_min_hop_count_radius, true);
+        assert_eq!(subject.overall_connection_status.can_make_routes(), true);
     }
 
     #[test]
@@ -3439,7 +3440,9 @@ mod tests {
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
         ));
-        subject.is_connected_to_min_hop_count_radius = false;
+        subject
+            .overall_connection_status
+            .update_can_make_routes(false);
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -3451,7 +3454,7 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
-        assert_eq!(subject.is_connected_to_min_hop_count_radius, true);
+        assert_eq!(subject.overall_connection_status.can_make_routes(), true);
     }
 
     struct NeighborReplacementGossipAcceptor {

@@ -173,23 +173,38 @@ impl OverallConnectionStatus {
             ConnectionProgressEvent::TcpConnectionFailed => connection_progress_to_modify
                 .update_stage(ConnectionStage::Failed(TcpConnectionFailed)),
 
-            ConnectionProgressEvent::IntroductionGossipReceived(new_descriptor_opt) => {
-                connection_progress_to_modify.update_stage(ConnectionStage::NeighborshipEstablished)
+            ConnectionProgressEvent::IntroductionGossipReceived(new_node) => {
+                connection_progress_to_modify
+                    .update_stage(ConnectionStage::NeighborshipEstablished);
+                self.update_stage_of_overall_connection_status();
             }
             ConnectionProgressEvent::StandardGossipReceived => {
                 connection_progress_to_modify
                     .update_stage(ConnectionStage::NeighborshipEstablished);
+                self.update_stage_of_overall_connection_status();
             }
             ConnectionProgressEvent::PassGossipReceived(new_pass_target) => {
                 connection_progress_to_modify.handle_pass_gossip(new_pass_target);
             }
             ConnectionProgressEvent::DeadEndFound => {
-                connection_progress_to_modify.update_stage(ConnectionStage::Failed(DeadEndFound))
+                connection_progress_to_modify.update_stage(ConnectionStage::Failed(DeadEndFound));
             }
             ConnectionProgressEvent::NoGossipResponseReceived => {
                 connection_progress_to_modify
                     .update_stage(ConnectionStage::Failed(NoGossipResponseReceived));
             }
+        }
+    }
+
+    fn update_stage_of_overall_connection_status(&mut self) {
+        // For now, this function is only called when Standard or Introduction Gossip
+        // is received,
+        // TODO: Write a more generalized fn, which can be called when any stage gets updated
+
+        if self.can_make_routes() {
+            self.stage = OverallConnectionStage::ThreeHopsRouteFound;
+        } else {
+            self.stage = OverallConnectionStage::ConnectedToNeighbor;
         }
     }
 
@@ -201,16 +216,15 @@ impl OverallConnectionStatus {
         let removed_connection_progress = self.progress.remove(index);
         removed_connection_progress.initial_node_descriptor
     }
-}
 
-// Some Steps to follow ==>
-// 1. Increase the count for Stage Zero
-// 2. Initiate a TCP Connection. OK() -> TcpConnectionEstablished, Err() -> Failed and throw TcpConnectionFailed
-// 3. Send a Debut Gossip
-// 4. Waiting Period. IntroductionGossip -> Move to Next Step,
-//    PassGossip -> Update the NodeConnection and retry the whole process,
-//    TimeOut -> Failed and throw NoResponseReceived
-// 5. Check for check_connectedness(), true -> Fully Connected, false -> Not able to Route
+    pub fn can_make_routes(&self) -> bool {
+        self.can_make_routes
+    }
+
+    pub fn update_can_make_routes(&mut self, can_make_routes: bool) {
+        self.can_make_routes = can_make_routes;
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -486,7 +500,7 @@ mod tests {
             subject,
             OverallConnectionStatus {
                 can_make_routes: false,
-                stage: OverallConnectionStage::NotConnected,
+                stage: OverallConnectionStage::ConnectedToNeighbor,
                 progress: vec![ConnectionProgress {
                     initial_node_descriptor: node_descriptor.clone(),
                     current_peer_addr: node_ip_addr,
@@ -517,7 +531,7 @@ mod tests {
             subject,
             OverallConnectionStatus {
                 can_make_routes: false,
-                stage: OverallConnectionStage::NotConnected,
+                stage: OverallConnectionStage::ConnectedToNeighbor,
                 progress: vec![ConnectionProgress {
                     initial_node_descriptor: node_descriptor.clone(),
                     current_peer_addr: node_ip_addr,
@@ -670,6 +684,87 @@ mod tests {
             node_ip_addr,
             ConnectionProgressEvent::IntroductionGossipReceived(new_node_ip_addr),
         );
+    }
+
+    #[test]
+    fn getter_fn_exists_for_boolean_can_make_routes() {
+        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
+        let subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
+
+        let can_make_routes = subject.can_make_routes();
+
+        assert_eq!(can_make_routes, false);
+    }
+
+    #[test]
+    fn can_update_the_boolean_can_make_routes() {
+        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
+        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
+        let can_make_routes_initially = subject.can_make_routes();
+
+        subject.update_can_make_routes(true);
+
+        let can_make_routes_finally = subject.can_make_routes();
+        assert_eq!(can_make_routes_initially, false);
+        assert_eq!(can_make_routes_finally, true);
+    }
+
+    #[test]
+    fn updates_from_not_connected_to_connected_to_neighbor_in_case_flag_is_false() {
+        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
+        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
+        subject.update_can_make_routes(false);
+
+        subject.update_stage_of_overall_connection_status();
+
+        assert_eq!(subject.stage, OverallConnectionStage::ConnectedToNeighbor);
+    }
+
+    #[test]
+    fn updates_from_not_connected_to_three_hops_route_found_in_case_flag_is_true() {
+        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
+        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
+        subject.update_can_make_routes(true);
+
+        subject.update_stage_of_overall_connection_status();
+
+        assert_eq!(subject.stage, OverallConnectionStage::ThreeHopsRouteFound);
+    }
+
+    #[test]
+    fn updates_the_stage_to_three_hops_route_found_in_case_introduction_gossip_is_received_and_flag_is_true(
+    ) {
+        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
+        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
+        let new_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
+        subject.update_connection_stage(ip_addr, ConnectionProgressEvent::TcpConnectionSuccessful);
+
+        subject.update_can_make_routes(true);
+        subject.update_connection_stage(
+            ip_addr,
+            ConnectionProgressEvent::IntroductionGossipReceived(new_ip_addr),
+        );
+
+        assert_eq!(subject.stage, OverallConnectionStage::ThreeHopsRouteFound);
+    }
+
+    #[test]
+    fn updates_the_stage_to_connected_to_neighbor_in_case_standard_gossip_is_received_and_flag_is_false(
+    ) {
+        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
+        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
+        subject.update_connection_stage(ip_addr, ConnectionProgressEvent::TcpConnectionSuccessful);
+
+        subject.update_can_make_routes(false);
+        subject.update_connection_stage(ip_addr, ConnectionProgressEvent::StandardGossipReceived);
+
+        assert_eq!(subject.stage, OverallConnectionStage::ConnectedToNeighbor);
     }
 
     fn make_node_descriptor_from_ip(ip_addr: IpAddr) -> NodeDescriptor {
