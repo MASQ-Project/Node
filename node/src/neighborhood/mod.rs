@@ -10,7 +10,7 @@ pub mod overall_connection_status;
 
 use std::cmp::Ordering;
 use std::convert::TryFrom;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -53,7 +53,7 @@ use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
-use crate::sub_lib::neighborhood::{AskAboutDebutGossipResponseMessage, NodeDescriptor};
+use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
@@ -264,58 +264,19 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ConnectionProgressMessage, ctx: &mut Self::Context) -> Self::Result {
-        match msg.event {
-            ConnectionProgressEvent::TcpConnectionSuccessful => {
-                self.overall_connection_status
-                    .update_connection_stage(msg.peer_addr, msg.event);
-                let message = AskAboutDebutGossipResponseMessage {
-                    prev_connection_progress: self
-                        .overall_connection_status
-                        .get_connection_progress(msg.peer_addr)
-                        .clone(),
-                };
-                self.tools.notify_later_ask_about_gossip.notify_later(
-                    message,
-                    self.tools.ask_about_gossip_interval,
-                    Box::new(|message, duration| ctx.notify_later(message, duration)),
-                );
-            }
-            ConnectionProgressEvent::TcpConnectionFailed => {
-                self.overall_connection_status
-                    .update_connection_stage(msg.peer_addr, msg.event);
-            }
-            ConnectionProgressEvent::PassGossipReceived(node_descriptor) => {
-                self.overall_connection_status
-                    .update_connection_stage(msg.peer_addr, msg.event);
-            }
-            ConnectionProgressEvent::DeadEndFound => {
-                self.overall_connection_status
-                    .update_connection_stage(msg.peer_addr, msg.event);
-            }
-            ConnectionProgressEvent::IntroductionGossipReceived(new_node) => {
-                self.overall_connection_status
-                    .update_connection_stage(msg.peer_addr, msg.event);
-            }
-            ConnectionProgressEvent::StandardGossipReceived => {
-                self.overall_connection_status
-                    .update_connection_stage(msg.peer_addr, msg.event);
-            }
-            ConnectionProgressEvent::NoGossipResponseReceived => {
-                self.overall_connection_status
-                    .update_connection_stage(msg.peer_addr, msg.event);
-            }
+        self.overall_connection_status
+            .update_connection_stage(msg.peer_addr, msg.event.clone());
+
+        if msg.event == ConnectionProgressEvent::TcpConnectionSuccessful {
+            self.send_ask_about_debut_gossip_message(ctx, msg.peer_addr);
         }
     }
 }
 
-impl Handler<AskAboutDebutGossipResponseMessage> for Neighborhood {
+impl Handler<AskAboutDebutGossipMessage> for Neighborhood {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: AskAboutDebutGossipResponseMessage,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: AskAboutDebutGossipMessage, ctx: &mut Self::Context) -> Self::Result {
         let new_connection_progress = self
             .overall_connection_status
             .get_connection_progress_by_desc(&msg.prev_connection_progress.initial_node_descriptor);
@@ -1204,6 +1165,24 @@ impl Neighborhood {
         }
     }
 
+    fn send_ask_about_debut_gossip_message(
+        &mut self,
+        ctx: &mut Context<Neighborhood>,
+        current_peer_addr: IpAddr,
+    ) {
+        let message = AskAboutDebutGossipMessage {
+            prev_connection_progress: self
+                .overall_connection_status
+                .get_connection_progress(current_peer_addr)
+                .clone(),
+        };
+        self.tools.notify_later_ask_about_gossip.notify_later(
+            message,
+            self.tools.ask_about_gossip_interval,
+            Box::new(|message, duration| ctx.notify_later(message, duration)),
+        );
+    }
+
     fn handle_gossip_reply(
         &self,
         gossip: Gossip_0v1,
@@ -1389,7 +1368,7 @@ mod tests {
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::{
-        AskAboutDebutGossipResponseMessage, ExpectedServices, NeighborhoodMode,
+        AskAboutDebutGossipMessage, ExpectedServices, NeighborhoodMode,
     };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::peer_actors::PeerActors;
@@ -1723,7 +1702,7 @@ mod tests {
         assert_eq!(
             *notify_later_ask_about_gossip_params,
             vec![(
-                AskAboutDebutGossipResponseMessage {
+                AskAboutDebutGossipMessage {
                     prev_connection_progress: beginning_connection_progress,
                 },
                 Duration::from_millis(10)
@@ -1771,8 +1750,8 @@ mod tests {
             connection_stage: ConnectionStage::TcpConnectionEstablished,
         };
         let addr = subject.start();
-        let recipient: Recipient<AskAboutDebutGossipResponseMessage> = addr.clone().recipient();
-        let aadgrm = AskAboutDebutGossipResponseMessage {
+        let recipient: Recipient<AskAboutDebutGossipMessage> = addr.clone().recipient();
+        let aadgrm = AskAboutDebutGossipMessage {
             prev_connection_progress: beginning_connection_progress.clone(),
         };
         let system = System::new("testing");

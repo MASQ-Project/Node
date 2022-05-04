@@ -483,7 +483,7 @@ pub enum ConnectionProgressEvent {
     NoGossipResponseReceived,
     DeadEndFound,
     StandardGossipReceived,
-    IntroductionGossipReceived(IpAddr), // Change the stage of ConnectionProgress to NeighborshipEstablished, and run check_connectedness to check for three hops route
+    IntroductionGossipReceived(IpAddr),
     PassGossipReceived(IpAddr),
 }
 
@@ -494,7 +494,7 @@ pub struct ConnectionProgressMessage {
 }
 
 #[derive(Clone, Debug, Message, PartialEq)]
-pub struct AskAboutDebutGossipResponseMessage {
+pub struct AskAboutDebutGossipMessage {
     pub prev_connection_progress: ConnectionProgress,
 }
 
@@ -527,8 +527,7 @@ impl fmt::Display for GossipFailure_0v1 {
 }
 
 pub struct NeighborhoodTools {
-    pub notify_later_ask_about_gossip:
-        Box<dyn NotifyLaterHandle<AskAboutDebutGossipResponseMessage>>,
+    pub notify_later_ask_about_gossip: Box<dyn NotifyLaterHandle<AskAboutDebutGossipMessage>>,
     // TODO: Should we change the above field to constant
     pub ask_about_gossip_interval: Duration,
 }
@@ -1164,7 +1163,7 @@ mod tests {
         subject
             .notify_later_ask_about_gossip
             .as_any()
-            .downcast_ref::<NotifyLaterHandleReal<AskAboutDebutGossipResponseMessage>>()
+            .downcast_ref::<NotifyLaterHandleReal<AskAboutDebutGossipMessage>>()
             .unwrap();
         assert_eq!(subject.ask_about_gossip_interval, Duration::from_secs(10));
     }
