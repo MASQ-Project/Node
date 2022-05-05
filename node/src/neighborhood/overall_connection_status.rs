@@ -285,16 +285,8 @@ mod tests {
 
     #[test]
     fn able_to_create_overall_connection_status() {
-        let node_desc_1 = NodeDescriptor::try_from((
-            main_cryptde(), // Used to provide default cryptde
-            "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345",
-        ))
-        .unwrap();
-        let node_desc_2 = NodeDescriptor::try_from((
-            main_cryptde(),
-            "masq://eth-ropsten:AgMEBQ@1.2.3.5:1234/2345",
-        ))
-        .unwrap();
+        let node_desc_1 = make_node_descriptor_from_ip(IpAddr::from_str("1.2.3.4").unwrap());
+        let node_desc_2 = make_node_descriptor_from_ip(IpAddr::from_str("1.2.3.5").unwrap());
         let initial_node_descriptors = vec![node_desc_1.clone(), node_desc_2.clone()];
 
         let subject = OverallConnectionStatus::new(initial_node_descriptors);
@@ -321,12 +313,7 @@ mod tests {
 
     #[test]
     fn overall_connection_status_identifies_as_non_empty() {
-        let node_desc = NodeDescriptor::try_from((
-            main_cryptde(),
-            "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345",
-        ))
-        .unwrap();
-
+        let node_desc = make_node_descriptor_from_ip(IpAddr::from_str("1.2.3.4").unwrap());
         let initial_node_descriptors = vec![node_desc.clone()];
 
         let subject = OverallConnectionStatus::new(initial_node_descriptors);
@@ -388,16 +375,8 @@ mod tests {
 
     #[test]
     fn starting_descriptors_are_iterable() {
-        let node_desc_1 = NodeDescriptor::try_from((
-            main_cryptde(),
-            "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345",
-        ))
-        .unwrap();
-        let node_desc_2 = NodeDescriptor::try_from((
-            main_cryptde(),
-            "masq://eth-ropsten:AgMEBQ@1.2.3.5:1234/2345",
-        ))
-        .unwrap();
+        let node_desc_1 = make_node_descriptor_from_ip(IpAddr::from_str("1.2.3.4").unwrap());
+        let node_desc_2 = make_node_descriptor_from_ip(IpAddr::from_str("1.2.3.5").unwrap());
         let initial_node_descriptors = vec![node_desc_1.clone(), node_desc_2.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
@@ -410,16 +389,8 @@ mod tests {
 
     #[test]
     fn remove_deletes_descriptor_s_progress_and_returns_node_descriptor() {
-        let node_desc_1 = NodeDescriptor::try_from((
-            main_cryptde(),
-            "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345",
-        ))
-        .unwrap();
-        let node_desc_2 = NodeDescriptor::try_from((
-            main_cryptde(),
-            "masq://eth-ropsten:AgMEBQ@1.2.3.5:1234/2345",
-        ))
-        .unwrap();
+        let node_desc_1 = make_node_descriptor_from_ip(IpAddr::from_str("1.2.3.4").unwrap());
+        let node_desc_2 = make_node_descriptor_from_ip(IpAddr::from_str("1.2.3.5").unwrap());
         let initial_node_descriptors = vec![node_desc_1.clone(), node_desc_2.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
@@ -433,17 +404,13 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_tcp_connection_established() {
-        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
-        let node_decriptor = NodeDescriptor {
-            blockchain: Chain::EthRopsten,
-            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: Some(NodeAddr::new(&node_ip_addr, &vec![1, 2, 3])),
-        };
-        let initial_node_descriptors = vec![node_decriptor.clone()];
+        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         subject.update_connection_stage(
-            node_decriptor.node_addr_opt.as_ref().unwrap().ip_addr(),
+            node_descriptor.node_addr_opt.as_ref().unwrap().ip_addr(),
             ConnectionProgressEvent::TcpConnectionSuccessful,
         );
 
@@ -453,7 +420,7 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
-                    initial_node_descriptor: node_decriptor.clone(),
+                    initial_node_descriptor: node_descriptor.clone(),
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::TcpConnectionEstablished
                 }],
@@ -463,13 +430,9 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_failed_when_tcp_connection_fails() {
-        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
-        let node_decriptor = NodeDescriptor {
-            blockchain: Chain::EthRopsten,
-            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: Some(NodeAddr::new(&node_ip_addr, &vec![1, 2, 3])),
-        };
-        let initial_node_descriptors = vec![node_decriptor.clone()];
+        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         subject.update_connection_stage(
@@ -483,7 +446,7 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
-                    initial_node_descriptor: node_decriptor.clone(),
+                    initial_node_descriptor: node_descriptor.clone(),
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::Failed(TcpConnectionFailed)
                 }],
@@ -493,7 +456,7 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_neighborship_established() {
-        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
+        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
@@ -524,7 +487,7 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_neighborship_established_when_standard_gossip_is_received() {
-        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
+        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
@@ -555,7 +518,7 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_stage_zero_when_pass_gossip_is_received() {
-        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
+        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
@@ -586,7 +549,7 @@ mod tests {
 
     #[test]
     fn updates_connection_stage_to_failed_when_dead_end_is_found() {
-        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
+        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
@@ -614,7 +577,7 @@ mod tests {
 
     #[test]
     fn updates_connection_stage_to_failed_when_no_gossip_response_is_received() {
-        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
+        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
@@ -646,13 +609,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "Unable to find the node in connections with IP Address: 5.6.7.8")]
     fn panics_at_updating_the_connection_stage_if_a_node_is_not_a_part_of_connections() {
-        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
-        let node_decriptor = NodeDescriptor {
-            blockchain: Chain::EthRopsten,
-            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: Some(NodeAddr::new(&node_ip_addr, &vec![1, 2, 3])),
-        };
-        let initial_node_descriptors = vec![node_decriptor.clone()];
+        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let initial_node_descriptors = vec![node_descriptor.clone()];
         let non_existing_node_s_ip_addr: IpAddr = Ipv4Addr::new(5, 6, 7, 8).into();
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
@@ -682,14 +641,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "Can't update the stage from StageZero to NeighborshipEstablished")]
     fn can_t_establish_neighborhsip_without_having_a_tcp_connection() {
-        let node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
-        let node_decriptor = NodeDescriptor {
-            blockchain: Chain::EthRopsten,
-            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: Some(NodeAddr::new(&node_ip_addr, &vec![1, 2, 3])),
-        };
-        let new_node_ip_addr: IpAddr = Ipv4Addr::new(1, 2, 3, 4).into();
-        let initial_node_descriptors = vec![node_decriptor.clone()];
+        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let new_node_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
+        let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         subject.update_connection_stage(
