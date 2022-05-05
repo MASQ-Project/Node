@@ -8,7 +8,7 @@ use crate::sub_lib::accountant::SignConversionError;
 use itertools::Either;
 use masq_lib::utils::ExpectValue;
 use rusqlite::ErrorCode::ConstraintViolation;
-use rusqlite::{Error, Statement, ToSql, Transaction};
+use rusqlite::{Error, Row, Statement, ToSql, Transaction};
 use std::any::Any;
 use std::fmt::{Display, Formatter};
 
@@ -305,6 +305,10 @@ fn select_statement(table: &Table) -> String {
         "select balance from {} where wallet_address = :wallet",
         table
     )
+}
+
+pub fn get_unsized_128(row:&Row, index: usize)->Result<u128,rusqlite::Error>{
+    row.get::<usize,i128>(index).map( |val| val as u128)
 }
 
 #[derive(Debug, PartialEq)]

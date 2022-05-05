@@ -13,6 +13,7 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
+use crate::accountant::dao_utils::get_unsized_128;
 
 #[derive(Debug, PartialEq)]
 pub enum PayableDaoError {
@@ -23,7 +24,7 @@ pub enum PayableDaoError {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PayableAccount {
     pub wallet: Wallet,
-    pub balance: i64,
+    pub balance: u128,
     pub last_paid_timestamp: SystemTime,
     pub pending_payable_opt: Option<PendingPayableId>,
 }
@@ -145,7 +146,7 @@ impl PayableDao for PayableDaoReal {
 
         stmt.query_map([], |row| {
             let wallet_result: Result<Wallet, rusqlite::Error> = row.get(0);
-            let balance_result = row.get(1);
+            let balance_result = get_unsized_128(row, 1);
             let last_paid_timestamp_result = row.get(2);
             match (wallet_result, balance_result, last_paid_timestamp_result) {
                 (Ok(wallet), Ok(balance), Ok(last_paid_timestamp)) => Ok(PayableAccount {
@@ -192,7 +193,7 @@ impl PayableDao for PayableDaoReal {
             .expect("Internal error");
         let params: &[&dyn ToSql] = &[&min_amt, &min_timestamp];
         stmt.query_map(params, |row| {
-            let balance_result = row.get(0);
+            let balance_result = get_unsized_128(row,0);
             let last_paid_timestamp_result = row.get(1);
             let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
             let pending_payable_rowid_result_opt: Result<Option<u64>, Error> = row.get(3);
@@ -521,7 +522,7 @@ mod tests {
     fn create_account_with_pending_payment(
         conn: &dyn ConnectionWrapper,
         recipient_wallet: &Wallet,
-        amount: i64,
+        amount: i128,
         timestamp: SystemTime,
         rowid: u64,
     ) {
@@ -561,7 +562,7 @@ mod tests {
             create_account_with_pending_payment(
                 boxed_conn.as_ref(),
                 &wallet,
-                starting_amount,
+                starting_amount as i128,
                 previous_timestamp,
                 rowid,
             )

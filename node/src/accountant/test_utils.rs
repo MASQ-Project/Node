@@ -2,10 +2,7 @@
 
 #![cfg(test)]
 
-use crate::accountant::dao_utils::{
-    InsertConfiguration, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError, Table,
-    UpdateConfiguration,
-};
+use crate::accountant::dao_utils::{get_unsized_128, InsertConfiguration, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError, Table, UpdateConfiguration};
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
@@ -59,19 +56,19 @@ pub fn make_payable_account(n: u64) -> PayableAccount {
     let timestamp = from_time_t(now - (n as i64));
     make_payable_account_with_recipient_and_balance_and_timestamp_opt(
         make_wallet(&format!("wallet{}", n)),
-        (n * 1_000_000_000) as i64,
+        (n * 1_000_000_000) as i128,
         Some(timestamp),
     )
 }
 
 pub fn make_payable_account_with_recipient_and_balance_and_timestamp_opt(
     recipient: Wallet,
-    balance: i64,
+    balance: i128,
     timestamp_opt: Option<SystemTime>,
 ) -> PayableAccount {
     PayableAccount {
         wallet: recipient,
-        balance,
+        balance: balance as u128,
         last_paid_timestamp: timestamp_opt.unwrap_or(SystemTime::now()),
         pending_payable_opt: None,
     }
@@ -856,7 +853,7 @@ pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccou
         .prepare("select balance, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?")
         .unwrap();
     stmt.query_row(&[&wallet], |row| {
-        let balance_result = row.get(0);
+        let balance_result = get_unsized_128(row,0);
         let last_paid_timestamp_result = row.get(1);
         let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(2);
         match (

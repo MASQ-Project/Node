@@ -481,7 +481,6 @@ impl Accountant {
     }
 
     fn payable_exceeded_threshold(&self, payable: &PayableAccount) -> Option<u128> {
-        // TODO: This calculation should be done in the database, if possible
         let time_since_last_paid = SystemTime::now()
             .duration_since(payable.last_paid_timestamp)
             .expect("Internal error")
@@ -1113,6 +1112,7 @@ impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
         balance <= limit
     }
 
+    //not in danger of overflow supposedly
     fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> u128 {
         let m = -((*payment_thresholds.debt_threshold_wei
             - *payment_thresholds.permanent_debt_allowed_wei)
