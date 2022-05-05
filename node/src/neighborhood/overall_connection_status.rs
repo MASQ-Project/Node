@@ -74,17 +74,18 @@ impl ConnectionProgress {
         }
 
         self.connection_stage = connection_stage;
-
-        // TODO: Handle Backward Stage Changes (maybe you would like to do that)
     }
 
     pub fn handle_pass_gossip(&mut self, new_pass_target: IpAddr) {
-        if self.connection_stage == ConnectionStage::TcpConnectionEstablished {
-            self.connection_stage = ConnectionStage::StageZero;
-        } else {
-            todo!("Panic because it can only update from tcp connection established");
-        }
+        if self.connection_stage != ConnectionStage::TcpConnectionEstablished {
+            panic!(
+                "Can't update the stage from {:?} to {:?}",
+                self.connection_stage,
+                ConnectionStage::StageZero
+            )
+        };
 
+        self.connection_stage = ConnectionStage::StageZero;
         self.current_peer_addr = new_pass_target;
     }
 }
@@ -268,6 +269,18 @@ mod tests {
                 connection_stage: ConnectionStage::StageZero
             }
         )
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't update the stage from StageZero to StageZero")]
+    fn connection_progress_panics_while_handling_pass_gossip_in_case_tcp_connection_is_not_established(
+    ) {
+        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
+        let mut subject = ConnectionProgress::new(&initial_node_descriptor);
+        let new_pass_target_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
+
+        subject.handle_pass_gossip(new_pass_target_ip_addr);
     }
 
     #[test]
