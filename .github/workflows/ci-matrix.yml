@@ -14,9 +14,9 @@ jobs:
       matrix:
         os: [macOS-latest, ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache sccache results
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         env:
           cache-name: cache-node-modules
         with:
@@ -43,8 +43,8 @@ jobs:
           ./ci/collect_results.sh
         shell: bash
       - name: Publish ${{ matrix.os }}
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v3
         with:
-          name: Build Results ${{ matrix.os }}
-          path: results
+          name: Node-${{ matrix.os }}
+          path: results/generated/bin
           
