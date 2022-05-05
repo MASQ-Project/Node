@@ -49,7 +49,7 @@ pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableA
             n,
             if expected_delinquent { "d" } else { "n" }
         )),
-        balance: (n * 1_000_000_000) as i64,
+        balance: (n * 1_000_000_000) as i128,
         last_received_timestamp: from_time_t(now - (n as i64)),
     }
 }

@@ -584,6 +584,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tiny_hderive::bip32::ExtendedPrivKey;
+    use crate::sub_lib::own_primitive_types::{NonNegativeSigned128,NonNegativeSigned};
 
     lazy_static! {
         static ref CONFIG_TABLE_PARAMETERS: Vec<String> = list_of_config_parameters();
@@ -1907,11 +1908,11 @@ mod tests {
             "100000|1000|1000|20000|1000|20000",
             PaymentThresholds {
                 threshold_interval_sec: 1000,
-                debt_threshold_wei: 100000,
+                debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(100_000).unwrap(),
                 payment_grace_period_sec: 1000,
                 maturity_threshold_sec: 1000,
-                permanent_debt_allowed_wei: 20000,
-                unban_below_wei: 20000,
+                permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(20_000).unwrap(),
+                unban_below_wei: NonNegativeSigned128::try_assign_unsigned(20_000).unwrap(),
             }
         );
     }

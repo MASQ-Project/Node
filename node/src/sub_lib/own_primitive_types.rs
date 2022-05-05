@@ -10,7 +10,7 @@ pub trait NonNegativeSigned: Copy + Debug + PartialEq + Deref{
     fn try_assign_unsigned(num: Self::Unsigned) ->Result<Self,ErrorFromSignOperation>;
 }
 
-#[derive(Debug,PartialEq,Copy, Clone)]
+#[derive(Debug,PartialEq,Copy, Clone, Default)]
 pub struct NonNegativeSigned128{
     num: i128
 }

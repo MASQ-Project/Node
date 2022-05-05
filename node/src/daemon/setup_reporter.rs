@@ -1050,6 +1050,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use crate::sub_lib::own_primitive_types::{NonNegativeSigned, NonNegativeSigned128};
 
     #[test]
     fn constants_have_correct_values() {
@@ -3065,8 +3066,8 @@ mod tests {
     fn payment_thresholds_computed_default_persistent_config_unequal_to_default() {
         let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
         payment_thresholds.maturity_threshold_sec += 12;
-        payment_thresholds.unban_below_wei -= 11;
-        payment_thresholds.debt_threshold_wei += 1111;
+        payment_thresholds.unban_below_wei = NonNegativeSigned128::try_assign_unsigned(*payment_thresholds.unban_below_wei as u128 - 12).unwrap();
+        payment_thresholds.debt_threshold_wei = NonNegativeSigned128::try_assign_unsigned(*payment_thresholds.debt_threshold_wei as u128 + 1111).unwrap();
 
         assert_computed_default_when_persistent_config_unequal_to_default(
             &PaymentThresholds {},

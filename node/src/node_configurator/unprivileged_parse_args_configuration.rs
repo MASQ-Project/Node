@@ -617,6 +617,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use crate::sub_lib::own_primitive_types::{NonNegativeSigned, NonNegativeSigned128};
 
     #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {
@@ -1713,11 +1714,11 @@ mod tests {
                 }))
                 .payment_thresholds_result(Ok(PaymentThresholds {
                     threshold_interval_sec: 3000,
-                    debt_threshold_wei: 30000,
+                    debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(30000).unwrap(),
                     payment_grace_period_sec: 3000,
                     maturity_threshold_sec: 30000,
-                    permanent_debt_allowed_wei: 30000,
-                    unban_below_wei: 30000,
+                    permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(30000).unwrap(),
+                    unban_below_wei: NonNegativeSigned128::try_assign_unsigned(30000).unwrap(),
                 }))
                 .set_scan_intervals_params(&set_scan_intervals_params_arc)
                 .set_scan_intervals_result(Ok(()))
@@ -1743,11 +1744,11 @@ mod tests {
             },
             payment_thresholds: PaymentThresholds {
                 threshold_interval_sec: 1000,
-                debt_threshold_wei: 10000,
+                debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(10000).unwrap(),
                 payment_grace_period_sec: 1000,
                 maturity_threshold_sec: 10000,
-                permanent_debt_allowed_wei: 20000,
-                unban_below_wei: 20000,
+                permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(20000).unwrap(),
+                unban_below_wei: NonNegativeSigned128::try_assign_unsigned(20000).unwrap(),
             },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
@@ -1784,11 +1785,11 @@ mod tests {
                 }))
                 .payment_thresholds_result(Ok(PaymentThresholds {
                     threshold_interval_sec: 1000,
-                    debt_threshold_wei: 100000,
+                    debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(100000).unwrap(),
                     payment_grace_period_sec: 1000,
                     maturity_threshold_sec: 1000,
-                    permanent_debt_allowed_wei: 20000,
-                    unban_below_wei: 20000,
+                    permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(20000).unwrap(),
+                    unban_below_wei: NonNegativeSigned128::try_assign_unsigned(20000).unwrap(),
                 }));
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
@@ -1810,11 +1811,11 @@ mod tests {
             },
             payment_thresholds: PaymentThresholds {
                 threshold_interval_sec: 1000,
-                debt_threshold_wei: 100000,
+                debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(100000).unwrap(),
                 payment_grace_period_sec: 1000,
                 maturity_threshold_sec: 1000,
-                permanent_debt_allowed_wei: 20000,
-                unban_below_wei: 20000,
+                permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(20000).unwrap(),
+                unban_below_wei: NonNegativeSigned128::try_assign_unsigned(20000).unwrap(),
             },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };

@@ -534,16 +534,16 @@ pub struct UiScanIntervals {
 pub struct UiPaymentThresholds {
     #[serde(rename = "thresholdIntervalSec")]
     pub threshold_interval_sec: i64,
-    #[serde(rename = "debtThresholdGwei")]
-    pub debt_threshold_gwei: i64,
+    #[serde(rename = "debtThresholdWei")]
+    pub debt_threshold_wei: i128,
     #[serde(rename = "paymentGracePeriodSec")]
     pub payment_grace_period_sec: i64,
     #[serde(rename = "maturityThresholdSec")]
     pub maturity_threshold_sec: i64,
-    #[serde(rename = "permanentDebtAllowedGwei")]
-    pub permanent_debt_allowed_gwei: i64,
-    #[serde(rename = "unbanBelowGwei")]
-    pub unban_below_gwei: i64,
+    #[serde(rename = "permanentDebtAllowedWei")]
+    pub permanent_debt_allowed_wei: i128,
+    #[serde(rename = "unbanBelowWei")]
+    pub unban_below_wei: i128,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

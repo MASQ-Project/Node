@@ -235,12 +235,12 @@ impl Display for PaymentThresholds {
         write!(
             f,
             "{}|{}|{}|{}|{}|{}",
-            self.debt_threshold_wei,
+            *self.debt_threshold_wei,
             self.maturity_threshold_sec,
             self.payment_grace_period_sec,
-            self.permanent_debt_allowed_wei,
+            *self.permanent_debt_allowed_wei,
             self.threshold_interval_sec,
-            self.unban_below_wei
+            *self.unban_below_wei
         )
     }
 }
@@ -295,6 +295,7 @@ mod tests {
     use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::U128;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use std::panic::catch_unwind;
+    use crate::sub_lib::own_primitive_types::{NonNegativeSigned, NonNegativeSigned128};
 
     #[test]
     fn parse_combined_params_with_delimiters_happy_path() {
@@ -571,12 +572,12 @@ mod tests {
         assert_eq!(
             result,
             PaymentThresholds {
-                debt_threshold_wei: 5000010,
+                debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(5000010).unwrap(),
                 maturity_threshold_sec: 120,
                 payment_grace_period_sec: 100,
-                permanent_debt_allowed_wei: 20000,
+                permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(20000).unwrap(),
                 threshold_interval_sec: 10020,
-                unban_below_wei: 18000
+                unban_below_wei: NonNegativeSigned128::try_assign_unsigned(18000).unwrap()
             }
         )
     }
@@ -585,11 +586,11 @@ mod tests {
     fn payment_thresholds_to_combined_params() {
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 30020,
-            debt_threshold_wei: 5000010,
+            debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(5000010).unwrap(),
             payment_grace_period_sec: 123,
             maturity_threshold_sec: 120,
-            permanent_debt_allowed_wei: 20000,
-            unban_below_wei: 111,
+            permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(20000).unwrap(),
+            unban_below_wei: NonNegativeSigned128::try_assign_unsigned(111).unwrap(),
         };
 
         let result = payment_thresholds.to_string();

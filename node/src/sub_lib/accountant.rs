@@ -1,12 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, SentPayable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+use crate::sub_lib::own_primitive_types::{NonNegativeSigned, NonNegativeSigned128};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use lazy_static::lazy_static;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::ExpectValue;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
@@ -22,12 +24,17 @@ lazy_static! {
 
 lazy_static! {
     pub static ref DEFAULT_PAYMENT_THRESHOLDS: PaymentThresholds = PaymentThresholds {
-        debt_threshold_wei: 1_000_000_000, //TODO: multiple by WEI_OF_GWEI
+        debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(1_000_000_000 * WEI_OF_GWEI)
+            .expectv("non negative i128"),
         maturity_threshold_sec: 1200,
         payment_grace_period_sec: 1200,
-        permanent_debt_allowed_wei: 500_000_000,
+        permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(
+            500_000_000 * WEI_OF_GWEI
+        )
+        .expectv("non negative i128"),
         threshold_interval_sec: 21600,
-        unban_below_wei: 500_000_000,
+        unban_below_wei: NonNegativeSigned128::try_assign_unsigned(500_000_000 * WEI_OF_GWEI)
+            .expectv("non negative i128"),
     };
 }
 
@@ -42,12 +49,12 @@ lazy_static! {
 //please, alphabetical order
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub struct PaymentThresholds {
-    pub debt_threshold_wei: i64,
+    pub debt_threshold_wei: NonNegativeSigned128,
     pub maturity_threshold_sec: i64,
     pub payment_grace_period_sec: i64,
-    pub permanent_debt_allowed_wei: i64,
+    pub permanent_debt_allowed_wei: NonNegativeSigned128,
     pub threshold_interval_sec: i64,
-    pub unban_below_wei: i64,
+    pub unban_below_wei: NonNegativeSigned128,
     //TODO caution!! these names were changed to WEI but the bit bandwidth wasn't change yet
 }
 
@@ -148,6 +155,7 @@ mod tests {
         PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
         DEFAULT_SCAN_INTERVALS, TEMPORARY_CONSUMING_WALLET,
     };
+    use crate::sub_lib::own_primitive_types::{NonNegativeSigned, NonNegativeSigned128};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
@@ -161,12 +169,13 @@ mod tests {
         let temporary_consuming_wallet_expected: Wallet =
             Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
         let payment_thresholds_expected = PaymentThresholds {
-            debt_threshold_wei: 1_000_000_000,
+            debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(1_000_000_000).unwrap(),
             maturity_threshold_sec: 1200,
             payment_grace_period_sec: 1200,
-            permanent_debt_allowed_wei: 500_000_000,
+            permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(500_000_000)
+                .unwrap(),
             threshold_interval_sec: 21600,
-            unban_below_wei: 500_000_000,
+            unban_below_wei: NonNegativeSigned128::try_assign_unsigned(500_000_000).unwrap(),
         };
         let scan_intervals_expected = ScanIntervals {
             pending_payable_scan_interval: Duration::from_secs(600),
