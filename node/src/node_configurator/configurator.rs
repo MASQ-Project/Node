@@ -602,11 +602,11 @@ impl Configurator {
         let payable_sec = scan_intervals.payable_scan_interval.as_secs();
         let receivable_sec = scan_intervals.receivable_scan_interval.as_secs();
         let threshold_interval_sec = payment_thresholds.threshold_interval_sec;
-        let debt_threshold_gwei = payment_thresholds.debt_threshold_gwei;
+        let debt_threshold_gwei = payment_thresholds.debt_threshold_wei;
         let payment_grace_period_sec = payment_thresholds.payment_grace_period_sec;
         let maturity_threshold_sec = payment_thresholds.maturity_threshold_sec;
-        let permanent_debt_allowed_gwei = payment_thresholds.permanent_debt_allowed_gwei;
-        let unban_below_gwei = payment_thresholds.unban_below_gwei;
+        let permanent_debt_allowed_gwei = payment_thresholds.permanent_debt_allowed_wei;
+        let unban_below_gwei = payment_thresholds.unban_below_wei;
         let response = UiConfigurationResponse {
             blockchain_service_url_opt,
             current_schema_version,
@@ -2264,11 +2264,11 @@ mod tests {
             }))
             .payment_thresholds_result(Ok(PaymentThresholds {
                 threshold_interval_sec: 10000,
-                debt_threshold_gwei: 5000000,
+                debt_threshold_wei: 5000000,
                 payment_grace_period_sec: 1000,
                 maturity_threshold_sec: 1200,
-                permanent_debt_allowed_gwei: 20000,
-                unban_below_gwei: 20000,
+                permanent_debt_allowed_wei: 20000,
+                unban_below_wei: 20000,
             }))
     }
 

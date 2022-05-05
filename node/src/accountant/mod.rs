@@ -496,7 +496,7 @@ impl Accountant {
 
         if self.payable_threshold_tools.is_innocent_balance(
             payable.balance,
-            self.config.payment_thresholds.permanent_debt_allowed_gwei,
+            self.config.payment_thresholds.permanent_debt_allowed_wei,
         ) {
             return None;
         }
@@ -1058,8 +1058,8 @@ impl Accountant {
     }
 }
 
-pub fn unsigned_to_signed(unsigned: u64) -> Result<i64, u64> {
-    i64::try_from(unsigned).map_err(|_| unsigned)
+pub fn unsigned_to_signed<T: Copy,S: TryFrom<T>>(unsigned: T) -> Result<S, T> {
+    S::try_from(unsigned).map_err(|_| unsigned)
 }
 
 fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
@@ -1114,11 +1114,11 @@ impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
     }
 
     fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> f64 {
-        let m = -((payment_thresholds.debt_threshold_gwei as f64
-            - payment_thresholds.permanent_debt_allowed_gwei as f64)
+        let m = -((payment_thresholds.debt_threshold_wei as f64
+            - payment_thresholds.permanent_debt_allowed_wei as f64)
             / (payment_thresholds.threshold_interval_sec as f64
                 - payment_thresholds.maturity_threshold_sec as f64));
-        let b = payment_thresholds.debt_threshold_gwei as f64
+        let b = payment_thresholds.debt_threshold_wei as f64
             - m * payment_thresholds.maturity_threshold_sec as f64;
         m * x as f64 + b
     }
@@ -1532,7 +1532,7 @@ mod tests {
         let accounts = vec![
             PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 55,
+                balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_wei + 55,
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now())
                         - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
@@ -1542,7 +1542,7 @@ mod tests {
             },
             PayableAccount {
                 wallet: make_wallet("foo"),
-                balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 66,
+                balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_wei + 66,
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now())
                         - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
@@ -1984,7 +1984,7 @@ mod tests {
         // slightly above minimum balance, to the right of the curve (time intersection)
         let account = PayableAccount {
             wallet: make_wallet("wallet"),
-            balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 5,
+            balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_wei + 5,
             last_paid_timestamp: from_time_t(
                 now - DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10,
             ),
@@ -2051,17 +2051,17 @@ mod tests {
         let now = to_time_t(SystemTime::now());
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 2_592_000,
-            debt_threshold_gwei: 1_000_000_000,
+            debt_threshold_wei: 1_000_000_000,
             payment_grace_period_sec: 86_400,
             maturity_threshold_sec: 86_400,
-            permanent_debt_allowed_gwei: 10_000_000,
-            unban_below_gwei: 10_000_000,
+            permanent_debt_allowed_wei: 10_000_000,
+            unban_below_wei: 10_000_000,
         };
         let accounts = vec![
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: payment_thresholds.permanent_debt_allowed_gwei - 1,
+                balance: payment_thresholds.permanent_debt_allowed_wei - 1,
                 last_paid_timestamp: from_time_t(
                     now - payment_thresholds.threshold_interval_sec - 10,
                 ),
@@ -2070,7 +2070,7 @@ mod tests {
             // above balance intersection, to the left of minimum time (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: payment_thresholds.debt_threshold_gwei + 1,
+                balance: payment_thresholds.debt_threshold_wei + 1,
                 last_paid_timestamp: from_time_t(
                     now - payment_thresholds.maturity_threshold_sec + 10,
                 ),
@@ -2079,7 +2079,7 @@ mod tests {
             // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
             PayableAccount {
                 wallet: make_wallet("wallet2"),
-                balance: payment_thresholds.debt_threshold_gwei - 1000,
+                balance: payment_thresholds.debt_threshold_wei - 1000,
                 last_paid_timestamp: from_time_t(
                     now - payment_thresholds.maturity_threshold_sec - 1,
                 ),
@@ -2131,7 +2131,7 @@ mod tests {
             // slightly above minimum balance, to the right of the curve (time intersection)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei + 1,
+                balance: DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_wei + 1,
                 last_paid_timestamp: from_time_t(
                     now - DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10,
                 ),
@@ -2140,7 +2140,7 @@ mod tests {
             // slightly above the curve (balance intersection), to the right of minimum time
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1,
+                balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_wei + 1,
                 last_paid_timestamp: from_time_t(
                     now - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec - 10,
                 ),
@@ -3276,16 +3276,16 @@ mod tests {
         let now = to_time_t(SystemTime::now());
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 2_592_000,
-            debt_threshold_gwei: 1_000_000_000,
+            debt_threshold_wei: 1_000_000_000,
             payment_grace_period_sec: 86_400,
             maturity_threshold_sec: 86_400,
-            permanent_debt_allowed_gwei: 10_000_000,
-            unban_below_gwei: 10_000_000,
+            permanent_debt_allowed_wei: 10_000_000,
+            unban_below_wei: 10_000_000,
         };
         let qualified_payables = &[
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: payment_thresholds.permanent_debt_allowed_gwei + 1000,
+                balance: payment_thresholds.permanent_debt_allowed_wei + 1000,
                 last_paid_timestamp: from_time_t(
                     now - payment_thresholds.threshold_interval_sec - 1234,
                 ),
@@ -3293,7 +3293,7 @@ mod tests {
             },
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
+                balance: payment_thresholds.permanent_debt_allowed_wei + 1,
                 last_paid_timestamp: from_time_t(
                     now - payment_thresholds.threshold_interval_sec - 1,
                 ),
@@ -3333,10 +3333,10 @@ mod tests {
         let custom_payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 1111,
             payment_grace_period_sec: 2222,
-            permanent_debt_allowed_gwei: 3333,
-            debt_threshold_gwei: 4444,
+            permanent_debt_allowed_wei: 3333,
+            debt_threshold_wei: 4444,
             threshold_interval_sec: 5555,
-            unban_below_gwei: 3333,
+            unban_below_wei: 3333,
         };
         let mut bootstrapper_config = BootstrapperConfig::default();
         bootstrapper_config.accountant_config_opt = Some(AccountantConfig {
@@ -3352,7 +3352,7 @@ mod tests {
             )
             .is_innocent_balance_params(&safe_balance_params_arc)
             .is_innocent_balance_result(
-                balance <= custom_payment_thresholds.permanent_debt_allowed_gwei,
+                balance <= custom_payment_thresholds.permanent_debt_allowed_wei,
             )
             .calculate_payout_threshold_params(&calculate_payable_threshold_params_arc)
             .calculate_payout_threshold_result(4567.0); //made up value
@@ -3381,7 +3381,7 @@ mod tests {
             *safe_balance_params,
             vec![(
                 payable_account.balance,
-                custom_payment_thresholds.permanent_debt_allowed_gwei
+                custom_payment_thresholds.permanent_debt_allowed_wei
             )]
         );
         let mut calculate_payable_curves_params =
@@ -3430,8 +3430,8 @@ mod tests {
         ));
         let this_payable_timestamp_1 = now;
         let this_payable_timestamp_2 = now.add(Duration::from_millis(50));
-        let payable_account_balance_1 = DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 10;
-        let payable_account_balance_2 = DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 666;
+        let payable_account_balance_1 = DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_wei + 10;
+        let payable_account_balance_2 = DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_wei + 666;
         let transaction_receipt_tx_2_first_round = TransactionReceipt::default();
         let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
         let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
@@ -4157,14 +4157,14 @@ mod tests {
 
     #[test]
     fn unsigned_to_signed_handles_zero() {
-        let result = unsigned_to_signed(0u64);
+        let result = unsigned_to_signed::<u64,i64>(0u64);
 
         assert_eq!(result, Ok(0i64));
     }
 
     #[test]
     fn unsigned_to_signed_handles_max_allowable() {
-        let result = unsigned_to_signed(i64::MAX as u64);
+        let result = unsigned_to_signed::<u64,i64>(i64::MAX as u64);
 
         assert_eq!(result, Ok(i64::MAX));
     }
@@ -4172,7 +4172,7 @@ mod tests {
     #[test]
     fn unsigned_to_signed_handles_max_plus_one() {
         let attempt = (i64::MAX as u64) + 1;
-        let result = unsigned_to_signed((i64::MAX as u64) + 1);
+        let result = unsigned_to_signed::<u64,i64>((i64::MAX as u64) + 1);
 
         assert_eq!(result, Err(attempt));
     }

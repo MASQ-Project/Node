@@ -3065,8 +3065,8 @@ mod tests {
     fn payment_thresholds_computed_default_persistent_config_unequal_to_default() {
         let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
         payment_thresholds.maturity_threshold_sec += 12;
-        payment_thresholds.unban_below_gwei -= 11;
-        payment_thresholds.debt_threshold_gwei += 1111;
+        payment_thresholds.unban_below_wei -= 11;
+        payment_thresholds.debt_threshold_wei += 1111;
 
         assert_computed_default_when_persistent_config_unequal_to_default(
             &PaymentThresholds {},

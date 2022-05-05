@@ -1907,11 +1907,11 @@ mod tests {
             "100000|1000|1000|20000|1000|20000",
             PaymentThresholds {
                 threshold_interval_sec: 1000,
-                debt_threshold_gwei: 100000,
+                debt_threshold_wei: 100000,
                 payment_grace_period_sec: 1000,
                 maturity_threshold_sec: 1000,
-                permanent_debt_allowed_gwei: 20000,
-                unban_below_gwei: 20000,
+                permanent_debt_allowed_wei: 20000,
+                unban_below_wei: 20000,
             }
         );
     }

@@ -83,7 +83,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
         let signed_amount =
-            unsigned_to_signed(amount).map_err(PendingPayableDaoError::SignConversionError)?;
+            unsigned_to_signed::<u64,i64>(amount).map_err(PendingPayableDaoError::SignConversionError)?;
         let mut stm = self.conn.prepare("insert into pending_payable (transaction_hash, amount, payable_timestamp, attempt, process_error) values (?,?,?,?,?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[
             &format!("{:?}", transaction_hash),
@@ -101,7 +101,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
 
     fn delete_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
         let signed_id =
-            unsigned_to_signed(id).expect("SQLite counts up to i64::MAX; should never happen");
+            unsigned_to_signed::<u64,i64>(id).expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
             .prepare("delete from pending_payable where rowid = ?")
@@ -118,7 +118,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
 
     fn update_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
         let signed_id =
-            unsigned_to_signed(id).expect("SQLite counts up to i64::MAX; should never happen");
+            unsigned_to_signed::<u64,i64>(id).expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
             .prepare("update pending_payable set attempt = attempt + 1 where rowid = ?")
@@ -135,7 +135,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
 
     fn mark_failure(&self, id: u64) -> Result<(), PendingPayableDaoError> {
         let signed_id =
-            unsigned_to_signed(id).expect("SQLite counts up to i64::MAX; should never happen");
+            unsigned_to_signed::<u64,i64>(id).expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
             .prepare("update pending_payable set process_error = 'ERROR' where rowid = ?")
@@ -423,7 +423,7 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         let conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
-        let signed_row_id = unsigned_to_signed(rowid).unwrap();
+        let signed_row_id = unsigned_to_signed::<u64,i64>(rowid).unwrap();
         let mut stm2 = conn
             .prepare("select * from pending_payable where rowid = ?")
             .unwrap();

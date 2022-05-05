@@ -93,6 +93,7 @@ enum CombinedParams {
     ScanIntervals(Option<ScanIntervals>),
 }
 
+//TODO add a check that U128 works just up to i128 max
 impl CombinedParams {
     pub fn parse(&self, parameters_str: &str) -> Result<Self, String> {
         let parsed_values = Self::parse_combined_params(
@@ -154,10 +155,10 @@ impl CombinedParams {
                 &parsed_values,
                 "maturity_threshold_sec",
                 "payment_grace_period_sec",
-                "permanent_debt_allowed_gwei",
-                "debt_threshold_gwei",
+                "permanent_debt_allowed_wei",
+                "debt_threshold_wei",
                 "threshold_interval_sec",
-                "unban_below_gwei"
+                "unban_below_wei"
             ))),
             Self::ScanIntervals(None) => Self::ScanIntervals(Some(initiate_struct!(
                 ScanIntervals,
@@ -185,12 +186,12 @@ impl From<&CombinedParams> for &[(&str, CombinedParamsDataTypes)] {
                 ("exit_service_rate", U64),
             ],
             CombinedParams::PaymentThresholds(None) => &[
-                ("debt_threshold_gwei", I64),
+                ("debt_threshold_wei", I64),
                 ("maturity_threshold_sec", I64),
                 ("payment_grace_period_sec", I64),
-                ("permanent_debt_allowed_gwei", I64),
+                ("permanent_debt_allowed_wei", I64),
                 ("threshold_interval_sec", I64),
-                ("unban_below_gwei", I64),
+                ("unban_below_wei", I64),
             ],
             CombinedParams::ScanIntervals(None) => &[
                 ("pending_payable_scan_interval", U64),
@@ -234,12 +235,12 @@ impl Display for PaymentThresholds {
         write!(
             f,
             "{}|{}|{}|{}|{}|{}",
-            self.debt_threshold_gwei,
+            self.debt_threshold_wei,
             self.maturity_threshold_sec,
             self.payment_grace_period_sec,
-            self.permanent_debt_allowed_gwei,
+            self.permanent_debt_allowed_wei,
             self.threshold_interval_sec,
-            self.unban_below_gwei
+            self.unban_below_wei
         )
     }
 }
@@ -396,12 +397,12 @@ mod tests {
         assert_eq!(
             payment_thresholds,
             &[
-                ("debt_threshold_gwei", I64),
+                ("debt_threshold_wei", I64),
                 ("maturity_threshold_sec", I64),
                 ("payment_grace_period_sec", I64),
-                ("permanent_debt_allowed_gwei", I64),
+                ("permanent_debt_allowed_wei", I64),
                 ("threshold_interval_sec", I64),
-                ("unban_below_gwei", I64)
+                ("unban_below_wei", I64)
             ]
         );
     }
@@ -570,12 +571,12 @@ mod tests {
         assert_eq!(
             result,
             PaymentThresholds {
-                debt_threshold_gwei: 5000010,
+                debt_threshold_wei: 5000010,
                 maturity_threshold_sec: 120,
                 payment_grace_period_sec: 100,
-                permanent_debt_allowed_gwei: 20000,
+                permanent_debt_allowed_wei: 20000,
                 threshold_interval_sec: 10020,
-                unban_below_gwei: 18000
+                unban_below_wei: 18000
             }
         )
     }
@@ -584,11 +585,11 @@ mod tests {
     fn payment_thresholds_to_combined_params() {
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 30020,
-            debt_threshold_gwei: 5000010,
+            debt_threshold_wei: 5000010,
             payment_grace_period_sec: 123,
             maturity_threshold_sec: 120,
-            permanent_debt_allowed_gwei: 20000,
-            unban_below_gwei: 111,
+            permanent_debt_allowed_wei: 20000,
+            unban_below_wei: 111,
         };
 
         let result = payment_thresholds.to_string();

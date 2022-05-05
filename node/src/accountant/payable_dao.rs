@@ -87,7 +87,7 @@ pub struct PayableDaoReal {
 impl PayableDao for PayableDaoReal {
     //TODO: YES
     fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PayableDaoError> {
-        let signed_amount = unsigned_to_signed(amount).map_err(PayableDaoError::SignConversion)?;
+        let signed_amount = unsigned_to_signed::<u64,i64>(amount).map_err(PayableDaoError::SignConversion)?;
         match self.try_increase_balance(wallet, signed_amount) {
             Ok(_) => Ok(()),
             Err(e) => panic!(
@@ -128,7 +128,7 @@ impl PayableDao for PayableDaoReal {
         fingerprint: &PendingPayableFingerprint,
     ) -> Result<(), PayableDaoError> {
         let signed_amount =
-            unsigned_to_signed(fingerprint.amount).map_err(PayableDaoError::SignConversion)?;
+            unsigned_to_signed::<u64,i64>(fingerprint.amount).map_err(PayableDaoError::SignConversion)?;
         self.try_decrease_balance(
             fingerprint.rowid_opt.expectv("initialized rowid"),
             signed_amount,
@@ -164,8 +164,8 @@ impl PayableDao for PayableDaoReal {
 
     //TODO: never used!!
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
-        let min_amt = unsigned_to_signed(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
-        let max_age = unsigned_to_signed(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+        let min_amt = unsigned_to_signed::<u64,i64>(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+        let max_age = unsigned_to_signed::<u64,i64>(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
         let min_timestamp = dao_utils::now_time_t() - max_age;
         let mut stmt = self
             .conn
@@ -535,7 +535,7 @@ mod tests {
             &recipient_wallet,
             &amount,
             &to_time_t(timestamp),
-            &unsigned_to_signed(rowid).unwrap(),
+            &unsigned_to_signed::<u64,i64>(rowid).unwrap(),
         ];
         let row_changed = stm1.execute(params).unwrap();
         assert_eq!(row_changed, 1);
