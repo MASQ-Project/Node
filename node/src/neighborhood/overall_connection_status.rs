@@ -103,8 +103,7 @@ pub struct OverallConnectionStatus {
     can_make_routes: bool,
     // Stores one of the three stages of enum OverallConnectionStage.
     stage: OverallConnectionStage,
-    // Stores the progress for initial node descriptors,
-    // each element may or may not be corresponding to the descriptors entered by user.
+    // Corresponds to progress with node descriptors entered by the user
     pub progress: Vec<ConnectionProgress>,
 }
 
@@ -128,7 +127,7 @@ impl OverallConnectionStatus {
             .map(|connection_progress| &connection_progress.initial_node_descriptor)
     }
 
-    pub fn get_connection_progress(&mut self, peer_addr: IpAddr) -> &mut ConnectionProgress {
+    pub fn get_connection_progress_by_ip(&mut self, peer_addr: IpAddr) -> &mut ConnectionProgress {
         let mut connection_progress_to_modify = self
             .progress
             .iter_mut()
@@ -164,7 +163,7 @@ impl OverallConnectionStatus {
     }
 
     pub fn update_connection_stage(&mut self, peer_addr: IpAddr, event: ConnectionProgressEvent) {
-        let mut connection_progress_to_modify = self.get_connection_progress(peer_addr);
+        let mut connection_progress_to_modify = self.get_connection_progress_by_ip(peer_addr);
 
         match event {
             ConnectionProgressEvent::TcpConnectionSuccessful => connection_progress_to_modify
@@ -337,15 +336,15 @@ mod tests {
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         assert_eq!(
-            subject.get_connection_progress(peer_1_ip),
+            subject.get_connection_progress_by_ip(peer_1_ip),
             &mut ConnectionProgress::new(&desc_1)
         );
         assert_eq!(
-            subject.get_connection_progress(peer_2_ip),
+            subject.get_connection_progress_by_ip(peer_2_ip),
             &mut ConnectionProgress::new(&desc_2)
         );
         assert_eq!(
-            subject.get_connection_progress(peer_3_ip),
+            subject.get_connection_progress_by_ip(peer_3_ip),
             &mut ConnectionProgress::new(&desc_3)
         );
     }

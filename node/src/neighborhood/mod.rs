@@ -91,7 +91,6 @@ pub struct Neighborhood {
     neighborhood_database: NeighborhoodDatabase,
     consuming_wallet_opt: Option<Wallet>,
     next_return_route_id: u32,
-    // initial_neighbors: Vec<NodeDescriptor>,
     overall_connection_status: OverallConnectionStatus,
     chain: Chain,
     crashable: bool,
@@ -1173,7 +1172,7 @@ impl Neighborhood {
         let message = AskAboutDebutGossipMessage {
             prev_connection_progress: self
                 .overall_connection_status
-                .get_connection_progress(current_peer_addr)
+                .get_connection_progress_by_ip(current_peer_addr)
                 .clone(),
         };
         self.tools.notify_later_ask_about_gossip.notify_later(
