@@ -12,7 +12,6 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-use std::time::Duration;
 
 use actix::Context;
 use actix::Handler;
@@ -21,9 +20,11 @@ use actix::Recipient;
 use actix::{Actor, System};
 use actix::{Addr, AsyncContext};
 use itertools::Itertools;
-use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::UiShutdownRequest;
-use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::messages::{
+    FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage,
+};
+use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue};
 
 use crate::bootstrapper::BootstrapperConfig;
@@ -85,7 +86,7 @@ pub struct Neighborhood {
     hopper: Option<Recipient<IncipientCoresPackage>>,
     hopper_no_lookup: Option<Recipient<NoLookupIncipientCoresPackage>>,
     connected_signal: Option<Recipient<StartMessage>>,
-    _to_ui_message_sub: Option<Recipient<NodeToUiMessage>>,
+    to_ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     gossip_acceptor_opt: Option<Box<dyn GossipAcceptor>>,
     gossip_producer_opt: Option<Box<dyn GossipProducer>>,
     neighborhood_database: NeighborhoodDatabase,
@@ -118,6 +119,7 @@ impl Handler<BindMessage> for Neighborhood {
             msg.peer_actors.neighborhood.connection_progress_sub,
         )));
         self.gossip_producer_opt = Some(Box::new(GossipProducerReal::new()));
+        self.to_ui_message_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
     }
 }
 
@@ -263,8 +265,13 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ConnectionProgressMessage, ctx: &mut Self::Context) -> Self::Result {
-        self.overall_connection_status
-            .update_connection_stage(msg.peer_addr, msg.event.clone());
+        self.overall_connection_status.update_connection_stage(
+            msg.peer_addr,
+            msg.event.clone(),
+            self.to_ui_message_sub
+                .as_ref()
+                .expect("UI Gateway is unbound."),
+        );
 
         if msg.event == ConnectionProgressEvent::TcpConnectionSuccessful {
             self.send_ask_about_debut_gossip_message(ctx, msg.peer_addr);
@@ -285,6 +292,9 @@ impl Handler<AskAboutDebutGossipMessage> for Neighborhood {
             self.overall_connection_status.update_connection_stage(
                 msg.prev_connection_progress.current_peer_addr,
                 ConnectionProgressEvent::NoGossipResponseReceived,
+                self.to_ui_message_sub
+                    .as_ref()
+                    .expect("UI Gateway is unbound."),
             );
         }
     }
@@ -418,7 +428,7 @@ impl Neighborhood {
             hopper: None,
             hopper_no_lookup: None,
             connected_signal: None,
-            _to_ui_message_sub: None,
+            to_ui_message_sub: None,
             gossip_acceptor_opt: None,
             gossip_producer_opt: None,
             neighborhood_database,
@@ -455,12 +465,6 @@ impl Neighborhood {
             new_password_sub: addr.clone().recipient::<NewPasswordMessage>(),
             connection_progress_sub: addr.clone().recipient::<ConnectionProgressMessage>(),
         }
-    }
-
-    pub fn connect_to_the_masq_network(&mut self) {
-        todo!("write it")
-        // 1. We'll create different node connections.
-        // 2. We'll initiate their connections here too.
     }
 
     fn handle_start_message(&mut self) {
@@ -718,8 +722,6 @@ impl Neighborhood {
     ) {
         self.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
         self.check_connectedness();
-        // TODO: Do we want to call this rarely, or do we want to move it?
-        // TODO: Maybe call check_connectedness() inside the new fn of overall_connection_status?
     }
 
     fn curate_past_neighbors(
@@ -1351,9 +1353,10 @@ mod tests {
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
+    use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
+    use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use masq_lib::utils::running_test;
 
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -1742,6 +1745,7 @@ mod tests {
         subject.overall_connection_status.update_connection_stage(
             initial_desc_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            subject.to_ui_message_sub.as_ref().unwrap(),
         );
         let beginning_connection_progress = ConnectionProgress {
             initial_node_descriptor: initial_node_descriptor.clone(),
@@ -1852,6 +1856,7 @@ mod tests {
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            subject.to_ui_message_sub.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1908,6 +1913,7 @@ mod tests {
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            subject.to_ui_message_sub.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1964,6 +1970,7 @@ mod tests {
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            subject.to_ui_message_sub.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -2021,6 +2028,7 @@ mod tests {
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            subject.to_ui_message_sub.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -2077,6 +2085,7 @@ mod tests {
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            subject.to_ui_message_sub.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();

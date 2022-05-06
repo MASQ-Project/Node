@@ -549,6 +549,18 @@ pub struct UiPaymentThresholds {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum UiConnectionChangeStage {
+    ConnectedToNeighbor,
+    ThreeHopsRouteFound,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiConnectionChangeBroadcast {
+    pub stage: UiConnectionChangeStage,
+}
+fire_and_forget_message!(UiConnectionChangeBroadcast, "connectionChange");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiDescriptorRequest {}
 conversation_message!(UiDescriptorRequest, "descriptor");
 

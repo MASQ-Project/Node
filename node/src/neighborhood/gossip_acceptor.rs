@@ -3,7 +3,6 @@
 use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::node_record::NodeRecord;
-use crate::neighborhood::overall_connection_status::ConnectionProgress;
 use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::neighborhood::{
@@ -12,8 +11,6 @@ use crate::sub_lib::neighborhood::{
 use crate::sub_lib::node_addr::NodeAddr;
 use actix::Recipient;
 use masq_lib::logger::Logger;
-use std::alloc::System;
-use std::any::Any;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
@@ -1235,7 +1232,6 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
-    use crate::neighborhood::Neighborhood;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};
     use crate::sub_lib::utils::time_t_timestamp;
@@ -1244,16 +1240,13 @@ mod tests {
     };
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
-    use actix::{Actor, Recipient, System};
-    use libc::{system, time};
-    use log::logger;
+    use actix::{Actor, System};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::borrow::BorrowMut;
     use std::convert::TryInto;
-    use std::ops::{Add, Deref, Sub};
+    use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
-    use sysinfo::Signal::Sys;
 
     #[test]
     fn constants_have_correct_values() {
