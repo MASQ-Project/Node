@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 pub const HOUSEKEEPING_THREAD_LOOP_DELAY_MS: u64 = 100;
 pub const PUBLIC_IP_POLL_DELAY_SECONDS: u64 = 60;
 
-trait GatewayFactory {
+trait GatewayFactory: Send {
     fn make(&self, options: SearchOptions) -> Result<Box<dyn GatewayWrapper>, SearchError>;
 }
 
@@ -580,20 +580,15 @@ impl MappingAdderReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::control_layer::automap_control::AutomapChange;
     use crate::mocks::LocalIpFinderMock;
     use core::ptr::addr_of;
-    use crossbeam_channel::unbounded;
     use igd::RequestError;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::utils::AutomapProtocol;
     use std::cell::RefCell;
     use std::net::Ipv6Addr;
     use std::ops::Sub;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
 
     fn clone_get_external_ip_error(error: &GetExternalIpError) -> GetExternalIpError {
         match error {
