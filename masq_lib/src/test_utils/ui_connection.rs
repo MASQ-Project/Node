@@ -67,10 +67,7 @@ impl UiConnection {
         self.client.writer_mut()
     }
 
-    fn receive_main_impl<T: FromMessageBody>(
-        &mut self,
-        context_id: Option<u64>,
-    ) -> ReceiveResult<T> {
+    fn receive_main<T: FromMessageBody>(&mut self, context_id: Option<u64>) -> ReceiveResult<T> {
         let incoming_msg_json = match self.client.recv_message() {
             Ok(OwnedMessage::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
                 panic!("The queue is empty; all messages are gone.")
@@ -84,8 +81,6 @@ impl UiConnection {
 
         let incoming_msg = UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0))
             .unwrap_or_else(|_| panic!("Deserialization problem with: {}: ", &incoming_msg_json));
-        let opcode = incoming_msg.body.opcode.clone();
-
         if let Some(testing_id) = context_id {
             match incoming_msg.body.path {
                 Conversation(id) if id == testing_id => (),
@@ -108,7 +103,7 @@ impl UiConnection {
                     .expect("PayloadError message body contained no payload error");
                 ReceiveResult::TransactionError(payload_error)
             }
-            Err(e) => ReceiveResult::MarshalError((incoming_msg, e, opcode)),
+            Err(e) => ReceiveResult::MarshalError((incoming_msg, e)),
         }
     }
 
@@ -118,7 +113,7 @@ impl UiConnection {
 
     fn await_message<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
         loop {
-            match self.receive_main_impl::<T>(None) {
+            match self.receive_main::<T>(None) {
                 Correct(msg) => break Ok(msg),
                 TransactionError(e) => break Err(e),
                 MarshalError(_) => continue,
@@ -131,7 +126,7 @@ impl UiConnection {
         payload: S,
     ) -> Result<R, (u64, String)> {
         self.send(payload);
-        Self::standard_result_resolution(self.receive_main_impl::<R>(None))
+        Self::standard_result_resolution(self.receive_main::<R>(None))
     }
 
     pub fn transact_with_context_id<S: ToMessageBody, R: FromMessageBody>(
@@ -140,7 +135,7 @@ impl UiConnection {
         context_id: u64,
     ) -> Result<R, (u64, String)> {
         self.send_with_context_id(payload, context_id);
-        Self::standard_result_resolution(self.receive_main_impl::<R>(Some(context_id)))
+        Self::standard_result_resolution(self.receive_main::<R>(Some(context_id)))
     }
 
     fn standard_result_resolution<T>(
@@ -149,8 +144,8 @@ impl UiConnection {
         match extended_result {
             Correct(msg) => Ok(msg),
             TransactionError(e) => Err(e),
-            MarshalError((_, e, opcode)) => {
-                panic!("Deserialization problem for {}: {:?}", opcode, e)
+            MarshalError((msg, e)) => {
+                panic!("Deserialization of {:?} ended up with err: {:?}", msg, e)
             }
         }
     }
@@ -163,5 +158,5 @@ impl UiConnection {
 pub enum ReceiveResult<T> {
     Correct(T),
     TransactionError((u64, String)),
-    MarshalError((NodeToUiMessage, UiMessageError, String)),
+    MarshalError((NodeToUiMessage, UiMessageError)),
 }

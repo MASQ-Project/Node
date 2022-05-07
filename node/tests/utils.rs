@@ -195,7 +195,7 @@ impl MASQNode {
             let structured_captures = (0..captures.len())
                 .flat_map(|idx| {
                     captures.get(idx).map(|capture| {
-                        (1..capture.len())
+                        (0..capture.len())
                             .flat_map(|idx| {
                                 capture.get(idx).map(|particular_group_match| {
                                     particular_group_match.as_str().to_string()

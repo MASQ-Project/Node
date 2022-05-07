@@ -2,10 +2,6 @@
 
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
-use crate::communications::broadcast_tools::tools::{
-    handle_node_is_dead_while_f_f_on_the_way_broadcast, handle_ui_log_broadcast,
-    handle_unrecognized_broadcast,
-};
 use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
@@ -15,7 +11,7 @@ use masq_lib::messages::{
 };
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::ExpectValue;
-use masq_lib::{as_any_dcl, as_any_impl};
+use masq_lib::{as_any_dcl, as_any_impl, short_writeln};
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
@@ -94,7 +90,9 @@ impl BroadcastHandlerReal {
         match message_body_result {
             Err(_) => false, // Receiver died; masq is going down
             Ok(message_body) => {
-                if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
+                if let Ok((body, _)) = UiLogBroadcast::fmb(message_body.clone()) {
+                    handle_ui_log_broadcast(body, stdout, terminal_interface)
+                } else if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
                     SetupCommand::handle_broadcast(body, stdout, terminal_interface);
                 } else if let Ok((body, _)) = UiNodeCrashedBroadcast::fmb(message_body.clone()) {
                     CrashNotifier::handle_broadcast(body, stdout, terminal_interface);
@@ -107,8 +105,6 @@ impl BroadcastHandlerReal {
                         stdout,
                         terminal_interface,
                     );
-                } else if let Ok((body, _)) = UiLogBroadcast::fmb(message_body.clone()) {
-                    handle_ui_log_broadcast(body, stdout, terminal_interface)
                 } else {
                     handle_unrecognized_broadcast(message_body, stderr, terminal_interface)
                 }
@@ -141,6 +137,43 @@ impl StreamFactoryReal {
     pub fn new() -> Self {
         Self {}
     }
+}
+
+pub fn handle_node_is_dead_while_f_f_on_the_way_broadcast(
+    body: UiUndeliveredFireAndForget,
+    stdout: &mut dyn Write,
+    term_interface: &TerminalWrapper,
+) {
+    let _lock = term_interface.lock();
+    short_writeln!(
+        stdout,
+        "\nCannot handle {} request: Node is not running.\n",
+        body.opcode
+    );
+    stdout.flush().expect("flush failed");
+}
+
+pub fn handle_unrecognized_broadcast(
+    message_body: MessageBody,
+    stderr: &mut dyn Write,
+    term_interface: &TerminalWrapper,
+) {
+    let _lock = term_interface.lock();
+    short_writeln!(
+        stderr,
+        "Discarding unrecognized broadcast with opcode '{}'\n",
+        message_body.opcode
+    )
+}
+
+pub fn handle_ui_log_broadcast(
+    body: UiLogBroadcast,
+    stdout: &mut dyn Write,
+    term_interface: &TerminalWrapper,
+) {
+    let _lock = term_interface.lock();
+    write!(stdout, "\n\n>>  {:?}: {}\n\n", body.log_level, body.msg).expect("write! failed");
+    stdout.flush().expect("flush failed");
 }
 
 #[cfg(test)]

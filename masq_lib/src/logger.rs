@@ -255,7 +255,7 @@ mod tests {
     use crate::messages::{ToMessageBody, UiLogBroadcast};
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::ui_gateway::{MessageBody, MessagePath};
+    use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use actix::{Actor, AsyncContext, Context, Handler, Message, System};
     use chrono::format::StrftimeItems;
     use chrono::{DateTime, Local};
@@ -263,7 +263,7 @@ mod tests {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Barrier, Mutex, MutexGuard};
     use std::thread;
-    use std::thread::ThreadId;
+    use std::thread::{JoinHandle, ThreadId};
     use std::time::{Duration, SystemTime};
 
     struct TestUiGateway {
@@ -282,6 +282,11 @@ mod tests {
 
     impl Actor for TestUiGateway {
         type Context = Context<Self>;
+
+        fn started(&mut self, ctx: &mut Self::Context) {
+            ctx.set_mailbox_capacity(0); //important
+            ctx.notify_later(Stop {}, Duration::from_secs(10));
+        }
     }
 
     impl Handler<NodeToUiMessage> for TestUiGateway {
@@ -296,22 +301,9 @@ mod tests {
         }
     }
 
-    #[derive(Message)]
-    struct ScheduleStop {
-        timeout: Duration,
-    }
-
+    //to be used as a guarantee that the test cannot hang
     #[derive(Message)]
     struct Stop {}
-
-    impl Handler<ScheduleStop> for TestUiGateway {
-        type Result = ();
-
-        fn handle(&mut self, msg: ScheduleStop, ctx: &mut Self::Context) -> Self::Result {
-            ctx.set_mailbox_capacity(0); //this is important
-            ctx.notify_later(Stop {}, msg.timeout);
-        }
-    }
 
     impl Handler<Stop> for TestUiGateway {
         type Result = ();
@@ -321,80 +313,9 @@ mod tests {
         }
     }
 
-    lazy_static! {
-        static ref SENDER: Mutex<Option<Sender<NodeToUiMessage>>> = Mutex::new(None);
-    }
-
-    #[test]
-    fn transmit_log_handles_overloading_by_sending_msgs_from_multiple_threads() {
-        let _test_guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        let number_of_sent_msgs_in_total = 10000;
-        let factor = match f64::sqrt(number_of_sent_msgs_in_total as f64) {
-            x if x.fract() == 0.0 => x as usize,
-            _ => panic!("we expected a square number"),
-        };
-        let (tx, rx) = unbounded();
-        {
-            SENDER.lock().unwrap().replace(tx);
-        }
-        let (template_before, template_after) = {
-            let before = SystemTime::now();
-            overloading_function(
-                move || {
-                    SENDER
-                        .lock()
-                        .unwrap()
-                        .as_ref()
-                        .unwrap()
-                        .clone()
-                        .send(create_msg())
-                        .unwrap();
-                },
-                DoAllAtOnce { factor },
-            );
-            let mut counter = 0;
-            loop {
-                rx.recv().unwrap();
-                counter += 1;
-                if counter == number_of_sent_msgs_in_total {
-                    break;
-                }
-            }
-            let after = SystemTime::now();
-            (before, after)
-        };
-        let labour_time_example = template_after.duration_since(template_before).unwrap();
-        let recording_arc = Arc::new(Mutex::new(vec![]));
-        let ui_gateway = TestUiGateway::new(number_of_sent_msgs_in_total, &recording_arc);
-        let system = System::new("test_system");
-        let addr = ui_gateway.start();
-        let recipient = addr.clone().recipient();
-        {
-            LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
-        }
-        addr.try_send(ScheduleStop {
-            timeout: Duration::from_secs(8),
-        })
-        .unwrap();
-
-        addr.try_send(DoAllAtOnce { factor }).unwrap();
-
-        let (actual_start, actual_end) = {
-            let start = SystemTime::now();
-            system.run();
-            let end = SystemTime::now();
-            (start, end)
-        };
-        let recording = recording_arc.lock().unwrap();
-        assert_eq!(recording.len(), number_of_sent_msgs_in_total);
-        let measured = actual_end.duration_since(actual_start).unwrap();
-        let safe_estimation = labour_time_example * 3;
-        eprintln!("measured {:?}, template {:?}", measured, safe_estimation);
-        assert!(measured < safe_estimation) //this should pass even on slow machines
-    }
-
     #[derive(Message)]
     struct DoAllAtOnce {
+        vec_container_arc: Arc<Mutex<Option<Vec<JoinHandle<()>>>>>,
         factor: usize,
     }
 
@@ -410,12 +331,13 @@ mod tests {
     where
         C: Fn() + Send + 'static + Clone,
     {
+        let mut join_handles_container_opt = msg.vec_container_arc.lock().unwrap();
+        let join_handles_container = join_handles_container_opt.as_mut().unwrap();
         let barrier_arc = Arc::new(Barrier::new(msg.factor));
-        let mut join_handle_vector = Vec::new();
         (0..msg.factor).for_each(|_| {
             let barrier_arc_clone = Arc::clone(&barrier_arc);
             let closure_clone = closure.clone();
-            join_handle_vector.push(thread::spawn(move || {
+            join_handles_container.push(thread::spawn(move || {
                 barrier_arc_clone.wait();
                 (0..msg.factor).for_each(|_| closure_clone())
             }))
@@ -436,6 +358,102 @@ mod tests {
     fn send_message_to_recipient() {
         let recipient = LOG_RECIPIENT_OPT.lock().unwrap();
         recipient.as_ref().unwrap().try_send(create_msg()).unwrap()
+    }
+
+    fn see_about_join_handles(container: &mut MutexGuard<Option<Vec<JoinHandle<()>>>>) {
+        container
+            .take()
+            .unwrap()
+            .into_iter()
+            .for_each(|handle| handle.join().unwrap());
+    }
+
+    lazy_static! {
+        static ref SENDER: Mutex<Option<Sender<NodeToUiMessage>>> = Mutex::new(None);
+    }
+
+    #[test]
+    fn transmit_log_handles_overloading_by_sending_msgs_from_multiple_threads() {
+        let _test_guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
+        let msgs_in_total = 10000;
+        let factor = match f64::sqrt(msgs_in_total as f64) {
+            x if x.fract() == 0.0 => x as usize,
+            _ => panic!("we expected a square number"),
+        };
+        //Starting an experiment to get a feeling for what might be a standard amount of time
+        //for sending the given number of messages, in this case using a crossbeam channel.
+        //The product is going to be a template in the final assertion, where we want to rate
+        //an efficiency of the overloaded actix recipient combined with a mutex
+        let container_for_join_handles = Arc::new(Mutex::new(Some(Vec::new())));
+        let (tx, rx) = unbounded();
+        {
+            SENDER.lock().unwrap().replace(tx);
+        }
+        let (template_before, template_after) = {
+            let before = SystemTime::now();
+            overloading_function(
+                move || {
+                    SENDER
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .send(create_msg())
+                        .unwrap();
+                },
+                DoAllAtOnce {
+                    vec_container_arc: container_for_join_handles.clone(),
+                    factor,
+                },
+            );
+            let mut counter = 0;
+            loop {
+                rx.recv().unwrap();
+                counter += 1;
+                if counter == msgs_in_total {
+                    break;
+                }
+            }
+            let after = SystemTime::now();
+            (before, after)
+        };
+        let mut open_container_for_join_handles = container_for_join_handles.lock().unwrap();
+        see_about_join_handles(&mut open_container_for_join_handles);
+        open_container_for_join_handles.replace(Vec::new());
+        drop(open_container_for_join_handles);
+        let time_example_of_similar_labour =
+            template_after.duration_since(template_before).unwrap();
+        let recording_arc = Arc::new(Mutex::new(vec![]));
+        let fake_ui_gateway = TestUiGateway::new(msgs_in_total, &recording_arc);
+        let system = System::new("test_system");
+        let addr = fake_ui_gateway.start();
+        let recipient = addr.clone().recipient();
+        {
+            LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
+        }
+
+        addr.try_send(DoAllAtOnce {
+            vec_container_arc: container_for_join_handles.clone(),
+            factor,
+        })
+        .unwrap();
+
+        let (actual_start, actual_end) = {
+            let start = SystemTime::now();
+            system.run();
+            let end = SystemTime::now();
+            (start, end)
+        };
+        let mut open_container_for_join_handles = container_for_join_handles.lock().unwrap();
+        see_about_join_handles(&mut open_container_for_join_handles);
+        //we have now two samples and can go to compare them
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), msgs_in_total);
+        let measured = actual_end.duration_since(actual_start).unwrap();
+        let safe_estimation = time_example_of_similar_labour.mul_f32(2.5);
+        eprintln!("measured {:?}, template {:?}", measured, safe_estimation);
+        //flexible requirement that should pass even on a slow machine
+        assert!(measured < safe_estimation)
     }
 
     fn prepare_test_environment<'a>() -> MutexGuard<'a, ()> {

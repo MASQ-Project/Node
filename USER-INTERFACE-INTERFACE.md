@@ -720,7 +720,7 @@ a severity of `Info`, `Warn` or `Error`. Every such situation produces this broa
 long-adopted way of writing a log into a file and so both happen simultaneously. 
 
 Certain plans are to diverge between what is going to be printed to the log file and what is going to be given to
-the UI, while the letter in a prettier and user-friendlier form, but more preparation must go before we can implement
+the UI, while the latter in a prettier and user-friendlier form, but more preparation must go before we can implement
 that. 
 
 The log level constraining the UI output from less important messages (`Debug` and `Trace`) is now steadily given 

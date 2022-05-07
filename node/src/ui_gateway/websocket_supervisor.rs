@@ -90,7 +90,7 @@ impl WebSocketSupervisorReal {
             next_client_id: 0,
             from_ui_message_sub,
             client_id_by_socket_addr: HashMap::new(),
-            socket_addr_by_client_id: Default::default(),
+            socket_addr_by_client_id: HashMap::new(),
             client_by_id: HashMap::new(),
         }));
         let logger = Logger::new("WebSocketSupervisor");
@@ -288,6 +288,15 @@ impl WebSocketSupervisorReal {
         tokio::spawn(incoming_future);
     }
 
+    fn send_msg_carefully(
+        locked_inner: MutexGuard<WebSocketSupervisorInner>,
+        inner_arc: &Arc<Mutex<WebSocketSupervisorInner>>,
+        msg: NodeToUiMessage,
+    ) {
+        drop(locked_inner);
+        Self::send_msg(inner_arc, msg)
+    }
+
     fn handle_text_message(
         inner_arc: &Arc<Mutex<WebSocketSupervisorInner>>,
         logger: &Logger,
@@ -321,8 +330,8 @@ impl WebSocketSupervisorReal {
                     Critical(e.clone()),
                     message
                 );
-                drop(locked_inner);
-                Self::send_msg(
+                Self::send_msg_carefully(
+                    locked_inner,
                     inner_arc,
                     NodeToUiMessage {
                         target: ClientId(client_id),
@@ -345,34 +354,30 @@ impl WebSocketSupervisorReal {
                     message
                 );
                 match context_id_opt {
-                    None => {
-                        drop(locked_inner);
-                        Self::send_msg(
-                            inner_arc,
-                            NodeToUiMessage {
-                                target: ClientId(client_id),
-                                body: UiUnmarshalError {
-                                    message: e.to_string(),
-                                    bad_data: message.to_string(),
-                                }
-                                .tmb(0),
+                    None => Self::send_msg_carefully(
+                        locked_inner,
+                        inner_arc,
+                        NodeToUiMessage {
+                            target: ClientId(client_id),
+                            body: UiUnmarshalError {
+                                message: e.to_string(),
+                                bad_data: message.to_string(),
+                            }
+                            .tmb(0),
+                        },
+                    ),
+                    Some(context_id) => Self::send_msg_carefully(
+                        locked_inner,
+                        inner_arc,
+                        NodeToUiMessage {
+                            target: ClientId(client_id),
+                            body: MessageBody {
+                                opcode,
+                                path: Conversation(context_id),
+                                payload: Err((UNMARSHAL_ERROR, e.to_string())),
                             },
-                        )
-                    }
-                    Some(context_id) => {
-                        drop(locked_inner);
-                        Self::send_msg(
-                            inner_arc,
-                            NodeToUiMessage {
-                                target: ClientId(client_id),
-                                body: MessageBody {
-                                    opcode,
-                                    path: Conversation(context_id),
-                                    payload: Err((UNMARSHAL_ERROR, e.to_string())),
-                                },
-                            },
-                        )
-                    }
+                        },
+                    ),
                 }
                 return ok::<(), ()>(());
             }
@@ -452,13 +457,13 @@ impl WebSocketSupervisorReal {
             WebSocketError::IoError(e)
                 if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset =>
             {
+                Self::handle_emergency_client_removal(client_id, inner_arc);
                 warning!(
                     Logger::new("WebSocketSupervisor"),
-                    "Client {}: {:?}, dropping its reference",
+                    "Client {} hit a fatal flush error: {:?}, dropping the client",
                     client_id,
                     e.kind()
-                );
-                Self::handle_dead_client_removal(client_id, inner_arc)
+                )
             }
             err => warning!(
                 Logger::new("WebSocketSupervisor"),
@@ -474,34 +479,14 @@ impl WebSocketSupervisorReal {
         inner_arc: &Arc<Mutex<WebSocketSupervisorInner>>,
         client_id: u64,
     ) {
-        todo!()
-        // error!(
-        //             Logger::new("WebSocketSupervisor"),
-        //             "Error sending to client {}: {:?}", client_id, e
-        //         );
-
-        // match error {
-        //     WebSocketError::IoError(e)
-        //     if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset =>
-        //         {
-        //             warning!(
-        //             Logger::new("WebSocketSupervisor"),
-        //             "Client {}: {:?}, dropping its reference",
-        //             client_id,
-        //             e.kind()
-        //         );
-        //             Self::handle_dead_client_removal(client_id, inner_arc)
-        //         }
-        //     err => warning!(
-        //         Logger::new("WebSocketSupervisor"),
-        //         "'{:?}' occurred when flushing msg for Client {}",
-        //         err,
-        //         client_id
-        //     ),
-        // }
+        Self::handle_emergency_client_removal(client_id, inner_arc);
+        error!(
+            Logger::new("WebSocketSupervisor"),
+            "Error sending to client {}: {:?}, dropping the client", client_id, error
+        );
     }
 
-    fn handle_dead_client_removal(
+    fn handle_emergency_client_removal(
         client_id: u64,
         inner_arc: &Arc<Mutex<WebSocketSupervisorInner>>,
     ) {
@@ -545,6 +530,7 @@ impl WebSocketSupervisorReal {
         socket_addr: SocketAddr,
         logger: &Logger,
     ) {
+        let _ = locked_inner.socket_addr_by_client_id.remove(&client_id);
         let mut client = match locked_inner.client_by_id.remove(&client_id) {
             Some(client) => client,
             None => panic!("WebSocketSupervisor got a disconnect from a client that has disappeared from the stable!"),
@@ -558,7 +544,11 @@ impl WebSocketSupervisorReal {
             ),
             Ok(_) => {
                 client.flush().unwrap_or_else(|_| {
-                    panic!("Couldn't flush transmission to UI at {}", socket_addr)
+                    warning!(
+                        logger,
+                        "Couldn't flush transmission to UI at {}, client dumped anyway",
+                        socket_addr
+                    )
                 });
             }
         }
@@ -660,7 +650,6 @@ mod tests {
         send_params: Arc<Mutex<Vec<OwnedMessage>>>,
         send_results: RefCell<Vec<Result<(), WebSocketError>>>,
         flush_results: RefCell<Vec<Result<(), WebSocketError>>>,
-        socket_results: RefCell<Vec<SocketAddr>>,
     }
 
     impl Clone for ClientWrapperMock {
@@ -687,7 +676,6 @@ mod tests {
                         })
                         .collect::<Vec<Result<(), WebSocketError>>>(),
                 ),
-                socket_results: self.socket_results.clone(),
             }
         }
     }
@@ -698,7 +686,6 @@ mod tests {
                 send_params: Arc::new(Mutex::new(vec![])),
                 send_results: RefCell::new(vec![]),
                 flush_results: RefCell::new(vec![]),
-                socket_results: RefCell::new(vec![]),
             }
         }
 
@@ -714,11 +701,6 @@ mod tests {
 
         fn flush_result(self, result: Result<(), WebSocketError>) -> Self {
             self.flush_results.borrow_mut().push(result);
-            self
-        }
-
-        fn socket_result(self, result: SocketAddr) -> Self {
-            self.socket_results.borrow_mut().push(result);
             self
         }
     }
@@ -997,15 +979,7 @@ mod tests {
     #[test]
     fn logs_badly_formatted_json_and_returns_unmarshal_error() {
         init_test_logging();
-        let (ui_message_sub, _, _) = make_recorder();
-        let subject_inner = WebSocketSupervisorInner {
-            port: 4321,
-            next_client_id: 0,
-            from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
-            client_id_by_socket_addr: Default::default(),
-            socket_addr_by_client_id: Default::default(),
-            client_by_id: Default::default(),
-        };
+        let subject_inner = make_indeterminate_inner();
         let subject = WebSocketSupervisorReal {
             inner: Arc::new(Mutex::new(subject_inner)),
         };
@@ -1062,18 +1036,22 @@ mod tests {
         )
     }
 
-    #[test]
-    fn bad_one_way_message_is_logged_and_returns_error() {
-        init_test_logging();
+    fn make_indeterminate_inner() -> WebSocketSupervisorInner {
         let (ui_message_sub, _, _) = make_recorder();
-        let subject_inner = WebSocketSupervisorInner {
+        WebSocketSupervisorInner {
             port: 1234,
             next_client_id: 0,
             from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
             client_id_by_socket_addr: Default::default(),
             socket_addr_by_client_id: Default::default(),
             client_by_id: Default::default(),
-        };
+        }
+    }
+
+    #[test]
+    fn bad_one_way_message_is_logged_and_returns_error() {
+        init_test_logging();
+        let subject_inner = make_indeterminate_inner();
         let subject = WebSocketSupervisorReal {
             inner: Arc::new(Mutex::new(subject_inner)),
         };
@@ -1133,15 +1111,7 @@ mod tests {
     #[test]
     fn bad_two_way_message_is_logged_and_returns_error() {
         init_test_logging();
-        let (ui_message_sub, _, _) = make_recorder();
-        let subject_inner = WebSocketSupervisorInner {
-            port: 1234,
-            next_client_id: 0,
-            from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
-            client_id_by_socket_addr: Default::default(),
-            socket_addr_by_client_id: Default::default(),
-            client_by_id: Default::default(),
-        };
+        let subject_inner = make_indeterminate_inner();
         let subject = WebSocketSupervisorReal {
             inner: Arc::new(Mutex::new(subject_inner)),
         };
@@ -1201,25 +1171,31 @@ mod tests {
         );
     }
 
-    fn flush_failure_test_body(
-        flush_error: WebSocketError,
-        expected_assertion_result: Option<&u64>,
+    fn flush_failure_assertion(flush_error: WebSocketError, client_is_retained_after_error: bool) {
+        let client = ClientWrapperMock::new()
+            .send_result(Ok(()))
+            .flush_result(Err(flush_error));
+        sink_failure_test_body(client, client_is_retained_after_error)
+    }
+
+    fn send_failure_assertion(send_error: WebSocketError) {
+        let client = ClientWrapperMock::new().send_result(Err(send_error));
+        sink_failure_test_body(client, false)
+    }
+
+    fn sink_failure_test_body(
+        client_mock: ClientWrapperMock,
+        client_is_retained_after_error: bool,
     ) {
         let (ui_gateway, _, _) = make_recorder();
         let from_ui_message_sub = subs(ui_gateway);
         let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from([1, 2, 4, 5])), 4455);
-        let client = Box::new(
-            ClientWrapperMock::new()
-                .socket_result(socket_addr)
-                .send_result(Ok(()))
-                .flush_result(Err(flush_error)),
-        );
         let mut client_by_id: HashMap<u64, Box<dyn ClientWrapper>> = HashMap::new();
-        client_by_id.insert(1234, client);
+        client_by_id.insert(123, Box::new(client_mock));
         let mut client_id_by_socket_addr: HashMap<SocketAddr, u64> = HashMap::new();
-        client_id_by_socket_addr.insert(socket_addr, 1234);
+        client_id_by_socket_addr.insert(socket_addr, 123);
         let mut socket_addr_by_client_id: HashMap<u64, SocketAddr> = HashMap::new();
-        socket_addr_by_client_id.insert(1234, socket_addr);
+        socket_addr_by_client_id.insert(123, socket_addr);
         let inner_arc = Arc::new(Mutex::new(WebSocketSupervisorInner {
             port: 0,
             next_client_id: 0,
@@ -1229,7 +1205,7 @@ mod tests {
             client_by_id,
         }));
         let msg = NodeToUiMessage {
-            target: ClientId(1234),
+            target: ClientId(123),
             body: UiDescriptorResponse {
                 node_descriptor_opt: None,
             }
@@ -1241,44 +1217,53 @@ mod tests {
         let inner = inner_arc.lock().unwrap();
         assert_eq!(
             inner.client_id_by_socket_addr.get(&socket_addr),
-            expected_assertion_result
+            if client_is_retained_after_error {
+                Some(&123)
+            } else {
+                None
+            }
         );
         assert_eq!(
-            inner.client_by_id.get(&1234).is_some(),
-            expected_assertion_result.is_some()
+            inner.client_by_id.get(&123).is_some(),
+            client_is_retained_after_error
         );
+        assert_eq!(
+            inner.socket_addr_by_client_id.get(&123),
+            if client_is_retained_after_error {
+                Some(&socket_addr)
+            } else {
+                None
+            }
+        )
     }
 
     #[test]
-    fn can_handle_non_broken_pipe_flush_failure_after_send() {
+    fn can_handle_non_fatal_flush_failure() {
         init_test_logging();
         let flush_error = WebSocketError::NoDataAvailable;
-        let assertion_on_retention_of_the_client = Some(&1234);
-        flush_failure_test_body(flush_error, assertion_on_retention_of_the_client);
+        flush_failure_assertion(flush_error, true);
         TestLogHandler::new().exists_log_containing(
-            "WARN: WebSocketSupervisor: 'NoDataAvailable' occurred when flushing msg for Client 1234",
+            "WARN: WebSocketSupervisor: 'NoDataAvailable' occurred when flushing msg for Client 123",
         );
     }
 
     #[test]
-    fn can_handle_broken_pipe_flush_failure_after_send() {
+    fn can_handle_broken_pipe_flush_failure() {
         init_test_logging();
         let flush_error = WebSocketError::IoError(Error::from(ErrorKind::BrokenPipe));
-        let assertion_on_retention_of_the_client = None;
-        flush_failure_test_body(flush_error, assertion_on_retention_of_the_client);
+        flush_failure_assertion(flush_error, false);
         TestLogHandler::new().exists_log_containing(
-            "WARN: WebSocketSupervisor: Client 1234: BrokenPipe, dropping its reference",
+            "WARN: WebSocketSupervisor: Client 123 hit a fatal flush error: BrokenPipe, dropping the client",
         );
     }
 
     #[test]
-    fn can_handle_connection_aborted_flush_failure_after_send() {
+    fn can_handle_connection_aborted_flush_failure() {
         init_test_logging();
         let flush_error = WebSocketError::IoError(Error::from(ErrorKind::ConnectionReset));
-        let assertion_on_retention_of_the_client = None;
-        flush_failure_test_body(flush_error, assertion_on_retention_of_the_client);
+        flush_failure_assertion(flush_error, false);
         TestLogHandler::new().exists_log_containing(
-            "WARN: WebSocketSupervisor: Client 1234: ConnectionReset, dropping its reference",
+            "WARN: WebSocketSupervisor: Client 123 hit a fatal flush error: ConnectionReset, dropping the client",
         );
     }
 
@@ -1286,12 +1271,14 @@ mod tests {
     fn once_a_client_sends_a_close_no_more_data_is_accepted() {
         let port = find_free_port();
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+        let (tx, rx) = bounded(1);
 
         thread::spawn(move || {
             let system = System::new("once_a_client_sends_a_close_no_more_data_is_accepted");
             let ui_message_sub = subs(ui_gateway);
             let subject = lazy(move || {
-                let _subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
+                let subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
+                tx.send(subject.inner.clone()).unwrap();
                 Ok(())
             });
             actix::spawn(subject);
@@ -1316,6 +1303,39 @@ mod tests {
             }
         );
         assert_eq!(ui_gateway_recording.len(), 1);
+        let mail = rx.try_recv().unwrap();
+        let inner_clone = mail.lock().unwrap();
+        assert!(inner_clone.client_by_id.is_empty());
+        assert!(inner_clone.client_id_by_socket_addr.is_empty());
+        assert!(inner_clone.socket_addr_by_client_id.is_empty())
+    }
+
+    #[test]
+    fn close_connection_logs_inability_to_flush_close_message_before_the_client_is_dumped_anyway() {
+        init_test_logging();
+        let mut inner = make_indeterminate_inner();
+        let mock_client = ClientWrapperMock::new()
+            .send_result(Ok(()))
+            .flush_result(Err(WebSocketError::IoError(Error::from(
+                ErrorKind::BrokenPipe,
+            ))));
+        let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 44444);
+        inner.client_by_id.insert(1, Box::new(mock_client));
+        inner.socket_addr_by_client_id.insert(1, socket_addr);
+        let inner_arc = Arc::new(Mutex::new(inner));
+        let mut locked_inner = inner_arc.lock().unwrap();
+
+        WebSocketSupervisorReal::close_connection(
+            &mut locked_inner,
+            1,
+            socket_addr,
+            &Logger::new("close_connection_test"),
+        );
+
+        TestLogHandler::new().exists_log_containing(
+            "WARN: close_connection_test: Couldn't \
+         flush transmission to UI at 1.2.3.4:44444, client dumped anyway",
+        );
     }
 
     #[test]
@@ -1486,32 +1506,11 @@ mod tests {
     }
 
     #[test]
-    fn send_msg_tries_to_send_message_and_fails_and_logs() {
+    fn send_msg_fails_on_calling_send_so_logs_and_removes_the_client() {
         init_test_logging();
-        let port = find_free_port();
-        let (ui_gateway, _, _) = make_recorder();
-        let ui_message_sub = subs(ui_gateway);
-        let system = System::new("send_msg_tries_to_send_message_and_panics");
-        let lazy_future = lazy(move || {
-            let subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
-            let mock_client =
-                ClientWrapperMock::new().send_result(Err(WebSocketError::NoDataAvailable));
-            let msg = NodeToUiMessage {
-                target: MessageTarget::ClientId(subject.inject_mock_client(mock_client)),
-                body: MessageBody {
-                    opcode: "booga".to_string(),
-                    path: FireAndForget,
-                    payload: Ok("{}".to_string()),
-                },
-            };
-            subject.send_msg(msg);
-            Ok(())
-        });
-        actix::spawn(lazy_future);
-        System::current().stop();
-        system.run();
+        send_failure_assertion(WebSocketError::NoDataAvailable);
         TestLogHandler::new().exists_log_containing(
-            "ERROR: WebSocketSupervisor: Error sending to client 0: NoDataAvailable",
+            "ERROR: WebSocketSupervisor: Error sending to client 123: NoDataAvailable, dropping the client",
         );
     }
 

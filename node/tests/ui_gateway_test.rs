@@ -215,10 +215,10 @@ fn cleanup_after_deceased_clients_integration() {
     node.wait_for_log(&expected_message_snippet_first, Some(2000));
     #[cfg(not(target_os = "windows"))]
     let expected_message_snippet_second =
-        "Client 0: BrokenPipe, dropping its reference".to_string();
+        "Client 0 hit a fatal flush error: BrokenPipe, dropping the client".to_string();
     #[cfg(target_os = "windows")]
     let expected_message_snippet_second =
-        "Client 0: ConnectionReset, dropping its reference".to_string();
+        "Client 0 hit a fatal flush error: ConnectionReset, dropping the client".to_string();
     node.wait_for_log(&expected_message_snippet_second, Some(1000));
     client_2.send(UiShutdownRequest {});
     node.wait_for_exit();
