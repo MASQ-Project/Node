@@ -980,6 +980,26 @@ impl RealUser {
     }
 }
 
+struct Scans {}
+impl ValueRetriever for Scans {
+    fn value_name(&self) -> &'static str {
+        "scans"
+    }
+
+    fn computed_default(
+        &self,
+        _bootstrapper_config: &BootstrapperConfig,
+        _persistent_config: &dyn PersistentConfiguration,
+        _db_password_opt: &Option<String>,
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        Some(("on".to_string(), Default))
+    }
+
+    fn is_required(&self, _params: &SetupCluster) -> bool {
+        false
+    }
+}
+
 fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetriever>> {
     vec![
         Box::new(BlockchainServiceUrl {}),
@@ -1003,6 +1023,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(ScanIntervals {}),
         #[cfg(not(target_os = "windows"))]
         Box::new(RealUser::new(dirs_wrapper)),
+        Box::new(Scans {}),
     ]
 }
 
@@ -1235,6 +1256,7 @@ mod tests {
                 &DEFAULT_SCAN_INTERVALS.to_string(),
                 Default,
             ),
+            ("scans", "on", Default),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1259,7 +1281,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_everything_preexistent",
         );
         let existing_setup = setup_cluster_from(vec![
-            ("blockchain-service-url", "https://example.com", Set),
+            ("blockchain-service-url", "https://example1.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
@@ -1279,7 +1301,8 @@ mod tests {
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
-            ("scan-intervals","150|150|150",Set)
+            ("scan-intervals","150|150|150",Set),
+            ("scans", "off", Set),
         ]);
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
@@ -1287,7 +1310,7 @@ mod tests {
         let result = subject.get_modified_setup(existing_setup, vec![]).unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "https://example.com", Set),
+            ("blockchain-service-url", "https://example1.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
@@ -1307,7 +1330,8 @@ mod tests {
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
-            ("scan-intervals","150|150|150",Set)
+            ("scan-intervals","150|150|150",Set),
+            ("scans", "off", Set),
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1326,7 +1350,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_everything_set",
         );
         let incoming_setup = vec![
-            ("blockchain-service-url", "https://example.com"),
+            ("blockchain-service-url", "https://example2.com"),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("clandestine-port", "1234"),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677"),
@@ -1345,7 +1369,8 @@ mod tests {
             ("rate-pack","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga"),
-            ("scan-intervals","140|130|150")
+            ("scan-intervals","140|130|150"),
+            ("scans", "off"),
         ].into_iter()
             .map (|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
@@ -1357,7 +1382,7 @@ mod tests {
             .unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "https://example.com", Set),
+            ("blockchain-service-url", "https://example2.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
@@ -1377,7 +1402,8 @@ mod tests {
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
-            ("scan-intervals","140|130|150",Set)
+            ("scan-intervals","140|130|150",Set),
+            ("scans", "off", Set),
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1397,7 +1423,7 @@ mod tests {
             "get_modified_setup_database_nonexistent_nothing_set_everything_in_environment",
         );
         vec![
-            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
+            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example3.com"),
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
@@ -1416,6 +1442,7 @@ mod tests {
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_SCANS", "off"),
             ("MASQ_SCAN_INTERVALS","133|133|111")
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
@@ -1426,7 +1453,7 @@ mod tests {
         let result = subject.get_modified_setup(HashMap::new(), params).unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "https://example.com", Configured),
+            ("blockchain-service-url", "https://example3.com", Configured),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
@@ -1446,7 +1473,8 @@ mod tests {
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
-            ("scan-intervals","133|133|111",Configured)
+            ("scan-intervals","133|133|111",Configured),
+            ("scans", "off", Configured),
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1497,6 +1525,7 @@ mod tests {
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
+            config_file.write_all(b"scans = \"off\"\n").unwrap();
             config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();
             config_file
                 .write_all(b"payment-thresholds = \"33|55|33|646|999|999\"\n")
@@ -1538,6 +1567,7 @@ mod tests {
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
+            config_file.write_all(b"scans = \"off\"\n").unwrap();
             config_file
                 .write_all(b"rate-pack = \"55|50|60|61\"\n")
                 .unwrap();
@@ -1613,6 +1643,7 @@ mod tests {
                 Default,
             ),
             ("scan-intervals", "555|555|555", Configured),
+            ("scans", "off", Configured),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1653,6 +1684,7 @@ mod tests {
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_SCANS", "off"),
             ("MASQ_SCAN_INTERVALS","150|150|155"),
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
@@ -1677,6 +1709,7 @@ mod tests {
             #[cfg(not(target_os = "windows"))]
             "real-user",
             "scan-intervals",
+            "scans",
         ]
         .into_iter()
         .map(|name| UiSetupRequestValue::clear(name))
@@ -1714,7 +1747,8 @@ mod tests {
             #[cfg(not(target_os = "windows"))]
             ("real-user", "6666:6666:agoob", Set),
             ("scan-intervals", "111|111|111", Set),
-        ]);
+            ("scans", "off", Set),
+            ]);
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
 
@@ -1746,6 +1780,7 @@ mod tests {
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
             ("scan-intervals","150|150|155",Configured),
+            ("scans", "off", Configured),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1851,6 +1886,7 @@ mod tests {
                     .to_string(),
                 Default,
             ),
+            ("scans", "", Blank),
         ]);
         let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)]
             .into_iter()
@@ -1921,6 +1957,7 @@ mod tests {
                     .to_string(),
                 Default,
             ),
+            ("scans", "on", Default),
         ]);
         let incoming_setup = vec![UiSetupRequestValue::clear("chain")];
         let base_data_dir = base_dir.join("data_dir");
@@ -3005,6 +3042,19 @@ mod tests {
     }
 
     #[test]
+    fn scans_computed_default() {
+        let subject = Scans {};
+
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &PersistentConfigurationMock::new(),
+            &None,
+        );
+
+        assert_eq!(result, Some(("on".to_string(), Default)));
+    }
+
+    #[test]
     fn rate_pack_standard_mode_goes_on_with_further_evaluation() {
         assert_rate_pack_computed_default_advanced_evaluation_regarding_specific_neighborhood(
             |rate_pack: neighborhood::RatePack| {
@@ -3242,6 +3292,7 @@ mod tests {
             crate::daemon::setup_reporter::RealUser::default().is_required(&params),
             false
         );
+        assert_eq!(Scans {}.is_required(&params), false);
     }
 
     #[test]
@@ -3274,5 +3325,6 @@ mod tests {
             crate::daemon::setup_reporter::RealUser::default().value_name(),
             "real-user"
         );
+        assert_eq!(Scans {}.value_name(), "scans");
     }
 }

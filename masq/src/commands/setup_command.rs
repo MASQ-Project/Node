@@ -186,6 +186,7 @@ mod tests {
                         "masq://eth-mainnet:95VjByq5tEUUpDcczA__zXWGE6-7YFEvzN4CDVoPbWw@13.23.13.23:4545",
                         Set,
                     ),
+                    UiSetupResponseValue::new("scans", "off", Set),
                     UiSetupResponseValue::new("scan-intervals","123|111|228",Set)
                 ],
                 errors: vec![],
@@ -204,6 +205,8 @@ mod tests {
                 "eth-ropsten".to_string(),
                 "--scan-intervals".to_string(),
                 "123|111|228".to_string(),
+                "--scans".to_string(),
+                "off".to_string(),
             ])
             .unwrap();
 
@@ -222,7 +225,8 @@ mod tests {
                         ),
                         UiSetupRequestValue::clear("log-level"),
                         UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
-                        UiSetupRequestValue::new("scan-intervals", "123|111|228")
+                        UiSetupRequestValue::new("scan-intervals", "123|111|228"),
+                        UiSetupRequestValue::new("scans", "off"),
                     ]
                 }
                 .tmb(0),
@@ -235,6 +239,7 @@ chain                         eth-ropsten                                       
 neighborhood-mode             zero-hop                                                         Set\n\
 neighbors                     masq://eth-mainnet:95VjByq5tEUUpDcczA__zXWGE6-7YFEvzN4CDVoPbWw@13.23.13.23:4545 Set\n\
 scan-intervals                123|111|228                                                      Set\n\
+scans                         off                                                              Set\n\
 \n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }

@@ -1829,6 +1829,7 @@ dependencies = [
 name = "masq"
 version = "1.0.0"
 dependencies = [
+ "chrono",
  "clap",
  "crossbeam-channel 0.5.1",
  "ctrlc",
@@ -2027,6 +2028,8 @@ dependencies = [
  "ethsign-crypto",
  "futures",
  "itertools 0.10.3",
+ "lazy_static",
+ "log 0.4.14",
  "masq_lib",
  "native-tls",
  "node",
@@ -2039,11 +2042,13 @@ dependencies = [
  "serde",
  "serde_cbor",
  "serde_derive",
+ "serde_json",
  "sha1",
  "tiny-bip39",
  "tiny-hderive",
  "uint 0.9.1",
  "web3",
+ "websocket",
 ]
 
 [[package]]

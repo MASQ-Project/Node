@@ -7,6 +7,9 @@ copyright = "Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. A
 description = "Does port-forwarding from meta-address 0.0.0.0 to the loopback interface"
 edition = "2021"
 
+[dependencies]
+default-net = "0.8.1"
+
 [[bin]]
 name = "port_exposer"
 path = "src/main.rs"
