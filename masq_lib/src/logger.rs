@@ -15,11 +15,11 @@ use log::Metadata;
 use log::Record;
 use std::sync::Mutex;
 
+const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
+
 lazy_static! {
     pub static ref LOG_RECIPIENT_OPT: Mutex<Option<Recipient<NodeToUiMessage>>> = Mutex::new(None);
 }
-
-const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
 
 #[cfg(not(feature = "log_recipient_test"))]
 pub fn prepare_log_recipient(recipient: Recipient<NodeToUiMessage>) {
@@ -31,19 +31,6 @@ pub fn prepare_log_recipient(recipient: Recipient<NodeToUiMessage>) {
     {
         panic!("Log recipient should be initiated only once")
     }
-}
-
-#[cfg(feature = "log_recipient_test")]
-pub struct Counter(pub usize);
-
-#[cfg(feature = "log_recipient_test")]
-lazy_static! {
-    pub static ref INITIALIZATION_COUNTER: Mutex<Counter> = Mutex::new(Counter(0));
-}
-
-#[cfg(feature = "log_recipient_test")]
-pub fn prepare_log_recipient(_recipient: Recipient<NodeToUiMessage>) {
-    INITIALIZATION_COUNTER.lock().unwrap().0 += 1;
 }
 
 #[derive(Clone)]
@@ -184,6 +171,16 @@ impl Logger {
         }
     }
 
+    pub fn log(&self, level: Level, msg: String) {
+        logger().log(
+            &Record::builder()
+                .args(format_args!("{}", msg))
+                .module_path(Some(&self.name))
+                .level(level)
+                .build(),
+        );
+    }
+
     #[cfg(not(feature = "log_recipient_test"))]
     fn transmit(msg: String, log_level: SerializableLogLevel) {
         if let Some(recipient) = LOG_RECIPIENT_OPT
@@ -198,18 +195,12 @@ impl Logger {
             recipient.try_send(actix_msg).expect("UiGateway is dead")
         }
     }
+}
 
-    #[cfg(feature = "log_recipient_test")]
-    fn transmit(_msg: String, _log_level: SerializableLogLevel) {}
-
-    pub fn log(&self, level: Level, msg: String) {
-        logger().log(
-            &Record::builder()
-                .args(format_args!("{}", msg))
-                .module_path(Some(&self.name))
-                .level(level)
-                .build(),
-        );
+#[cfg(feature = "no_test_share")]
+impl Logger {
+    pub fn level_enabled(&self, level: Level) -> bool {
+        logger().enabled(&Metadata::builder().level(level).target(&self.name).build())
     }
 }
 
@@ -224,11 +215,22 @@ impl From<Level> for SerializableLogLevel {
     }
 }
 
-#[cfg(feature = "no_test_share")]
+#[cfg(feature = "log_recipient_test")]
+pub struct Counter(pub usize);
+
+#[cfg(feature = "log_recipient_test")]
+lazy_static! {
+    pub static ref INITIALIZATION_COUNTER: Mutex<Counter> = Mutex::new(Counter(0));
+}
+
+#[cfg(feature = "log_recipient_test")]
 impl Logger {
-    pub fn level_enabled(&self, level: Level) -> bool {
-        logger().enabled(&Metadata::builder().level(level).target(&self.name).build())
-    }
+    pub fn transmit(_msg: String, _log_level: SerializableLogLevel) {}
+}
+
+#[cfg(feature = "log_recipient_test")]
+pub fn prepare_log_recipient(_recipient: Recipient<NodeToUiMessage>) {
+    INITIALIZATION_COUNTER.lock().unwrap().0 += 1;
 }
 
 #[cfg(not(feature = "no_test_share"))]

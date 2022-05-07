@@ -39,6 +39,9 @@ use automap_lib::control_layer::automap_control::{
 };
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
+#[cfg(feature = "log_recipient_test")]
+use masq_lib::logger::log_broadcast_substitution_in_tests::prepare_log_recipient;
+#[cfg(not(feature = "log_recipient_test"))]
 use masq_lib::logger::prepare_log_recipient;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, AutomapProtocol};

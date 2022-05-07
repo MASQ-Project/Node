@@ -18,7 +18,6 @@ use std::time::Duration;
 use std::time::Instant;
 
 pub struct MASQNode {
-    pub logfile_contents: String,
     pub data_dir: PathBuf,
     child: Option<process::Child>,
     output: Option<Output>,
@@ -160,72 +159,58 @@ impl MASQNode {
 
     #[allow(dead_code)]
     pub fn wait_for_log(&mut self, pattern: &str, limit_ms: Option<u64>) {
-        Self::wait_for_match_at_directory(
-            pattern,
-            self.data_dir.as_path(),
-            &mut self.logfile_contents,
-            limit_ms,
-        );
+        Self::wait_for_match_at_directory(pattern, self.data_dir.as_path(), limit_ms);
     }
 
-    pub fn wait_for_match_at_directory(
-        pattern: &str,
-        logfile_dir: &Path,
-        buffer: &mut String,
-        limit_ms: Option<u64>,
-    ) {
+    pub fn wait_for_match_at_directory(pattern: &str, logfile_dir: &Path, limit_ms: Option<u64>) {
         let logfile_path = Self::path_to_logfile(logfile_dir);
-        let do_with_finding = |buffer: &String, regex: &Regex| -> (Option<String>, bool) {
-            (None, regex.is_match(&buffer[..]))
+        let do_with_log_output = |log_output: &String, regex: &Regex| -> Option<()> {
+            regex.is_match(&log_output[..]).then(|| ())
         };
         Self::wait_for_log_at_directory(
             pattern,
             logfile_path.as_ref(),
-            buffer,
-            &do_with_finding,
+            &do_with_log_output,
             limit_ms,
         );
     }
 
-    pub fn capture_log_at_directory(
+    //gives back all possible captures by given requirements;
+    //you can specify how many times the given regex needs to be looked for;
+    //also allows to define multiple capturing groups and fetch them all at once (the inner vector)
+    pub fn captures_piece_of_log_at_directory(
         pattern: &str,
         logfile_dir: &Path,
-        buffer: &mut String,
-        groups: Vec<usize>,
         required_number_of_captures: usize,
         limit_ms: Option<u64>,
     ) -> Vec<Vec<String>> {
         let logfile_path = Self::path_to_logfile(logfile_dir);
-        let do_with_findings =
-            |buffer: &String, regex: &Regex| -> (Option<Vec<Vec<String>>>, bool) {
-                let captures = regex.captures_iter(&buffer[..]).collect::<Vec<Captures>>();
-                if captures.is_empty() {
-                    return (None, false);
-                }
-                if captures.len() < required_number_of_captures {
-                    return (None, false);
-                }
-                let structured_captures = (0..captures.len())
-                    .flat_map(|idx| {
-                        captures.get(idx).map(|capture| {
-                            groups
-                                .iter()
-                                .flat_map(|group| {
-                                    capture
-                                        .get(*group)
-                                        .map(|existing_match| existing_match.as_str().to_string())
+        let do_with_log_output = |log_output: &String, regex: &Regex| -> Option<Vec<Vec<String>>> {
+            let captures = regex
+                .captures_iter(&log_output[..])
+                .collect::<Vec<Captures>>();
+            if captures.len() < required_number_of_captures {
+                return None;
+            }
+            let structured_captures = (0..captures.len())
+                .flat_map(|idx| {
+                    captures.get(idx).map(|capture| {
+                        (1..capture.len())
+                            .flat_map(|idx| {
+                                capture.get(idx).map(|particular_group_match| {
+                                    particular_group_match.as_str().to_string()
                                 })
-                                .collect::<Vec<String>>()
-                        })
+                            })
+                            .collect::<Vec<String>>()
                     })
-                    .collect::<Vec<Vec<String>>>();
-                (Some(structured_captures), true)
-            };
+                })
+                .collect::<Vec<Vec<String>>>();
+            Some(structured_captures)
+        };
         Self::wait_for_log_at_directory(
             pattern,
             logfile_path.as_ref(),
-            buffer,
-            &do_with_findings,
+            &do_with_log_output,
             limit_ms,
         )
         .unwrap()
@@ -234,21 +219,19 @@ impl MASQNode {
     fn wait_for_log_at_directory<T>(
         pattern: &str,
         path_to_logfile: &Path,
-        buffer: &mut String,
-        do_with_output: &dyn Fn(&String, &Regex) -> (Option<T>, bool),
+        do_with_log_output: &dyn Fn(&String, &Regex) -> Option<T>,
         limit_ms: Option<u64>,
     ) -> Option<T> {
         let regex = regex::Regex::new(pattern).unwrap();
         let real_limit_ms = limit_ms.unwrap_or(0xFFFFFFFF);
         let started_at = Instant::now();
+        let mut read_content_opt = None;
         loop {
             match std::fs::read_to_string(&path_to_logfile) {
                 Ok(contents) => {
-                    buffer.clear();
-                    buffer.push_str(&contents);
-                    let (result_opt, finished) = do_with_output(&buffer, &regex);
-                    if finished {
-                        break result_opt;
+                    read_content_opt = Some(contents.clone());
+                    if let Some(result) = do_with_log_output(&contents, &regex) {
+                        break Some(result);
                     }
                 }
                 Err(e) => {
@@ -261,7 +244,7 @@ impl MASQNode {
                 "Timeout: waited for more than {}ms without finding '{}' in these logs:\n{}\n",
                 real_limit_ms,
                 pattern,
-                buffer
+                read_content_opt.unwrap_or(String::from("None"))
             );
             thread::sleep(Duration::from_millis(200));
         }
@@ -378,7 +361,6 @@ impl MASQNode {
     fn spawn_process(cmd: &mut Command, data_dir: PathBuf) -> MASQNode {
         let child = cmd.spawn().unwrap();
         MASQNode {
-            logfile_contents: String::new(),
             data_dir,
             child: Some(child),
             output: None,

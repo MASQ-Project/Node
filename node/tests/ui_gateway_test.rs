@@ -111,9 +111,9 @@ fn log_broadcasts_are_correctly_received_integration() {
 
 #[test]
 fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
-    //Daemon's probe checking the Node's "pulse" causes an unwanted new reference
-    //for a new client, enlisted internally, so we need the Daemon to send a Websocket close message to
-    //break any reference to him immediately
+    //Daemon's probe to check if the Node is alive causes an unwanted new reference
+    //for a new Websocket client, so we need to make the Daemon send a close message
+    //breaking any reference to him immediately
     fdlimit::raise_fd_limit();
     let data_directory = ensure_node_home_directory_exists(
         "ui_gateway_test",
@@ -128,6 +128,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
         false,
         true,
     );
+    //for correct simulation we have to launch the Node via the Daemon
     let mut daemon_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL);
     let _: UiSetupResponse = daemon_client
         .transact(UiSetupRequest::new(vec![
@@ -141,32 +142,27 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
 
     let _: UiStartResponse = daemon_client.transact(UiStartOrder {}).unwrap();
 
-    let connect_and_disconnect_assertion =
-        |ordinary_number_of_the_occurrence: usize,
-         pattern_in_log: fn(port_spec: &str) -> String| {
+    let connected_and_disconnected_assertion =
+        |how_many_occurences_we_look_for: usize, pattern_in_log: fn(port_spec: &str) -> String| {
             let port_number_regex_str = r"UI connected at 127\.0\.0\.1:([\d]*)";
             //TODO fix this when GH-580 is being played
             //let log_file_directory = data_directory.join("eth-mainnet");
             let log_file_directory = data_directory.clone();
-            let mut read_buffer = String::new();
-            let ui_connected_so_far = MASQNode::capture_log_at_directory(
+            let all_uis_connected_so_far = MASQNode::captures_piece_of_log_at_directory(
                 port_number_regex_str,
                 &log_file_directory.as_path(),
-                &mut read_buffer,
-                vec![1],
-                ordinary_number_of_the_occurrence,
+                how_many_occurences_we_look_for,
                 Some(5000),
             );
-            let port_spec_ui =
-                ui_connected_so_far[ordinary_number_of_the_occurrence - 1][0].as_str();
-            read_buffer.clear();
+            //we want the last occurrence (last index in the first vec) and the second result by groups
+            let searched_port_of_ui =
+                all_uis_connected_so_far[how_many_occurences_we_look_for - 1][1].as_str();
             MASQNode::wait_for_match_at_directory(
-                pattern_in_log(port_spec_ui).as_str(),
+                pattern_in_log(searched_port_of_ui).as_str(),
                 log_file_directory.as_path(),
-                &mut read_buffer,
                 Some(1500),
             );
-            port_spec_ui.parse::<u16>().unwrap()
+            searched_port_of_ui.parse::<u16>().unwrap()
         };
     let assertion_lookup_pattern_1 = |port_spec_ui: &str| {
         format!(
@@ -174,26 +170,18 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
             port_spec_ui
         )
     };
-    let assertion_lookup_pattern_2 =
-        |_port_spec_ui: &str| "Received shutdown order from client 1".to_string();
-    let capture_the_first_ui_connection_occurrence = 1;
-    let first_port = connect_and_disconnect_assertion(
-        capture_the_first_ui_connection_occurrence,
-        assertion_lookup_pattern_1,
-    );
-    //after the previous line we know the daemon was disconnected from the Node without any order from outside the box
+    let first_port = connected_and_disconnected_assertion(1, assertion_lookup_pattern_1);
+    //previous assertion means daemon was disconnected from the Node without any order from outside the box
     let shutdown_request = UiShutdownRequest {};
     let ui_redirect: UiRedirect = daemon_client.transact(shutdown_request.clone()).unwrap();
     let mut node_client = UiConnection::new(ui_redirect.port, NODE_UI_PROTOCOL);
     node_client.send(shutdown_request);
-    let capture_the_second_ui_connection_occurrence = 2;
-    let second_port = connect_and_disconnect_assertion(
-        capture_the_second_ui_connection_occurrence,
-        assertion_lookup_pattern_2,
-    );
+    let assertion_lookup_pattern_2 =
+        |_port_spec_ui: &str| "Received shutdown order from client 1".to_string();
+    let second_port = connected_and_disconnected_assertion(2, assertion_lookup_pattern_2);
     let _ = daemon.kill();
     daemon.wait_for_exit();
-    //only an additional assertion checking client ports to be different
+    //only an additional assertion checking the involved clients to have different port numbers
     assert_ne!(first_port, second_port)
 }
 
@@ -216,8 +204,8 @@ fn cleanup_after_deceased_clients_integration() {
 
     drop(client_1);
 
-    //Windows behaves differently, it doesn't admit that the connection is broken until the second attempt
-    //of writing into the presumed stream, so we have to do more attempts
+    //Windows doesn't admit the connection is broken until the second attempt
+    //of data write into the presumed stream and so we do another attempt
     #[cfg(target_os = "windows")]
     client_2.send(UiChangePasswordRequest {
         old_password_opt: Some("boooga".to_string()),

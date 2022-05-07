@@ -155,11 +155,11 @@ impl WebSocketSupervisorReal {
         let json = UiTrafficConverter::new_marshal(msg.body);
         if let Some(errors) = Self::send_to_clients(clients, json) {
             drop(locked_inner);
-            Self::stc_errors(errors, inner_arc)
+            Self::handle_sink_errs(errors, inner_arc)
         }
     }
 
-    fn stc_errors(
+    fn handle_sink_errs(
         errors: Vec<SendToClientWebsocketError>,
         inner_arc: &Arc<Mutex<WebSocketSupervisorInner>>,
     ) {
@@ -167,7 +167,9 @@ impl WebSocketSupervisorReal {
             SendToClientWebsocketError::FlushError((client_id, e)) => {
                 Self::handle_flush_error(e, inner_arc, client_id)
             }
-            SendToClientWebsocketError::SendError(_) => (),
+            SendToClientWebsocketError::SendError((client_id, e)) => {
+                Self::handle_send_error(e, inner_arc, client_id)
+            }
         })
     }
 
@@ -424,22 +426,15 @@ impl WebSocketSupervisorReal {
     ) -> Option<Vec<SendToClientWebsocketError>> {
         let errors: Vec<SendToClientWebsocketError> = clients
             .into_iter()
-            .flat_map(|(client_id, client)| {
-                match client.send(OwnedMessage::Text(json.clone())) {
+            .flat_map(
+                |(client_id, client)| match client.send(OwnedMessage::Text(json.clone())) {
                     Ok(_) => match client.flush() {
                         Ok(_) => None,
                         Err(e) => Some(SendToClientWebsocketError::FlushError((client_id, e))),
                     },
-                    Err(e) => {
-                        error!(
-                            Logger::new("WebSocketSupervisor"),
-                            "Error sending to client {}: {:?}", client_id, e
-                        );
-                        //TODO do we want to treat this error more in detail or to return None would be acceptable?
-                        Some(SendToClientWebsocketError::SendError((client_id, e)))
-                    }
-                }
-            })
+                    Err(e) => Some(SendToClientWebsocketError::SendError((client_id, e))),
+                },
+            )
             .collect();
         if errors.is_empty() {
             None
@@ -472,6 +467,38 @@ impl WebSocketSupervisorReal {
                 client_id
             ),
         }
+    }
+
+    fn handle_send_error(
+        error: WebSocketError,
+        inner_arc: &Arc<Mutex<WebSocketSupervisorInner>>,
+        client_id: u64,
+    ) {
+        todo!()
+        // error!(
+        //             Logger::new("WebSocketSupervisor"),
+        //             "Error sending to client {}: {:?}", client_id, e
+        //         );
+
+        // match error {
+        //     WebSocketError::IoError(e)
+        //     if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset =>
+        //         {
+        //             warning!(
+        //             Logger::new("WebSocketSupervisor"),
+        //             "Client {}: {:?}, dropping its reference",
+        //             client_id,
+        //             e.kind()
+        //         );
+        //             Self::handle_dead_client_removal(client_id, inner_arc)
+        //         }
+        //     err => warning!(
+        //         Logger::new("WebSocketSupervisor"),
+        //         "'{:?}' occurred when flushing msg for Client {}",
+        //         err,
+        //         client_id
+        //     ),
+        // }
     }
 
     fn handle_dead_client_removal(
@@ -1438,19 +1465,18 @@ mod tests {
             subject.send_msg(msg.clone());
 
             let one_mock_client_ref = subject.get_mock_client(one_client_id);
-            let actual_message = match one_mock_client_ref.send_params.lock().unwrap().get(0) {
+            let msg_received_assertion = |mock_client_ref: ClientWrapperMock| {
+                match mock_client_ref.send_params.lock().unwrap().get(0) {
                 Some(OwnedMessage::Text(json)) =>
                     UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), MessageTarget::AllClients).unwrap(),
                 Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
                 None => panic! ("send should have been called, but wasn't"),
+            }
             };
+            let actual_message = msg_received_assertion(one_mock_client_ref);
             assert_eq!(actual_message, msg);
             let another_mock_client_ref = subject.get_mock_client(another_client_id);
-            let actual_message = match another_mock_client_ref.send_params.lock().unwrap().get(0) {
-                Some(OwnedMessage::Text(json)) => UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), MessageTarget::AllClients).unwrap(),
-                Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
-                None => panic! ("send should have been called, but wasn't"),
-            };
+            let actual_message = msg_received_assertion(another_mock_client_ref);
             assert_eq!(actual_message, msg);
             Ok(())
         });
