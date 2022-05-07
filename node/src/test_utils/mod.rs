@@ -16,7 +16,6 @@ pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::payer::Payer;
-use crate::bootstrapper::CryptdePair;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
@@ -72,13 +71,6 @@ pub fn main_cryptde() -> &'static dyn CryptDE {
 
 pub fn alias_cryptde() -> &'static dyn CryptDE {
     ALIAS_CRYPTDE_NULL.as_ref()
-}
-
-pub fn make_cryptde_pair() -> CryptdePair {
-    CryptdePair {
-        main: main_cryptde(),
-        alias: alias_cryptde(),
-    }
 }
 
 pub struct ArgsBuilder {

@@ -7,4 +7,5 @@ pub mod logger;
 pub mod probe_researcher;
 pub mod protocols;
 
+#[cfg(test)]
 pub mod mocks;
