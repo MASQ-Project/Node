@@ -381,8 +381,8 @@ mod tests {
             _ => panic!("we expected a square number"),
         };
         //Starting an experiment to get a feeling for what might be a standard amount of time
-        //for sending the given number of messages, in this case using a crossbeam channel.
-        //The product is going to be a template in the final assertion, where we want to rate
+        //to send the given number of messages, in this case using a crossbeam channel.
+        //The outcome is going to be a template in the final assertion where we want to check
         //an efficiency of the overloaded actix recipient combined with a mutex
         let container_for_join_handles = Arc::new(Mutex::new(Some(Vec::new())));
         let (tx, rx) = unbounded();
@@ -452,7 +452,7 @@ mod tests {
         let measured = actual_end.duration_since(actual_start).unwrap();
         let safe_estimation = time_example_of_similar_labour.mul_f32(2.5);
         eprintln!("measured {:?}, template {:?}", measured, safe_estimation);
-        //flexible requirement that should pass even on a slow machine
+        //a flexible requirement that should pass on a slow machine as well
         assert!(measured < safe_estimation)
     }
 

@@ -176,7 +176,7 @@ impl MASQNode {
     }
 
     //gives back all possible captures by given requirements;
-    //you can specify how many times the given regex needs to be looked for;
+    //you can specify how many times the regex needs to be looked for;
     //also allows to define multiple capturing groups and fetch them all at once (the inner vector)
     pub fn captures_piece_of_log_at_directory(
         pattern: &str,

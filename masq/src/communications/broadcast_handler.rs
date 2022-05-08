@@ -163,7 +163,8 @@ pub fn handle_unrecognized_broadcast(
         stderr,
         "Discarding unrecognized broadcast with opcode '{}'\n",
         message_body.opcode
-    )
+    );
+    stderr.flush().expect("flush failed");
 }
 
 pub fn handle_ui_log_broadcast(
@@ -172,7 +173,7 @@ pub fn handle_ui_log_broadcast(
     term_interface: &TerminalWrapper,
 ) {
     let _lock = term_interface.lock();
-    write!(stdout, "\n\n>>  {:?}: {}\n\n", body.log_level, body.msg).expect("write! failed");
+    short_writeln!(stdout, "\n\n>>  {:?}: {}\n", body.log_level, body.msg);
     stdout.flush().expect("flush failed");
 }
 

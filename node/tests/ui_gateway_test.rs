@@ -112,7 +112,7 @@ fn log_broadcasts_are_correctly_received_integration() {
 #[test]
 fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     //Daemon's probe to check if the Node is alive causes an unwanted new reference
-    //for a new Websocket client, so we need to make the Daemon send a close message
+    //for the Daemon's client, so we need to make the Daemon send a close message
     //breaking any reference to him immediately
     fdlimit::raise_fd_limit();
     let data_directory = ensure_node_home_directory_exists(
@@ -128,7 +128,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
         false,
         true,
     );
-    //for correct simulation we have to launch the Node via the Daemon
+    //for correct simulation we have to launch the Node through the Daemon
     let mut daemon_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL);
     let _: UiSetupResponse = daemon_client
         .transact(UiSetupRequest::new(vec![
@@ -146,7 +146,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
         |how_many_occurences_we_look_for: usize, pattern_in_log: fn(port_spec: &str) -> String| {
             let port_number_regex_str = r"UI connected at 127\.0\.0\.1:([\d]*)";
             //TODO fix this when GH-580 is being played
-            //let log_file_directory = data_directory.join("eth-mainnet");
+            // let log_file_directory = data_directory.join("eth-mainnet");
             let log_file_directory = data_directory.clone();
             let all_uis_connected_so_far = MASQNode::captures_piece_of_log_at_directory(
                 port_number_regex_str,
@@ -154,7 +154,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
                 how_many_occurences_we_look_for,
                 Some(5000),
             );
-            //we want the last occurrence (last index in the first vec) and the second result by groups
+            //we want the last occurrence (last index in the first vec) and the second entry from the capturing groups
             let searched_port_of_ui =
                 all_uis_connected_so_far[how_many_occurences_we_look_for - 1][1].as_str();
             MASQNode::wait_for_match_at_directory(
@@ -171,7 +171,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
         )
     };
     let first_port = connected_and_disconnected_assertion(1, assertion_lookup_pattern_1);
-    //previous assertion means daemon was disconnected from the Node without any order from outside the box
+    //previous assertion means the Daemon was disconnected from the Node without any order from outside the box
     let shutdown_request = UiShutdownRequest {};
     let ui_redirect: UiRedirect = daemon_client.transact(shutdown_request.clone()).unwrap();
     let mut node_client = UiConnection::new(ui_redirect.port, NODE_UI_PROTOCOL);

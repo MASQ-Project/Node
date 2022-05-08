@@ -1311,7 +1311,7 @@ mod tests {
     }
 
     #[test]
-    fn close_connection_logs_inability_to_flush_close_message_before_the_client_is_dumped_anyway() {
+    fn close_connection_logs_inability_to_flush_close_msg_before_the_client_is_dumped_anyway() {
         init_test_logging();
         let mut inner = make_indeterminate_inner();
         let mock_client = ClientWrapperMock::new()
@@ -1336,6 +1336,9 @@ mod tests {
             "WARN: close_connection_test: Couldn't \
          flush transmission to UI at 1.2.3.4:44444, client dumped anyway",
         );
+        assert!(locked_inner.socket_addr_by_client_id.is_empty());
+        assert!(locked_inner.client_by_id.is_empty())
+        //the third hashmap is supposed to be cleared a step before this fn call
     }
 
     #[test]
@@ -1506,7 +1509,7 @@ mod tests {
     }
 
     #[test]
-    fn send_msg_fails_on_calling_send_so_logs_and_removes_the_client() {
+    fn send_msg_fails_on_send_and_so_logs_and_removes_the_client() {
         init_test_logging();
         send_failure_assertion(WebSocketError::NoDataAvailable);
         TestLogHandler::new().exists_log_containing(
