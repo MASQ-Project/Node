@@ -52,7 +52,7 @@ pub fn make_meaningless_seed() -> Seed {
 pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results: RefCell<Vec<BlockchainResult<Vec<PaidReceivable>>>>,
-    send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
+    send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u128, U256, u64)>>>,
     send_transaction_results: RefCell<Vec<Result<(H256, SystemTime), BlockchainTransactionError>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<Receipt>>,
@@ -78,7 +78,7 @@ impl BlockchainInterfaceMock {
 
     pub fn send_transaction_params(
         mut self,
-        params: &Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
+        params: &Arc<Mutex<Vec<(Wallet, Wallet, u128, U256, u64)>>>,
     ) -> Self {
         self.send_transaction_parameters = params.clone();
         self
@@ -270,7 +270,7 @@ pub struct SendTransactionToolsWrapperMock {
     sign_transaction_params:
         Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
     sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
-    request_new_pending_payable_fingerprint_params: Arc<Mutex<Vec<(H256, u64)>>>,
+    request_new_pending_payable_fingerprint_params: Arc<Mutex<Vec<(H256, u128)>>>,
     request_new_pending_payable_fingerprint_results: RefCell<Vec<SystemTime>>,
     send_raw_transaction_params: Arc<Mutex<Vec<Bytes>>>,
     send_raw_transaction_results: RefCell<Vec<Result<H256, Web3Error>>>,
@@ -289,7 +289,7 @@ impl SendTransactionToolsWrapper for SendTransactionToolsWrapperMock {
         self.sign_transaction_results.borrow_mut().remove(0)
     }
 
-    fn request_new_payable_fingerprint(&self, transaction_hash: H256, amount: u64) -> SystemTime {
+    fn request_new_payable_fingerprint(&self, transaction_hash: H256, amount: u128) -> SystemTime {
         self.request_new_pending_payable_fingerprint_params
             .lock()
             .unwrap()
@@ -320,7 +320,7 @@ impl SendTransactionToolsWrapperMock {
 
     pub fn request_new_pending_payable_fingerprint_params(
         mut self,
-        params: &Arc<Mutex<Vec<(H256, u64)>>>,
+        params: &Arc<Mutex<Vec<(H256, u128)>>>,
     ) -> Self {
         self.request_new_pending_payable_fingerprint_params = params.clone();
         self

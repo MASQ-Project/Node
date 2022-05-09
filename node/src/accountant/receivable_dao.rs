@@ -1,12 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::unsigned_to_signed;
+use crate::accountant::{checked_convert, unsigned_to_signed};
 use crate::blockchain::blockchain_interface::PaidReceivable;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
 use crate::db_config::config_dao::{ConfigDaoWrite, ConfigDaoWriteableReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
-use crate::sub_lib::accountant::PaymentThresholds;
+use crate::sub_lib::accountant::{PaymentThresholds, GWEI_TO_WEI};
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use masq_lib::logger::Logger;
@@ -17,7 +17,7 @@ use std::time::SystemTime;
 
 #[derive(Debug, PartialEq)]
 pub enum ReceivableDaoError {
-    SignConversion(u64),
+    SignConversion(u128),
     ConfigurationError(String),
     RusqliteError(String),
 }
@@ -36,7 +36,7 @@ pub struct ReceivableAccount {
 }
 
 pub trait ReceivableDao: Send {
-    fn more_money_receivable(&self, wallet: &Wallet, amount: u64)
+    fn more_money_receivable(&self, wallet: &Wallet, amount: u128)
         -> Result<(), ReceivableDaoError>;
 
     fn more_money_received(&mut self, transactions: Vec<PaidReceivable>);
@@ -58,7 +58,7 @@ pub trait ReceivableDao: Send {
     //TODO never used
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount>;
 
-    fn total(&self) -> i64;
+    fn total(&self) -> i128;
 }
 
 pub trait ReceivableDaoFactory {
@@ -81,10 +81,10 @@ impl ReceivableDao for ReceivableDaoReal {
     fn more_money_receivable(
         &self,
         wallet: &Wallet,
-        amount: u64,
+        amount: u128,
     ) -> Result<(), ReceivableDaoError> {
         let signed_amount =
-            unsigned_to_signed::<u64,i64>(amount).map_err(ReceivableDaoError::SignConversion)?;
+            unsigned_to_signed::<u128,i128>(amount).map_err(ReceivableDaoError::SignConversion)?;
         match self.try_update(wallet, signed_amount) {
             Ok(true) => Ok(()),
             Ok(false) => match self.try_insert(wallet, signed_amount) {
@@ -105,13 +105,13 @@ impl ReceivableDao for ReceivableDaoReal {
             .unwrap_or_else(|e| {
                 let mut report_lines =
                     vec![format!("{:10} {:42} {:18}", "Block #", "Wallet", "Amount")];
-                let mut sum = 0u64;
+                let mut sum = 0u128;
                 payments.iter().for_each(|t| {
                     report_lines.push(format!(
                         "{:10} {:42} {:18}",
-                        t.block_number, t.from, t.gwei_amount
+                        t.block_number, t.from, t.wei_amount
                     ));
-                    sum += t.gwei_amount;
+                    sum += t.wei_amount;
                 });
                 report_lines.push(format!("{:10} {:42} {:18}", "TOTAL", "", sum));
                 let report = report_lines.join("\n");
@@ -168,9 +168,10 @@ impl ReceivableDao for ReceivableDaoReal {
         payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
         let now = to_time_t(system_now);
-        let slope = (*payment_thresholds.permanent_debt_allowed_wei
-            - *payment_thresholds.debt_threshold_wei)
-            / (payment_thresholds.threshold_interval_sec as i128);
+        //TODO this slope is tilt in the wrong direction; a minus is absent there at the beginning
+        let slope = (checked_convert::<u64,i64>(payment_thresholds.permanent_debt_allowed_gwei)
+            - checked_convert::<u64,i64>(payment_thresholds.debt_threshold_gwei))
+            / (checked_convert::<u64,i64>(payment_thresholds.threshold_interval_sec));
         let sql = indoc!(
             r"
             select r.wallet_address, r.balance, r.last_received_timestamp
@@ -187,8 +188,8 @@ impl ReceivableDao for ReceivableDaoReal {
             named_params! {
                 ":slope": slope,
                 ":sugg_and_grace": payment_thresholds.sugg_and_grace(now),
-                ":balance_to_decrease_from": *payment_thresholds.debt_threshold_wei,
-                ":permanent_debt": *payment_thresholds.permanent_debt_allowed_wei,
+                ":balance_to_decrease_from": (payment_thresholds.debt_threshold_gwei as i128) * GWEI_TO_WEI,
+                ":permanent_debt": (payment_thresholds.permanent_debt_allowed_gwei as i128) * GWEI_TO_WEI,
             },
             Self::row_to_account,
         )
@@ -210,7 +211,7 @@ impl ReceivableDao for ReceivableDaoReal {
         let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
         stmt.query_map(
             named_params! {
-                ":unban_balance": *payment_thresholds.unban_below_wei,
+                ":unban_balance": (payment_thresholds.unban_below_gwei as i128) * GWEI_TO_WEI,
             },
             Self::row_to_account,
         )
@@ -263,13 +264,13 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     //TODO: YES _ but different operations
-    fn total(&self) -> i64 {
+    fn total(&self) -> i128 {
         let mut stmt = self
             .conn
             .prepare("select sum(balance) from receivable")
             .expect("Internal error");
         match stmt.query_row([], |row| {
-            let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
+            let total_balance_result: Result<i128, rusqlite::Error> = row.get(0);
             match total_balance_result {
                 Ok(total_balance) => Ok(total_balance),
                 Err(e)
@@ -356,7 +357,7 @@ impl ReceivableDaoReal {
                 .expect ("Internal SQL error");
             for transaction in payments {
                 let timestamp = dao_utils::now_time_t();
-                let gwei_amount = match unsigned_to_signed::<u64,i64>(transaction.gwei_amount) {
+                let gwei_amount = match unsigned_to_signed::<u128,i128>(transaction.wei_amount) {
                     Ok(amount) => amount,
                     Err(e) => return Err(ReceivableDaoError::SignConversion(e)),
                 };
@@ -406,7 +407,6 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, Error, OpenFlags};
-    use crate::sub_lib::own_primitive_types::{NonNegativeSigned, NonNegativeSigned128};
 
     #[test]
     fn conversion_from_pce_works() {
@@ -434,7 +434,7 @@ mod tests {
         let payments = vec![PaidReceivable {
             block_number: 42u64,
             from: make_wallet("some_address"),
-            gwei_amount: 18446744073709551615,
+            wei_amount: 18446744073709551615,
         }];
 
         let result = subject.try_multi_insert_payment(&payments.as_slice());
@@ -463,7 +463,7 @@ mod tests {
         let payments = vec![PaidReceivable {
             block_number: 42u64,
             from: make_wallet("some_address"),
-            gwei_amount: 18446744073709551615,
+            wei_amount: 18446744073709551615,
         }];
 
         let result = subject.try_multi_insert_payment(&payments.as_slice());
@@ -495,7 +495,7 @@ mod tests {
         let payments = vec![PaidReceivable {
             block_number: 42u64,
             from: make_wallet("some_address"),
-            gwei_amount: 18446744073709551615,
+            wei_amount: 18446744073709551615,
         }];
 
         let _ = subject.try_multi_insert_payment(payments.as_slice());
@@ -587,9 +587,9 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_receivable(&make_wallet("booga"), u64::MAX);
+        let result = subject.more_money_receivable(&make_wallet("booga"), u128::MAX);
 
-        assert_eq!(result, Err(ReceivableDaoError::SignConversion(u64::MAX)))
+        assert_eq!(result, Err(ReceivableDaoError::SignConversion(u128::MAX)))
     }
 
     #[test]
@@ -618,13 +618,13 @@ mod tests {
             let transactions = vec![
                 PaidReceivable {
                     from: debtor1.clone(),
-                    gwei_amount: 1200u64,
-                    block_number: 35u64,
+                    wei_amount: 1200_u128,
+                    block_number: 35_u64,
                 },
                 PaidReceivable {
                     from: debtor2.clone(),
-                    gwei_amount: 2300u64,
-                    block_number: 57u64,
+                    wei_amount: 2300_u128,
+                    block_number: 57_u64,
                 },
             ];
 
@@ -672,8 +672,8 @@ mod tests {
         let status = {
             let transactions = vec![PaidReceivable {
                 from: debtor.clone(),
-                gwei_amount: 2300u64,
-                block_number: 33u64,
+                wei_amount: 2300_u128,
+                block_number: 33_u64,
             }];
             subject.more_money_received(transactions);
             subject.account_status(&debtor)
@@ -692,17 +692,17 @@ mod tests {
             PaidReceivable {
                 block_number: 1234567890,
                 from: Wallet::new("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
-                gwei_amount: 123456789123456789,
+                wei_amount: 123456789123456789,
             },
             PaidReceivable {
                 block_number: 2345678901,
                 from: Wallet::new("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"),
-                gwei_amount: 234567891234567891,
+                wei_amount: 234567891234567891,
             },
             PaidReceivable {
                 block_number: 3456789012,
                 from: Wallet::new("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
-                gwei_amount: 345678912345678912,
+                wei_amount: 345678912345678912,
             },
         ];
 
@@ -784,34 +784,34 @@ mod tests {
         let pcs = PaymentThresholds {
             maturity_threshold_sec: 25,
             payment_grace_period_sec: 50,
-            permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(100).unwrap(),
-            debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(200).unwrap(),
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 200,
             threshold_interval_sec: 100,
-            unban_below_wei: NonNegativeSigned128::try_assign_unsigned(0).unwrap(), // doesn't matter for this test
+            unban_below_gwei: 0, // doesn't matter for this test
         };
         let now = now_time_t();
         let mut not_delinquent_inside_grace_period = make_receivable_account(1234, false);
-        not_delinquent_inside_grace_period.balance = *pcs.debt_threshold_wei + 1;
+        not_delinquent_inside_grace_period.balance = i128::try_from(pcs.debt_threshold_gwei + 1).unwrap();
         not_delinquent_inside_grace_period.last_received_timestamp =
             from_time_t(pcs.sugg_and_grace(now) + 2);
         let mut not_delinquent_after_grace_below_slope = make_receivable_account(2345, false);
-        not_delinquent_after_grace_below_slope.balance = *pcs.debt_threshold_wei - 2;
+        not_delinquent_after_grace_below_slope.balance = i128::try_from(pcs.debt_threshold_gwei - 2).unwrap();
         not_delinquent_after_grace_below_slope.last_received_timestamp =
             from_time_t(pcs.sugg_and_grace(now) - 1);
         let mut delinquent_above_slope_after_grace = make_receivable_account(3456, true);
-        delinquent_above_slope_after_grace.balance = *pcs.debt_threshold_wei - 1;
+        delinquent_above_slope_after_grace.balance = i128::try_from(pcs.debt_threshold_gwei - 1).unwrap();
         delinquent_above_slope_after_grace.last_received_timestamp =
             from_time_t(pcs.sugg_and_grace(now) - 2);
         let mut not_delinquent_below_slope_before_stop = make_receivable_account(4567, false);
-        not_delinquent_below_slope_before_stop.balance = *pcs.permanent_debt_allowed_wei + 1;
+        not_delinquent_below_slope_before_stop.balance = i128::try_from(pcs.permanent_debt_allowed_gwei + 1).unwrap();
         not_delinquent_below_slope_before_stop.last_received_timestamp =
             from_time_t(pcs.sugg_thru_decreasing(now) + 2);
         let mut delinquent_above_slope_before_stop = make_receivable_account(5678, true);
-        delinquent_above_slope_before_stop.balance = *pcs.permanent_debt_allowed_wei + 2;
+        delinquent_above_slope_before_stop.balance = i128::try_from(pcs.permanent_debt_allowed_gwei + 2).unwrap();
         delinquent_above_slope_before_stop.last_received_timestamp =
             from_time_t(pcs.sugg_thru_decreasing(now) + 1);
         let mut not_delinquent_above_slope_after_stop = make_receivable_account(6789, false);
-        not_delinquent_above_slope_after_stop.balance = *pcs.permanent_debt_allowed_wei - 1;
+        not_delinquent_above_slope_after_stop.balance = i128::try_from(pcs.permanent_debt_allowed_gwei - 1).unwrap();
         not_delinquent_above_slope_after_stop.last_received_timestamp =
             from_time_t(pcs.sugg_thru_decreasing(now) - 2);
         let home_dir = ensure_node_home_directory_exists("accountant", "new_delinquencies");
@@ -839,10 +839,10 @@ mod tests {
         let pcs = PaymentThresholds {
             maturity_threshold_sec: 100,
             payment_grace_period_sec: 100,
-            permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(100).unwrap(),
-            debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(110).unwrap(),
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 110,
             threshold_interval_sec: 100,
-            unban_below_wei: NonNegativeSigned128::try_assign_unsigned(0).unwrap(), // doesn't matter for this test
+            unban_below_gwei: 0, // doesn't matter for this test
         };
         let now = now_time_t();
         let mut not_delinquent = make_receivable_account(1234, false);
@@ -872,10 +872,10 @@ mod tests {
         let pcs = PaymentThresholds {
             maturity_threshold_sec: 100,
             payment_grace_period_sec: 100,
-            permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(100).unwrap(),
-            debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(1100).unwrap(),
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 1100,
             threshold_interval_sec: 100,
-            unban_below_wei: NonNegativeSigned128::try_assign_unsigned(0).unwrap(), // doesn't matter for this test
+            unban_below_gwei: 0, // doesn't matter for this test
         };
         let now = now_time_t();
         let mut not_delinquent = make_receivable_account(1234, false);
@@ -905,10 +905,10 @@ mod tests {
         let pcs = PaymentThresholds {
             maturity_threshold_sec: 25,
             payment_grace_period_sec: 50,
-            permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(100).unwrap(),
-            debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(200).unwrap(),
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 200,
             threshold_interval_sec: 100,
-            unban_below_wei: NonNegativeSigned128::try_assign_unsigned(0).unwrap(), // doesn't matter for this test
+            unban_below_gwei: 0, // doesn't matter for this test
         };
         let now = now_time_t();
         let mut existing_delinquency = make_receivable_account(1234, true);
@@ -942,10 +942,10 @@ mod tests {
         let pcs = PaymentThresholds {
             maturity_threshold_sec: 0,
             payment_grace_period_sec: 0,
-            permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(0).unwrap(),
-            debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(0).unwrap(),
+            permanent_debt_allowed_gwei: 0,
+            debt_threshold_gwei: 0,
             threshold_interval_sec: 0,
-            unban_below_wei: NonNegativeSigned128::try_assign_unsigned(50).unwrap(),
+            unban_below_gwei:50,
         };
         let mut paid_delinquent = make_receivable_account(1234, true);
         paid_delinquent.balance = 50;
@@ -973,10 +973,10 @@ mod tests {
         let pcs = PaymentThresholds {
             maturity_threshold_sec: 0,
             payment_grace_period_sec: 0,
-            permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(0).unwrap(),
-            debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(0).unwrap(),
+            permanent_debt_allowed_gwei: 0,
+            debt_threshold_gwei:0,
             threshold_interval_sec: 0,
-            unban_below_wei: NonNegativeSigned128::try_assign_unsigned(0).unwrap(),
+            unban_below_gwei: 0,
         };
         let mut newly_non_delinquent = make_receivable_account(1234, false);
         newly_non_delinquent.balance = 25;

@@ -125,6 +125,25 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
     }
 }
 
+impl InsertUpdateCoreReal {
+    fn fetch_fundamentals(
+        params: ExtendedParamsVec<'_>,
+    ) -> Result<(String, i128), InsertUpdateError> {
+        Ok((params.fetch_wallet()?, params.fetch_balance_change()?))
+    }
+
+    fn prepare_statement<'a>(
+        form_of_conn: Either<&'a dyn ConnectionWrapper, &'a Transaction>,
+        query: &'a str,
+    ) -> Statement<'a> {
+        match form_of_conn {
+            Either::Left(conn) => conn.prepare(query),
+            Either::Right(tx) => tx.prepare(query),
+        }
+            .expect("internal rusqlite error")
+    }
+}
+
 pub struct InsertUpdateConfig<'a> {
     pub insert_sql: &'a str,
     pub update_sql: &'a str,
@@ -207,25 +226,6 @@ impl<'a> FetchValue<'a> for ExtendedParamsVec<'a> {
                 "Missing parameter and value for the wallet address".to_string(),
             )),
         }
-    }
-}
-
-impl InsertUpdateCoreReal {
-    fn fetch_fundamentals(
-        params: ExtendedParamsVec<'_>,
-    ) -> Result<(String, i128), InsertUpdateError> {
-        Ok((params.fetch_wallet()?, params.fetch_balance_change()?))
-    }
-
-    fn prepare_statement<'a>(
-        form_of_conn: Either<&'a dyn ConnectionWrapper, &'a Transaction>,
-        query: &'a str,
-    ) -> Statement<'a> {
-        match form_of_conn {
-            Either::Left(conn) => conn.prepare(query),
-            Either::Right(tx) => tx.prepare(query),
-        }
-        .expect("internal rusqlite error")
     }
 }
 

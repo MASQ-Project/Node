@@ -117,7 +117,7 @@ pub struct PendingPayableFingerprint {
     pub timestamp: SystemTime,
     pub hash: H256,
     pub attempt_opt: Option<u16>, //None when initialized
-    pub amount: u64,
+    pub amount: u128,
     pub process_error: Option<String>,
 }
 
@@ -343,7 +343,7 @@ impl BlockchainBridge {
                 nonce,
                 gas_price,
                 send_tools.as_ref(),
-            )?) {
+            )) {
             Ok((hash, timestamp)) => Ok(Payable::new(
                 payable.wallet.clone(),
                 unsigned_amount,
@@ -911,12 +911,12 @@ mod tests {
             PaidReceivable {
                 block_number: 7,
                 from: earning_wallet.clone(),
-                gwei_amount: amount,
+                wei_amount: amount,
             },
             PaidReceivable {
                 block_number: 9,
                 from: earning_wallet.clone(),
-                gwei_amount: amount2,
+                wei_amount: amount2,
             },
         ];
         let blockchain_interface_mock = BlockchainInterfaceMock::default()

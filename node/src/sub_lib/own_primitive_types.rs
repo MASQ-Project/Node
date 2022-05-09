@@ -66,11 +66,4 @@ mod tests{
 
         assert_eq!(*assignment_result,0_i128);
     }
-
-    #[test]
-    fn nns128_zero_works_fine_for_unsigned(){
-        let assignment_result: NonNegativeSigned128 = NonNegativeSigned128::try_assign_unsigned(0).unwrap();
-
-        assert_eq!(*assignment_result,0_i128);
-    }
 }

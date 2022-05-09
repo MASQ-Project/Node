@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::unsigned_to_signed;
+use crate::accountant::{checked_convert, unsigned_to_signed};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::{from_time_t, to_time_t, DaoFactoryReal};
@@ -10,6 +10,7 @@ use rusqlite::{Row, ToSql};
 use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
+use crate::accountant::dao_utils::get_unsized_128;
 
 #[derive(Debug, PartialEq)]
 pub enum PendingPayableDaoError {
@@ -27,7 +28,7 @@ pub trait PendingPayableDao {
     fn insert_new_fingerprint(
         &self,
         transaction_hash: H256,
-        amount: u64,
+        amount: u128,
         timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError>;
     fn delete_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;
@@ -56,7 +57,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         stm.query_map([], |row| {
             let rowid: u64 = Self::get_with_expect(row, 0);
             let transaction_hash: String = Self::get_with_expect(row, 1);
-            let amount: u64 = Self::get_with_expect(row, 2);
+            let amount  = get_unsized_128(row, 2).expect("should by only positive");
             let timestamp: i64 = Self::get_with_expect(row, 3);
             let attempt: u16 = Self::get_with_expect(row, 4);
             Ok(PendingPayableFingerprint {
@@ -79,11 +80,11 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     fn insert_new_fingerprint(
         &self,
         transaction_hash: H256,
-        amount: u64,
+        amount: u128,
         timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
         let signed_amount =
-            unsigned_to_signed::<u64,i64>(amount).map_err(PendingPayableDaoError::SignConversionError)?;
+            checked_convert::<u128,i128>(amount);
         let mut stm = self.conn.prepare("insert into pending_payable (transaction_hash, amount, payable_timestamp, attempt, process_error) values (?,?,?,?,?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[
             &format!("{:?}", transaction_hash),
@@ -552,7 +553,7 @@ mod tests {
                 .query_row([], |row| {
                     let rowid: u64 = row.get(0).unwrap();
                     let transaction_hash: String = row.get(1).unwrap();
-                    let amount: u64 = row.get(2).unwrap();
+                    let amount: i128 = row.get(2).unwrap();
                     let timestamp: i64 = row.get(3).unwrap();
                     let attempt: u16 = row.get(4).unwrap();
                     let process_error: Option<String> = row.get(5).unwrap();
@@ -561,7 +562,7 @@ mod tests {
                         timestamp: from_time_t(timestamp),
                         hash: H256::from_str(&transaction_hash[2..]).unwrap(),
                         attempt_opt: Some(attempt),
-                        amount,
+                        amount: amount as u128,
                         process_error,
                     })
                 })

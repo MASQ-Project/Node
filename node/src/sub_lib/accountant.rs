@@ -13,7 +13,7 @@ use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
 
-pub const WEI_OF_GWEI: u128 = 1_000_000_000;
+pub const GWEI_TO_WEI: i128 = 1_000_000_000;
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
@@ -24,17 +24,12 @@ lazy_static! {
 
 lazy_static! {
     pub static ref DEFAULT_PAYMENT_THRESHOLDS: PaymentThresholds = PaymentThresholds {
-        debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(1_000_000_000 * WEI_OF_GWEI)
-            .expectv("non negative i128"),
+        debt_threshold_gwei: 1_000_000_000,
         maturity_threshold_sec: 1200,
         payment_grace_period_sec: 1200,
-        permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(
-            500_000_000 * WEI_OF_GWEI
-        )
-        .expectv("non negative i128"),
+        permanent_debt_allowed_gwei: 500_000_000,
         threshold_interval_sec: 21600,
-        unban_below_wei: NonNegativeSigned128::try_assign_unsigned(500_000_000 * WEI_OF_GWEI)
-            .expectv("non negative i128"),
+        unban_below_gwei: 500_000_000,
     };
 }
 
@@ -49,12 +44,12 @@ lazy_static! {
 //please, alphabetical order
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub struct PaymentThresholds {
-    pub debt_threshold_wei: NonNegativeSigned128,
+    pub debt_threshold_gwei: u64,
     pub maturity_threshold_sec: i64,
     pub payment_grace_period_sec: i64,
-    pub permanent_debt_allowed_wei: NonNegativeSigned128,
+    pub permanent_debt_allowed_gwei: u64,
     pub threshold_interval_sec: i64,
-    pub unban_below_wei: NonNegativeSigned128,
+    pub unban_below_gwei: u64,
     //TODO caution!! these names were changed to WEI but the bit bandwidth wasn't change yet
 }
 
@@ -138,8 +133,8 @@ pub struct ReportExitServiceConsumedMessage {
 
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct FinancialStatistics {
-    pub total_paid_payable: u64,
-    pub total_paid_receivable: u64,
+    pub total_paid_payable: u128,
+    pub total_paid_receivable: u128,
 }
 
 #[derive(PartialEq, Debug)]
@@ -169,13 +164,12 @@ mod tests {
         let temporary_consuming_wallet_expected: Wallet =
             Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
         let payment_thresholds_expected = PaymentThresholds {
-            debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(1_000_000_000).unwrap(),
+            debt_threshold_gwei: 1_000_000_000,
             maturity_threshold_sec: 1200,
             payment_grace_period_sec: 1200,
-            permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(500_000_000)
-                .unwrap(),
+            permanent_debt_allowed_gwei: 500_000_000,
             threshold_interval_sec: 21600,
-            unban_below_wei: NonNegativeSigned128::try_assign_unsigned(500_000_000).unwrap(),
+            unban_below_gwei: 500_000_000,
         };
         let scan_intervals_expected = ScanIntervals {
             pending_payable_scan_interval: Duration::from_secs(600),

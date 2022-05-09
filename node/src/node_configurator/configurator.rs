@@ -602,11 +602,11 @@ impl Configurator {
         let payable_sec = scan_intervals.payable_scan_interval.as_secs();
         let receivable_sec = scan_intervals.receivable_scan_interval.as_secs();
         let threshold_interval_sec = payment_thresholds.threshold_interval_sec;
-        let debt_threshold_wei = *payment_thresholds.debt_threshold_wei;
+        let debt_threshold_gwei = payment_thresholds.debt_threshold_gwei;
         let payment_grace_period_sec = payment_thresholds.payment_grace_period_sec;
         let maturity_threshold_sec = payment_thresholds.maturity_threshold_sec;
-        let permanent_debt_allowed_wei = *payment_thresholds.permanent_debt_allowed_wei;
-        let unban_below_wei = *payment_thresholds.unban_below_wei;
+        let permanent_debt_allowed_gwei = payment_thresholds.permanent_debt_allowed_gwei;
+        let unban_below_gwei = payment_thresholds.unban_below_gwei;
         let response = UiConfigurationResponse {
             blockchain_service_url_opt,
             current_schema_version,
@@ -621,11 +621,11 @@ impl Configurator {
             past_neighbors,
             payment_thresholds: UiPaymentThresholds {
                 threshold_interval_sec,
-                debt_threshold_wei,
+                debt_threshold_gwei,
                 maturity_threshold_sec,
                 payment_grace_period_sec,
-                permanent_debt_allowed_wei,
-                unban_below_wei,
+                permanent_debt_allowed_gwei,
+                unban_below_gwei,
             },
             rate_pack: UiRatePack {
                 routing_byte_rate,
@@ -843,7 +843,6 @@ mod tests {
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
-    use crate::sub_lib::own_primitive_types::{NonNegativeSigned, NonNegativeSigned128};
 
     #[test]
     fn constants_have_correct_values() {
@@ -2226,11 +2225,11 @@ mod tests {
                 past_neighbors: vec![],
                 payment_thresholds: UiPaymentThresholds {
                     threshold_interval_sec: 10_000,
-                    debt_threshold_wei: 5_000_000,
+                    debt_threshold_gwei: 5_000_000,
                     maturity_threshold_sec: 1200,
                     payment_grace_period_sec: 1000,
-                    permanent_debt_allowed_wei: 20_000,
-                    unban_below_wei: 20_000
+                    permanent_debt_allowed_gwei: 20_000,
+                    unban_below_gwei: 20_000
                 },
                 rate_pack: UiRatePack {
                     routing_byte_rate: 6,
@@ -2265,11 +2264,11 @@ mod tests {
             }))
             .payment_thresholds_result(Ok(PaymentThresholds {
                 threshold_interval_sec: 10000,
-                debt_threshold_wei: NonNegativeSigned128::try_assign_unsigned(5000000).unwrap(),
+                debt_threshold_gwei: 5000000,
                 payment_grace_period_sec: 1000,
                 maturity_threshold_sec: 1200,
-                permanent_debt_allowed_wei: NonNegativeSigned128::try_assign_unsigned(20000).unwrap(),
-                unban_below_wei: NonNegativeSigned128::try_assign_unsigned(20000).unwrap(),
+                permanent_debt_allowed_gwei: 20000,
+                unban_below_gwei: 20000,
             }))
     }
 
@@ -2356,11 +2355,11 @@ mod tests {
                 past_neighbors: vec![node_descriptor.to_string(main_cryptde())],
                 payment_thresholds: UiPaymentThresholds {
                     threshold_interval_sec: 10_000,
-                    debt_threshold_wei: 5_000_000,
+                    debt_threshold_gwei: 5_000_000,
                     maturity_threshold_sec: 1200,
                     payment_grace_period_sec: 1000,
-                    permanent_debt_allowed_wei: 20_000,
-                    unban_below_wei: 20_000
+                    permanent_debt_allowed_gwei: 20_000,
+                    unban_below_gwei: 20_000
                 },
                 rate_pack: UiRatePack {
                     routing_byte_rate: 6,

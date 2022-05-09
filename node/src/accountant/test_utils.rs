@@ -56,19 +56,19 @@ pub fn make_payable_account(n: u64) -> PayableAccount {
     let timestamp = from_time_t(now - (n as i64));
     make_payable_account_with_recipient_and_balance_and_timestamp_opt(
         make_wallet(&format!("wallet{}", n)),
-        (n * 1_000_000_000) as i128,
+        (n * 1_000_000_000) as u128,
         Some(timestamp),
     )
 }
 
 pub fn make_payable_account_with_recipient_and_balance_and_timestamp_opt(
     recipient: Wallet,
-    balance: i128,
+    balance: u128,
     timestamp_opt: Option<SystemTime>,
 ) -> PayableAccount {
     PayableAccount {
         wallet: recipient,
-        balance: balance as u128,
+        balance,
         last_paid_timestamp: timestamp_opt.unwrap_or(SystemTime::now()),
         pending_payable_opt: None,
     }
@@ -295,7 +295,7 @@ pub struct PayableDaoMock {
     transaction_canceled_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
     top_records_results: RefCell<Vec<Vec<PayableAccount>>>,
-    total_results: RefCell<Vec<u64>>,
+    total_results: RefCell<Vec<u128>>,
     pub have_non_pending_payables_shut_down_the_system: bool,
 }
 
@@ -352,7 +352,7 @@ impl PayableDao for PayableDaoMock {
         self.top_records_results.borrow_mut().remove(0)
     }
 
-    fn total(&self) -> u64 {
+    fn total(&self) -> u128 {
         self.total_results.borrow_mut().remove(0)
     }
 }
@@ -436,7 +436,7 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn total_result(self, result: u64) -> Self {
+    pub fn total_result(self, result: u128) -> Self {
         self.total_results.borrow_mut().push(result);
         self
     }
@@ -446,7 +446,7 @@ impl PayableDaoMock {
 pub struct ReceivableDaoMock {
     account_status_parameters: Arc<Mutex<Vec<Wallet>>>,
     account_status_results: RefCell<Vec<Option<ReceivableAccount>>>,
-    more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
+    more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u128)>>>,
     more_money_receivable_results: RefCell<Vec<Result<(), ReceivableDaoError>>>,
     more_money_received_parameters: Arc<Mutex<Vec<Vec<PaidReceivable>>>>,
     more_money_received_results: RefCell<Vec<Result<(), PayableDaoError>>>,
@@ -457,7 +457,7 @@ pub struct ReceivableDaoMock {
     paid_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
     top_records_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-    total_results: RefCell<Vec<i64>>,
+    total_results: RefCell<Vec<i128>>,
     pub have_new_delinquencies_shutdown_the_system: bool,
 }
 
@@ -465,7 +465,7 @@ impl ReceivableDao for ReceivableDaoMock {
     fn more_money_receivable(
         &self,
         wallet: &Wallet,
-        amount: u64,
+        amount: u128,
     ) -> Result<(), ReceivableDaoError> {
         self.more_money_receivable_parameters
             .lock()
@@ -528,7 +528,7 @@ impl ReceivableDao for ReceivableDaoMock {
         self.top_records_results.borrow_mut().remove(0)
     }
 
-    fn total(&self) -> i64 {
+    fn total(&self) -> i128 {
         self.total_results.borrow_mut().remove(0)
     }
 }
@@ -540,7 +540,7 @@ impl ReceivableDaoMock {
 
     pub fn more_money_receivable_parameters(
         mut self,
-        parameters: &Arc<Mutex<Vec<(Wallet, u64)>>>,
+        parameters: &Arc<Mutex<Vec<(Wallet, u128)>>>,
     ) -> Self {
         self.more_money_receivable_parameters = parameters.clone();
         self
@@ -600,7 +600,7 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn total_result(self, result: i64) -> Self {
+    pub fn total_result(self, result: i128) -> Self {
         self.total_results.borrow_mut().push(result);
         self
     }
@@ -683,7 +683,7 @@ pub struct PendingPayableDaoMock {
     fingerprint_rowid_results: RefCell<Vec<Option<u64>>>,
     delete_fingerprint_params: Arc<Mutex<Vec<u64>>>,
     delete_fingerprint_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
-    insert_fingerprint_params: Arc<Mutex<Vec<(H256, u64, SystemTime)>>>,
+    insert_fingerprint_params: Arc<Mutex<Vec<(H256, u128, SystemTime)>>>,
     insert_fingerprint_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     update_fingerprint_params: Arc<Mutex<Vec<u64>>>,
     update_fingerprint_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
@@ -717,7 +717,7 @@ impl PendingPayableDao for PendingPayableDaoMock {
     fn insert_new_fingerprint(
         &self,
         transaction_hash: H256,
-        amount: u64,
+        amount: u128,
         timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
         self.insert_fingerprint_params
@@ -756,7 +756,7 @@ impl PendingPayableDaoMock {
 
     pub fn insert_fingerprint_params(
         mut self,
-        params: &Arc<Mutex<Vec<(H256, u64, SystemTime)>>>,
+        params: &Arc<Mutex<Vec<(H256, u128, SystemTime)>>>,
     ) -> Self {
         self.insert_fingerprint_params = params.clone();
         self

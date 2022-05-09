@@ -38,7 +38,7 @@ const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 pub struct PaidReceivable {
     pub block_number: u64,
     pub from: Wallet,
-    pub gwei_amount: u64,
+    pub wei_amount: u128,
 }
 
 impl fmt::Display for PaidReceivable {
@@ -46,7 +46,7 @@ impl fmt::Display for PaidReceivable {
         write!(
             f,
             "{}gw from {} ({})",
-            self.gwei_amount, self.from, self.block_number
+            self.wei_amount, self.from, self.block_number
         )
     }
 }
@@ -57,7 +57,7 @@ pub enum BlockchainError {
     InvalidAddress,
     InvalidResponse,
     QueryFailed(String),
-    SignedValueConversion(i64),
+    SignedValueConversion(i128),
     TransactionFailed { msg: String, hash_opt: Option<H256> },
 }
 
@@ -199,8 +199,9 @@ pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
 
 const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
 
-pub fn to_gwei(wei: U256) -> Option<u64> {
-    u64::try_from(wei / GWEI).ok()
+pub fn to_wei_u128(wei: U256) -> Option<u128> {
+    todo!("test drive me; and delete my old test");
+    u128::try_from(wei).ok()
 }
 
 pub fn to_wei(gwub: u64) -> U256 {
@@ -254,12 +255,12 @@ where
                                 .filter_map(|log: &Log| match log.block_number {
                                     Some(block_number) => {
                                         let amount: U256 = U256::from(log.data.0.as_slice());
-                                        let gwei_amount = to_gwei(amount);
+                                        let gwei_amount = to_wei_u128(amount);
                                         gwei_amount.map(|gwei_amount| PaidReceivable {
                                             block_number: u64::try_from(block_number)
                                                 .expect("Internal Error"), // TODO: back to testing for overflow
                                             from: Wallet::from(log.topics[1]),
-                                            gwei_amount,
+                                            wei_amount: gwei_amount,
                                         })
                                     }
                                     None => None,
@@ -372,7 +373,7 @@ where
         let mut data = [0u8; 4 + 32 + 32];
         data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
         data[16..36].copy_from_slice(&inputs.recipient.address().0[..]);
-        to_wei(inputs.amount).to_big_endian(&mut data[36..68]);
+        U256::try_from(inputs.amount).expect("shouldn't overflow").to_big_endian(&mut data[36..68]);
         let base_gas_limit = Self::base_gas_limit(self.chain);
         let gas_limit =
             ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
@@ -410,7 +411,7 @@ where
     }
 
     fn preparation_log(&self, inputs: &SendTransactionInputs) -> String {
-        format!("Preparing transaction for {} Gwei to {} from {} (chain_id: {}, contract: {:#x}, gas price: {})", //TODO fix this later to Wei
+        format!("Preparing transaction for {} Wei to {} from {} (chain_id: {}, contract: {:#x}, gas price: {})",
         inputs.amount,
         inputs.recipient,
         inputs.consuming_wallet,
@@ -419,11 +420,11 @@ where
         inputs.gas_price)
     }
 
-    fn transmission_log(&self, recipient: &Wallet, amount: u64) -> String {
+    fn transmission_log(&self, recipient: &Wallet, amount: u128) -> String {
         format!(
             "About to send transaction:\n\
         recipient: {},\n\
-        amount: {},\n\
+        amount: {} Wei,\n\
         (chain: {}, contract: {:#x})",
             recipient,
             amount,
@@ -451,7 +452,7 @@ pub struct SendTransactionInputs<'a> {
     tools: &'a dyn SendTransactionToolsWrapper,
     recipient: &'a Wallet,
     consuming_wallet: &'a Wallet,
-    amount: u64,
+    amount: u128,
     nonce: U256,
     gas_price: u64,
 }
@@ -463,20 +464,19 @@ impl<'a> SendTransactionInputs<'a> {
         nonce: U256,
         gas_price: u64,
         tools: &'a dyn SendTransactionToolsWrapper,
-    ) -> Result<Self, BlockchainError> {
-        Ok(Self {
+    )->Self{
+        Self {
             tools,
             recipient: &account.wallet,
             consuming_wallet,
-            amount: u64::try_from(account.balance)
-                .map_err(|_| BlockchainError::SignedValueConversion(account.balance))?,
+            amount: account.balance,
             nonce,
             gas_price,
-        })
+        }
     }
 
     #[cfg(test)]
-    pub fn abstract_for_assertions(self) -> (Wallet, Wallet, u64, U256, u64) {
+    pub fn abstract_for_assertions(self) -> (Wallet, Wallet, u128, U256, u64) {
         (
             self.consuming_wallet.clone(),
             self.recipient.clone(),
@@ -688,7 +688,7 @@ mod tests {
             vec![PaidReceivable {
                 block_number: 4_974_179u64,
                 from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-                gwei_amount: 4_503_599u64,
+                wei_amount: 4_503_599_u128,
             }]
         )
     }
@@ -1034,8 +1034,7 @@ mod tests {
             U256::from(1),
             gas_price,
             tools.as_ref(),
-        )
-        .unwrap();
+        );
         let test_timestamp_before = SystemTime::now();
 
         let result = subject.send_transaction(inputs).unwrap();
@@ -1060,7 +1059,7 @@ mod tests {
             timestamp,
             hash,
             attempt_opt: None,
-            amount: amount as u64,
+            amount,
             process_error: None,
         };
         assert_eq!(sent_backup, &expected_pending_payable_fingerprint);
@@ -1133,8 +1132,7 @@ mod tests {
             nonce,
             123,
             send_transaction_tools,
-        )
-        .unwrap();
+        );
 
         let result = subject.send_transaction(inputs);
 
@@ -1155,7 +1153,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             *request_new_pending_payable_fingerprint_params,
-            vec![(hash, amount as u64)]
+            vec![(hash, amount)]
         );
         let send_raw_transaction = send_raw_transaction_params_arc.lock().unwrap();
         assert_eq!(
@@ -1243,8 +1241,7 @@ mod tests {
             U256::from(5),
             123,
             send_transaction_tools,
-        )
-        .unwrap();
+        );
 
         let _ = subject.send_transaction(inputs);
 
@@ -1287,8 +1284,7 @@ mod tests {
             U256::from(1),
             123,
             tools.as_ref(),
-        )
-        .unwrap();
+        );
 
         let result = subject.send_transaction(inputs);
 
@@ -1328,8 +1324,7 @@ mod tests {
             U256::from(1),
             123,
             send_transaction_tools,
-        )
-        .unwrap();
+        );
 
         let result = subject.send_transaction(inputs);
 
@@ -1369,8 +1364,7 @@ mod tests {
             U256::from(1),
             123,
             send_transaction_tools,
-        )
-        .unwrap();
+        );
 
         let result = subject.send_transaction(inputs);
 
@@ -1399,7 +1393,7 @@ mod tests {
         Wallet::from(address)
     }
 
-    const TEST_PAYMENT_AMOUNT: u64 = 1000;
+    const TEST_PAYMENT_AMOUNT: u128 = 1000;
     const TEST_GAS_PRICE_ETH: u64 = 110;
     const TEST_GAS_PRICE_POLYGON: u64 = 50;
 
@@ -1428,7 +1422,7 @@ mod tests {
         };
         let payable_account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
             recipient_wallet,
-            i64::try_from(TEST_PAYMENT_AMOUNT).unwrap(),
+            TEST_PAYMENT_AMOUNT,
             None,
         );
         let inputs = SendTransactionInputs::new(
@@ -1437,8 +1431,7 @@ mod tests {
             nonce_correct_type,
             gas_price,
             send_transaction_tools.as_ref(),
-        )
-        .unwrap();
+        );
 
         let signed_transaction = subject
             .prepare_signed_transaction(&inputs, send_transaction_tools.as_ref())
@@ -1766,8 +1759,8 @@ mod tests {
     }
 
     #[test]
-    fn to_gwei_truncates_units_smaller_than_gwei() {
-        assert_eq!(Some(1), to_gwei(U256::from(1_999_999_999)));
+    fn to_wei_truncates_units_smaller_than_gwei() {
+        assert_eq!(Some(1), to_wei_u128(U256::from(1_999_999_999)));
     }
 
     #[test]
@@ -1807,25 +1800,6 @@ mod tests {
             TRANSFER_METHOD_ID,
             "transfer(address,uint256)".keccak256()[0..4]
         );
-    }
-
-    #[test]
-    fn constructor_for_send_transaction_inputs_handles_value_out_of_range() {
-        let mut payable_account = make_payable_account(5);
-        payable_account.balance = -100;
-        let consuming_wallet = make_wallet("blah");
-        let send_transaction_tools = SendTransactionToolsWrapperNull;
-
-        let error = SendTransactionInputs::new(
-            &payable_account,
-            &consuming_wallet,
-            U256::from(4545),
-            130,
-            &send_transaction_tools,
-        )
-        .unwrap_err();
-
-        assert_eq!(error, BlockchainError::SignedValueConversion(-100))
     }
 
     #[test]

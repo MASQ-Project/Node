@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::{unsigned_to_signed, PendingPayableId};
+use crate::accountant::{unsigned_to_signed, PendingPayableId, checked_convert};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -67,7 +67,7 @@ pub trait PayableDao: Debug + Send {
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount>;
 
-    fn total(&self) -> u64;
+    fn total(&self) -> u128;
 }
 
 pub trait PayableDaoFactory {
@@ -129,7 +129,7 @@ impl PayableDao for PayableDaoReal {
         fingerprint: &PendingPayableFingerprint,
     ) -> Result<(), PayableDaoError> {
         let signed_amount =
-            unsigned_to_signed::<u64,i64>(fingerprint.amount).map_err(PayableDaoError::SignConversion)?;
+        checked_convert::<u128,i128>(fingerprint.amount);
         self.try_decrease_balance(
             fingerprint.rowid_opt.expectv("initialized rowid"),
             signed_amount,
@@ -233,13 +233,13 @@ impl PayableDao for PayableDaoReal {
         .collect()
     }
 
-    fn total(&self) -> u64 {
+    fn total(&self) -> u128 {
         let mut stmt = self
             .conn
             .prepare("select sum(balance) from payable")
             .expect("Internal error");
         match stmt.query_row([], |row| {
-            let total_balance_result: Result<u64, rusqlite::Error> = row.get(0);
+            let total_balance_result: Result<u128, rusqlite::Error> = row.get(0);
             match total_balance_result {
                 Ok(total_balance) => Ok(total_balance),
                 Err(e)
@@ -586,7 +586,7 @@ mod tests {
             timestamp: payable_timestamp,
             hash,
             attempt_opt: Some(attempt),
-            amount: payment as u64,
+            amount: payment,
             process_error: None,
         };
 
@@ -647,7 +647,7 @@ mod tests {
         let rowid = 789;
         pending_payable_fingerprint.hash = hash;
         pending_payable_fingerprint.rowid_opt = Some(rowid);
-        pending_payable_fingerprint.amount = u64::MAX;
+        pending_payable_fingerprint.amount = u128::MAX;
         //The overflow occurs before we start modifying the payable account so I decided not to create an example in the database
 
         let result = subject.transaction_confirmed(&pending_payable_fingerprint);

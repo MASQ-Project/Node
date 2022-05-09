@@ -534,16 +534,16 @@ pub struct UiScanIntervals {
 pub struct UiPaymentThresholds {
     #[serde(rename = "thresholdIntervalSec")]
     pub threshold_interval_sec: i64,
-    #[serde(rename = "debtThresholdWei")]
-    pub debt_threshold_wei: i128,
+    #[serde(rename = "debtThresholdGwei")]
+    pub debt_threshold_gwei: u64,
     #[serde(rename = "paymentGracePeriodSec")]
     pub payment_grace_period_sec: i64,
     #[serde(rename = "maturityThresholdSec")]
     pub maturity_threshold_sec: i64,
-    #[serde(rename = "permanentDebtAllowedWei")]
-    pub permanent_debt_allowed_wei: i128,
-    #[serde(rename = "unbanBelowWei")]
-    pub unban_below_wei: i128,
+    #[serde(rename = "permanentDebtAllowedGwei")]
+    pub permanent_debt_allowed_gwei: u64,
+    #[serde(rename = "unbanBelowGwei")]
+    pub unban_below_gwei: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -580,13 +580,13 @@ conversation_message!(UiFinancialsRequest, "financials");
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiFinancialsResponse {
     #[serde(rename = "totalUnpaidAndPendingPayable")]
-    pub total_unpaid_and_pending_payable: u64,
+    pub total_unpaid_and_pending_payable: u128,
     #[serde(rename = "totalPaidPayable")]
-    pub total_paid_payable: u64,
+    pub total_paid_payable: u128,
     #[serde(rename = "totalUnpaidReceivable")]
-    pub total_unpaid_receivable: i64,
+    pub total_unpaid_receivable: i128,
     #[serde(rename = "totalPaidReceivable")]
-    pub total_paid_receivable: u64,
+    pub total_paid_receivable: u128,
 }
 conversation_message!(UiFinancialsResponse, "financials");
 
