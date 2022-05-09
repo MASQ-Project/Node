@@ -450,7 +450,7 @@ mod tests {
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), msgs_in_total);
         let measured = actual_end.duration_since(actual_start).unwrap();
-        let safe_estimation = time_example_of_similar_labour.mul_f32(2.5);
+        let safe_estimation = (time_example_of_similar_labour / 2) * 5;
         eprintln!("measured {:?}, template {:?}", measured, safe_estimation);
         //a flexible requirement that should pass on a slow machine as well
         assert!(measured < safe_estimation)

@@ -143,20 +143,20 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let _: UiStartResponse = daemon_client.transact(UiStartOrder {}).unwrap();
 
     let connected_and_disconnected_assertion =
-        |how_many_occurences_we_look_for: usize, pattern_in_log: fn(port_spec: &str) -> String| {
+        |how_many_occurrences_we_look_for: usize, pattern_in_log: fn(port_spec: &str) -> String| {
             let port_number_regex_str = r"UI connected at 127\.0\.0\.1:([\d]*)";
             //TODO fix this when GH-580 is being played
             // let log_file_directory = data_directory.join("eth-mainnet");
             let log_file_directory = data_directory.clone();
-            let all_uis_connected_so_far = MASQNode::captures_piece_of_log_at_directory(
+            let all_uis_connected_so_far = MASQNode::capture_pieces_of_log_at_directory(
                 port_number_regex_str,
                 &log_file_directory.as_path(),
-                how_many_occurences_we_look_for,
+                how_many_occurrences_we_look_for,
                 Some(5000),
             );
             //we want the last occurrence (last index in the first vec) and the second entry from the capturing groups
             let searched_port_of_ui =
-                all_uis_connected_so_far[how_many_occurences_we_look_for - 1][1].as_str();
+                all_uis_connected_so_far[how_many_occurrences_we_look_for - 1][1].as_str();
             MASQNode::wait_for_match_at_directory(
                 pattern_in_log(searched_port_of_ui).as_str(),
                 log_file_directory.as_path(),

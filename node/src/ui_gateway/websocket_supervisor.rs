@@ -979,7 +979,7 @@ mod tests {
     #[test]
     fn logs_badly_formatted_json_and_returns_unmarshal_error() {
         init_test_logging();
-        let subject_inner = make_indeterminate_inner();
+        let subject_inner = make_ordinary_inner();
         let subject = WebSocketSupervisorReal {
             inner: Arc::new(Mutex::new(subject_inner)),
         };
@@ -1036,7 +1036,7 @@ mod tests {
         )
     }
 
-    fn make_indeterminate_inner() -> WebSocketSupervisorInner {
+    fn make_ordinary_inner() -> WebSocketSupervisorInner {
         let (ui_message_sub, _, _) = make_recorder();
         WebSocketSupervisorInner {
             port: 1234,
@@ -1051,7 +1051,7 @@ mod tests {
     #[test]
     fn bad_one_way_message_is_logged_and_returns_error() {
         init_test_logging();
-        let subject_inner = make_indeterminate_inner();
+        let subject_inner = make_ordinary_inner();
         let subject = WebSocketSupervisorReal {
             inner: Arc::new(Mutex::new(subject_inner)),
         };
@@ -1111,7 +1111,7 @@ mod tests {
     #[test]
     fn bad_two_way_message_is_logged_and_returns_error() {
         init_test_logging();
-        let subject_inner = make_indeterminate_inner();
+        let subject_inner = make_ordinary_inner();
         let subject = WebSocketSupervisorReal {
             inner: Arc::new(Mutex::new(subject_inner)),
         };
@@ -1215,13 +1215,15 @@ mod tests {
         WebSocketSupervisorReal::send_msg(&inner_arc, msg);
 
         let inner = inner_arc.lock().unwrap();
+        let (client_id_by_socket_addr_expected, socket_addr_by_client_id_expected) =
+            if client_is_retained_after_error {
+                (Some(&123), Some(&socket_addr))
+            } else {
+                (None, None)
+            };
         assert_eq!(
             inner.client_id_by_socket_addr.get(&socket_addr),
-            if client_is_retained_after_error {
-                Some(&123)
-            } else {
-                None
-            }
+            client_id_by_socket_addr_expected
         );
         assert_eq!(
             inner.client_by_id.get(&123).is_some(),
@@ -1229,11 +1231,7 @@ mod tests {
         );
         assert_eq!(
             inner.socket_addr_by_client_id.get(&123),
-            if client_is_retained_after_error {
-                Some(&socket_addr)
-            } else {
-                None
-            }
+            socket_addr_by_client_id_expected
         )
     }
 
@@ -1313,7 +1311,7 @@ mod tests {
     #[test]
     fn close_connection_logs_inability_to_flush_close_msg_before_the_client_is_dumped_anyway() {
         init_test_logging();
-        let mut inner = make_indeterminate_inner();
+        let mut inner = make_ordinary_inner();
         let mock_client = ClientWrapperMock::new()
             .send_result(Ok(()))
             .flush_result(Err(WebSocketError::IoError(Error::from(
@@ -1490,11 +1488,11 @@ mod tests {
             let one_mock_client_ref = subject.get_mock_client(one_client_id);
             let msg_received_assertion = |mock_client_ref: ClientWrapperMock| {
                 match mock_client_ref.send_params.lock().unwrap().get(0) {
-                Some(OwnedMessage::Text(json)) =>
-                    UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), MessageTarget::AllClients).unwrap(),
-                Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
-                None => panic! ("send should have been called, but wasn't"),
-            }
+                    Some(OwnedMessage::Text(json)) =>
+                        UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), MessageTarget::AllClients).unwrap(),
+                    Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
+                    None => panic! ("send should have been called, but wasn't"),
+                }
             };
             let actual_message = msg_received_assertion(one_mock_client_ref);
             assert_eq!(actual_message, msg);
