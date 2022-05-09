@@ -18,6 +18,7 @@ use actix::{Actor, Recipient};
 use ethereum_types::H160;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use masq_lib::ui_gateway::NodeToUiMessage;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -280,6 +281,14 @@ impl From<&NodeRecord> for AccessibleGossipRecord {
 }
 
 pub fn make_cpm_recipient() -> (Recipient<ConnectionProgressMessage>, Arc<Mutex<Recording>>) {
+    let (recorder, _, recording_arc) = make_recorder();
+    let addr = recorder.start();
+    let recipient = addr.recipient();
+
+    (recipient, recording_arc)
+}
+
+pub fn make_node_to_ui_recipient() -> (Recipient<NodeToUiMessage>, Arc<Mutex<Recording>>) {
     let (recorder, _, recording_arc) = make_recorder();
     let addr = recorder.start();
     let recipient = addr.recipient();

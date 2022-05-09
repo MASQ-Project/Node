@@ -1242,7 +1242,6 @@ mod tests {
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::{Actor, System};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use std::borrow::BorrowMut;
     use std::convert::TryInto;
     use std::ops::{Add, Sub};
     use std::str::FromStr;

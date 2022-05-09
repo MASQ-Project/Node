@@ -7,8 +7,7 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
 use actix::Recipient;
 use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
-use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget, NodeToUiMessage};
-use std::cmp;
+use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use std::net::IpAddr;
 
 #[derive(PartialEq, Debug, Clone)]
@@ -195,7 +194,7 @@ impl OverallConnectionStatus {
             ConnectionProgressEvent::TcpConnectionFailed => connection_progress_to_modify
                 .update_stage(ConnectionStage::Failed(TcpConnectionFailed)),
 
-            ConnectionProgressEvent::IntroductionGossipReceived(new_node) => {
+            ConnectionProgressEvent::IntroductionGossipReceived(_new_node) => {
                 connection_progress_to_modify
                     .update_stage(ConnectionStage::NeighborshipEstablished);
                 self.update_stage_of_overall_connection_status(node_to_ui_recipient);
@@ -275,7 +274,7 @@ mod tests {
     use actix::{Actor, System};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
-    use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
+    use masq_lib::ui_gateway::MessageTarget;
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};

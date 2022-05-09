@@ -20,11 +20,9 @@ use actix::Recipient;
 use actix::{Actor, System};
 use actix::{Addr, AsyncContext};
 use itertools::Itertools;
+use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::UiShutdownRequest;
-use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage,
-};
-use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue};
 
 use crate::bootstrapper::BootstrapperConfig;
@@ -36,11 +34,7 @@ use crate::db_config::persistent_configuration::{
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
-use crate::neighborhood::overall_connection_status::ConnectionStage::Failed;
-use crate::neighborhood::overall_connection_status::ConnectionStageErrors::NoGossipResponseReceived;
-use crate::neighborhood::overall_connection_status::{
-    ConnectionProgress, ConnectionStage, OverallConnectionStatus,
-};
+use crate::neighborhood::overall_connection_status::OverallConnectionStatus;
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PublicKey;
@@ -282,7 +276,11 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
 impl Handler<AskAboutDebutGossipMessage> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, msg: AskAboutDebutGossipMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: AskAboutDebutGossipMessage,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
         let new_connection_progress = self
             .overall_connection_status
             .get_connection_progress_by_desc(&msg.prev_connection_progress.initial_node_descriptor);
@@ -1349,14 +1347,12 @@ mod tests {
     use itertools::Itertools;
     use serde_cbor;
     use std::time::Duration;
-    use sysinfo::Signal::Sys;
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
-    use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
-    use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use masq_lib::utils::running_test;
 
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -1381,7 +1377,7 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, make_global_cryptde_node_record, make_node_record, make_node_record_f,
-        neighborhood_from_nodes,
+        make_node_to_ui_recipient, neighborhood_from_nodes,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::rate_pack;
@@ -1669,6 +1665,8 @@ mod tests {
                 "neighborhood_handles_connection_progress_message_with_tcp_connection_established",
             ),
         );
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.to_ui_message_sub = Some(recipient);
         subject.tools.notify_later_ask_about_gossip = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_ask_about_gossip_params_arc),
@@ -1742,6 +1740,8 @@ mod tests {
                 "ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received",
             ),
         );
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.to_ui_message_sub = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             initial_desc_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -1802,6 +1802,8 @@ mod tests {
                 "neighborhood_handles_connection_progress_message_with_tcp_connection_established",
             ),
         );
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.to_ui_message_sub = Some(recipient);
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
@@ -1853,6 +1855,8 @@ mod tests {
                 "neighborhood_handles_a_connection_progress_message_with_pass_gossip_received",
             ),
         );
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.to_ui_message_sub = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -1910,6 +1914,8 @@ mod tests {
                 "neighborhood_handles_a_connection_progress_message_with_pass_gossip_received",
             ),
         );
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.to_ui_message_sub = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -1967,6 +1973,8 @@ mod tests {
                 "neighborhood_handles_a_connection_progress_message_with_standard_gossip_received",
             ),
         );
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.to_ui_message_sub = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -2025,6 +2033,8 @@ mod tests {
                 "neighborhood_handles_a_connection_progress_message_with_standard_gossip_received",
             ),
         );
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.to_ui_message_sub = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -2082,6 +2092,8 @@ mod tests {
                 "neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received",
             ),
         );
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.to_ui_message_sub = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
