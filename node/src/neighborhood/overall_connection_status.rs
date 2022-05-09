@@ -113,7 +113,6 @@ impl Into<UiConnectionChangeStage> for OverallConnectionStage {
     }
 }
 
-// TODO: Migrate this struct and code related to it to a new module and make that module public only for neighborhood
 #[derive(PartialEq, Debug)]
 pub struct OverallConnectionStatus {
     // Becomes true iff three hops route was found.
@@ -145,7 +144,7 @@ impl OverallConnectionStatus {
     }
 
     pub fn get_connection_progress_by_ip(&mut self, peer_addr: IpAddr) -> &mut ConnectionProgress {
-        let mut connection_progress_to_modify = self
+        let connection_progress_to_modify = self
             .progress
             .iter_mut()
             .find(|connection_progress| connection_progress.current_peer_addr == peer_addr)
@@ -185,7 +184,7 @@ impl OverallConnectionStatus {
         event: ConnectionProgressEvent,
         node_to_ui_recipient: &Recipient<NodeToUiMessage>,
     ) {
-        let mut connection_progress_to_modify = self.get_connection_progress_by_ip(peer_addr);
+        let connection_progress_to_modify = self.get_connection_progress_by_ip(peer_addr);
 
         match event {
             ConnectionProgressEvent::TcpConnectionSuccessful => connection_progress_to_modify
