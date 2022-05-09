@@ -289,7 +289,7 @@ mod tests {
             encryption_public_key: PublicKey::from(vec![0, 0, 0]),
             node_addr_opt: None, // NodeAddr consists of IP Address and Ports
         };
-        let connection_progress = ConnectionProgress::new(&descriptor_with_no_ip_address);
+        let _connection_progress = ConnectionProgress::new(&descriptor_with_no_ip_address);
     }
 
     #[test]
@@ -431,7 +431,7 @@ mod tests {
         let node_desc_1 = make_node_descriptor_from_ip(IpAddr::from_str("1.2.3.4").unwrap());
         let node_desc_2 = make_node_descriptor_from_ip(IpAddr::from_str("1.2.3.5").unwrap());
         let initial_node_descriptors = vec![node_desc_1.clone(), node_desc_2.clone()];
-        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+        let subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         let mut result = subject.iter_initial_node_descriptors();
 
@@ -551,7 +551,6 @@ mod tests {
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
-        let new_node_ip_addr: IpAddr = Ipv4Addr::new(5, 6, 7, 8).into();
         let (recipient, _) = make_node_to_ui_recipient();
         subject.update_connection_stage(
             node_ip_addr,
@@ -619,7 +618,6 @@ mod tests {
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
-        let new_node_ip_addr: IpAddr = Ipv4Addr::new(5, 6, 7, 8).into();
         let (recipient, _) = make_node_to_ui_recipient();
         subject.update_connection_stage(
             node_ip_addr,
@@ -653,7 +651,6 @@ mod tests {
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
-        let new_node_ip_addr: IpAddr = Ipv4Addr::new(5, 6, 7, 8).into();
         let (recipient, _) = make_node_to_ui_recipient();
         subject.update_connection_stage(
             node_ip_addr,
@@ -767,7 +764,7 @@ mod tests {
     fn no_stage_named_not_connected_in_ui_connection_change_stage() {
         let not_connected = OverallConnectionStage::NotConnected;
 
-        let not_connected_converted: UiConnectionChangeStage = not_connected.into();
+        let _not_connected_converted: UiConnectionChangeStage = not_connected.into();
     }
 
     #[test]

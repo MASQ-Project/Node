@@ -1270,7 +1270,7 @@ mod tests {
         db.add_arbitrary_full_neighbor(root_node.public_key(), neighbor_key);
         let cryptde = CryptDENull::from(db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let (cpm_recipient, _) = make_cpm_recipient();
         let subject = DebutHandler::new(Logger::new("test"));
 
         let qualifies_result =
@@ -1307,7 +1307,7 @@ mod tests {
         db.add_arbitrary_full_neighbor(root_node.public_key(), neighbor_key);
         let cryptde = CryptDENull::from(db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let (cpm_recipient, _) = make_cpm_recipient();
         let subject = DebutHandler::new(Logger::new("test"));
 
         let qualifies_result = subject.qualifies(&db, agrs_vec.as_slice(), gossip_source.clone());
@@ -1357,7 +1357,7 @@ mod tests {
             .node(src_db.root().public_key(), true)
             .build();
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let (cpm_recipient, _) = make_cpm_recipient();
         let subject = DebutHandler::new(Logger::new("test"));
 
         let result = subject.handle(
@@ -1390,7 +1390,7 @@ mod tests {
             .node(src_db.root().public_key(), true)
             .build();
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let (cpm_recipient, _) = make_cpm_recipient();
         let subject = DebutHandler::new(Logger::new("test"));
 
         let result = subject.handle(
@@ -1503,7 +1503,7 @@ mod tests {
             .build()
             .try_into()
             .unwrap();
-        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let (cpm_recipient, _) = make_cpm_recipient();
         let subject = DebutHandler::new(Logger::new("test"));
 
         let result = subject.handle(
@@ -1524,7 +1524,7 @@ mod tests {
         let mut dest_db = make_meaningless_db();
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let (cpm_recipient, _) = make_cpm_recipient();
 
         let qualifies_result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
         let handle_result = subject.handle(
@@ -1780,7 +1780,7 @@ mod tests {
                 &SocketAddr::from_str("4.5.6.7:4567").unwrap(),
             ));
         dest_db.resign_node(introducer_key);
-        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let (cpm_recipient, _) = make_cpm_recipient();
         let introducer_before_gossip = dest_db.node_by_key(introducer_key).unwrap().clone();
 
         let qualifies_result = subject.qualifies(&dest_db, &agrs, gossip_source);
@@ -1824,7 +1824,7 @@ mod tests {
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let (cpm_recipient, _) = make_cpm_recipient();
 
         let qualifies_result = subject.qualifies(&dest_db, &agrs, gossip_source);
         let handle_result = subject.handle(
@@ -1874,7 +1874,7 @@ mod tests {
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let (cpm_recipient, _) = make_cpm_recipient();
 
         let handle_result = subject.handle(
             &cryptde,
@@ -1902,7 +1902,7 @@ mod tests {
             .unwrap()
             .set_version(0);
         dest_db.resign_node(&agrs[0].inner.public_key);
-        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let (cpm_recipient, _) = make_cpm_recipient();
 
         let qualifies_result = subject.qualifies(&dest_db, &agrs, gossip_source);
         let handle_result = subject.handle(
@@ -1958,7 +1958,7 @@ mod tests {
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         dest_db.add_node(NodeRecord::from(&agrs[0])).unwrap();
         dest_db.add_arbitrary_half_neighbor(dest_root.public_key(), &agrs[0].inner.public_key);
-        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+        let (cpm_recipient, _) = make_cpm_recipient();
 
         let qualifies_result = subject.qualifies(&dest_db, &agrs, gossip_source);
         let handle_result = subject.handle(
@@ -2013,7 +2013,7 @@ mod tests {
     #[test]
     fn check_full_neighbor_proves_that_node_that_is_not_in_our_db_is_not_a_full_neighbor() {
         let root_node = make_node_record(1111, true); // This is us
-        let mut root_db = db_from_node(&root_node);
+        let root_db = db_from_node(&root_node);
         let ip_not_in_our_db = IpAddr::from_str("1.2.3.4").unwrap();
 
         let result = StandardGossipHandler::check_full_neighbor(&root_db, ip_not_in_our_db);
@@ -2229,7 +2229,7 @@ mod tests {
         // This node must not be neighbors with the root node.
         let src_node = make_node_record(2222, true); // Full Neighbor
         let src_node_socket_addr = SocketAddr::try_from(src_node.node_addr_opt().unwrap()).unwrap();
-        let mut src_db = db_from_node(&src_node);
+        let src_db = db_from_node(&src_node);
         let gossip = GossipBuilder::new(&src_db)
             .node(src_node.public_key(), true)
             .build();
@@ -2262,10 +2262,10 @@ mod tests {
         let src_node = make_node_record(2222, true); // Full Neighbor
         let src_node_socket_addr = SocketAddr::try_from(src_node.node_addr_opt().unwrap()).unwrap();
         let mut src_db = db_from_node(&src_node);
-        root_db.add_node(src_node.clone());
+        root_db.add_node(src_node.clone()).unwrap();
         root_db.add_half_neighbor(src_node.public_key()).unwrap();
         src_db.root_mut().increment_version();
-        src_db.add_node(root_node.clone());
+        src_db.add_node(root_node.clone()).unwrap();
         src_db.add_half_neighbor(root_node.public_key()).unwrap();
         src_db.root_mut().resign();
         let gossip = GossipBuilder::new(&src_db)
@@ -2308,10 +2308,10 @@ mod tests {
         let src_node = make_node_record(2222, true); // Full Neighbor
         let src_node_socket_addr = SocketAddr::try_from(src_node.node_addr_opt().unwrap()).unwrap();
         let mut src_db = db_from_node(&src_node);
-        root_db.add_node(src_node.clone());
+        root_db.add_node(src_node.clone()).unwrap();
         root_db.add_arbitrary_full_neighbor(root_node.public_key(), src_node.public_key());
         src_db.root_mut().increment_version();
-        src_db.add_node(root_node.clone());
+        src_db.add_node(root_node.clone()).unwrap();
         src_db.root_mut().resign();
         let gossip = GossipBuilder::new(&src_db)
             .node(src_node.public_key(), true)
@@ -2345,10 +2345,10 @@ mod tests {
         let src_node = make_node_record(2222, true); // Full Neighbor
         let src_node_socket_addr = SocketAddr::try_from(src_node.node_addr_opt().unwrap()).unwrap();
         let mut src_db = db_from_node(&src_node);
-        root_db.add_node(src_node.clone());
+        root_db.add_node(src_node.clone()).unwrap();
         root_db.add_arbitrary_full_neighbor(root_node.public_key(), src_node.public_key());
         src_db.root_mut().increment_version();
-        src_db.add_node(root_node.clone());
+        src_db.add_node(root_node.clone()).unwrap();
         src_db.add_arbitrary_full_neighbor(src_node.public_key(), root_node.public_key());
         src_db.root_mut().resign();
         let gossip = GossipBuilder::new(&src_db)
@@ -2931,7 +2931,7 @@ mod tests {
         let (gossip, gossip_source) = make_introduction(0, 1);
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let (introducer, introducee) =
+        let (_introducer, introducee) =
             IntroductionHandler::identify_players(agrs.clone(), gossip_source).unwrap();
         let new_ip = introducee.node_addr_opt.unwrap().ip_addr();
         let system =
@@ -2977,7 +2977,7 @@ mod tests {
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let (gossip, pass_target, gossip_source) = make_pass(2345);
-        let mut subject = make_subject(main_cryptde());
+        let subject = make_subject(main_cryptde());
 
         let result = subject.handle(&mut db, gossip.try_into().unwrap(), gossip_source);
 
@@ -3000,7 +3000,7 @@ mod tests {
         let cryptde = main_cryptde();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
-        let mut subject = PassHandler::new();
+        let subject = PassHandler::new();
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let system = System::new("handles_a_new_pass_target");
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
@@ -3045,7 +3045,7 @@ mod tests {
         let cryptde = main_cryptde();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
-        let mut subject = PassHandler::new();
+        let subject = PassHandler::new();
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
         subject.previous_pass_targets.borrow_mut().insert(

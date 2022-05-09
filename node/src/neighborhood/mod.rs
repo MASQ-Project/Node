@@ -1404,7 +1404,7 @@ mod tests {
         fn handle(
             &mut self,
             msg: AssertionsMessage<Neighborhood>,
-            ctx: &mut Self::Context,
+            _ctx: &mut Self::Context,
         ) -> Self::Result {
             (msg.assertions)(self)
         }
@@ -1924,7 +1924,7 @@ mod tests {
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
-        let new_pass_target = IpAddr::from_str("10.20.30.40").unwrap();
+        // let new_pass_target = IpAddr::from_str("10.20.30.40").unwrap();
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
@@ -1983,7 +1983,6 @@ mod tests {
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
-        let new_pass_target = IpAddr::from_str("10.20.30.40").unwrap();
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
@@ -2043,7 +2042,6 @@ mod tests {
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
-        let new_pass_target = IpAddr::from_str("10.20.30.40").unwrap();
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
@@ -2102,7 +2100,6 @@ mod tests {
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
-        let new_pass_target = IpAddr::from_str("10.20.30.40").unwrap();
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
@@ -4065,7 +4062,6 @@ mod tests {
             "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
         ))
         .unwrap();
-        let debut_target_clone = debut_target.clone();
         let (hopper, _, hopper_recording) = make_recorder();
         let mut subject = Neighborhood::new(
             cryptde,
@@ -4085,8 +4081,6 @@ mod tests {
         subject.data_directory = data_dir;
         let this_node = subject.neighborhood_database.root().clone();
         let system = System::new("node_gossips_to_neighbors_on_startup");
-        let debut_target_socket_addr: SocketAddr =
-            debut_target.clone().node_addr_opt.unwrap().into();
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
