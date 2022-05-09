@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize]
     branches:
-      - 'releases/**'
+      - master
 
 jobs:
   build:
@@ -51,4 +51,4 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: Node-${{ matrix.target.name }}
-          path: results/generated/bin
+          path: results
