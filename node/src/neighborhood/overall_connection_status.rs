@@ -8,6 +8,7 @@ use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
 use actix::Recipient;
 use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
 use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget, NodeToUiMessage};
+use std::cmp;
 use std::net::IpAddr;
 
 #[derive(PartialEq, Debug, Clone)]
@@ -92,9 +93,9 @@ impl ConnectionProgress {
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 enum OverallConnectionStage {
-    NotConnected,        // Not connected to any neighbor.
-    ConnectedToNeighbor, // Neighborship established. Same as No 3 hops route found.
-    ThreeHopsRouteFound, // check_connectedness() returned true, data can now be relayed.
+    NotConnected = 0,        // Not connected to any neighbor.
+    ConnectedToNeighbor = 1, // Neighborship established. Same as No 3 hops route found.
+    ThreeHopsRouteFound = 2, // check_connectedness() returned true, data can now be relayed.
 }
 
 impl Into<UiConnectionChangeStage> for OverallConnectionStage {
@@ -224,27 +225,25 @@ impl OverallConnectionStatus {
         // For now, this function is only called when Standard or Introduction Gossip
         // is received,
         // TODO: Write a more generalized fn, which can be called when any stage gets updated
-        // let prev_stage = self.stage.clone();
+        let prev_stage = self.stage.clone();
         if self.can_make_routes() {
             self.stage = OverallConnectionStage::ThreeHopsRouteFound;
         } else {
             self.stage = OverallConnectionStage::ConnectedToNeighbor;
         }
-        // if self.stage != prev_stage {
-        //     // TODO: Maybe here too?
-        // }
+        if self.stage as usize > prev_stage as usize {
+            let message = NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiConnectionChangeBroadcast {
+                    stage: self.stage.into(),
+                }
+                .tmb(0),
+            };
 
-        let message = NodeToUiMessage {
-            target: MessageTarget::AllClients,
-            body: UiConnectionChangeBroadcast {
-                stage: self.stage.into(),
-            }
-            .tmb(0),
-        };
-
-        node_to_ui_recipient
-            .try_send(message)
-            .expect("UI Gateway is unbound.");
+            node_to_ui_recipient
+                .try_send(message)
+                .expect("UI Gateway is unbound.");
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -324,6 +323,18 @@ mod tests {
         let new_pass_target_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
 
         subject.handle_pass_gossip(new_pass_target_ip_addr);
+    }
+
+    #[test]
+    fn overall_connection_stage_can_be_converted_into_usize_and_can_be_compared() {
+        assert!(
+            OverallConnectionStage::ConnectedToNeighbor as usize
+                > OverallConnectionStage::NotConnected as usize
+        );
+        assert!(
+            OverallConnectionStage::ThreeHopsRouteFound as usize
+                > OverallConnectionStage::ConnectedToNeighbor as usize
+        );
     }
 
     #[test]
@@ -814,13 +825,14 @@ mod tests {
             ConnectionProgressEvent::TcpConnectionSuccessful,
             &recipient,
         );
-
         subject.update_can_make_routes(true);
+
         subject.update_connection_stage(
             ip_addr,
             ConnectionProgressEvent::IntroductionGossipReceived(new_ip_addr),
             &recipient,
         );
+
         System::current().stop();
         assert_eq!(system.run(), 0);
         let recording = recording_arc.lock().unwrap();
@@ -851,13 +863,14 @@ mod tests {
             ConnectionProgressEvent::TcpConnectionSuccessful,
             &recipient,
         );
-
         subject.update_can_make_routes(false);
+
         subject.update_connection_stage(
             ip_addr,
             ConnectionProgressEvent::StandardGossipReceived,
             &recipient,
         );
+
         System::current().stop();
         assert_eq!(system.run(), 0);
         let recording = recording_arc.lock().unwrap();
@@ -873,6 +886,61 @@ mod tests {
                 .tmb(0)
             }
         );
+    }
+
+    #[test]
+    fn doesn_t_send_message_to_the_ui_in_case_gossip_is_received_but_stage_hasn_t_updated() {
+        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
+        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
+        let (recipient, recording_arc) = make_node_to_ui_recipient();
+        subject.stage = OverallConnectionStage::ConnectedToNeighbor;
+        let system = System::new("test");
+        subject.update_connection_stage(
+            ip_addr,
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+            &recipient,
+        );
+        subject.update_can_make_routes(false);
+
+        subject.update_connection_stage(
+            ip_addr,
+            ConnectionProgressEvent::StandardGossipReceived,
+            &recipient,
+        );
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), 0);
+    }
+
+    #[test]
+    fn doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor(
+    ) {
+        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
+        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
+        let (recipient, recording_arc) = make_node_to_ui_recipient();
+        subject.stage = OverallConnectionStage::ThreeHopsRouteFound;
+        let system = System::new("test");
+        subject.update_connection_stage(
+            ip_addr,
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+            &recipient,
+        );
+        subject.update_can_make_routes(false);
+
+        subject.update_connection_stage(
+            ip_addr,
+            ConnectionProgressEvent::StandardGossipReceived,
+            &recipient,
+        );
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(recording.len(), 0);
     }
 
     fn make_node_descriptor_from_ip(ip_addr: IpAddr) -> NodeDescriptor {
