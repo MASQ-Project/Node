@@ -77,10 +77,10 @@ pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
-    hopper: Option<Recipient<IncipientCoresPackage>>,
-    hopper_no_lookup: Option<Recipient<NoLookupIncipientCoresPackage>>,
-    connected_signal: Option<Recipient<StartMessage>>,
-    to_ui_message_sub: Option<Recipient<NodeToUiMessage>>,
+    hopper_opt: Option<Recipient<IncipientCoresPackage>>,
+    hopper_no_lookup_opt: Option<Recipient<NoLookupIncipientCoresPackage>>,
+    connected_signal_opt: Option<Recipient<StartMessage>>,
+    to_ui_message_opt: Option<Recipient<NodeToUiMessage>>,
     gossip_acceptor_opt: Option<Box<dyn GossipAcceptor>>,
     gossip_producer_opt: Option<Box<dyn GossipProducer>>,
     neighborhood_database: NeighborhoodDatabase,
@@ -105,15 +105,15 @@ impl Handler<BindMessage> for Neighborhood {
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
-        self.hopper = Some(msg.peer_actors.hopper.from_hopper_client);
-        self.hopper_no_lookup = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
-        self.connected_signal = Some(msg.peer_actors.accountant.start);
+        self.hopper_opt = Some(msg.peer_actors.hopper.from_hopper_client);
+        self.hopper_no_lookup_opt = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
+        self.connected_signal_opt = Some(msg.peer_actors.accountant.start);
         self.gossip_acceptor_opt = Some(Box::new(GossipAcceptorReal::new(
             self.cryptde,
             msg.peer_actors.neighborhood.connection_progress_sub,
         )));
         self.gossip_producer_opt = Some(Box::new(GossipProducerReal::new()));
-        self.to_ui_message_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
+        self.to_ui_message_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
     }
 }
 
@@ -262,7 +262,7 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
         self.overall_connection_status.update_connection_stage(
             msg.peer_addr,
             msg.event.clone(),
-            self.to_ui_message_sub
+            self.to_ui_message_opt
                 .as_ref()
                 .expect("UI Gateway is unbound."),
         );
@@ -290,7 +290,7 @@ impl Handler<AskAboutDebutGossipMessage> for Neighborhood {
             self.overall_connection_status.update_connection_stage(
                 msg.prev_connection_progress.current_peer_addr,
                 ConnectionProgressEvent::NoGossipResponseReceived,
-                self.to_ui_message_sub
+                self.to_ui_message_opt
                     .as_ref()
                     .expect("UI Gateway is unbound."),
             );
@@ -423,10 +423,10 @@ impl Neighborhood {
 
         Neighborhood {
             cryptde,
-            hopper: None,
-            hopper_no_lookup: None,
-            connected_signal: None,
-            to_ui_message_sub: None,
+            hopper_opt: None,
+            hopper_no_lookup_opt: None,
+            connected_signal_opt: None,
+            to_ui_message_opt: None,
             gossip_acceptor_opt: None,
             gossip_producer_opt: None,
             neighborhood_database,
@@ -542,7 +542,7 @@ impl Neighborhood {
                 let node_addr = &node_descriptor.node_addr_opt.as_ref().expect(
                     "Node descriptor without IP Address got through Neighborhood constructor.",
                 );
-                self.hopper_no_lookup
+                self.hopper_no_lookup_opt
                     .as_ref()
                     .expect("unbound hopper")
                     .try_send(
@@ -771,7 +771,7 @@ impl Neighborhood {
         };
         if self.handle_route_query_message(msg).is_some() {
             self.overall_connection_status.update_can_make_routes(true);
-            self.connected_signal
+            self.connected_signal_opt
                 .as_ref()
                 .expect("Accountant was not bound")
                 .try_send(StartMessage {})
@@ -819,7 +819,7 @@ impl Neighborhood {
             self.logger,
             "Sending update Gossip about {} Nodes to Node {}", gossip_len, neighbor
         );
-        self.hopper
+        self.hopper_opt
             .as_ref()
             .expect("unbound hopper")
             .try_send(package)
@@ -1242,7 +1242,7 @@ impl Neighborhood {
                 return;
             }
         };
-        self.hopper_no_lookup
+        self.hopper_no_lookup_opt
             .as_ref()
             .expect("No-lookup Hopper is unbound")
             .try_send(package)
@@ -1666,7 +1666,7 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_sub = Some(recipient);
+        subject.to_ui_message_opt = Some(recipient);
         subject.tools.notify_later_ask_about_gossip = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_ask_about_gossip_params_arc),
@@ -1741,11 +1741,11 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_sub = Some(recipient);
+        subject.to_ui_message_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             initial_desc_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.to_ui_message_sub.as_ref().unwrap(),
+            subject.to_ui_message_opt.as_ref().unwrap(),
         );
         let beginning_connection_progress = ConnectionProgress {
             initial_node_descriptor: initial_node_descriptor.clone(),
@@ -1803,7 +1803,7 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_sub = Some(recipient);
+        subject.to_ui_message_opt = Some(recipient);
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
@@ -1856,11 +1856,11 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_sub = Some(recipient);
+        subject.to_ui_message_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.to_ui_message_sub.as_ref().unwrap(),
+            subject.to_ui_message_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1915,11 +1915,11 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_sub = Some(recipient);
+        subject.to_ui_message_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.to_ui_message_sub.as_ref().unwrap(),
+            subject.to_ui_message_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1974,11 +1974,11 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_sub = Some(recipient);
+        subject.to_ui_message_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.to_ui_message_sub.as_ref().unwrap(),
+            subject.to_ui_message_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -2033,11 +2033,11 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_sub = Some(recipient);
+        subject.to_ui_message_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.to_ui_message_sub.as_ref().unwrap(),
+            subject.to_ui_message_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -2091,11 +2091,11 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_sub = Some(recipient);
+        subject.to_ui_message_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.to_ui_message_sub.as_ref().unwrap(),
+            subject.to_ui_message_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -3244,7 +3244,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let system = System::new("");
-        subject.hopper_no_lookup = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
 
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
@@ -3283,7 +3283,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let system = System::new("neighborhood_transmits_gossip_failure_properly");
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        subject.hopper_no_lookup = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         subject.gossip_acceptor_opt = Some(Box::new(gossip_acceptor));
 
         subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
@@ -3357,9 +3357,9 @@ mod tests {
     }
 
     fn bind_subject(subject: &mut Neighborhood, peer_actors: PeerActors) {
-        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
-        subject.hopper_no_lookup = Some(peer_actors.hopper.from_hopper_client_no_lookup);
-        subject.connected_signal = Some(peer_actors.accountant.start);
+        subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
+        subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.connected_signal_opt = Some(peer_actors.accountant.start);
     }
 
     #[test]
@@ -3701,7 +3701,7 @@ mod tests {
         let peer_actors = peer_actors_builder().hopper(hopper).build();
 
         let system = System::new("");
-        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+        subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
@@ -3791,7 +3791,7 @@ mod tests {
         let peer_actors = peer_actors_builder().hopper(hopper).build();
 
         let system = System::new("");
-        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+        subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
@@ -3824,7 +3824,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let system = System::new("");
-        subject.hopper_no_lookup = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         let gossip_source = SocketAddr::from_str("8.6.5.4:8654").unwrap();
 
         subject.handle_gossip(
@@ -3867,7 +3867,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let system = System::new("");
-        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+        subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
@@ -3893,7 +3893,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let system = System::new("");
-        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+        subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
@@ -4635,7 +4635,7 @@ mod tests {
         let subject_node = make_global_cryptde_node_record(1345, true);
         let mut subject = neighborhood_from_nodes(&subject_node, None);
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+        subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_stream_shutdown_msg(StreamShutdownMsg {
             peer_addr: unrecognized_socket_addr,
@@ -4683,7 +4683,7 @@ mod tests {
             subject_node.public_key(),
         );
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+        subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_stream_shutdown_msg(StreamShutdownMsg {
             peer_addr: inactive_neighbor_node_socket_addr,
@@ -4738,7 +4738,7 @@ mod tests {
             shutdown_neighbor_node.public_key(),
         );
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+        subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
         subject.gossip_producer_opt = Some(Box::new(GossipProducerReal::new()));
 
         subject.handle_stream_shutdown_msg(StreamShutdownMsg {
