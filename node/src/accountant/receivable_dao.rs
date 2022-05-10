@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::unsigned_to_signed;
-use crate::blockchain::blockchain_interface::Transaction;
+use crate::blockchain::blockchain_interface::PaidReceivable;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
@@ -39,7 +39,7 @@ pub trait ReceivableDao: Send {
     fn more_money_receivable(&self, wallet: &Wallet, amount: u64)
         -> Result<(), ReceivableDaoError>;
 
-    fn more_money_received(&mut self, transactions: Vec<Transaction>);
+    fn more_money_received(&mut self, transactions: Vec<PaidReceivable>);
 
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
@@ -55,7 +55,7 @@ pub trait ReceivableDao: Send {
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount>;
 
-    fn total(&self) -> u64;
+    fn total(&self) -> i64;
 }
 
 pub trait ReceivableDaoFactory {
@@ -95,7 +95,7 @@ impl ReceivableDao for ReceivableDaoReal {
         }
     }
 
-    fn more_money_received(&mut self, payments: Vec<Transaction>) {
+    fn more_money_received(&mut self, payments: Vec<PaidReceivable>) {
         self.try_multi_insert_payment(&payments)
             .unwrap_or_else(|e| {
                 let mut report_lines =
@@ -252,7 +252,7 @@ impl ReceivableDao for ReceivableDaoReal {
         .collect()
     }
 
-    fn total(&self) -> u64 {
+    fn total(&self) -> i64 {
         let mut stmt = self
             .conn
             .prepare("select sum(balance) from receivable")
@@ -260,7 +260,7 @@ impl ReceivableDao for ReceivableDaoReal {
         match stmt.query_row([], |row| {
             let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
             match total_balance_result {
-                Ok(total_balance) => Ok(total_balance as u64),
+                Ok(total_balance) => Ok(total_balance),
                 Err(e)
                     if e == rusqlite::Error::InvalidColumnType(
                         0,
@@ -268,7 +268,7 @@ impl ReceivableDao for ReceivableDaoReal {
                         Type::Null,
                     ) =>
                 {
-                    Ok(0u64)
+                    Ok(0)
                 }
                 Err(e) => panic!(
                     "Database is corrupt: RECEIVABLE table columns and/or types: {:?}",
@@ -315,7 +315,7 @@ impl ReceivableDaoReal {
 
     fn try_multi_insert_payment(
         &mut self,
-        payments: &[Transaction],
+        payments: &[PaidReceivable],
     ) -> Result<(), ReceivableDaoError> {
         let tx = match self.conn.transaction() {
             Ok(t) => t,
@@ -416,7 +416,7 @@ mod tests {
                 .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
-        let payments = vec![Transaction {
+        let payments = vec![PaidReceivable {
             block_number: 42u64,
             from: make_wallet("some_address"),
             gwei_amount: 18446744073709551615,
@@ -445,7 +445,7 @@ mod tests {
         }
         let mut subject = ReceivableDaoReal::new(conn);
 
-        let payments = vec![Transaction {
+        let payments = vec![PaidReceivable {
             block_number: 42u64,
             from: make_wallet("some_address"),
             gwei_amount: 18446744073709551615,
@@ -477,7 +477,7 @@ mod tests {
         }
         let mut subject = ReceivableDaoReal::new(conn);
 
-        let payments = vec![Transaction {
+        let payments = vec![PaidReceivable {
             block_number: 42u64,
             from: make_wallet("some_address"),
             gwei_amount: 18446744073709551615,
@@ -601,12 +601,12 @@ mod tests {
 
         let (status1, status2) = {
             let transactions = vec![
-                Transaction {
+                PaidReceivable {
                     from: debtor1.clone(),
                     gwei_amount: 1200u64,
                     block_number: 35u64,
                 },
-                Transaction {
+                PaidReceivable {
                     from: debtor2.clone(),
                     gwei_amount: 2300u64,
                     block_number: 57u64,
@@ -655,7 +655,7 @@ mod tests {
         );
 
         let status = {
-            let transactions = vec![Transaction {
+            let transactions = vec![PaidReceivable {
                 from: debtor.clone(),
                 gwei_amount: 2300u64,
                 block_number: 33u64,
@@ -674,17 +674,17 @@ mod tests {
             ConnectionWrapperMock::default().transaction_result(Err(Error::InvalidQuery));
         let mut receivable_dao = ReceivableDaoReal::new(Box::new(conn_mock));
         let payments = vec![
-            Transaction {
+            PaidReceivable {
                 block_number: 1234567890,
                 from: Wallet::new("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
                 gwei_amount: 123456789123456789,
             },
-            Transaction {
+            PaidReceivable {
                 block_number: 2345678901,
                 from: Wallet::new("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"),
                 gwei_amount: 234567891234567891,
             },
-            Transaction {
+            PaidReceivable {
                 block_number: 3456789012,
                 from: Wallet::new("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
                 gwei_amount: 345678912345678912,

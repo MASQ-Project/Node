@@ -75,7 +75,6 @@ mod tests {
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiDescriptorRequest, UiDescriptorResponse};
-    use masq_lib::utils::find_free_port;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -187,11 +186,9 @@ mod tests {
     #[test]
     fn descriptor_command_sad_path() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let port = find_free_port();
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Err(ConnectionDropped("Booga".to_string())))
-            .active_port_result(Some(port));
+            .transact_result(Err(ConnectionDropped("Booga".to_string())));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let subject = DescriptorCommand::new();

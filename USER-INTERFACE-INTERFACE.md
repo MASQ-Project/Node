@@ -564,27 +564,14 @@ field will be null or absent.
 ##### Correspondent: Node
 ##### Layout:
 ```
-"payload": {
-    "payableMinimumAmount" = <nonnegative integer>,
-    "payableMaximumAge" = <nonnegative integer>,
-    "receivableMinimumAmount" = <nonnegative integer>,
-    "receivableMaximumAge" = <nonnegative integer>
-}
+"payload": {}
 ```
 ##### Description:
-Requests a financial report from the Node.
+Requests financial statistics from the Node.
 
-In most cases, there will be many records in the database, most of them irrelevant because of amount or age.
-Therefore, when the UI requests a financial report, it should specify minimum amounts and maximum ages. Records
-with amounts smaller than the minimums, or older than the maximums, won't be included in the results, although
-their values will be included in the totals.
-
-This request will result in a cluster of queries to the database, which are quick but not instantaneous,
-especially on old databases that contain lots of records. A UI that makes this request too many times per
-second will perceptibly degrade the performance of the Node.
-
-Amounts are specified in gwei (billions of wei); ages are specified in seconds. Values less than zero or
-greater than 64 bits long will cause undefined behavior.
+This request will report back information about a Node's historical financial operations. This will include both
+services ordered from other Nodes and services provided for other Nodes, represented as monetary values owed and
+paid to and from this Node's wallets.
 
 #### `financials`
 ##### Direction: Response
@@ -592,52 +579,30 @@ greater than 64 bits long will cause undefined behavior.
 ##### Layout:
 ```
 "payload": {
-    "payables": [
-        {
-            "wallet": <string>,
-            "age": <nonnegative integer>,
-            "amount": <nonnegative integer>,
-            "pendingPayableHashOpt": <optional string>
-        },
-        < ... >
-    ],
-    "totalPayable": <nonnegative integer>,
-    "receivables": [
-        {
-            "wallet": <string>,
-            "age": <nonnegative integer>,
-            "amount": <nonnegative integer>
-        },
-        < ... >
-    ],
-    "totalReceivable": <nonnegative integer>
+    "totalUnpaidAndPendingPayable": <integer>
+    "totalPaidPayable": <nonnegative integer>
+    "totalUnpaidReceivable": <integer>
+    "totalPaidReceivable": <nonnegative integer>
 }
 ```
 ##### Description:
-Contains a financial report from the Node.
+Contains the requested financial statistics.
 
-In most cases, there will be accounts in the database that are too old, or whose balances are too low, to
-show up in this report. The `totalPayable` and `totalReceivable` fields will be accurate, but they will
-probably be larger than the sums of the `payables` and `receivables` `amount` fields. The UI may choose to
-ignore this discrepancy, or it may generate an "Other" account in each case to make up the difference.
+`totalUnpaidAndPendingPayable` is the number of Gwei we believe we owe to other Nodes and that those other Nodes have
+not yet received, as far as we know. This includes both bills we haven't yet paid and bills we have paid, but whose
+transactions we have not yet seen confirmed on the blockchain.
 
-The `wallet` fields will consist of 40 hexadecimal digits, prefixed by "0x".
+`totalPaidPayable` is the number of Gwei we have successfully paid to our creditors and seen confirmed during the time
+the current instance of the Node has been running. In the future, this number may become cumulative over more time than
+just the current Node run.
 
-The `age` fields contain the age in seconds, at the time the request was received, of the most recent transaction
-on the associated account. The value will not be less than zero or longer than 64 bits.
+`totalUnpaidReceivable` is the number of Gwei we believe other Nodes owe to us, but have not yet been included in
+payments we have seen confirmed on the blockchain. This includes both payments that have never been made and also
+payments that have been made but not yet confirmed.
 
-The `amount` fields contain the total amount in gwei owed to or due from the associated account at the time the
-request was received. The value will not be less than zero or longer than 64 bits.
-
-The `pendingPayableHashOpt` fields, if present, indicate that an obligation has been paid, but the payment is not
-yet confirmed on the blockchain. If they appear, they will be standard 64-digit hexadecimal transaction numbers,
-prefixed by "0x". If no `pendingPayableHashOpt` is given, then there were no pending payments on that account
-at the time the request was received.
-
-The `payables` and `receivables` arrays are not in any particular order.
-
-For security reasons, the Node does not keep track of individual blockchain transactions, with the exception
-of payments that have not yet been confirmed. Only cumulative account balances are retained.
+`totalPaidReceivable` is the number of Gwei we have successfully received in confirmed payments from our debtors during
+the time the current instance of the Node has been running. In the future, this number may become cumulative over more
+time than just the current Node run.
 
 #### `generateWallets`
 ##### Direction: Request
@@ -739,6 +704,32 @@ its database, in encrypted form, because it needs to withdraw money from the wal
 `earningWalletPrivateKey` is the private key of the generated earning wallet. The Node does not need this key, and
 will not retain it; but you'll need it to withdraw earned funds from the wallet, especially if you didn't request or
 retain a mnemonic phrase.
+
+#### `logBroadcast`
+##### Direction: Broadcast
+##### Correspondent: Node
+##### Layout:
+```
+"msg": <String>,
+"logLevel": <String>
+```
+##### Description:
+This broadcast intends to give the user an immediate notification about a significant event that just occurred in
+the Node. At a bit lower level, this is a reaction to when the execution flow crosses any place with logging that bears
+a severity of `Info`, `Warn` or `Error`. Every such situation produces this broadcast along with the usual,
+long-adopted way of writing a log into a file and so both happen simultaneously. 
+
+Certain plans are to diverge between what is going to be printed to the log file and what is going to be given to
+the UI, while the latter in a prettier and user-friendlier form, but more preparation must go before we can implement
+that. 
+
+The log level constraining the UI output from less important messages (`Debug` and `Trace`) is now steadily given 
+by the `Info` level. However, we may consider make it adjustable if there is a demand like that.
+
+`msg` is the message describing a passed event. 
+
+`logLevel` indicates what severity the reported event had. It can only be a string from this list: `Info`, `Warn`,
+`Error`.
 
 #### `newPassword`
 ##### Direction: Broadcast

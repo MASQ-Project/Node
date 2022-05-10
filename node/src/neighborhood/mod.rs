@@ -13,12 +13,12 @@ use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
+use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
 use actix::Recipient;
 use actix::{Actor, System};
-use actix::{Addr, AsyncContext};
 use itertools::Itertools;
 use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::UiShutdownRequest;
@@ -1177,7 +1177,7 @@ impl Neighborhood {
         self.tools.notify_later_ask_about_gossip.notify_later(
             message,
             self.tools.ask_about_gossip_interval,
-            Box::new(|message, duration| ctx.notify_later(message, duration)),
+            ctx,
         );
     }
 

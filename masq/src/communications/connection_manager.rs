@@ -1170,10 +1170,10 @@ mod tests {
         let node_port = find_free_port();
         let node_server = MockWebSocketsServer::new(node_port).queue_response(
             UiFinancialsResponse {
-                payables: vec![],
-                total_payable: 21,
-                receivables: vec![],
-                total_receivable: 32,
+                total_unpaid_and_pending_payable: 10,
+                total_paid_payable: 22,
+                total_unpaid_receivable: 29,
+                total_paid_receivable: 32,
             }
             .tmb(1),
         );
@@ -1187,13 +1187,7 @@ mod tests {
                 payload: r#"{"payableMinimumAmount":12,"payableMaximumAge":23,"receivableMinimumAmount":34,"receivableMaximumAge":45}"#.to_string()
             }.tmb(0));
         let daemon_stop_handle = daemon_server.start();
-        let request = UiFinancialsRequest {
-            payable_minimum_amount: 12,
-            payable_maximum_age: 23,
-            receivable_minimum_amount: 34,
-            receivable_maximum_age: 45,
-        }
-        .tmb(1);
+        let request = UiFinancialsRequest {}.tmb(1);
         let send_params_arc = Arc::new(Mutex::new(vec![]));
         let broadcast_handler = BroadcastHandleMock::new().send_params(&send_params_arc);
         let mut subject = ConnectionManager::new();
@@ -1205,23 +1199,15 @@ mod tests {
         let result = conversation.transact(request, 1000).unwrap();
 
         let request_body = node_stop_handle.stop()[0].clone().unwrap();
-        assert_eq!(
-            UiFinancialsRequest::fmb(request_body).unwrap().0,
-            UiFinancialsRequest {
-                payable_minimum_amount: 12,
-                payable_maximum_age: 23,
-                receivable_minimum_amount: 34,
-                receivable_maximum_age: 45,
-            }
-        );
+        UiFinancialsRequest::fmb(request_body).unwrap();
         let (response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
         assert_eq!(
             response,
             UiFinancialsResponse {
-                payables: vec![],
-                total_payable: 21,
-                receivables: vec![],
-                total_receivable: 32
+                total_unpaid_and_pending_payable: 10,
+                total_paid_payable: 22,
+                total_unpaid_receivable: 29,
+                total_paid_receivable: 32
             }
         );
         assert_eq!(context_id, 1);

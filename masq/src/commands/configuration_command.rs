@@ -3,7 +3,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
-    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+    dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
 use masq_lib::as_any_impl;
@@ -80,47 +80,47 @@ impl ConfigurationCommand {
     }
 
     fn dump_configuration(stream: &mut dyn Write, configuration: UiConfigurationResponse) {
-        Self::dump_configuration_line(stream, "NAME", "VALUE");
-        Self::dump_configuration_line(
+        dump_parameter_line(stream, "NAME", "VALUE");
+        dump_parameter_line(
             stream,
             "Blockchain service URL:",
             &configuration
                 .blockchain_service_url_opt
                 .unwrap_or_else(|| "[?]".to_string()),
         );
-        Self::dump_configuration_line(stream, "Chain:", &configuration.chain_name);
-        Self::dump_configuration_line(
+        dump_parameter_line(stream, "Chain:", &configuration.chain_name);
+        dump_parameter_line(
             stream,
             "Clandestine port:",
             &configuration.clandestine_port.to_string(),
         );
-        Self::dump_configuration_line(
+        dump_parameter_line(
             stream,
             "Consuming wallet private key:",
             &Self::interpret_option(&configuration.consuming_wallet_private_key_opt),
         );
-        Self::dump_configuration_line(
+        dump_parameter_line(
             stream,
             "Current schema version:",
             &configuration.current_schema_version,
         );
-        Self::dump_configuration_line(
+        dump_parameter_line(
             stream,
             "Earning wallet address:",
             &Self::interpret_option(&configuration.earning_wallet_address_opt),
         );
-        Self::dump_configuration_line(stream, "Gas price:", &configuration.gas_price.to_string());
-        Self::dump_configuration_line(
+        dump_parameter_line(stream, "Gas price:", &configuration.gas_price.to_string());
+        dump_parameter_line(
             stream,
             "Neighborhood mode:",
             &configuration.neighborhood_mode,
         );
-        Self::dump_configuration_line(
+        dump_parameter_line(
             stream,
             "Port mapping protocol:",
             &Self::interpret_option(&configuration.port_mapping_protocol_opt),
         );
-        Self::dump_configuration_line(
+        dump_parameter_line(
             stream,
             "Start block:",
             &configuration.start_block.to_string(),
@@ -165,22 +165,18 @@ impl ConfigurationCommand {
 
     fn dump_value_list(stream: &mut dyn Write, name: &str, values: &[String]) {
         if values.is_empty() {
-            Self::dump_configuration_line(stream, name, "[?]");
+            dump_parameter_line(stream, name, "[?]");
             return;
         }
         let mut name_row = true;
         values.iter().for_each(|value| {
             if name_row {
-                Self::dump_configuration_line(stream, name, value);
+                dump_parameter_line(stream, name, value);
                 name_row = false;
             } else {
-                Self::dump_configuration_line(stream, "", value);
+                dump_parameter_line(stream, "", value);
             }
         })
-    }
-
-    fn dump_configuration_line(stream: &mut dyn Write, name: &str, value: &str) {
-        short_writeln!(stream, "{:width$} {}", name, value, width = COLUMN_WIDTH);
     }
 
     fn interpret_option(value_opt: &Option<String>) -> String {

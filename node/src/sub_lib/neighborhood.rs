@@ -3,6 +3,7 @@
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
+use crate::neighborhood::Neighborhood;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -526,7 +527,8 @@ impl fmt::Display for GossipFailure_0v1 {
 }
 
 pub struct NeighborhoodTools {
-    pub notify_later_ask_about_gossip: Box<dyn NotifyLaterHandle<AskAboutDebutGossipMessage>>,
+    pub notify_later_ask_about_gossip:
+        Box<dyn NotifyLaterHandle<AskAboutDebutGossipMessage, Neighborhood>>,
     // TODO: Should we change the above field to constant
     pub ask_about_gossip_interval: Duration,
 }
