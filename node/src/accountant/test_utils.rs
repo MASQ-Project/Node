@@ -2,7 +2,10 @@
 
 #![cfg(test)]
 
-use crate::accountant::dao_utils::{get_unsized_128, InsertConfiguration, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError, Table, UpdateConfiguration};
+use crate::accountant::dao_utils::{
+    get_unsized_128, InsertConfiguration, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError,
+    Table, UpdateConfiguration,
+};
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
@@ -300,7 +303,12 @@ pub struct PayableDaoMock {
 }
 
 impl PayableDao for PayableDaoMock {
-    fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PayableDaoError> {
+    fn more_money_payable(
+        &self,
+        core: &dyn InsertUpdateCore,
+        wallet: &Wallet,
+        amount: u64,
+    ) -> Result<(), PayableDaoError> {
         self.more_money_payable_parameters
             .lock()
             .unwrap()
@@ -324,6 +332,7 @@ impl PayableDao for PayableDaoMock {
 
     fn transaction_confirmed(
         &self,
+        core: &dyn InsertUpdateCore,
         payment: &PendingPayableFingerprint,
     ) -> Result<(), PayableDaoError> {
         self.transaction_confirmed_params
@@ -464,6 +473,7 @@ pub struct ReceivableDaoMock {
 impl ReceivableDao for ReceivableDaoMock {
     fn more_money_receivable(
         &self,
+        core: &dyn InsertUpdateCore,
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), ReceivableDaoError> {
@@ -853,7 +863,7 @@ pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccou
         .prepare("select balance, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?")
         .unwrap();
     stmt.query_row(&[&wallet], |row| {
-        let balance_result = get_unsized_128(row,0);
+        let balance_result = get_unsized_128(row, 0);
         let last_paid_timestamp_result = row.get(1);
         let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(2);
         match (
@@ -882,7 +892,7 @@ pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccou
 
 #[derive(Default)]
 pub struct InsertUpdateCoreMock {
-    update_params: Arc<Mutex<Vec<(String, String, String, Vec<String>)>>>, //trait-object-like params tested specially
+    update_params: Arc<Mutex<Vec<(String, String, String, Vec<(String, String)>)>>>, //trait-object-like params tested specially
     update_results: RefCell<Vec<Result<(), InsertUpdateError>>>,
     upsert_params: Arc<Mutex<Vec<(String, String, Table, Vec<(String, String)>)>>>,
     upsert_results: RefCell<Vec<Result<(), InsertUpdateError>>>,
@@ -903,11 +913,11 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
         conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,
         config: &'a (dyn UpdateConfiguration<'a> + 'a),
     ) -> Result<(), InsertUpdateError> {
-        let owned_params: Vec<String> = config
+        let owned_params: Vec<(String, String)> = config
             .update_params()
-            .all_rusqlite_params()
-            .into_iter()
-            .map(|(str, _to_sql)| str.to_string())
+            .params()
+            .iter()
+            .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
             .collect();
         self.update_params.lock().unwrap().push((
             config.select_sql(),
@@ -948,7 +958,7 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
 impl InsertUpdateCoreMock {
     pub fn update_params(
         mut self,
-        params: &Arc<Mutex<Vec<(String, String, String, Vec<String>)>>>,
+        params: &Arc<Mutex<Vec<(String, String, String, Vec<(String, String)>)>>>,
     ) -> Self {
         self.update_params = params.clone();
         self
@@ -971,4 +981,20 @@ impl InsertUpdateCoreMock {
         self.upsert_results.borrow_mut().push(result);
         self
     }
+}
+
+pub fn convert_to_all_string_values(str_args: Vec<(&str, &str)>) -> Vec<(String, String)> {
+    str_args
+        .into_iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect()
+}
+
+pub fn is_timely_around(time_stamp: i64) -> bool {
+    todo!("this is a stupid way of doing -- discard");
+    let new_now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    (new_now - 3) < time_stamp && time_stamp <= new_now
 }

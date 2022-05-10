@@ -1,11 +1,16 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::{unsigned_to_signed, PendingPayableId, checked_convert};
+use crate::accountant::dao_utils::{
+    get_unsized_128, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, SQLExtParams,
+    Table, UpdateConfig,
+};
+use crate::accountant::{checked_convert, unsigned_to_signed, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
-use crate::database::dao_utils::DaoFactoryReal;
+use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
 use crate::sub_lib::wallet::Wallet;
+use itertools::Either;
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::Error;
@@ -13,7 +18,6 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
-use crate::accountant::dao_utils::get_unsized_128;
 
 #[derive(Debug, PartialEq)]
 pub enum PayableDaoError {
@@ -50,7 +54,12 @@ impl Payable {
 
 //there used to be a method 'accountant_status' but was turned into a test utility since never used in the production code
 pub trait PayableDao: Debug + Send {
-    fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PayableDaoError>;
+    fn more_money_payable(
+        &self,
+        core: &dyn InsertUpdateCore,
+        wallet: &Wallet,
+        amount: u64,
+    ) -> Result<(), PayableDaoError>;
 
     fn mark_pending_payable_rowid(
         &self,
@@ -60,6 +69,7 @@ pub trait PayableDao: Debug + Send {
 
     fn transaction_confirmed(
         &self,
+        core: &dyn InsertUpdateCore,
         payment: &PendingPayableFingerprint,
     ) -> Result<(), PayableDaoError>;
 
@@ -87,15 +97,22 @@ pub struct PayableDaoReal {
 
 impl PayableDao for PayableDaoReal {
     //TODO: YES
-    fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PayableDaoError> {
-        let signed_amount = unsigned_to_signed::<u64,i64>(amount).map_err(PayableDaoError::SignConversion)?;
-        match self.try_increase_balance(wallet, signed_amount) {
-            Ok(_) => Ok(()),
-            Err(e) => panic!(
-                "Database is corrupt: {}; processing payable for {}",
-                e, wallet
-            ),
-        }
+    fn more_money_payable(
+        &self,
+        core: &dyn InsertUpdateCore,
+        wallet: &Wallet,
+        amount: u64,
+    ) -> Result<(), PayableDaoError> {
+        Ok(core.upsert(self.conn.as_ref(), InsertUpdateConfig{
+            insert_sql: "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,strftime('%s','now'),null)",
+            update_sql: "update payable set balance = :updated_balance where wallet_address = :wallet",
+            params: SQLExtParams::new(
+                vec![
+                    (":wallet", &wallet.to_string().as_str()),
+                    (":balance", &checked_convert::<u64,i64>(amount))
+                ]),
+            table: Table::Payable,
+        })?)
     }
 
     //TODO: NO
@@ -123,19 +140,21 @@ impl PayableDao for PayableDaoReal {
         }
     }
 
-    //TODO: YES
     fn transaction_confirmed(
         &self,
+        core: &dyn InsertUpdateCore,
         fingerprint: &PendingPayableFingerprint,
     ) -> Result<(), PayableDaoError> {
-        let signed_amount =
-        checked_convert::<u128,i128>(fingerprint.amount);
-        self.try_decrease_balance(
-            fingerprint.rowid_opt.expectv("initialized rowid"),
-            signed_amount,
-            fingerprint.timestamp,
-        )
-        .map_err(PayableDaoError::RusqliteError)
+        Ok(core.update(Either::Left(self.conn.as_ref()), &UpdateConfig{
+            update_sql: "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid where pending_payable_rowid = :rowid",
+            params: SQLExtParams::new(
+                vec![
+                    (":balance", &checked_convert::<u128, i128>(fingerprint.amount)),
+                    (":last_paid", &to_time_t(fingerprint.timestamp)),
+                    (":rowid", &checked_convert::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"))),
+                ]),
+            table: Table::Payable,
+        })?)
     }
 
     //TODO: NO
@@ -165,8 +184,9 @@ impl PayableDao for PayableDaoReal {
 
     //TODO: never used!!
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
-        let min_amt = unsigned_to_signed::<u64,i64>(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
-        let max_age = unsigned_to_signed::<u64,i64>(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+        let min_amt =
+            unsigned_to_signed::<u64, i64>(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+        let max_age = unsigned_to_signed::<u64, i64>(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
         let min_timestamp = dao_utils::now_time_t() - max_age;
         let mut stmt = self
             .conn
@@ -193,7 +213,7 @@ impl PayableDao for PayableDaoReal {
             .expect("Internal error");
         let params: &[&dyn ToSql] = &[&min_amt, &min_timestamp];
         stmt.query_map(params, |row| {
-            let balance_result = get_unsized_128(row,0);
+            let balance_result = get_unsized_128(row, 0);
             let last_paid_timestamp_result = row.get(1);
             let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
             let pending_payable_rowid_result_opt: Result<Option<u64>, Error> = row.get(3);
@@ -239,8 +259,8 @@ impl PayableDao for PayableDaoReal {
             .prepare("select sum(balance) from payable")
             .expect("Internal error");
         match stmt.query_row([], |row| {
-            let total_balance_result: Result<u128, rusqlite::Error> = row.get(0);
-            match total_balance_result {
+            let total_balance_result_signed: Result<i128, rusqlite::Error> = row.get(0);
+            match total_balance_result_signed.map(|total| total as u128) {
                 Ok(total_balance) => Ok(total_balance),
                 Err(e)
                     if e == rusqlite::Error::InvalidColumnType(
@@ -268,6 +288,7 @@ impl PayableDaoReal {
         PayableDaoReal { conn }
     }
 
+    //TODO replace these by the new ones
     fn try_increase_balance(&self, wallet: &Wallet, amount: i64) -> Result<bool, String> {
         let mut stmt = self
             .conn
@@ -281,6 +302,7 @@ impl PayableDaoReal {
         }
     }
 
+    //TODO replace these by the new ones
     fn try_decrease_balance(
         &self,
         rowid: u64,
@@ -313,10 +335,15 @@ impl PayableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::test_utils::{account_status, make_pending_payable_fingerprint};
+    use crate::accountant::dao_utils::{InsertUpdateError, Table};
+    use crate::accountant::test_utils::{
+        account_status, convert_to_all_string_values, make_pending_payable_fingerprint,
+        InsertUpdateCoreMock,
+    };
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::database::db_initializer;
+    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::make_wallet;
@@ -325,6 +352,7 @@ mod tests {
     use rusqlite::Connection as RusqliteConnection;
     use rusqlite::{Connection, OpenFlags};
     use std::path::Path;
+    use std::sync::{Arc, Mutex};
     use web3::types::U256;
 
     #[test]
@@ -359,7 +387,9 @@ mod tests {
             let subject = PayableDaoReal::new(boxed_conn);
             let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
 
-            subject.more_money_payable(&wallet, 1234).unwrap();
+            subject
+                .more_money_payable(&InsertUpdateCoreReal, &wallet, 1234)
+                .unwrap();
 
             account_status(&secondary_conn, &wallet).unwrap()
         };
@@ -395,7 +425,9 @@ mod tests {
         let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
         let subject = {
             let subject = PayableDaoReal::new(boxed_conn);
-            subject.more_money_payable(&wallet, 1234).unwrap();
+            subject
+                .more_money_payable(&InsertUpdateCoreReal, &wallet, 1234)
+                .unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
             let conn =
@@ -410,7 +442,9 @@ mod tests {
         };
 
         let status = {
-            subject.more_money_payable(&wallet, 2345).unwrap();
+            subject
+                .more_money_payable(&InsertUpdateCoreReal, &wallet, 2345)
+                .unwrap();
 
             account_status(&secondary_conn, &wallet).unwrap()
         };
@@ -433,7 +467,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_payable(&wallet, u64::MAX);
+        let result = subject.more_money_payable(&InsertUpdateCoreReal, &wallet, u64::MAX);
 
         assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)));
     }
@@ -536,7 +570,7 @@ mod tests {
             &recipient_wallet,
             &amount,
             &to_time_t(timestamp),
-            &unsigned_to_signed::<u64,i64>(rowid).unwrap(),
+            &unsigned_to_signed::<u64, i64>(rowid).unwrap(),
         ];
         let row_changed = stm1.execute(params).unwrap();
         assert_eq!(row_changed, 1);
@@ -590,7 +624,8 @@ mod tests {
             process_error: None,
         };
 
-        let result = subject.transaction_confirmed(&pending_payable_fingerprint);
+        let result =
+            subject.transaction_confirmed(&InsertUpdateCoreReal, &pending_payable_fingerprint);
 
         assert_eq!(result, Ok(()));
         let status_after = account_status(&secondary_conn, &wallet);
@@ -620,7 +655,8 @@ mod tests {
         pending_payable_fingerprint.rowid_opt = Some(rowid);
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
-        let result = subject.transaction_confirmed(&pending_payable_fingerprint);
+        let result =
+            subject.transaction_confirmed(&InsertUpdateCoreReal, &pending_payable_fingerprint);
 
         assert_eq!(
             result,
@@ -650,9 +686,8 @@ mod tests {
         pending_payable_fingerprint.amount = u128::MAX;
         //The overflow occurs before we start modifying the payable account so I decided not to create an example in the database
 
-        let result = subject.transaction_confirmed(&pending_payable_fingerprint);
-
-        assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)))
+        let _ = subject.transaction_confirmed(&InsertUpdateCoreReal, &pending_payable_fingerprint);
+        //TODO: will panic
     }
 
     fn how_to_trick_rusqlite_for_an_error(path: &Path) -> Connection {
@@ -757,7 +792,8 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_payable(&make_wallet("foobar"), u64::MAX);
+        let result =
+            subject.more_money_payable(&InsertUpdateCoreReal, &make_wallet("foobar"), u64::MAX);
 
         assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)))
     }
@@ -861,5 +897,88 @@ mod tests {
         let result = subject.total();
 
         assert_eq!(result, 0)
+    }
+
+    #[test]
+    fn insert_or_update_payable_error_handling_and_params_assertion() {
+        let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
+        let wallet = make_wallet("xyz123");
+        let amount = 100;
+        let insert_update_core = InsertUpdateCoreMock::default()
+            .upsert_params(&insert_or_update_params_arc)
+            .upsert_results(Err(InsertUpdateError("SomethingWrong".to_string())));
+        let subject = PayableDaoReal::new(Box::new(ConnectionWrapperMock::new()));
+
+        let result = subject.more_money_payable(&insert_update_core, &wallet, amount);
+
+        assert_eq!(
+            result,
+            Err(PayableDaoError::RusqliteError("SomethingWrong".to_string()))
+        );
+        let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
+        let (update_sql, insert_sql, table, sql_param_names) = insert_or_update_params.remove(0);
+        assert!(insert_or_update_params.is_empty());
+        assert_eq!(
+            update_sql,
+            "update payable set balance = :updated_balance where wallet_address = :wallet"
+        );
+        assert_eq!(insert_sql,"insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,strftime('%s','now'),null)");
+        assert_eq!(table, Table::Payable);
+        assert_eq!(
+            sql_param_names,
+            convert_to_all_string_values(vec![
+                (":wallet", &wallet.to_string()),
+                (":balance", &amount.to_string())
+            ])
+        )
+    }
+
+    #[test]
+    fn update_in_transaction_confirmed_params_assertion() {
+        let update_params_arc = Arc::new(Mutex::new(vec![]));
+        let wrapped_conn = ConnectionWrapperMock::new();
+        let fingerprint = make_pending_payable_fingerprint();
+        let insert_update_core = InsertUpdateCoreMock::default()
+            .update_params(&update_params_arc)
+            .upsert_results(Ok(()));
+        let subject = PayableDaoReal::new(Box::new(wrapped_conn));
+
+        let result = subject.transaction_confirmed(&insert_update_core, &fingerprint);
+
+        assert_eq!(result, Ok(()));
+        let mut update_params = update_params_arc.lock().unwrap();
+        let (select_sql, update_sql, table, sql_param_names) = update_params.remove(0);
+        assert!(update_params.is_empty());
+        assert_eq!(select_sql, "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = :rowid where wallet_address = :wallet");
+        assert_eq!(update_sql, "insert into payable (balance, last_paid_timestamp, pending_payable_rowid, wallet_address) values (:balance, :last_paid, :rowid, :wallet)");
+        assert_eq!(table, Table::Payable.to_string());
+        assert_eq!(
+            sql_param_names,
+            convert_to_all_string_values(vec![
+                (":balance", &12345_i128.to_string()),
+                (
+                    ":last_paid",
+                    &to_time_t(from_time_t(222_222_222)).to_string()
+                ),
+                (":rowid", &33_i64.to_string())
+            ])
+        )
+    }
+
+    fn read_row_payable(
+        conn: &dyn ConnectionWrapper,
+        wallet_address: &str,
+    ) -> rusqlite::Result<(i128, i64, Option<i64>)> {
+        let mut stm = conn.prepare("select balance, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?").unwrap();
+        stm.query_row([wallet_address], |row| {
+            let balance: rusqlite::Result<i128> = row.get(0);
+            let last_received_timestamp = row.get(1);
+            let pending_transaction_hash: rusqlite::Result<Option<i64>> = row.get(2);
+            Ok((
+                balance.unwrap(),
+                last_received_timestamp.unwrap(),
+                pending_transaction_hash.unwrap(),
+            ))
+        })
     }
 }

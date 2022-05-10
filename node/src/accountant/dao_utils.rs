@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::dao_utils::Table::{Payable, Receivable};
 use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::receivable_dao::ReceivableDaoError;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -140,7 +139,7 @@ impl InsertUpdateCoreReal {
             Either::Left(conn) => conn.prepare(query),
             Either::Right(tx) => tx.prepare(query),
         }
-            .expect("internal rusqlite error")
+        .expect("internal rusqlite error")
     }
 }
 
@@ -307,12 +306,12 @@ fn select_statement(table: &Table) -> String {
     )
 }
 
-pub fn get_unsized_128(row:&Row, index: usize)->Result<u128,rusqlite::Error>{
-    row.get::<usize,i128>(index).map( |val| val as u128)
+pub fn get_unsized_128(row: &Row, index: usize) -> Result<u128, rusqlite::Error> {
+    row.get::<usize, i128>(index).map(|val| val as u128)
 }
 
 #[derive(Debug, PartialEq)]
-pub struct InsertUpdateError(String);
+pub struct InsertUpdateError(pub String);
 
 impl From<InsertUpdateError> for PayableDaoError {
     fn from(iu_err: InsertUpdateError) -> Self {
@@ -326,87 +325,6 @@ impl From<InsertUpdateError> for ReceivableDaoError {
     }
 }
 
-//update
-pub fn update_receivable(
-    transaction: &Transaction,
-    core: &dyn InsertUpdateCore,
-    wallet: &str,
-    amount: i128,
-    last_received_time_stamp: i64,
-) -> Result<(), ReceivableDaoError> {
-    Ok(core.update(Either::Right(transaction), &UpdateConfig {
-        update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
-        params: SQLExtParams::new(
-            vec![
-                (":wallet", &wallet),
-                (":balance", &amount), //:balance is later recomputed into :updated_balance
-                (":last_received", &last_received_time_stamp),
-            ]),
-        table: Receivable
-    })?)
-}
-
-//insert_update
-pub fn upsert_receivable(
-    conn: &dyn ConnectionWrapper,
-    core: &dyn InsertUpdateCore,
-    wallet: &str,
-    amount: i128,
-) -> Result<(), ReceivableDaoError> {
-    Ok(core.upsert(conn,  InsertUpdateConfig{
-        insert_sql: "insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet,:balance,strftime('%s','now'))",
-        update_sql: "update receivable set balance = :updated_balance where wallet_address = :wallet",
-        params: SQLExtParams::new(
-            vec![
-                (":wallet", &wallet),
-                (":balance", &amount)
-            ]),
-        table: Receivable,
-    })?)
-}
-
-pub fn upsert_payable_on_new_accrual(
-    conn: &dyn ConnectionWrapper,
-    core: &dyn InsertUpdateCore,
-    wallet: &str,
-    amount: i128,
-) -> Result<(), PayableDaoError> {
-    Ok(core.upsert(conn, InsertUpdateConfig{
-        insert_sql: "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,strftime('%s','now'),null)",
-        update_sql: "update payable set balance = :updated_balance where wallet_address = :wallet",
-        params: SQLExtParams::new(
-            vec![
-                (":wallet", &wallet),
-                (":balance", &amount)
-            ]),
-        table: Payable,
-    })?)
-}
-
-//TODO this function may not need to be insert update but simply update
-//TODO name change
-pub fn upsert_payable_on_confirmation(
-    conn: &dyn ConnectionWrapper,
-    core: &dyn InsertUpdateCore,
-    wallet: &str,
-    amount: i128,
-    last_paid_timestamp: i64,
-    rowid: i64,
-) -> Result<(), PayableDaoError> {
-    Ok(core.upsert(conn, InsertUpdateConfig{
-        insert_sql: "insert into payable (balance, last_paid_timestamp, pending_payable_rowid, wallet_address) values (:balance, :last_paid, :rowid, :wallet)",
-        update_sql: "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = :rowid where wallet_address = :wallet",
-        params: SQLExtParams::new(
-            vec![
-                (":wallet", &wallet),
-                (":balance", &amount),
-                (":last_paid", &last_paid_timestamp),
-                (":rowid", &rowid),
-            ]),
-        table: Payable,
-    })?)
-}
-
 pub fn reverse_sign(amount: i128) -> Result<i128, SignConversionError> {
     amount.checked_abs().map(|val| -val).ok_or_else(|| {
         SignConversionError::I128(format!("Reversing the sign for value: {}", amount))
@@ -418,17 +336,13 @@ pub fn reverse_sign(amount: i128) -> Result<i128, SignConversionError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::test_utils::InsertUpdateCoreMock;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::database::db_migrations::MigratorConfig;
     use itertools::{Either, Itertools};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::array_of_borrows_to_vec;
     use rusqlite::types::ToSqlOutput;
     use rusqlite::{named_params, params, Connection, ToSql};
-    use std::sync::{Arc, Mutex};
-    use std::time::SystemTime;
 
     fn convert_params_to_debuggable_values<'a>(
         standard_params: Vec<(&'a str, &'a dyn ToSql)>,
@@ -557,576 +471,6 @@ mod tests {
     }
 
     #[test]
-    fn update_receivable_works_positive() {
-        let wallet_address = "xyz123";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "update_receivable_works_positive",
-        );
-        let mut conn = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        insert_receivable_100_balance_100_last_time_stamp(conn.as_ref(), wallet_address);
-        let tx = conn.transaction().unwrap();
-        let amount_wei = i128::MAX - 100;
-        let last_received_time_stamp_sec = 4_545_789;
-
-        let result = update_receivable(
-            &tx,
-            &InsertUpdateCoreReal,
-            wallet_address,
-            amount_wei,
-            last_received_time_stamp_sec,
-        );
-
-        tx.commit().unwrap();
-        assert_eq!(result, Ok(()));
-        let (balance, last_time_stamp) =
-            read_row_receivable(conn.as_ref(), wallet_address).unwrap();
-        assert_eq!(balance, amount_wei + 100);
-        assert_eq!(last_time_stamp, last_received_time_stamp_sec);
-    }
-
-    #[test]
-    fn update_receivable_works_negative() {
-        let wallet_address = "xyz178";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "update_receivable_works_negative",
-        );
-        let mut conn = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        insert_receivable_100_balance_100_last_time_stamp(conn.as_ref(), wallet_address);
-        let tx = conn.transaction().unwrap();
-        let amount_wei = -345_125;
-        let last_received_time_stamp_sec = 4_545_789;
-
-        let result = update_receivable(
-            &tx,
-            &InsertUpdateCoreReal,
-            wallet_address,
-            amount_wei,
-            last_received_time_stamp_sec,
-        );
-
-        tx.commit().unwrap();
-        assert_eq!(result, Ok(()));
-        let (balance, last_time_stamp) =
-            read_row_receivable(conn.as_ref(), wallet_address).unwrap();
-        assert_eq!(balance, -345_025);
-        assert_eq!(last_time_stamp, last_received_time_stamp_sec);
-    }
-
-    #[test]
-    fn insert_or_update_receivable_works_for_insert_positive() {
-        let wallet_address = "xyz456";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "insert_or_update_receivable_works_for_insert_positive",
-        );
-        let conn_box = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let conn = conn_box.as_ref();
-        let amount_wei = i128::MAX;
-
-        let result = upsert_receivable(conn, &InsertUpdateCoreReal, wallet_address, amount_wei);
-
-        assert_eq!(result, Ok(()));
-        let (balance, last_timestamp) = read_row_receivable(conn, wallet_address).unwrap();
-        assert!(is_timely_around(last_timestamp));
-        assert_eq!(balance, amount_wei)
-    }
-
-    #[test]
-    fn insert_or_update_receivable_works_for_insert_negative() {
-        let wallet_address = "xyz456";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "insert_or_update_receivable_works_for_insert_negative",
-        );
-        let conn_box = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let conn = conn_box.as_ref();
-        let amount_wei = -125_125;
-
-        let result = upsert_receivable(conn, &InsertUpdateCoreReal, wallet_address, amount_wei);
-
-        assert_eq!(result, Ok(()));
-        let (balance, last_timestamp) = read_row_receivable(conn, wallet_address).unwrap();
-        assert!(is_timely_around(last_timestamp));
-        assert_eq!(balance, -125_125)
-    }
-
-    #[test]
-    fn insert_or_update_receivable_works_for_update_positive() {
-        let wallet_address = "xyz789";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "insert_or_update_receivable_works_for_update_positive",
-        );
-        let conn = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        insert_receivable_100_balance_100_last_time_stamp(conn.as_ref(), wallet_address);
-        let amount_wei = i128::MAX - 100;
-
-        let result = upsert_receivable(
-            conn.as_ref(),
-            &InsertUpdateCoreReal,
-            wallet_address,
-            amount_wei,
-        );
-
-        assert_eq!(result, Ok(()));
-        let (balance, last_timestamp) = read_row_receivable(conn.as_ref(), wallet_address).unwrap();
-        assert_eq!(last_timestamp, 100); //TODO this might be an old issue - do we really never want to update the timestamp? Can it ever disappear or the timestamp from the initial insertion persists forever?
-        assert_eq!(balance, amount_wei + 100)
-    }
-
-    #[test]
-    fn insert_or_update_receivable_works_for_update_negative() {
-        let wallet_address = "xyz789";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "insert_or_update_receivable_works_for_update_negative",
-        );
-        let conn = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        insert_receivable_100_balance_100_last_time_stamp(conn.as_ref(), wallet_address);
-        let amount_wei = -123_100;
-
-        let result = upsert_receivable(
-            conn.as_ref(),
-            &InsertUpdateCoreReal,
-            wallet_address,
-            amount_wei,
-        );
-
-        assert_eq!(result, Ok(()));
-        let (balance, last_timestamp) = read_row_receivable(conn.as_ref(), wallet_address).unwrap();
-        assert_eq!(last_timestamp, 100); //TODO this might be an old issue - do we really never want to update the timestamp? Can it ever disappear or the timestamp from the initial insertion persists forever?
-        assert_eq!(balance, -123_000)
-    }
-
-    #[test]
-    fn insert_or_update_payable_works_for_insert_positive() {
-        let wallet_address = "xyz2211";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "insert_or_update_payable_works_for_insert_positive",
-        );
-        let conn = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let amount_wei = i128::MAX;
-
-        let result = upsert_payable_on_new_accrual(
-            conn.as_ref(),
-            &InsertUpdateCoreReal,
-            wallet_address,
-            amount_wei,
-        );
-
-        assert_eq!(result, Ok(()));
-        let (balance, last_timestamp, pending_transaction_hash) =
-            read_row_payable(conn.as_ref(), wallet_address).unwrap();
-        assert!(is_timely_around(last_timestamp));
-        assert_eq!(balance, amount_wei);
-        assert_eq!(pending_transaction_hash, None)
-    }
-
-    #[test]
-    fn insert_or_update_payable_works_for_insert_negative() {
-        let wallet_address = "xyz2211";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "insert_or_update_payable_works_for_insert_negative",
-        );
-        let conn_box = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let conn = conn_box.as_ref();
-        let amount_wei = -1_245_999;
-
-        let result =
-            upsert_payable_on_new_accrual(conn, &InsertUpdateCoreReal, wallet_address, amount_wei);
-
-        assert_eq!(result, Ok(()));
-        let (balance, last_timestamp, pending_transaction_hash) =
-            read_row_payable(conn, wallet_address).unwrap();
-        assert!(is_timely_around(last_timestamp));
-        assert_eq!(balance, -1_245_999);
-        assert_eq!(pending_transaction_hash, None)
-    }
-
-    #[test]
-    fn insert_or_update_payable_works_for_update_positive() {
-        let wallet_address = "xyz78978";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "insert_or_update_payable_works_for_update_positive",
-        );
-        let conn_box = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let conn = conn_box.as_ref();
-        insert_payable_100_balance_100_last_time_stamp_1_pending_payable_rowid(
-            conn,
-            wallet_address,
-        );
-        let amount_wei = i128::MAX - 100;
-
-        let result =
-            upsert_payable_on_new_accrual(conn, &InsertUpdateCoreReal, wallet_address, amount_wei);
-
-        assert_eq!(result, Ok(()));
-        let (balance, last_timestamp, pending_payable_rowid) =
-            read_row_payable(conn, wallet_address).unwrap();
-        assert_eq!(last_timestamp, 100); //TODO this might be an old issue - do we really never want to update the timestamp? Can it ever disappear or the timestamp from the initial insertion persists forever?
-        assert_eq!(balance, amount_wei + 100);
-        assert_eq!(pending_payable_rowid, Some(1))
-    }
-
-    #[test]
-    fn insert_or_update_payable_works_for_update_negative() {
-        let wallet_address = "xyz78978";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "insert_or_update_payable_works_for_update_negative",
-        );
-        let conn_box = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let conn = conn_box.as_ref();
-        insert_payable_100_balance_100_last_time_stamp_1_pending_payable_rowid(
-            conn,
-            wallet_address,
-        );
-        let amount_wei = -90_333;
-
-        let result =
-            upsert_payable_on_new_accrual(conn, &InsertUpdateCoreReal, wallet_address, amount_wei);
-
-        assert_eq!(result, Ok(()));
-        let (balance, last_timestamp, pending_payable_rowid) =
-            read_row_payable(conn, wallet_address).unwrap();
-        assert_eq!(last_timestamp, 100); //TODO this might be an old issue - do we really never want to update the timestamp? Can it ever disappear or the timestamp from the initial insertion persists forever?
-        assert_eq!(balance, -90_233);
-        assert_eq!(pending_payable_rowid, Some(1))
-    }
-
-    #[test]
-    fn insert_or_update_payable_for_our_payment_works_for_insert_positive() {
-        let wallet_address = "xyz2211";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "insert_or_update_payable_for_our_payment_works_for_insert_positive",
-        );
-        let conn_box = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let conn = conn_box.as_ref();
-        let amount_wei = i128::MAX;
-        let last_paid_timestamp = 10_000_000;
-        let pending_payable_rowid = 44;
-
-        let result = upsert_payable_on_confirmation(
-            conn,
-            &InsertUpdateCoreReal,
-            wallet_address,
-            amount_wei,
-            last_paid_timestamp,
-            pending_payable_rowid,
-        );
-
-        assert_eq!(result, Ok(()));
-        let (balance, last_timestamp, found_pending_payable_rowid) =
-            read_row_payable(conn, wallet_address).unwrap();
-        assert_eq!(last_timestamp, last_paid_timestamp); //TODO this is going to produce troubles
-        assert_eq!(balance, amount_wei);
-        assert_eq!(found_pending_payable_rowid, Some(pending_payable_rowid))
-    }
-
-    #[test]
-    fn insert_or_update_payable_for_our_payment_works_for_insert_negative() {
-        let wallet_address = "xyz2211";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "insert_or_update_payable_for_our_payment_works_for_insert_negative",
-        );
-        let conn = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let conn_ref = conn.as_ref();
-        let amount_wei = -1_245_100;
-        let last_paid_timestamp = 890_000_000;
-        let pending_payable_rowid = 33;
-
-        let result = upsert_payable_on_confirmation(
-            conn_ref,
-            &InsertUpdateCoreReal,
-            wallet_address,
-            amount_wei,
-            last_paid_timestamp,
-            pending_payable_rowid,
-        );
-
-        assert_eq!(result, Ok(()));
-        let (balance, last_timestamp, pending_transaction_hash) =
-            read_row_payable(conn_ref, wallet_address).unwrap();
-        assert_eq!(last_timestamp, last_paid_timestamp);
-        assert_eq!(balance, -1_245_100);
-        assert_eq!(pending_transaction_hash, Some(pending_payable_rowid))
-    }
-
-    #[test]
-    fn insert_or_update_payable_for_our_payment_works_for_update_positive() {
-        let wallet_address = "xyz7894";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "insert_or_update_payable_for_our_payment_works_for_update_positive",
-        );
-        let conn = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let conn_ref = conn.as_ref();
-        insert_payable_100_balance_100_last_time_stamp_1_pending_payable_rowid(
-            conn_ref,
-            wallet_address,
-        );
-        let amount_wei = i128::MAX - 100;
-        let last_paid_timestamp = 5_000;
-        let pending_payable_rowid = 22;
-
-        let result = upsert_payable_on_confirmation(
-            conn_ref,
-            &InsertUpdateCoreReal,
-            wallet_address,
-            amount_wei,
-            last_paid_timestamp,
-            pending_payable_rowid,
-        );
-
-        assert_eq!(result, Ok(()));
-        let (balance, last_timestamp, found_pending_payable_rowid) =
-            read_row_payable(conn_ref, wallet_address).unwrap();
-        assert_eq!(last_timestamp, last_paid_timestamp);
-        assert_eq!(balance, amount_wei + 100);
-        assert_eq!(found_pending_payable_rowid, Some(pending_payable_rowid))
-    }
-
-    #[test]
-    fn insert_or_update_payable_for_our_payment_works_for_update_negative() {
-        let wallet_address = "xyz7894";
-        let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
-            "insert_or_update_payable_for_our_payment_works_for_update_negative",
-        );
-        let conn = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let conn_ref = conn.as_ref();
-        insert_payable_100_balance_100_last_time_stamp_1_pending_payable_rowid(
-            conn_ref,
-            wallet_address,
-        );
-        let amount_wei = -45_000;
-        let last_paid_timestamp = 5_000;
-        let pending_payable_rowid = 66;
-
-        let result = upsert_payable_on_confirmation(
-            conn_ref,
-            &InsertUpdateCoreReal,
-            wallet_address,
-            amount_wei,
-            last_paid_timestamp,
-            pending_payable_rowid,
-        );
-
-        assert_eq!(result, Ok(()));
-        let (balance, last_timestamp, found_pending_payable_rowid) =
-            read_row_payable(conn_ref, wallet_address).unwrap();
-        assert_eq!(last_timestamp, last_paid_timestamp);
-        assert_eq!(balance, -44_900);
-        assert_eq!(found_pending_payable_rowid, Some(pending_payable_rowid))
-    }
-
-    #[test]
-    fn update_receivable_error_handling_and_params_assertion() {
-        let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
-        let wallet_address = "xyz123";
-        let conn = Connection::open_in_memory().unwrap();
-        let mut wrapped_conn = ConnectionWrapperReal::new(conn);
-        create_broken_receivable(&wrapped_conn);
-        let supplied_amount_wei = 100;
-        let last_received_time_stamp_sec = 123;
-        let insert_update_core = InsertUpdateCoreMock::default()
-            .update_params(&insert_or_update_params_arc)
-            .update_result(Err(InsertUpdateError("SomethingWrong".to_string())));
-        let tx = wrapped_conn.transaction().unwrap();
-
-        let result = update_receivable(
-            &tx,
-            &insert_update_core,
-            wallet_address,
-            supplied_amount_wei,
-            last_received_time_stamp_sec,
-        );
-
-        assert_eq!(
-            result,
-            Err(ReceivableDaoError::RusqliteError(
-                "SomethingWrong".to_string()
-            ))
-        );
-        let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
-        let (select_sql, update_sql, table, sql_param_names) = insert_or_update_params.remove(0);
-        assert!(insert_or_update_params.is_empty());
-        assert_eq!(
-            select_sql,
-            "select balance from receivable where wallet_address = :wallet"
-        );
-        assert_eq!(update_sql, "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet");
-        assert_eq!(table, Table::Receivable.to_string());
-        assert_eq!(
-            sql_param_names,
-            array_of_borrows_to_vec(&[":wallet", ":balance", ":last_received"]) //TODO is this right?
-        )
-    }
-
-    #[test]
-    fn insert_or_update_receivable_error_handling_and_params_assertion() {
-        let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
-        let wallet_address = "xyz123";
-        let conn = Connection::open_in_memory().unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(conn);
-        create_broken_receivable(&wrapped_conn);
-        let supplied_amount_wei = 100;
-        let insert_update_core = InsertUpdateCoreMock::default()
-            .upsert_params(&insert_or_update_params_arc)
-            .upsert_results(Err(InsertUpdateError("SomethingWrong".to_string())));
-
-        let result = upsert_receivable(
-            &wrapped_conn,
-            &insert_update_core,
-            wallet_address,
-            supplied_amount_wei,
-        );
-
-        assert_eq!(
-            result,
-            Err(ReceivableDaoError::RusqliteError(
-                "SomethingWrong".to_string()
-            ))
-        );
-        let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
-        let (update_sql, insert_sql, table, sql_param_names) = insert_or_update_params.remove(0);
-        assert!(insert_or_update_params.is_empty());
-        assert_eq!(
-            update_sql,
-            "update receivable set balance = :updated_balance where wallet_address = :wallet"
-        );
-        assert_eq!(insert_sql,"insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet,:balance,strftime('%s','now'))");
-        assert_eq!(table, Table::Receivable);
-        assert_eq!(
-            sql_param_names,
-            convert_to_all_string_values(vec![
-                (":wallet", wallet_address),
-                (":balance", &supplied_amount_wei.to_string())
-            ])
-        )
-    }
-
-    #[test]
-    fn insert_or_update_payable_error_handling_and_params_assertion() {
-        let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
-        let wallet_address = "xyz123";
-        let conn = Connection::open_in_memory().unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(conn);
-        create_broken_payable(&wrapped_conn);
-        let supplied_amount_wei = 100;
-        let insert_update_core = InsertUpdateCoreMock::default()
-            .upsert_params(&insert_or_update_params_arc)
-            .upsert_results(Err(InsertUpdateError("SomethingWrong".to_string())));
-
-        let result = upsert_payable_on_new_accrual(
-            &wrapped_conn,
-            &insert_update_core,
-            wallet_address,
-            supplied_amount_wei,
-        );
-
-        assert_eq!(
-            result,
-            Err(PayableDaoError::RusqliteError("SomethingWrong".to_string()))
-        );
-        let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
-        let (update_sql, insert_sql, table, sql_param_names) = insert_or_update_params.remove(0);
-        assert!(insert_or_update_params.is_empty());
-        assert_eq!(
-            update_sql,
-            "update payable set balance = :updated_balance where wallet_address = :wallet"
-        );
-        assert_eq!(insert_sql,"insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,strftime('%s','now'),null)");
-        assert_eq!(table, Table::Payable);
-        assert_eq!(
-            sql_param_names,
-            convert_to_all_string_values(vec![
-                (":wallet", wallet_address),
-                (":balance", &supplied_amount_wei.to_string())
-            ])
-        )
-    }
-
-    #[test]
-    fn insert_or_update_payable_for_our_payment_error_handling_and_params_assertion() {
-        let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
-        let wallet_address = "xyz123";
-        let conn = Connection::open_in_memory().unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(conn);
-        create_broken_payable(&wrapped_conn);
-        let supplied_amount_wei = 100;
-        let last_received_time_stamp_sec = 123;
-        let rowid = 55;
-        let insert_update_core = InsertUpdateCoreMock::default()
-            .upsert_params(&insert_or_update_params_arc)
-            .upsert_results(Err(InsertUpdateError("SomethingWrong".to_string())));
-
-        let result = upsert_payable_on_confirmation(
-            &wrapped_conn,
-            &insert_update_core,
-            wallet_address,
-            supplied_amount_wei,
-            last_received_time_stamp_sec,
-            rowid,
-        );
-
-        assert_eq!(
-            result,
-            Err(PayableDaoError::RusqliteError("SomethingWrong".to_string()))
-        );
-        let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
-        let (update_sql, insert_sql, table, sql_param_names) = insert_or_update_params.remove(0);
-        assert!(insert_or_update_params.is_empty());
-        assert_eq!(update_sql,"update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = :rowid where wallet_address = :wallet");
-        assert_eq!(insert_sql,"insert into payable (balance, last_paid_timestamp, pending_payable_rowid, wallet_address) values (:balance, :last_paid, :rowid, :wallet)");
-        assert_eq!(table, Table::Payable);
-        assert_eq!(
-            sql_param_names,
-            convert_to_all_string_values(vec![
-                (":wallet", wallet_address),
-                (":balance", &supplied_amount_wei.to_string()),
-                (":last_paid", &last_received_time_stamp_sec.to_string()),
-                (":rowid", &rowid.to_string())
-            ])
-        )
-    }
-
-    #[test]
     fn update_handles_error_for_insert_update_config() {
         let wallet_address = "a11122";
         let conn = Connection::open_in_memory().unwrap();
@@ -1199,6 +543,8 @@ mod tests {
         assert_eq!(result, Err(InsertUpdateError("Updating balance for payable of 100 Wei to a11122; failing on: 'Invalid parameter name: :updated_balance'".to_string())));
     }
 
+    //TODO are upsert detailed tests missing???
+
     #[test]
     fn reverse_sign_works_for_min_value() {
         let result = reverse_sign(i128::MIN);
@@ -1224,20 +570,6 @@ mod tests {
         stm.execute([]).unwrap();
     }
 
-    fn create_broken_payable(conn: &dyn ConnectionWrapper) {
-        let mut stm = conn
-            .prepare(
-                "create table payable (
-                wallet_address integer primary key,
-                balance text not null,
-                last_paid_timestamp integer not null,
-                pending_payment_transaction integer null
-            )",
-            )
-            .unwrap();
-        stm.execute([]).unwrap();
-    }
-
     fn insert_receivable_100_balance_100_last_time_stamp(
         conn: &dyn ConnectionWrapper,
         wallet: &str,
@@ -1251,32 +583,14 @@ mod tests {
         stm.execute(params).unwrap();
     }
 
-    fn insert_payable_100_balance_100_last_time_stamp_1_pending_payable_rowid(
-        conn: &dyn ConnectionWrapper,
-        wallet: &str,
-    ) {
-        let params = named_params! {
-            ":wallet":wallet,
-            ":balance":100_i128,
-            ":last_time_stamp":100_i64,
-            ":pending_payable_rowid":1_i64
-        };
-        insert_into_payable(conn, params)
-    }
-
     fn insert_payable_with_bad_data_types(conn: &dyn ConnectionWrapper, wallet: &str) {
         let params = named_params! {
             ":wallet":wallet,
             ":balance":"bubblebooo",
             ":last_time_stamp":"genesis",
-            ":pending_payable_rowid":45
+            ":pending_payable_rowid":45_i64
         };
         insert_into_payable(conn, params)
-    }
-
-    fn insert_into_payable(conn: &dyn ConnectionWrapper, params: &[(&str, &dyn ToSql)]) {
-        let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,:last_time_stamp,:pending_payable_rowid)").unwrap();
-        stm.execute(params).unwrap();
     }
 
     fn read_row_receivable(
@@ -1294,29 +608,36 @@ mod tests {
             Ok((balance.unwrap(), last_received_timestamp.unwrap()))
         })
     }
-
-    fn read_row_payable(
-        conn: &dyn ConnectionWrapper,
-        wallet_address: &str,
-    ) -> rusqlite::Result<(i128, i64, Option<i64>)> {
-        let mut stm = conn.prepare("select balance, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?").unwrap();
-        stm.query_row([wallet_address], |row| {
-            let balance: rusqlite::Result<i128> = row.get(0);
-            let last_received_timestamp = row.get(1);
-            let pending_transaction_hash: rusqlite::Result<Option<i64>> = row.get(2);
-            Ok((
-                balance.unwrap(),
-                last_received_timestamp.unwrap(),
-                pending_transaction_hash.unwrap(),
-            ))
-        })
+    //TODO sometimes these utils are used just once, check it and maybe deutilize
+    fn create_broken_payable(conn: &dyn ConnectionWrapper) {
+        let mut stm = conn
+            .prepare(
+                "create table payable (
+                wallet_address integer primary key,
+                balance text not null,
+                last_paid_timestamp integer not null,
+                pending_payment_transaction integer null
+            )",
+            )
+            .unwrap();
+        stm.execute([]).unwrap();
     }
 
-    fn is_timely_around(time_stamp: i64) -> bool {
-        let new_now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-        (new_now - 3) < time_stamp && time_stamp <= new_now
+    fn insert_into_payable(conn: &dyn ConnectionWrapper, params: &[(&str, &dyn ToSql)]) {
+        let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,:last_time_stamp,:pending_payable_rowid)").unwrap();
+        stm.execute(params).unwrap();
+    }
+
+    fn insert_payable_100_balance_100_last_time_stamp_1_pending_payable_rowid(
+        conn: &dyn ConnectionWrapper,
+        wallet: &str,
+    ) {
+        let params = named_params! {
+            ":wallet":wallet,
+            ":balance":100_i128,
+            ":last_time_stamp":100_i64,
+            ":pending_payable_rowid":1_i64
+        };
+        insert_into_payable(conn, params)
     }
 }

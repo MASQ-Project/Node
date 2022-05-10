@@ -89,7 +89,11 @@ impl SendTransactionToolsWrapper for SendTransactionToolsWrapperNull {
         panic!("sign_transaction() should never be called on the null object")
     }
 
-    fn request_new_payable_fingerprint(&self, _transaction_hash: H256, _amount: u128) -> SystemTime {
+    fn request_new_payable_fingerprint(
+        &self,
+        _transaction_hash: H256,
+        _amount: u128,
+    ) -> SystemTime {
         panic!(
             "request_new_pending_payable_fingerprint() should never be called on the null object"
         )

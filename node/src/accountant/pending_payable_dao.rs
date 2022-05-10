@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::dao_utils::get_unsized_128;
 use crate::accountant::{checked_convert, unsigned_to_signed};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -10,7 +11,6 @@ use rusqlite::{Row, ToSql};
 use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
-use crate::accountant::dao_utils::get_unsized_128;
 
 #[derive(Debug, PartialEq)]
 pub enum PendingPayableDaoError {
@@ -57,7 +57,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         stm.query_map([], |row| {
             let rowid: u64 = Self::get_with_expect(row, 0);
             let transaction_hash: String = Self::get_with_expect(row, 1);
-            let amount  = get_unsized_128(row, 2).expect("should by only positive");
+            let amount = get_unsized_128(row, 2).expect("should by only positive");
             let timestamp: i64 = Self::get_with_expect(row, 3);
             let attempt: u16 = Self::get_with_expect(row, 4);
             Ok(PendingPayableFingerprint {
@@ -83,8 +83,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         amount: u128,
         timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
-        let signed_amount =
-            checked_convert::<u128,i128>(amount);
+        let signed_amount = checked_convert::<u128, i128>(amount);
         let mut stm = self.conn.prepare("insert into pending_payable (transaction_hash, amount, payable_timestamp, attempt, process_error) values (?,?,?,?,?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[
             &format!("{:?}", transaction_hash),
@@ -101,8 +100,8 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 
     fn delete_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        let signed_id =
-            unsigned_to_signed::<u64,i64>(id).expect("SQLite counts up to i64::MAX; should never happen");
+        let signed_id = unsigned_to_signed::<u64, i64>(id)
+            .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
             .prepare("delete from pending_payable where rowid = ?")
@@ -118,8 +117,8 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 
     fn update_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        let signed_id =
-            unsigned_to_signed::<u64,i64>(id).expect("SQLite counts up to i64::MAX; should never happen");
+        let signed_id = unsigned_to_signed::<u64, i64>(id)
+            .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
             .prepare("update pending_payable set attempt = attempt + 1 where rowid = ?")
@@ -135,8 +134,8 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 
     fn mark_failure(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        let signed_id =
-            unsigned_to_signed::<u64,i64>(id).expect("SQLite counts up to i64::MAX; should never happen");
+        let signed_id = unsigned_to_signed::<u64, i64>(id)
+            .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
             .prepare("update pending_payable set process_error = 'ERROR' where rowid = ?")
@@ -424,7 +423,7 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         let conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
-        let signed_row_id = unsigned_to_signed::<u64,i64>(rowid).unwrap();
+        let signed_row_id = unsigned_to_signed::<u64, i64>(rowid).unwrap();
         let mut stm2 = conn
             .prepare("select * from pending_payable where rowid = ?")
             .unwrap();

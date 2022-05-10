@@ -1,14 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, SentPayable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::sub_lib::own_primitive_types::{NonNegativeSigned, NonNegativeSigned128};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use lazy_static::lazy_static;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::ExpectValue;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
@@ -150,7 +148,6 @@ mod tests {
         PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
         DEFAULT_SCAN_INTERVALS, TEMPORARY_CONSUMING_WALLET,
     };
-    use crate::sub_lib::own_primitive_types::{NonNegativeSigned, NonNegativeSigned128};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;

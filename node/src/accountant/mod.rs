@@ -9,6 +9,7 @@ pub mod tools;
 #[cfg(test)]
 pub mod test_utils;
 
+use crate::accountant::dao_utils::InsertUpdateCoreReal;
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
 use crate::accountant::receivable_dao::{
@@ -52,9 +53,9 @@ use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{plus, ExpectValue};
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
+use std::any::type_name;
 #[cfg(test)]
 use std::any::Any;
-use std::any::type_name;
 use std::default::Default;
 use std::fmt::Display;
 use std::ops::{Add, Mul};
@@ -502,10 +503,11 @@ impl Accountant {
             return None;
         }
 
-        let threshold = gwei_to_wei(self
-            .payable_threshold_tools
-            .calculate_payout_threshold(self.config.payment_thresholds, time_since_last_paid));
-        if payable.balance > threshold{
+        let threshold = gwei_to_wei(
+            self.payable_threshold_tools
+                .calculate_payout_threshold(self.config.payment_thresholds, time_since_last_paid),
+        );
+        if payable.balance > threshold {
             Some(threshold)
         } else {
             None
@@ -519,12 +521,12 @@ impl Accountant {
         payload_size: usize,
         wallet: &Wallet,
     ) {
-        let byte_charge = byte_rate * (payload_size as u64); //TODO rather u128???
-        let total_charge = service_rate + byte_charge; //TODO as well?
+        let byte_charge = byte_rate as u128 * (payload_size as u128);
+        let total_charge = service_rate as u128 + byte_charge;
         if !self.our_wallet(wallet) {
             match self.receivable_dao
                 .as_ref()
-                .more_money_receivable(wallet, total_charge) {
+                .more_money_receivable(&InsertUpdateCoreReal,wallet, total_charge) {  //TODO try if this blow some test up if you insert the mocked core
                 Ok(_) => (),
                 Err(ReceivableDaoError::SignConversion(_)) => error! (
                     self.logger,
@@ -556,7 +558,7 @@ impl Accountant {
         if !self.our_wallet(wallet) {
             match self.payable_dao
                 .as_ref()
-                .more_money_payable(wallet, total_charge) {
+                .more_money_payable(&InsertUpdateCoreReal,wallet, total_charge) {   //TODO try if this blow some test up if you insert the mocked core
                 Ok(_) => (),
                 Err(PayableDaoError::SignConversion(_)) => error! (
                     self.logger,
@@ -833,7 +835,8 @@ impl Accountant {
     fn handle_confirm_pending_transaction(&mut self, msg: ConfirmPendingTransaction) {
         if let Err(e) = self
             .payable_dao
-            .transaction_confirmed(&msg.pending_payable_fingerprint)
+            .transaction_confirmed(&InsertUpdateCoreReal, &msg.pending_payable_fingerprint)
+        //TODO try if this blow some test up if you insert the mocked core
         {
             panic!(
                 "Was unable to uncheck pending payable '{}' after confirmation due to '{:?}'",
@@ -1063,11 +1066,18 @@ pub fn unsigned_to_signed<T: Copy, S: TryFrom<T>>(unsigned: T) -> Result<S, T> {
     S::try_from(unsigned).map_err(|_| unsigned)
 }
 
-pub fn checked_convert<T:Copy + Display,S:TryFrom<T>>(unsigned: T) ->S{
-    unsigned_to_signed(unsigned).unwrap_or_else(|num|panic!("Overflow detected with {}: cannot be converted from {} to {}",num,type_name::<T>(),type_name::<S>()))
+pub fn checked_convert<T: Copy + Display, S: TryFrom<T>>(unsigned: T) -> S {
+    unsigned_to_signed(unsigned).unwrap_or_else(|num| {
+        panic!(
+            "Overflow detected with {}: cannot be converted from {} to {}",
+            num,
+            type_name::<T>(),
+            type_name::<S>()
+        )
+    })
 }
 
-pub fn gwei_to_wei<T:Mul + Mul<Output = T>+ From<u64> + From<S>,S>(gwei:S)->T{
+pub fn gwei_to_wei<T: Mul + Mul<Output = T> + From<u64> + From<S>, S>(gwei: S) -> T {
     (T::from(gwei)).mul(T::from(1_000_000_000))
 }
 
@@ -1122,15 +1132,15 @@ impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
     }
 
     fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> u64 {
-        let m = -(checked_convert::<u64,i64>(payment_thresholds.debt_threshold_gwei)
-            - checked_convert::<u64,i64>(payment_thresholds.permanent_debt_allowed_gwei)
-            / (payment_thresholds.threshold_interval_sec
-                - payment_thresholds.maturity_threshold_sec));
+        let m = -(checked_convert::<u64, i64>(payment_thresholds.debt_threshold_gwei)
+            - checked_convert::<u64, i64>(payment_thresholds.permanent_debt_allowed_gwei)
+                / (payment_thresholds.threshold_interval_sec
+                    - payment_thresholds.maturity_threshold_sec));
 
-        let b = checked_convert::<u64,i64>(payment_thresholds.debt_threshold_gwei)
+        let b = checked_convert::<u64, i64>(payment_thresholds.debt_threshold_gwei)
             - m * payment_thresholds.maturity_threshold_sec;
 
-        (m * checked_convert::<u64,i64>(x)+ b) as u64
+        (m * checked_convert::<u64, i64>(x) + b) as u64
     }
     as_any_impl!();
 }
@@ -2080,7 +2090,7 @@ mod tests {
             // above balance intersection, to the left of minimum time (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance:gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1),
+                balance: gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1),
                 last_paid_timestamp: from_time_t(
                     now - payment_thresholds.maturity_threshold_sec + 10,
                 ),
@@ -3391,7 +3401,7 @@ mod tests {
             *safe_balance_params,
             vec![(
                 payable_account.balance,
-                custom_payment_thresholds.permanent_debt_allowed_gwei
+                gwei_to_wei(custom_payment_thresholds.permanent_debt_allowed_gwei)
             )]
         );
         let mut calculate_payable_curves_params =
@@ -3440,8 +3450,10 @@ mod tests {
         ));
         let this_payable_timestamp_1 = now;
         let this_payable_timestamp_2 = now.add(Duration::from_millis(50));
-        let payable_account_balance_1 = gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 10);
-        let payable_account_balance_2 = gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 666);
+        let payable_account_balance_1 =
+            gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 10);
+        let payable_account_balance_2 =
+            gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 666);
         let transaction_receipt_tx_2_first_round = TransactionReceipt::default();
         let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
         let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
@@ -4188,10 +4200,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected="blah")]
-    fn overflow_check_works_for_overflow(){
+    #[should_panic(expected = "blah")]
+    fn overflow_check_works_for_overflow() {
         let big_number = u128::MAX;
 
-        checked_convert::<u128,i128>(big_number);
+        checked_convert::<u128, i128>(big_number);
     }
 }

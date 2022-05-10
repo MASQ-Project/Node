@@ -373,7 +373,9 @@ where
         let mut data = [0u8; 4 + 32 + 32];
         data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
         data[16..36].copy_from_slice(&inputs.recipient.address().0[..]);
-        U256::try_from(inputs.amount).expect("shouldn't overflow").to_big_endian(&mut data[36..68]);
+        U256::try_from(inputs.amount)
+            .expect("shouldn't overflow")
+            .to_big_endian(&mut data[36..68]);
         let base_gas_limit = Self::base_gas_limit(self.chain);
         let gas_limit =
             ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
@@ -464,7 +466,7 @@ impl<'a> SendTransactionInputs<'a> {
         nonce: U256,
         gas_price: u64,
         tools: &'a dyn SendTransactionToolsWrapper,
-    )->Self{
+    ) -> Self {
         Self {
             tools,
             recipient: &account.wallet,
