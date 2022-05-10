@@ -917,13 +917,13 @@ impl GossipHandler for StandardGossipHandler {
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         let initial_neighborship_status =
-            StandardGossipHandler::check_full_neighbor(&database, gossip_source.ip());
+            StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
         let mut db_changed =
             self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
         db_changed = self.identify_and_update_obsolete_nodes(database, agrs) || db_changed;
         db_changed = self.handle_root_node(cryptde, database, gossip_source) || db_changed;
         let final_neighborship_status =
-            StandardGossipHandler::check_full_neighbor(&database, gossip_source.ip());
+            StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
         // If no Nodes need updating, return ::Ignored and don't change the database.
         // Otherwise, return ::Accepted.
         if db_changed {

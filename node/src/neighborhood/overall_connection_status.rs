@@ -3,7 +3,6 @@
 use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
     DeadEndFound, NoGossipResponseReceived, TcpConnectionFailed,
 };
-use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
 use actix::Recipient;
 use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
@@ -97,9 +96,9 @@ enum OverallConnectionStage {
     ThreeHopsRouteFound = 2, // check_connectedness() returned true, data can now be relayed.
 }
 
-impl Into<UiConnectionChangeStage> for OverallConnectionStage {
-    fn into(self) -> UiConnectionChangeStage {
-        match self {
+impl From<OverallConnectionStage> for UiConnectionChangeStage {
+    fn from(stage: OverallConnectionStage) -> UiConnectionChangeStage {
+        match stage {
             OverallConnectionStage::NotConnected => {
                 panic!("UiConnectionChangeStage doesn't have a stage named NotConnected")
             }
@@ -127,7 +126,7 @@ impl OverallConnectionStatus {
     pub fn new(initial_node_descriptors: Vec<NodeDescriptor>) -> Self {
         let progress = initial_node_descriptors
             .iter()
-            .map(|node_descriptor| ConnectionProgress::new(&node_descriptor))
+            .map(ConnectionProgress::new)
             .collect();
 
         Self {
@@ -223,25 +222,29 @@ impl OverallConnectionStatus {
         // For now, this function is only called when Standard or Introduction Gossip
         // is received,
         // TODO: Write a more generalized fn, which can be called when any stage gets updated
-        let prev_stage = self.stage.clone();
+        let prev_stage = self.stage;
         if self.can_make_routes() {
             self.stage = OverallConnectionStage::ThreeHopsRouteFound;
         } else {
             self.stage = OverallConnectionStage::ConnectedToNeighbor;
         }
         if self.stage as usize > prev_stage as usize {
-            let message = NodeToUiMessage {
-                target: MessageTarget::AllClients,
-                body: UiConnectionChangeBroadcast {
-                    stage: self.stage.into(),
-                }
-                .tmb(0),
-            };
-
-            node_to_ui_recipient
-                .try_send(message)
-                .expect("UI Gateway is unbound.");
+            OverallConnectionStatus::send_message_to_ui(self.stage.into(), node_to_ui_recipient);
         }
+    }
+
+    fn send_message_to_ui(
+        stage: UiConnectionChangeStage,
+        node_to_ui_recipient: &Recipient<NodeToUiMessage>,
+    ) {
+        let message = NodeToUiMessage {
+            target: MessageTarget::AllClients,
+            body: UiConnectionChangeBroadcast { stage }.tmb(0),
+        };
+
+        node_to_ui_recipient
+            .try_send(message)
+            .expect("UI Gateway is unbound.");
     }
 
     pub fn is_empty(&self) -> bool {
@@ -268,6 +271,7 @@ mod tests {
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
         DeadEndFound, TcpConnectionFailed,
     };
+    use crate::neighborhood::PublicKey;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::test_utils::recorder::{make_recorder, Recording};
     use actix::{Actor, System};

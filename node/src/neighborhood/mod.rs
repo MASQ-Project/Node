@@ -80,7 +80,7 @@ pub struct Neighborhood {
     hopper_opt: Option<Recipient<IncipientCoresPackage>>,
     hopper_no_lookup_opt: Option<Recipient<NoLookupIncipientCoresPackage>>,
     connected_signal_opt: Option<Recipient<StartMessage>>,
-    to_ui_message_opt: Option<Recipient<NodeToUiMessage>>,
+    node_to_ui_recipient_opt: Option<Recipient<NodeToUiMessage>>,
     gossip_acceptor_opt: Option<Box<dyn GossipAcceptor>>,
     gossip_producer_opt: Option<Box<dyn GossipProducer>>,
     neighborhood_database: NeighborhoodDatabase,
@@ -113,7 +113,7 @@ impl Handler<BindMessage> for Neighborhood {
             msg.peer_actors.neighborhood.connection_progress_sub,
         )));
         self.gossip_producer_opt = Some(Box::new(GossipProducerReal::new()));
-        self.to_ui_message_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
+        self.node_to_ui_recipient_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
     }
 }
 
@@ -262,9 +262,9 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
         self.overall_connection_status.update_connection_stage(
             msg.peer_addr,
             msg.event.clone(),
-            self.to_ui_message_opt
+            self.node_to_ui_recipient_opt
                 .as_ref()
-                .expect("UI Gateway is unbound."),
+                .expect("UI Gateway is unbound"),
         );
 
         if msg.event == ConnectionProgressEvent::TcpConnectionSuccessful {
@@ -290,9 +290,9 @@ impl Handler<AskAboutDebutGossipMessage> for Neighborhood {
             self.overall_connection_status.update_connection_stage(
                 msg.prev_connection_progress.current_peer_addr,
                 ConnectionProgressEvent::NoGossipResponseReceived,
-                self.to_ui_message_opt
+                self.node_to_ui_recipient_opt
                     .as_ref()
-                    .expect("UI Gateway is unbound."),
+                    .expect("UI Gateway is unbound"),
             );
         }
     }
@@ -419,14 +419,14 @@ impl Neighborhood {
             })
             .collect_vec();
 
-        let overall_connection_status = OverallConnectionStatus::new(initial_neighbors.clone());
+        let overall_connection_status = OverallConnectionStatus::new(initial_neighbors);
 
         Neighborhood {
             cryptde,
             hopper_opt: None,
             hopper_no_lookup_opt: None,
             connected_signal_opt: None,
-            to_ui_message_opt: None,
+            node_to_ui_recipient_opt: None,
             gossip_acceptor_opt: None,
             gossip_producer_opt: None,
             neighborhood_database,
@@ -439,7 +439,7 @@ impl Neighborhood {
             persistent_config_opt: None,
             db_password_opt: config.db_password_opt.clone(),
             logger: Logger::new("Neighborhood"),
-            tools: NeighborhoodTools::new(),
+            tools: NeighborhoodTools::default(),
         }
     }
 
@@ -467,9 +467,7 @@ impl Neighborhood {
 
     fn handle_start_message(&mut self) {
         self.connect_database();
-        self.send_debut_gossip();
-        // self.connect_to_the_masq_network();
-        // Replace send_debut_gossip() to connect_to_the_masq_network(), and migrate it's functionality there
+        self.send_debut_gossip_to_all_initial_descriptors();
     }
 
     fn handle_new_public_ip(&mut self, msg: NewPublicIp) {
@@ -525,7 +523,34 @@ impl Neighborhood {
         }
     }
 
-    fn send_debut_gossip(&mut self) {
+    fn send_debut_gossip_to_descriptor(
+        &self,
+        debut_gossip: &Gossip_0v1,
+        node_descriptor: &NodeDescriptor,
+    ) {
+        let node_addr = &node_descriptor
+            .node_addr_opt
+            .as_ref()
+            .expect("Node descriptor without IP Address got through Neighborhood constructor.");
+        self.send_no_lookup_package(
+            MessageType::Gossip(debut_gossip.clone().into()),
+            &node_descriptor.encryption_public_key,
+            node_addr,
+        );
+        trace!(
+            self.logger,
+            "Sent Gossip: {}",
+            debut_gossip.to_dot_graph(
+                self.neighborhood_database.root(),
+                (
+                    &node_descriptor.encryption_public_key,
+                    &node_descriptor.node_addr_opt
+                ),
+            )
+        )
+    }
+
+    fn send_debut_gossip_to_all_initial_descriptors(&mut self) {
         if self.overall_connection_status.is_empty() {
             info!(self.logger, "Empty. No Nodes to report to; continuing");
             return;
@@ -539,33 +564,7 @@ impl Neighborhood {
         self.overall_connection_status
             .iter_initial_node_descriptors()
             .for_each(|node_descriptor| {
-                let node_addr = &node_descriptor.node_addr_opt.as_ref().expect(
-                    "Node descriptor without IP Address got through Neighborhood constructor.",
-                );
-                self.hopper_no_lookup_opt
-                    .as_ref()
-                    .expect("unbound hopper")
-                    .try_send(
-                        NoLookupIncipientCoresPackage::new(
-                            self.cryptde,
-                            &node_descriptor.encryption_public_key,
-                            node_addr,
-                            MessageType::Gossip(gossip.clone().into()),
-                        )
-                        .expectv("public key"),
-                    )
-                    .expect("hopper is dead");
-                trace!(
-                    self.logger,
-                    "Sent Gossip: {}",
-                    gossip.to_dot_graph(
-                        self.neighborhood_database.root(),
-                        (
-                            &node_descriptor.encryption_public_key,
-                            &node_descriptor.node_addr_opt
-                        ),
-                    )
-                )
+                self.send_debut_gossip_to_descriptor(&gossip, node_descriptor)
             });
     }
 
@@ -1666,7 +1665,7 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_opt = Some(recipient);
+        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.tools.notify_later_ask_about_gossip = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_ask_about_gossip_params_arc),
@@ -1741,11 +1740,11 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_opt = Some(recipient);
+        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             initial_desc_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.to_ui_message_opt.as_ref().unwrap(),
+            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let beginning_connection_progress = ConnectionProgress {
             initial_node_descriptor: initial_node_descriptor.clone(),
@@ -1803,7 +1802,7 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_opt = Some(recipient);
+        subject.node_to_ui_recipient_opt = Some(recipient);
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
@@ -1856,11 +1855,11 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_opt = Some(recipient);
+        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.to_ui_message_opt.as_ref().unwrap(),
+            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1915,11 +1914,11 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_opt = Some(recipient);
+        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.to_ui_message_opt.as_ref().unwrap(),
+            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1974,11 +1973,11 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_opt = Some(recipient);
+        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.to_ui_message_opt.as_ref().unwrap(),
+            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -2033,11 +2032,11 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_opt = Some(recipient);
+        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.to_ui_message_opt.as_ref().unwrap(),
+            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -2091,11 +2090,11 @@ mod tests {
             ),
         );
         let (recipient, _) = make_node_to_ui_recipient();
-        subject.to_ui_message_opt = Some(recipient);
+        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.to_ui_message_opt.as_ref().unwrap(),
+            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();

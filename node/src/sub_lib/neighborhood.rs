@@ -531,8 +531,8 @@ pub struct NeighborhoodTools {
     pub ask_about_gossip_interval: Duration,
 }
 
-impl NeighborhoodTools {
-    pub fn new() -> Self {
+impl Default for NeighborhoodTools {
+    fn default() -> Self {
         Self {
             notify_later_ask_about_gossip: Box::new(NotifyLaterHandleReal::new()),
             ask_about_gossip_interval: Duration::from_secs(10),
@@ -574,7 +574,7 @@ mod tests {
             }
         );
         assert_eq!(
-            NeighborhoodTools::new().ask_about_gossip_interval,
+            NeighborhoodTools::default().ask_about_gossip_interval,
             Duration::from_secs(10)
         );
     }
@@ -1157,8 +1157,8 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_tools_new_is_set_properly() {
-        let subject = NeighborhoodTools::new();
+    fn neighborhood_tools_default_is_set_properly() {
+        let subject = NeighborhoodTools::default();
         subject
             .notify_later_ask_about_gossip
             .as_any()
