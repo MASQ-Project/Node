@@ -27,8 +27,8 @@ anonymity.
 
 __Important Note:__ Please remember that at the moment the MASQ Node is in development and is not clandestine. Your
 traffic can't be decrypted, and it is difficult to trace to you; but it is currently very easy for someone sniffing
-your Internet connection to tell that you're using MASQ. Please don't use it for any kind of sensitive traffic at this 
-stage.
+your Internet connection to tell that you're using some form of Peer networking. Please don't use it for any kind of sensitive traffic at this 
+stage - MASQ Network and it's developers are not responsible for any activity, or loss incurred, while using this beta software.
 
 ## Source
 The MASQ project was forked from Substratum's Node project in order to carry on development after Substratum ceased 
@@ -43,11 +43,26 @@ A [Knowledge Base](https://docs.masq.ai/masq) and testing resources are being re
 levels of technical ability.
 
 There you can find further information, guides and configuration examples for running MASQ Node from:
-- GUI (currently NEO v0.1)
+- MASQ app - v0.2 (formerly called "GEMINI")
 - CLI
 - Docker image
 
-If you are interested in testing stages, speak to the team in the official [Discord channel](https://discord.gg/cdUsjBQrgq)
+If you are interested in testing stages, speak to the team in the official [Discord channel](https://discord.gg/masq)
+
+### MASQ Node Component README.md files
+To help navigate the codebase, here are the README.md links for all documented components
+
+- [Blockchain-Service-URL](https://github.com/MASQ-Project/Node/blob/master/node/docs/Blockchain-Service.md)
+- [sub_lib](https://github.com/MASQ-Project/Node/blob/master/node/src/sub_lib/README.md)
+- [proxy_server](https://github.com/MASQ-Project/Node/blob/master/node/src/proxy_server/README.md)
+- [test_utils](https://github.com/MASQ-Project/Node/blob/master/node/src/test_utils/README.md)
+- [ui_gateway](https://github.com/MASQ-Project/Node/blob/master/node/src/ui_gateway/README.md)
+- [accountant](https://github.com/MASQ-Project/Node/blob/master/node/src/accountant/README.md)
+- [proxy_client](https://github.com/MASQ-Project/Node/blob/master/node/src/proxy_client/README.md)
+- [entry_dns](https://github.com/MASQ-Project/Node/blob/master/node/src/entry_dns/README.md)
+- [hopper](https://github.com/MASQ-Project/Node/blob/master/node/src/hopper/README.md)
+- [neighborhood](https://github.com/MASQ-Project/Node/blob/master/node/src/neighborhood/README.md)
+- [multinode_integration_tests](https://github.com/MASQ-Project/Node/blob/master/multinode_integration_tests/tests/README.md)
 
 ### Downloading Official Releases
 
