@@ -3,7 +3,7 @@ use crate::accountant::dao_utils::Table::Receivable;
 use crate::accountant::dao_utils::{
     InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, SQLExtParams, UpdateConfig,
 };
-use crate::accountant::{checked_convert, unsigned_to_signed};
+use crate::accountant::{checked_conversion, checked_conversion_negative, unsigned_to_signed};
 use crate::blockchain::blockchain_interface::PaidReceivable;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -99,7 +99,7 @@ impl ReceivableDao for ReceivableDaoReal {
             params: SQLExtParams::new(
                 vec![
                     (":wallet", &&*wallet.to_string()),
-                    (":balance", &checked_convert::<u128,i128>(amount))
+                    (":balance", &checked_conversion::<u128,i128>(amount))
                 ]),
             table: Receivable,
         })?)
@@ -175,9 +175,9 @@ impl ReceivableDao for ReceivableDaoReal {
     ) -> Vec<ReceivableAccount> {
         let now = to_time_t(system_now);
         //TODO this slope is tilt in the wrong direction; a minus is absent there at the beginning
-        let slope = (checked_convert::<u64, i64>(payment_thresholds.permanent_debt_allowed_gwei)
-            - checked_convert::<u64, i64>(payment_thresholds.debt_threshold_gwei))
-            / (checked_convert::<u64, i64>(payment_thresholds.threshold_interval_sec));
+        let slope = (checked_conversion::<u64, i64>(payment_thresholds.permanent_debt_allowed_gwei)
+            - checked_conversion::<u64, i64>(payment_thresholds.debt_threshold_gwei))
+            / (checked_conversion::<u64, i64>(payment_thresholds.threshold_interval_sec));
         let sql = indoc!(
             r"
             select r.wallet_address, r.balance, r.last_received_timestamp
@@ -310,31 +310,6 @@ impl ReceivableDaoReal {
     }
 
     //TODO: YES - direct replace
-    fn try_update(&self, wallet: &Wallet, amount: i64) -> Result<bool, String> {
-        let mut stmt = self
-            .conn
-            .prepare("update receivable set balance = balance + ? where wallet_address = ?")
-            .expect("Internal error");
-        let params: &[&dyn ToSql] = &[&amount, &wallet];
-        match stmt.execute(params) {
-            Ok(0) => Ok(false),
-            Ok(_) => Ok(true),
-            Err(e) => Err(format!("{}", e)),
-        }
-    }
-
-    //TODO: YES - direct replace
-    fn try_insert(&self, wallet: &Wallet, amount: i64) -> Result<(), String> {
-        let timestamp = dao_utils::to_time_t(SystemTime::now());
-        let mut stmt = self.conn.prepare("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").expect("Internal error");
-        let params: &[&dyn ToSql] = &[&wallet, &amount, &(timestamp as i64)];
-        match stmt.execute(params) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!("{}", e)),
-        }
-    }
-
-    //TODO: YES - direct replace
     fn try_multi_insert_payment(
         &mut self,
         core: &dyn InsertUpdateCore,
@@ -367,7 +342,8 @@ impl ReceivableDaoReal {
                     params: SQLExtParams::new(
                         vec![
                             (":wallet", &&*transaction.from.to_string()),
-                            (":balance", &checked_convert::<u128,i128>(transaction.wei_amount)), //:balance is later recomputed into :updated_balance
+                            //:balance is later recomputed into :updated_balance
+                            (":balance", &checked_conversion_negative::<u128,i128>(transaction.wei_amount)),
                             (":last_received", &now_time_t()),
                         ]),
                     table: Receivable
@@ -417,7 +393,6 @@ mod tests {
     use crate::test_utils::make_wallet;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::array_of_borrows_to_vec;
     use rusqlite::{Connection, Error, OpenFlags};
     use std::sync::{Arc, Mutex};
 
@@ -1197,9 +1172,6 @@ mod tests {
     #[test]
     fn update_in_try_multi_insert_payment_params_assertion() {
         let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
-        let wallet_address = "xyz123";
-        let supplied_amount_wei = 100;
-        let last_received_time_stamp_sec = 123;
         let insert_update_core = InsertUpdateCoreMock::default()
             .update_params(&insert_or_update_params_arc)
             .update_result(Err(InsertUpdateError("SomethingWrong".to_string())));
@@ -1226,18 +1198,34 @@ mod tests {
             ))
         );
         let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
-        let (select_sql, update_sql, table, sql_param_names) = insert_or_update_params.remove(0);
-        assert!(insert_or_update_params.is_empty());
+        let (select_sql, update_sql, table, sql_param_names) = insert_or_update_params.pop().unwrap();
         assert_eq!(
             select_sql,
             "select balance from receivable where wallet_address = :wallet"
         );
         assert_eq!(update_sql, "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet");
         assert_eq!(table, Table::Receivable.to_string());
+        let sql_param_names_assertable:Vec<(String,String)> = sql_param_names.into_iter().filter(|(param,_)|param.as_str() != ":last_received").collect();
         assert_eq!(
-            sql_param_names,
-            array_of_borrows_to_vec(&[":wallet", ":balance", ":last_received"]) //TODO is this right?
-        )
+            sql_param_names_assertable,
+            convert_to_all_string_values(vec![
+                (":wallet", &make_wallet("some_address").to_string()),
+                (":balance", &18446744073709551615_i128.to_string()),
+            ])
+        );
+        let (select_sql_2, update_sql_2, table_2, sql_param_names_2) = insert_or_update_params.pop().unwrap();
+        assert_eq!(select_sql_2,select_sql);
+        assert_eq!(update_sql_2,update_sql);
+        assert_eq!(table_2,table);
+        let sql_param_names_2_assertable: Vec<(String,String)>  = sql_param_names_2.into_iter().filter(|(param,_)|param.as_str() != ":last_received").collect();
+        assert_eq!(
+            sql_param_names_2_assertable,
+            convert_to_all_string_values(vec![
+                (":wallet", &make_wallet("other_address").to_string()),
+                (":balance", &444444555333337_i128.to_string()),
+            ])
+        );
+        assert_eq!(insert_or_update_params.pop(),None)
     }
 
     // #[test]

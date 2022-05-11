@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::dao_utils::get_unsized_128;
-use crate::accountant::{checked_convert, unsigned_to_signed};
+use crate::accountant::{checked_conversion, unsigned_to_signed};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::{from_time_t, to_time_t, DaoFactoryReal};
@@ -83,7 +83,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         amount: u128,
         timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
-        let signed_amount = checked_convert::<u128, i128>(amount);
+        let signed_amount = checked_conversion::<u128, i128>(amount);
         let mut stm = self.conn.prepare("insert into pending_payable (transaction_hash, amount, payable_timestamp, attempt, process_error) values (?,?,?,?,?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[
             &format!("{:?}", transaction_hash),

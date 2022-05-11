@@ -1,5 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, SentPayable};
+use crate::accountant::{
+    checked_conversion, ReceivedPayments, ReportTransactionReceipts, SentPayable,
+};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
@@ -43,10 +45,10 @@ lazy_static! {
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub struct PaymentThresholds {
     pub debt_threshold_gwei: u64,
-    pub maturity_threshold_sec: i64,
-    pub payment_grace_period_sec: i64,
+    pub maturity_threshold_sec: u64,
+    pub payment_grace_period_sec: u64,
     pub permanent_debt_allowed_gwei: u64,
-    pub threshold_interval_sec: i64,
+    pub threshold_interval_sec: u64,
     pub unban_below_gwei: u64,
     //TODO caution!! these names were changed to WEI but the bit bandwidth wasn't change yet
 }
@@ -54,11 +56,12 @@ pub struct PaymentThresholds {
 #[cfg(test)]
 impl PaymentThresholds {
     pub fn sugg_and_grace(&self, now: i64) -> i64 {
-        now - self.maturity_threshold_sec - self.payment_grace_period_sec
+        now - checked_conversion::<u64, i64>(self.maturity_threshold_sec)
+            - checked_conversion::<u64, i64>(self.payment_grace_period_sec)
     }
 
     pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
-        self.sugg_and_grace(now) - self.threshold_interval_sec
+        self.sugg_and_grace(now) - checked_conversion::<u64, i64>(self.threshold_interval_sec)
     }
 }
 

@@ -28,7 +28,6 @@ pub mod main_tools;
 pub mod migrations;
 pub mod neighborhood;
 pub mod node_addr;
-pub mod own_primitive_types;
 pub mod peer_actors;
 pub mod proxy_client;
 pub mod proxy_server;

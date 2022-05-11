@@ -12,11 +12,6 @@ use std::any::Any;
 use std::fmt::{Display, Formatter};
 
 pub trait InsertUpdateCore {
-    fn insert(
-        &self,
-        conn: &dyn ConnectionWrapper,
-        config: &dyn InsertConfiguration,
-    ) -> Result<(), InsertUpdateError>;
     fn update<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &Transaction>,
@@ -45,14 +40,6 @@ pub trait ExtendedParamsMarker: ToSql + Display {
 pub struct InsertUpdateCoreReal;
 
 impl InsertUpdateCore for InsertUpdateCoreReal {
-    fn insert(
-        &self,
-        conn: &dyn ConnectionWrapper,
-        config: &dyn InsertConfiguration,
-    ) -> Result<(), InsertUpdateError> {
-        todo!()
-    }
-
     fn update<'a>(
         &self,
         form_of_conn: Either<&dyn ConnectionWrapper, &Transaction>,
@@ -355,13 +342,6 @@ mod tests {
         vec
     }
 
-    fn convert_to_all_string_values(str_args: Vec<(&str, &str)>) -> Vec<(String, String)> {
-        str_args
-            .into_iter()
-            .map(|(a, b)| (a.to_string(), b.to_string()))
-            .collect()
-    }
-
     #[test]
     fn finalize_update_params_for_update_config_works() {
         let subject = UpdateConfig {
@@ -557,32 +537,6 @@ mod tests {
         )
     }
 
-    fn create_broken_receivable(conn: &dyn ConnectionWrapper) {
-        let mut stm = conn
-            .prepare(
-                "create table receivable (
-                wallet_address integer primary key,
-                balance text null,
-                last_received_timestamp integer not null
-            )",
-            )
-            .unwrap();
-        stm.execute([]).unwrap();
-    }
-
-    fn insert_receivable_100_balance_100_last_time_stamp(
-        conn: &dyn ConnectionWrapper,
-        wallet: &str,
-    ) {
-        let params = named_params! {
-            ":wallet":wallet,
-            ":balance":100_i128,
-            ":last_time_stamp":100_i64
-        };
-        let mut stm = conn.prepare("insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet,:balance,:last_time_stamp)").unwrap();
-        stm.execute(params).unwrap();
-    }
-
     fn insert_payable_with_bad_data_types(conn: &dyn ConnectionWrapper, wallet: &str) {
         let params = named_params! {
             ":wallet":wallet,
@@ -593,21 +547,6 @@ mod tests {
         insert_into_payable(conn, params)
     }
 
-    fn read_row_receivable(
-        conn: &dyn ConnectionWrapper,
-        wallet_address: &str,
-    ) -> rusqlite::Result<(i128, i64)> {
-        let mut stm = conn
-            .prepare(
-                "select balance, last_received_timestamp from receivable where wallet_address = ?",
-            )
-            .unwrap();
-        stm.query_row([wallet_address], |row| {
-            let balance: rusqlite::Result<i128> = row.get(0);
-            let last_received_timestamp = row.get(1);
-            Ok((balance.unwrap(), last_received_timestamp.unwrap()))
-        })
-    }
     //TODO sometimes these utils are used just once, check it and maybe deutilize
     fn create_broken_payable(conn: &dyn ConnectionWrapper) {
         let mut stm = conn
@@ -626,18 +565,5 @@ mod tests {
     fn insert_into_payable(conn: &dyn ConnectionWrapper, params: &[(&str, &dyn ToSql)]) {
         let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,:last_time_stamp,:pending_payable_rowid)").unwrap();
         stm.execute(params).unwrap();
-    }
-
-    fn insert_payable_100_balance_100_last_time_stamp_1_pending_payable_rowid(
-        conn: &dyn ConnectionWrapper,
-        wallet: &str,
-    ) {
-        let params = named_params! {
-            ":wallet":wallet,
-            ":balance":100_i128,
-            ":last_time_stamp":100_i64,
-            ":pending_payable_rowid":1_i64
-        };
-        insert_into_payable(conn, params)
     }
 }

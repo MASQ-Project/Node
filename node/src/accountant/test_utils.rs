@@ -883,7 +883,7 @@ pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccou
                     None => None,
                 },
             }),
-            _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
+            e => panic!("Database is corrupt: PAYABLE table columns and/or types: {:?}",e),
         }
     })
     .optional()
@@ -900,14 +900,6 @@ pub struct InsertUpdateCoreMock {
 }
 
 impl InsertUpdateCore for InsertUpdateCoreMock {
-    fn insert(
-        &self,
-        conn: &dyn ConnectionWrapper,
-        config: &dyn InsertConfiguration,
-    ) -> Result<(), InsertUpdateError> {
-        todo!()
-    }
-
     fn update<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,

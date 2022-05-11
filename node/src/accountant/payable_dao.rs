@@ -4,7 +4,7 @@ use crate::accountant::dao_utils::{
     get_unsized_128, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, SQLExtParams,
     Table, UpdateConfig,
 };
-use crate::accountant::{checked_convert, unsigned_to_signed, PendingPayableId};
+use crate::accountant::{checked_conversion, unsigned_to_signed, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -109,7 +109,7 @@ impl PayableDao for PayableDaoReal {
             params: SQLExtParams::new(
                 vec![
                     (":wallet", &wallet.to_string().as_str()),
-                    (":balance", &checked_convert::<u64,i64>(amount))
+                    (":balance", &checked_conversion::<u64,i64>(amount))
                 ]),
             table: Table::Payable,
         })?)
@@ -149,9 +149,9 @@ impl PayableDao for PayableDaoReal {
             update_sql: "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid where pending_payable_rowid = :rowid",
             params: SQLExtParams::new(
                 vec![
-                    (":balance", &checked_convert::<u128, i128>(fingerprint.amount)),
+                    (":balance", &checked_conversion::<u128, i128>(fingerprint.amount)),
                     (":last_paid", &to_time_t(fingerprint.timestamp)),
-                    (":rowid", &checked_convert::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"))),
+                    (":rowid", &checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"))),
                 ]),
             table: Table::Payable,
         })?)
@@ -286,20 +286,6 @@ impl PayableDao for PayableDaoReal {
 impl PayableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> PayableDaoReal {
         PayableDaoReal { conn }
-    }
-
-    //TODO replace these by the new ones
-    fn try_increase_balance(&self, wallet: &Wallet, amount: i64) -> Result<bool, String> {
-        let mut stmt = self
-            .conn
-            .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:address, :balance, strftime('%s','now'), null) on conflict (wallet_address) do update set balance = balance + :balance where wallet_address = :address")
-            .expect("Internal error");
-        let params: &[(&str, &dyn ToSql)] = &[(":address", &wallet), (":balance", &amount)];
-        match stmt.execute(params) {
-            Ok(0) => Ok(false),
-            Ok(_) => Ok(true),
-            Err(e) => Err(format!("{}", e)),
-        }
     }
 
     //TODO replace these by the new ones
@@ -963,22 +949,5 @@ mod tests {
                 (":rowid", &33_i64.to_string())
             ])
         )
-    }
-
-    fn read_row_payable(
-        conn: &dyn ConnectionWrapper,
-        wallet_address: &str,
-    ) -> rusqlite::Result<(i128, i64, Option<i64>)> {
-        let mut stm = conn.prepare("select balance, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?").unwrap();
-        stm.query_row([wallet_address], |row| {
-            let balance: rusqlite::Result<i128> = row.get(0);
-            let last_received_timestamp = row.get(1);
-            let pending_transaction_hash: rusqlite::Result<Option<i64>> = row.get(2);
-            Ok((
-                balance.unwrap(),
-                last_received_timestamp.unwrap(),
-                pending_transaction_hash.unwrap(),
-            ))
-        })
     }
 }

@@ -82,7 +82,7 @@ impl CombinedParamsValueRetriever {
         };
         *dynamic
             .downcast_ref::<T>()
-            .unwrap_or_else(|| panic!("expected Some() of {}", std::any::type_name::<T>()))
+            .unwrap_or_else(|| panic!("expected Some() of {} for {}", std::any::type_name::<T>(),parameter_name))
     }
 }
 
@@ -186,12 +186,12 @@ impl From<&CombinedParams> for &[(&str, CombinedParamsDataTypes)] {
                 ("exit_service_rate", U64),
             ],
             CombinedParams::PaymentThresholds(None) => &[
-                ("debt_threshold_wei", I64),
-                ("maturity_threshold_sec", I64),
-                ("payment_grace_period_sec", I64),
-                ("permanent_debt_allowed_wei", I64),
-                ("threshold_interval_sec", I64),
-                ("unban_below_wei", I64),
+                ("debt_threshold_gwei", U64),
+                ("maturity_threshold_sec", U64),
+                ("payment_grace_period_sec", U64),
+                ("permanent_debt_allowed_gwei", U64),
+                ("threshold_interval_sec", U64),
+                ("unban_below_gwei", U64),
             ],
             CombinedParams::ScanIntervals(None) => &[
                 ("pending_payable_scan_interval", U64),

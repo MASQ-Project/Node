@@ -58,7 +58,7 @@ use std::any::type_name;
 use std::any::Any;
 use std::default::Default;
 use std::fmt::Display;
-use std::ops::{Add, Mul};
+use std::ops::{Add, Mul, Neg};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use web3::types::{TransactionReceipt, H256};
@@ -1066,7 +1066,7 @@ pub fn unsigned_to_signed<T: Copy, S: TryFrom<T>>(unsigned: T) -> Result<S, T> {
     S::try_from(unsigned).map_err(|_| unsigned)
 }
 
-pub fn checked_convert<T: Copy + Display, S: TryFrom<T>>(unsigned: T) -> S {
+pub fn checked_conversion<T: Copy + Display, S: TryFrom<T>>(unsigned: T) -> S {
     unsigned_to_signed(unsigned).unwrap_or_else(|num| {
         panic!(
             "Overflow detected with {}: cannot be converted from {} to {}",
@@ -1075,6 +1075,10 @@ pub fn checked_convert<T: Copy + Display, S: TryFrom<T>>(unsigned: T) -> S {
             type_name::<S>()
         )
     })
+}
+
+pub fn checked_conversion_negative<T: Copy + Display, S: TryFrom<T> + Neg + Neg<Output = S>>(unsigned: T) -> S {
+    -checked_conversion::<T,S>(unsigned)
 }
 
 pub fn gwei_to_wei<T: Mul + Mul<Output = T> + From<u64> + From<S>, S>(gwei: S) -> T {
@@ -1132,15 +1136,18 @@ impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
     }
 
     fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> u64 {
-        let m = -(checked_convert::<u64, i64>(payment_thresholds.debt_threshold_gwei)
-            - checked_convert::<u64, i64>(payment_thresholds.permanent_debt_allowed_gwei)
-                / (payment_thresholds.threshold_interval_sec
-                    - payment_thresholds.maturity_threshold_sec));
+        fn convert(num: u64) -> i64 {
+            checked_conversion::<u64, i64>(num)
+        }
+        let m = -(convert(payment_thresholds.debt_threshold_gwei)
+            - convert(payment_thresholds.permanent_debt_allowed_gwei)
+                / (convert(payment_thresholds.threshold_interval_sec)
+                    - convert(payment_thresholds.maturity_threshold_sec)));
 
-        let b = checked_convert::<u64, i64>(payment_thresholds.debt_threshold_gwei)
-            - m * payment_thresholds.maturity_threshold_sec;
+        let b = convert(payment_thresholds.debt_threshold_gwei)
+            - m * convert(payment_thresholds.maturity_threshold_sec);
 
-        (m * checked_convert::<u64, i64>(x) + b) as u64
+        (m * convert(x) + b) as u64
     }
     as_any_impl!();
 }
@@ -1555,7 +1562,7 @@ mod tests {
                 balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 55),
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now())
-                        - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
+                        - checked_conversion::<u64,i64>(DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec)
                         - 5,
                 ),
                 pending_payable_opt: None,
@@ -1565,7 +1572,7 @@ mod tests {
                 balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 66),
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now())
-                        - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
+                        - checked_conversion::<u64,i64>(DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec)
                         - 500,
                 ),
                 pending_payable_opt: None,
@@ -2006,7 +2013,7 @@ mod tests {
             wallet: make_wallet("wallet"),
             balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 5),
             last_paid_timestamp: from_time_t(
-                now - DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10,
+                now - checked_conversion::<u64,i64>(DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10),
             ),
             pending_payable_opt: None,
         };
@@ -2083,7 +2090,7 @@ mod tests {
                 wallet: make_wallet("wallet0"),
                 balance: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei - 1),
                 last_paid_timestamp: from_time_t(
-                    now - payment_thresholds.threshold_interval_sec - 10,
+                    now - checked_conversion::<u64,i64>(payment_thresholds.threshold_interval_sec - 10),
                 ),
                 pending_payable_opt: None,
             },
@@ -2092,7 +2099,7 @@ mod tests {
                 wallet: make_wallet("wallet1"),
                 balance: gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1),
                 last_paid_timestamp: from_time_t(
-                    now - payment_thresholds.maturity_threshold_sec + 10,
+                    now - checked_conversion::<u64,i64>(payment_thresholds.maturity_threshold_sec + 10),
                 ),
                 pending_payable_opt: None,
             },
@@ -2101,7 +2108,7 @@ mod tests {
                 wallet: make_wallet("wallet2"),
                 balance: gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1000),
                 last_paid_timestamp: from_time_t(
-                    now - payment_thresholds.maturity_threshold_sec - 1,
+                    now - checked_conversion::<u64,i64>(payment_thresholds.maturity_threshold_sec - 1),
                 ),
                 pending_payable_opt: None,
             },
@@ -2153,7 +2160,7 @@ mod tests {
                 wallet: make_wallet("wallet0"),
                 balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei + 1),
                 last_paid_timestamp: from_time_t(
-                    now - DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10,
+                    now - checked_conversion::<u64,i64>(DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10),
                 ),
                 pending_payable_opt: None,
             },
@@ -2162,7 +2169,7 @@ mod tests {
                 wallet: make_wallet("wallet1"),
                 balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
                 last_paid_timestamp: from_time_t(
-                    now - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec - 10,
+                    now - checked_conversion::<u64,i64>(DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec - 10),
                 ),
                 pending_payable_opt: None,
             },
@@ -3307,7 +3314,7 @@ mod tests {
                 wallet: make_wallet("wallet0"),
                 balance: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1000),
                 last_paid_timestamp: from_time_t(
-                    now - payment_thresholds.threshold_interval_sec - 1234,
+                    now - checked_conversion::<u64,i64>(payment_thresholds.threshold_interval_sec - 1234),
                 ),
                 pending_payable_opt: None,
             },
@@ -3315,7 +3322,7 @@ mod tests {
                 wallet: make_wallet("wallet1"),
                 balance: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1),
                 last_paid_timestamp: from_time_t(
-                    now - payment_thresholds.threshold_interval_sec - 1,
+                    now - checked_conversion::<u64,i64>(payment_thresholds.threshold_interval_sec) - 1
                 ),
                 pending_payable_opt: None,
             },
@@ -4204,6 +4211,6 @@ mod tests {
     fn overflow_check_works_for_overflow() {
         let big_number = u128::MAX;
 
-        checked_convert::<u128, i128>(big_number);
+        checked_conversion::<u128, i128>(big_number);
     }
 }
