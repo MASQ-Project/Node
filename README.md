@@ -431,6 +431,6 @@ recommend using a 64-bit version to build.
 
 We do plan to release binaries that will run on 32-bit Windows, but they will likely be built on 64-bit Windows.
 
-Copyright (c) 2019-2021, MASQ Network
+Copyright (c) 2019-2022, MASQ Network
 
 Copyright (c) 2017-2019, Substratum LLC and/or its affiliates. All rights reserved.
