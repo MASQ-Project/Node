@@ -19,6 +19,4 @@ behind MASQ.
 - [neighborhood](https://github.com/MASQ-Project/Node/blob/master/node/src/neighborhood/README.md)
 - [multinode_integration_tests](https://github.com/MASQ-Project/Node/blob/master/multinode_integration_tests/tests/README.md)
 
-Copyright (c) 2019-2021, MASQ Network
-
-Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+Copyright (c) 2022, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.

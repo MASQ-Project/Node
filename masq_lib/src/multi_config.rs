@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::shared_schema::{ConfiguratorError, ParamError};
 use crate::utils::WrapResult;
@@ -6,12 +6,10 @@ use crate::utils::WrapResult;
 use clap::{value_t, values_t};
 use clap::{App, ArgMatches};
 use regex::Regex;
-use serde::export::Formatter;
 use std::collections::HashSet;
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use toml::value::Table;
 use toml::Value;
@@ -19,8 +17,7 @@ use toml::Value;
 #[macro_export]
 macro_rules! value_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        use std::ops::Deref;
-        let matches = $m.deref();
+        let matches = make_arg_matches_accesible(&$m);
         match value_t!(matches, $v, $t) {
             Ok(v) => Some(v),
             Err(_) => None,
@@ -31,9 +28,8 @@ macro_rules! value_m {
 #[macro_export]
 macro_rules! value_user_specified_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        use std::ops::Deref;
-        let matches = $m.deref();
-        let user_specified = matches.occurrences_of($v) > 0;
+        let user_specified = $m.occurrences_of($v) > 0;
+        let matches = make_arg_matches_accesible(&$m);
         match value_t!(matches, $v, $t) {
             Ok(v) => (Some(v), user_specified),
             Err(_) => (None, user_specified),
@@ -44,8 +40,7 @@ macro_rules! value_user_specified_m {
 #[macro_export]
 macro_rules! values_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        use std::ops::Deref;
-        let matches = $m.deref();
+        let matches = make_arg_matches_accesible(&$m);
         match values_t!(matches, $v, $t) {
             Ok(vs) => vs,
             Err(_) => vec![],
@@ -55,13 +50,6 @@ macro_rules! values_m {
 
 pub struct MultiConfig<'a> {
     arg_matches: ArgMatches<'a>,
-}
-
-impl<'a> Deref for MultiConfig<'a> {
-    type Target = ArgMatches<'a>;
-    fn deref(&self) -> &Self::Target {
-        &self.arg_matches
-    }
 }
 
 impl<'a> MultiConfig<'a> {
@@ -124,6 +112,14 @@ impl<'a> MultiConfig<'a> {
         }
         ConfiguratorError::required("<unknown>", &format!("Unfamiliar message: {}", e.message))
     }
+
+    pub fn occurrences_of(&self, parameter: &str) -> u64 {
+        self.arg_matches.occurrences_of(parameter)
+    }
+}
+
+pub fn make_arg_matches_accesible<'a>(multi_confuig: &'a MultiConfig) -> &'a ArgMatches<'a> {
+    &multi_confuig.arg_matches
 }
 
 pub trait VclArg: Debug {
@@ -846,7 +842,7 @@ pub mod tests {
         assert!(user_specified_numeric);
         assert_eq!(Some(88), missing_arg_result);
         assert!(!user_specified_missing);
-        assert!(subject.deref().is_present("missing-arg"));
+        assert!(subject.arg_matches.is_present("missing-arg"));
     }
 
     #[test]
@@ -863,11 +859,10 @@ pub mod tests {
                 "--nonvalued".to_string(),
             ])),
         ];
-        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
-        let result = subject.deref();
+        let result = MultiConfig::try_new(&schema, vcls).unwrap();
 
-        assert!(result.is_present("nonvalued"));
+        assert!(result.arg_matches.is_present("nonvalued"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContextReal;
 use crate::command_context::{CommandContext, ContextError};
@@ -51,6 +51,7 @@ pub struct CommandProcessorReal {
 }
 
 impl CommandProcessor for CommandProcessorReal {
+    #[allow(clippy::branches_sharing_code)]
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError> {
         if let Some(synchronizer) = self.context.terminal_interface.clone() {
             let _lock = synchronizer.lock();
@@ -67,7 +68,7 @@ impl CommandProcessor for CommandProcessorReal {
         self.context
             .terminal_interface
             .as_ref()
-            .expect_v("TerminalWrapper")
+            .expectv("TerminalWrapper")
     }
 }
 

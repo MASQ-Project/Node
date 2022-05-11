@@ -1,9 +1,5 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-// These must be before the rest of the modules
-// in order to be able to use the macros.
-#[macro_use]
-pub mod logger;
 #[macro_use]
 pub mod utils;
 #[macro_use]
@@ -14,6 +10,7 @@ pub mod bidi_hashmap;
 pub mod binary_traverser;
 pub mod blockchain_bridge;
 pub mod channel_wrappers;
+pub mod combined_parameters;
 pub mod configurator;
 pub mod cryptde;
 pub mod cryptde_null;

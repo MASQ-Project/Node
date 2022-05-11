@@ -1,13 +1,13 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use super::live_cores_package::LiveCoresPackage;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::{encodex, CryptDE};
 use crate::sub_lib::dispatcher::{Endpoint, InboundClientData};
 use crate::sub_lib::hopper::{IncipientCoresPackage, NoLookupIncipientCoresPackage};
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
+use masq_lib::logger::Logger;
 use std::borrow::Borrow;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -130,19 +130,18 @@ impl ConsumingService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::{Component, InboundClientData};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
     use actix::System;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
@@ -222,7 +221,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
@@ -269,7 +268,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();

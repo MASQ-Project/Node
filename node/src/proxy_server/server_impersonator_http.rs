@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::proxy_server::protocol_pack::ServerImpersonator;
 use crate::sub_lib::cryptde::PublicKey;
 
@@ -94,6 +94,29 @@ const HTTP_RESPONSE_TEMPLATE: &str = "HTTP/1.1 {status} Routing Error\r\n\
 mod tests {
     use super::*;
 
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            ERROR_TEMPLATE,
+            "<html>\n\
+             <body>\n\
+             <h1>Error {status}</h1>\n\
+             <h2>Title: {title}</h2>\n\
+             <h3>Subtitle: {subtitle}</h3>\n\
+             <p>{content}</p>\n\
+             </body>\n\
+             </html>\n"
+        );
+
+        assert_eq!(
+            HTTP_RESPONSE_TEMPLATE,
+            "HTTP/1.1 {status} Routing Error\r\n\
+             Content-Type: text/html\r\n\
+             Content-Length: {length}\r\n\
+             \r\n\
+             {body}"
+        )
+    }
     #[test]
     fn creates_appropriate_error_page() {
         let result = ServerImpersonatorHttp::make_error_page(

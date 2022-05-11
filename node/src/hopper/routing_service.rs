@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::live_cores_package::LiveCoresPackage;
 use crate::blockchain::payer::Payer;
 use crate::neighborhood::gossip::Gossip_0v1;
@@ -7,7 +7,6 @@ use crate::sub_lib::cryptde::{decodex, encodex, CodexError, CryptDE, CryptData, 
 use crate::sub_lib::dispatcher::{Component, Endpoint, InboundClientData};
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperSubs, MessageType};
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::{GossipFailure_0v1, NeighborhoodSubs};
 use crate::sub_lib::proxy_client::{
     ClientResponsePayload_0v1, DnsResolveFailure_0v1, ProxyClientSubs,
@@ -15,6 +14,7 @@ use crate::sub_lib::proxy_client::{
 use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyServerSubs};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
+use masq_lib::logger::Logger;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
@@ -513,7 +513,6 @@ impl RoutingService {
 mod tests {
     use super::*;
     use crate::banned_dao::BAN_CACHE;
-    use crate::blockchain::blockchain_interface::contract_address;
     use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use crate::sub_lib::cryptde::{encodex, PlainData, PublicKey};
@@ -525,7 +524,6 @@ mod tests {
     use crate::sub_lib::route::{Route, RouteSegment};
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::{
         alias_cryptde, main_cryptde, make_meaningless_message_type, make_meaningless_stream_key,
@@ -535,7 +533,8 @@ mod tests {
     };
     use actix::System;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::SocketAddr;
     use std::str::FromStr;
 
@@ -645,7 +644,7 @@ mod tests {
         init_test_logging();
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
-        let rogue_cryptde = CryptDENull::new(DEFAULT_CHAIN_ID);
+        let rogue_cryptde = CryptDENull::new(TEST_DEFAULT_CHAIN);
         let route = route_from_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
@@ -1088,7 +1087,7 @@ mod tests {
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let next_key = PublicKey::new(&[65, 65, 65]);
-        let contract_address = contract_address(DEFAULT_CHAIN_ID);
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&main_cryptde.public_key(), &next_key],
@@ -1184,7 +1183,7 @@ mod tests {
             ),
             main_cryptde,
             Some(paying_wallet.clone()),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
@@ -1256,7 +1255,7 @@ mod tests {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let origin_key = PublicKey::new(&[1, 2]);
-        let origin_cryptde = CryptDENull::from(&origin_key, DEFAULT_CHAIN_ID);
+        let origin_cryptde = CryptDENull::from(&origin_key, TEST_DEFAULT_CHAIN);
         let destination_key = PublicKey::new(&[3, 4]);
         let payload = make_meaningless_message_type();
         let route = Route::one_way(
@@ -1343,7 +1342,7 @@ mod tests {
             &make_request_payload(0, main_cryptde),
         ));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
-        let contract_address = contract_address(DEFAULT_CHAIN_ID);
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let live_hops: Vec<LiveHop> = vec![
             LiveHop::new(
                 &public_key,
@@ -1441,14 +1440,14 @@ mod tests {
         let current_key = main_cryptde.public_key();
         let origin_key = PublicKey::new(&[1, 2]);
         let destination_key = PublicKey::new(&[5, 6]);
-        let destination_cryptde = CryptDENull::from(&destination_key, DEFAULT_CHAIN_ID);
+        let destination_cryptde = CryptDENull::from(&destination_key, TEST_DEFAULT_CHAIN);
 
         let payload = ClientRequest(VersionedData::new(
             &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
             &make_request_payload(0, &destination_cryptde),
         ));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
-        let contract_address = contract_address(DEFAULT_CHAIN_ID);
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let live_hops: Vec<LiveHop> = vec![
             LiveHop::new(
                 &current_key,
@@ -1538,7 +1537,7 @@ mod tests {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
-        let contract_address = contract_address(DEFAULT_CHAIN_ID);
+        let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         BAN_CACHE.insert(paying_wallet.clone());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -1615,7 +1614,7 @@ mod tests {
             ),
             main_cryptde,
             Some(paying_wallet.clone()),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         route.shift(main_cryptde).unwrap();

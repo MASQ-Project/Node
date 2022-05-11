@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::http_packet_framer::ChunkExistenceState;
 use crate::sub_lib::http_packet_framer::ChunkProgressState;
 use crate::sub_lib::http_packet_framer::HttpFramerState;
@@ -82,6 +82,11 @@ impl HttpResponseStartFinder {
 mod tests {
     use super::*;
     use crate::sub_lib::http_packet_framer::ChunkProgressState;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(LONGEST_PREFIX_LEN, 13);
+    }
 
     #[test]
     fn returns_none_if_no_http() {

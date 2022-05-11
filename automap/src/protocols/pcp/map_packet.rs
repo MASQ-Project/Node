@@ -11,12 +11,14 @@ use std::net::{IpAddr, Ipv4Addr};
 #[derive(Clone, PartialEq, Debug)]
 pub enum Protocol {
     Udp,
+    Tcp,
     Other(u8),
 }
 
 impl From<u8> for Protocol {
     fn from(input: u8) -> Self {
         match input {
+            6 => Protocol::Tcp,
             17 => Protocol::Udp,
             x => Protocol::Other(x),
         }
@@ -26,6 +28,7 @@ impl From<u8> for Protocol {
 impl Protocol {
     pub fn code(&self) -> u8 {
         match self {
+            Protocol::Tcp => 6,
             Protocol::Udp => 17,
             Protocol::Other(x) => *x,
         }
@@ -46,9 +49,7 @@ impl OpcodeData for MapOpcodeData {
         if buf.len() < self.len(direction) {
             return Err(MarshalError::ShortBuffer(self.len(direction), buf.len()));
         }
-
         buf[..12].clone_from_slice(&self.mapping_nonce[..12]);
-
         buf[12] = self.protocol.code();
         buf[13] = 0x00;
         buf[14] = 0x00;
@@ -94,7 +95,6 @@ impl TryFrom<&[u8]> for MapOpcodeData {
             ));
         }
         data.mapping_nonce[..12].clone_from_slice(&buffer[..12]);
-
         data.protocol = Protocol::from(buffer[12]);
         data.internal_port = u16_at(buffer, 16);
         data.external_port = u16_at(buffer, 18);
@@ -145,12 +145,14 @@ mod tests {
 
     #[test]
     fn protocol_from_works() {
+        assert_eq!(Protocol::from(6), Protocol::Tcp);
         assert_eq!(Protocol::from(17), Protocol::Udp);
         assert_eq!(Protocol::from(255), Protocol::Other(255));
     }
 
     #[test]
     fn protocol_code_works() {
+        assert_eq!(Protocol::Tcp.code(), 6);
         assert_eq!(Protocol::Udp.code(), 17);
         assert_eq!(Protocol::Other(255).code(), 255);
         assert_eq!(Protocol::Other(254).code(), 254);

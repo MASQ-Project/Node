@@ -1,8 +1,8 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::DaoFactoryReal;
 use rusqlite::types::ToSql;
-use rusqlite::{Row, Rows, Statement, Transaction, NO_PARAMS};
+use rusqlite::{Row, Rows, Statement, Transaction};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -19,10 +19,18 @@ pub struct ConfigDaoRecord {
 }
 
 impl ConfigDaoRecord {
-    pub(crate) fn new(name: &str, value: Option<&str>, encrypted: bool) -> Self {
+    pub fn new(name: &str, value: Option<&str>, encrypted: bool) -> Self {
         Self {
             name: name.to_string(),
             value_opt: value.map(|x| x.to_string()),
+            encrypted,
+        }
+    }
+
+    pub fn new_owned(name: String, value_opt: Option<String>, encrypted: bool) -> Self {
+        Self {
+            name,
+            value_opt,
             encrypted,
         }
     }
@@ -190,7 +198,7 @@ fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), Config
 
 fn get_all(mut stmt: Statement) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
     let mut rows: Rows = stmt
-        .query(NO_PARAMS)
+        .query([])
         .expect("Schema error: couldn't dump config table");
     let mut results = Vec::new();
     loop {
@@ -237,12 +245,13 @@ fn row_to_config_dao_record(row: &Row) -> ConfigDaoRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
+    use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::assert_contains;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use masq_lib::constants::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 
     #[test]
     fn get_all_returns_multiple_results() {
@@ -250,7 +259,7 @@ mod tests {
             ensure_node_home_directory_exists("config_dao", "get_all_returns_multiple_results");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -272,7 +281,10 @@ mod tests {
                 false,
             ),
         );
-        assert_contains(&result, &ConfigDaoRecord::new("seed", None, true));
+        assert_contains(
+            &result,
+            &ConfigDaoRecord::new("consuming_wallet_private_key", None, true),
+        );
     }
 
     #[test]
@@ -283,7 +295,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
 
@@ -300,17 +312,17 @@ mod tests {
         );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         let confirmer = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, true, MigratorConfig::panic_on_migration())
                 .unwrap(),
         );
-        let initial_value = dao.get("seed").unwrap();
+        let initial_value = dao.get("consuming_wallet_private_key").unwrap();
         let modified_value = ConfigDaoRecord::new(
-            "seed",
+            "consuming_wallet_private_key",
             Some("Two wrongs don't make a right, but two Wrights make an airplane"),
             true,
         );
@@ -318,15 +330,15 @@ mod tests {
 
         subject
             .set(
-                "seed",
+                "consuming_wallet_private_key",
                 Some("Two wrongs don't make a right, but two Wrights make an airplane".to_string()),
             )
             .unwrap();
 
         let subject_get_all = subject.get_all().unwrap();
-        let subject_get = subject.get("seed").unwrap();
+        let subject_get = subject.get("consuming_wallet_private_key").unwrap();
         let confirmer_get_all = confirmer.get_all().unwrap();
-        let confirmer_get = confirmer.get("seed").unwrap();
+        let confirmer_get = confirmer.get("consuming_wallet_private_key").unwrap();
         assert_contains(&subject_get_all, &modified_value);
         assert_eq!(subject_get, modified_value);
         assert_contains(&confirmer_get_all, &initial_value);
@@ -335,14 +347,20 @@ mod tests {
 
         // Can't use a committed ConfigDaoWriteableReal anymore
         assert_eq!(subject.get_all(), Err(ConfigDaoError::TransactionError));
-        assert_eq!(subject.get("seed"), Err(ConfigDaoError::TransactionError));
         assert_eq!(
-            subject.set("seed", Some("irrelevant".to_string())),
+            subject.get("consuming_wallet_private_key"),
+            Err(ConfigDaoError::TransactionError)
+        );
+        assert_eq!(
+            subject.set(
+                "consuming_wallet_private_key",
+                Some("irrelevant".to_string())
+            ),
             Err(ConfigDaoError::TransactionError)
         );
         assert_eq!(subject.commit(), Err(ConfigDaoError::TransactionError));
         let confirmer_get_all = confirmer.get_all().unwrap();
-        let confirmer_get = confirmer.get("seed").unwrap();
+        let confirmer_get = confirmer.get("consuming_wallet_private_key").unwrap();
         assert_contains(&confirmer_get_all, &modified_value);
         assert_eq!(confirmer_get, modified_value);
     }
@@ -352,7 +370,7 @@ mod tests {
         let home_dir = ensure_node_home_directory_exists("config_dao", "extract_works");
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         {
@@ -362,7 +380,7 @@ mod tests {
 
             subject
                 .set(
-                    "seed",
+                    "consuming_wallet_private_key",
                     Some(
                         "Two wrongs don't make a right, but two Wrights make an airplane"
                             .to_string(),
@@ -376,11 +394,11 @@ mod tests {
                 ConfigDaoError::TransactionError
             );
         }
-        let final_value = dao.get("seed").unwrap();
+        let final_value = dao.get("consuming_wallet_private_key").unwrap();
         assert_eq!(
             final_value,
             ConfigDaoRecord::new(
-                "seed",
+                "consuming_wallet_private_key",
                 Some("Two wrongs don't make a right, but two Wrights make an airplane"),
                 true
             )
@@ -395,17 +413,17 @@ mod tests {
         );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         let confirmer = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, false)
+                .initialize(&home_dir, false, MigratorConfig::panic_on_migration())
                 .unwrap(),
         );
-        let initial_value = dao.get("seed").unwrap();
+        let initial_value = dao.get("consuming_wallet_private_key").unwrap();
         let modified_value = ConfigDaoRecord::new(
-            "seed",
+            "consuming_wallet_private_key",
             Some("Two wrongs don't make a right, but two Wrights make an airplane"),
             true,
         );
@@ -414,7 +432,7 @@ mod tests {
 
             subject
                 .set(
-                    "seed",
+                    "consuming_wallet_private_key",
                     Some(
                         "Two wrongs don't make a right, but two Wrights make an airplane"
                             .to_string(),
@@ -423,9 +441,9 @@ mod tests {
                 .unwrap();
 
             let subject_get_all = subject.get_all().unwrap();
-            let subject_get = subject.get("seed").unwrap();
+            let subject_get = subject.get("consuming_wallet_private_key").unwrap();
             let confirmer_get_all = confirmer.get_all().unwrap();
-            let confirmer_get = confirmer.get("seed").unwrap();
+            let confirmer_get = confirmer.get("consuming_wallet_private_key").unwrap();
             assert_contains(&subject_get_all, &modified_value);
             assert_eq!(subject_get, modified_value);
             assert_contains(&confirmer_get_all, &initial_value);
@@ -434,7 +452,7 @@ mod tests {
         }
 
         let confirmer_get_all = confirmer.get_all().unwrap();
-        let confirmer_get = confirmer.get("seed").unwrap();
+        let confirmer_get = confirmer.get("consuming_wallet_private_key").unwrap();
         assert_contains(&confirmer_get_all, &initial_value);
         assert_eq!(confirmer_get, initial_value);
     }
@@ -447,7 +465,7 @@ mod tests {
         );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         let subject = dao.start_transaction().unwrap();
@@ -465,7 +483,7 @@ mod tests {
         );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
         {

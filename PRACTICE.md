@@ -157,8 +157,11 @@ Keep close track of both of these processes so that you can answer any questions
 If the pull request does not pass review or testing, you'll be notified and the card will be moved back into
 Awaiting Development, from whence you can reclaim it if you like.
 
-## Quality Assurance
+Around this tme, there will also be discussion with the core developers and Product Owner to determine what type of version increment will be involved and adding a git tag after the review, QA and merge to master are completed. If there is a planned release version, then the merge commit may be tagged as a pre-release pending a confirmed release version number.
 
+Versioning will follow basic semver - vx.x.x and qualifiers if needed, eg. v0.6.0, 0.7.1-rc1, 1.0.0-beta etc
+
+## Quality Assurance
 [Software testing](https://en.wikipedia.org/wiki/Software_testing) is an investigation conducted to provide project managers and developers with information about the quality of the software product or service under test. Software testing can also provide an objective, independent view of the software to allow key project members to appreciate and understand the risks of software implementation.
 
 Software testing involves the execution of a software component or system component to evaluate one or more properties of interest.
@@ -178,8 +181,28 @@ Software testing can be conducted as soon as executable software (even if partia
 
 In the MASQ Network project, the process of QA is triggered when a card is moved into the 'Quality Assurance In Progress' column on our [Card Wall](https://github.com/MASQ-Project/Node/blob/master/COLUMNS.md)
 
-The QA Manager is responsible for passing or failing a card based on the feedback from the test team across the different operating systems being supported.
+The Testing Supervisor or QA Manager is responsible for passing or failing a card based on the feedback from the test team across the different operating systems being supported. Any feedback, bugs or suggestions are communicated to the developer of the card, and another iteration of development, testing and review is completed.
 
-CLI-based QA requires some basic CL knowledge and understanding of the Node itself.
+CLI-based QA requires some basic command-line knowledge and understanding of the Node software itself.
 
 If you would like to contribute to QA testing, and have a good foundational knowledge of CLI, please reach out to our team by [email](mailto:info@masq.ai) or join our [Discord](https://discord.gg/masq) and tag one of our admins.
+
+## Further Information on Versioned Releases
+The determination of versioning will start with a discussion of the core developers and the Product Owner. This will begin towards the end of a cards engineering practice above, most likely during final review and QA steps.
+
+Versioning follows basic [semver format](https://semver.org) - view the formal documentation and conventions for reference.
+
+The core specifications to be followed are:
+
+- Once a versioned package has been released, the contents of that version MUST NOT be modified. Any modifications MUST be released as a new version.
+- A pre-release version MAY be denoted by appending a hyphen and a series of dot separated identifiers immediately following the patch version. Identifiers MUST comprise only ASCII alphanumerics and hyphens [0-9A-Za-z-]. Identifiers MUST NOT be empty. Numeric identifiers MUST NOT include leading zeroes. Pre-release versions have a lower precedence than the associated normal version. A pre-release version indicates that the version is unstable and might not satisfy the intended compatibility requirements as denoted by its associated normal version. Examples: 1.0.0-alpha, 1.0.0-alpha.1, 1.0.0-0.3.7, 1.0.0-x.7.z.92, 1.0.0-x-y-z.–.
+
+### Steps Followed for Version Increment
+Once the discussion around the development/feature card has completed, there will be a git tag added to the merge commit of the branch when it is merged to `master` by an admin user of the public repo.
+If the merged card is not determined to be included in an immediate release with version increment, then the git tag will be the current version number, denoted with `pre-release.1` or another suitable qualifier following the patch number, eg `v0.6.0-pre-release.1`. It may become common, that there are several cards being merged into `master` under pre-releases before the next version increment is formally tagged and released. In this case the git tag will be incremented with a dot separated number that increases each time, so there is never a duplicate git tag.
+
+If a merging card qualifies as a patch or minor release version, then prior to merge the developer will add a commit for review that adjusts all the version numbers in the `cargo.toml` files for all the major components within the codebase. This will be important for monitoring QA testing and logging of issues with different release versions in the wild.
+In the future, the team may determine that individual components within the code will have versions independant of eachother, eg `automap` may be version 0.6.1, while `node` may have version 0.7.2
+
+Lastly, it will be best practice for our automated pipelines and CI to build the software binaries for the 3 currently supported Operating Systems (OS) and upload them into an S3 repository to be archived against their version released whenever there is a standard version increment.
+There will be a designated repo folder in this repository labelled `latest` which will contain the latest versioned binaries for each OS.

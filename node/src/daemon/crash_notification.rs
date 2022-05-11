@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use actix::Message;
 use lazy_static::lazy_static;
@@ -93,6 +93,11 @@ impl Recognizer for UnrecognizedRecognizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CHILD_WAIT_FAILURE_PREFIX, "Child wait failure: ");
+    }
 
     #[test]
     fn recognizes_wait_failure() {

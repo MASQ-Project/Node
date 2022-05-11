@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use crate::commands::change_password_command::ChangePasswordCommand;
@@ -7,6 +7,7 @@ use crate::commands::commands_common::Command;
 use crate::commands::configuration_command::ConfigurationCommand;
 use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
+use crate::commands::financials_command::FinancialsCommand;
 use crate::commands::generate_wallets_command::GenerateWalletsCommand;
 use crate::commands::recover_wallets_command::RecoverWalletsCommand;
 use crate::commands::set_configuration_command::SetConfigurationCommand;
@@ -48,6 +49,7 @@ impl CommandFactory for CommandFactoryReal {
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "descriptor" => Box::new(DescriptorCommand::new()),
+            "financials" => Box::new(FinancialsCommand::new()),
             "generate-wallets" => match GenerateWalletsCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),

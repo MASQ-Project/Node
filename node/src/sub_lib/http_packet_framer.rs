@@ -1,9 +1,9 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 use crate::sub_lib::framer_utils;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::utils::to_string;
+use masq_lib::logger::Logger;
 use masq_lib::utils::index_of;
 use masq_lib::utils::index_of_from;
 use regex::Regex;
@@ -384,6 +384,13 @@ mod framer_tests {
     use crate::sub_lib::http_response_start_finder::HttpResponseStartFinder;
     use crate::sub_lib::utils::to_string;
     use crate::sub_lib::utils::to_string_s;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(BYTES_TO_PRESERVE, 9);
+        assert_eq!(CRLF, b"\r\n");
+        assert_eq!(DOUBLE_CRLF, b"\r\n\r\n");
+    }
 
     const GOOD_FIRST_LINE: [u8; 15] = *b"GOOD_FIRST_LINE";
 

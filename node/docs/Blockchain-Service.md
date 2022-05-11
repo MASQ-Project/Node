@@ -2,8 +2,8 @@
 
 ### What is a blockchain service URL?
 
-A blockchain service url is a URL that MASQ Node uses to interact with blockchain testnets and mainnets.
-On mainnet, MASQ uses the MASQ token; on Ropsten and Mumbai, it uses the SHRD token (Shroud).
+A blockchain service url is a URL that MASQ Node uses to interact with various blockchains, either the Mumbai and Ropsten
+testnets or Polygon and Ethereum mainnets. On mainnets, MASQ uses the MASQ token; on testnets, it uses a test token.
 
 #### MASQ Node software supports connections to the following blockchains:
 **Ethereum**
@@ -12,7 +12,7 @@ On mainnet, MASQ uses the MASQ token; on Ropsten and Mumbai, it uses the SHRD to
 
 **Polygon**
 - [x] Mumbai testnet
-- [ ] Polygon mainnet *in development*
+- [x] Polygon mainnet *in beta testing*
 
 To be fully functional MASQ Node needs communication to the blockchain for access to:
 1. pay SHRD/MASQ to other Nodes for routing, blockchain, and exit services consumed, 
@@ -29,26 +29,27 @@ There are two general types of Blockchain Services MASQ Node currently supports.
 
 ### 1. Sign up for a free [Infura.io](https://infura.io/register) account.
 Follow the instructions here [Infura.io/docs](https://infura.io/docs) to create a "Project"
-Choose one of the following options for the Ropsten testnet:
-* Enter your Infura.io url `https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>` in the blockchain service url field of the UI.
+Choose one of the following options for the network of your choice (if you are testing it is likely the Mumbai testnet):
+
+* Enter your Infura.io url `https://polygon-mumbai.infura.io/v3/<YOUR-PROJECT-ID>` in the blockchain service url field of the GUI.
   
 * For the `masq` command-line interface, use the `setup` command: 
   
-    > `masq> setup --blockchain-service-url https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>`
+    > `masq> setup --blockchain-service-url https://polygon-mumbai.infura.io/v3/<YOUR-PROJECT-ID>`
   
 * Edit your config.toml file and include the entry
   
-    > `blockservice-service-url = "https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>"`
+    > `blockservice-service-url = "https://polygon-mumbai.infura.io/v3/<YOUR-PROJECT-ID>"`
 
 * Or define an environment variable
   
     * Windows
   
-    > `set MASQ_BLOCKCHAIN_SERVICE_URL = https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>`
+    > `set MASQ_BLOCKCHAIN_SERVICE_URL = https://polygon-mumbai.infura.io/v3/<YOUR-PROJECT-ID>`
   
     * Linux or macOS
   
-    > `export MASQ_BLOCKCHAIN_SERVICE_URL = https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>`
+    > `export MASQ_BLOCKCHAIN_SERVICE_URL = https://polygon-mumbai.infura.io/v3/<YOUR-PROJECT-ID>`
 
 Change `<YOUR-PROJECT-ID>` with the PROJECT ID from your Infura.io Project Dashboard. Change the URL to 
 mainnet when ready to spend and earn real MASQ. 

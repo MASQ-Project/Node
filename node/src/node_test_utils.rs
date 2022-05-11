@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 
 use crate::discriminator::Discriminator;
@@ -15,10 +15,11 @@ use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-use crate::test_utils::logging::TestLog;
 use crate::test_utils::recorder::Recorder;
 use actix::Actor;
 use actix::Addr;
+use masq_lib::test_utils::logging::TestLog;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -268,22 +269,29 @@ impl NullDiscriminatorFactory {
     }
 }
 
+pub fn start_recorder_refcell_opt(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
+    recorder.borrow_mut().take().unwrap().start()
+}
+
 pub fn make_stream_handler_pool_subs_from(
     stream_handler_pool_opt: Option<Recorder>,
 ) -> StreamHandlerPoolSubs {
-    let stream_handler_pool = match stream_handler_pool_opt {
-        Some(stream_handler_pool) => stream_handler_pool,
+    let recorder = match stream_handler_pool_opt {
+        Some(recorder) => recorder,
         None => Recorder::new(),
     };
+    let addr = recorder.start();
+    make_stream_handler_pool_subs_from_recorder(&addr)
+}
 
-    let addr: Addr<Recorder> = stream_handler_pool.start();
-
+pub fn make_stream_handler_pool_subs_from_recorder(addr: &Addr<Recorder>) -> StreamHandlerPoolSubs {
     StreamHandlerPoolSubs {
         add_sub: recipient!(addr, AddStreamMsg),
         transmit_sub: recipient!(addr, TransmitDataMsg),
         remove_sub: recipient!(addr, RemoveStreamMsg),
         bind: recipient!(addr, PoolBindMessage),
         node_query_response: recipient!(addr, DispatcherNodeQueryResponse),
+        node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
     }
 }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::neighborhood_database::NeighborhoodDatabaseError::NodeKeyNotFound;
 use crate::neighborhood::dot_graph::{
     render_dot_graph, DotRenderable, EdgeRenderable, NodeRenderable, NodeRenderableInner,
@@ -6,12 +6,13 @@ use crate::neighborhood::dot_graph::{
 use crate::neighborhood::node_record::{NodeRecord, NodeRecordError};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodMode;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
+use masq_lib::logger::Logger;
+use masq_lib::utils::ExpectValue;
 use std::collections::HashSet;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::Debug;
@@ -52,7 +53,7 @@ impl NeighborhoodDatabase {
         let mut node_record = NodeRecord::new(
             public_key,
             earning_wallet,
-            neighborhood_mode.rate_pack().clone(),
+            *neighborhood_mode.rate_pack(),
             neighborhood_mode.accepts_connections(),
             neighborhood_mode.routes_data(),
             0,
@@ -251,6 +252,17 @@ impl NeighborhoodDatabase {
         keys
     }
 
+    pub fn new_public_ip(&mut self, public_ip: IpAddr) {
+        let record = self.root_mut();
+        let public_key = record.public_key().clone();
+        let node_addr_opt = record.metadata.node_addr_opt.clone();
+        let old_node_addr = node_addr_opt.expectv("Root node");
+        let new_node_addr = NodeAddr::new(&public_ip, &old_node_addr.ports());
+        record.metadata.node_addr_opt = Some(new_node_addr);
+        self.by_ip_addr.remove(&old_node_addr.ip_addr());
+        self.by_ip_addr.insert(public_ip, public_key);
+    }
+
     fn to_dot_renderables(&self) -> Vec<Box<dyn DotRenderable>> {
         let mut mentioned: HashSet<PublicKey> = HashSet::new();
         let mut present: HashSet<PublicKey> = HashSet::new();
@@ -351,9 +363,15 @@ mod tests {
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
     use std::str::FromStr;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(ISOLATED_NODE_GRACE_PERIOD_SECS, 30);
+    }
 
     #[test]
     fn a_brand_new_database_has_the_expected_contents() {
@@ -391,7 +409,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             this_node.earning_wallet(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
 
         assert_eq!(subject.this_node, this_node.public_key().clone());
@@ -459,7 +477,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
 
         subject.add_node(one_node.clone()).unwrap();
@@ -513,7 +531,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         subject.add_node(one_node.clone()).unwrap();
         subject.add_node(another_node.clone()).unwrap();
@@ -641,7 +659,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         subject.add_node(other_node.clone()).unwrap();
 
@@ -755,13 +773,38 @@ mod tests {
     }
 
     #[test]
+    fn new_public_ip_replaces_ip_address_and_nothing_else() {
+        let this_node = make_node_record(1234, true);
+        let old_node = this_node.clone();
+        let mut subject = NeighborhoodDatabase::new(
+            this_node.public_key(),
+            (&this_node).into(),
+            this_node.earning_wallet(),
+            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN),
+        );
+        let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
+
+        subject.new_public_ip(new_public_ip);
+
+        let mut new_node = subject.root().clone();
+        assert_eq!(subject.node_by_ip(&new_public_ip), Some(&new_node));
+        assert_eq!(
+            subject.node_by_ip(&old_node.metadata.node_addr_opt.clone().unwrap().ip_addr()),
+            None
+        );
+        assert_eq!(new_node.node_addr_opt().unwrap().ip_addr(), new_public_ip);
+        new_node.metadata.node_addr_opt = old_node.metadata.node_addr_opt.clone(); // undo the only change
+        assert_eq!(new_node, old_node); // now they should be identical
+    }
+
+    #[test]
     fn remove_neighbor_returns_error_when_given_nonexistent_node_key() {
         let this_node = make_node_record(123, true);
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         let nonexistent_key = &PublicKey::new(b"nonexistent");
 
@@ -807,7 +850,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         let neighborless_node = make_node_record(2345, true);
         subject.add_node(neighborless_node.clone()).unwrap();

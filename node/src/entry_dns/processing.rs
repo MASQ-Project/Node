@@ -1,8 +1,8 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::packet_facade::PacketFacade;
 use super::packet_facade::Query;
 use super::packet_facade::ResourceRecord;
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use std::convert::From;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
@@ -36,7 +36,7 @@ pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger
     response_size
 }
 
-fn make_response(mut facade: &mut PacketFacade) -> usize {
+fn make_response(facade: &mut PacketFacade) -> usize {
     match facade.get_opcode() {
         None => return make_format_error(facade),
         Some(opcode) if opcode == u8::from(OpCode::Query) => (),
@@ -76,7 +76,7 @@ fn make_response(mut facade: &mut PacketFacade) -> usize {
                 3600,
                 &Ipv6Addr::LOCALHOST.octets(),
             ),
-            _ => return make_not_implemented_error(&mut facade),
+            _ => return make_not_implemented_error(facade),
         };
     }
     facade.get_length()
@@ -180,13 +180,19 @@ struct ResponseRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::logger::Logger;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
+    use masq_lib::logger::Logger;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use std::net::Ipv4Addr;
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
     use std::time::Instant;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(HEADER_BYTES, 12);
+        assert_eq!(UNKNOWN, "<unknown>");
+    }
 
     #[test]
     fn returns_format_error_if_queries_overrun() {

@@ -11,6 +11,4 @@ You can find it [here](https://github.com/MASQ-Project/Node/blob/master/USER-INT
 
 
 
-Copyright (c) 2019-2021, MASQ Network
-
-Copyright (c) 2019, MASQ. All rights reserved.
+Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.

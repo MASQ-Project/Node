@@ -7,7 +7,7 @@ use crate::protocols::utils::{
 use std::any::Any;
 use std::convert::TryFrom;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct MapOpcodeData {
     pub epoch_opt: Option<u32>,
     pub internal_port: u16,
@@ -23,7 +23,7 @@ impl OpcodeData for MapOpcodeData {
         let mut position = 0;
         match direction {
             Direction::Request => {
-                u16_into(buf, 0, 0x00);
+                u16_into(buf, 0, 0x0000);
                 position += 2;
             }
             Direction::Response => {
@@ -50,17 +50,6 @@ impl OpcodeData for MapOpcodeData {
 }
 
 impl PmpOpcodeData for MapOpcodeData {}
-
-impl Default for MapOpcodeData {
-    fn default() -> Self {
-        Self {
-            epoch_opt: None,
-            internal_port: 0,
-            external_port: 0,
-            lifetime: 0,
-        }
-    }
-}
 
 impl TryFrom<(Direction, &[u8])> for MapOpcodeData {
     type Error = ParseError;
@@ -130,7 +119,7 @@ mod tests {
             epoch_opt: None,
             internal_port: 0x1234,
             external_port: 0x4321,
-            lifetime: 0x12344321,
+            lifetime: 0x56788765,
         };
 
         subject.marshal(Direction::Request, &mut buffer).unwrap();
@@ -140,7 +129,7 @@ mod tests {
             [
                 0x00u8, 0x00, // reserved
                 0x12, 0x34, 0x43, 0x21, // internal port, external port
-                0x12, 0x34, 0x43, 0x21, // lifetime
+                0x56, 0x78, 0x87, 0x65, // lifetime
             ]
         );
     }
@@ -152,7 +141,7 @@ mod tests {
             epoch_opt: Some(0x43211234),
             internal_port: 0x1234,
             external_port: 0x4321,
-            lifetime: 0x12344321,
+            lifetime: 0x56788765,
         };
 
         subject.marshal(Direction::Response, &mut buffer).unwrap();
@@ -162,7 +151,7 @@ mod tests {
             [
                 0x43, 0x21, 0x12, 0x34, // epoch
                 0x12, 0x34, 0x43, 0x21, // internal port, external port
-                0x12, 0x34, 0x43, 0x21, // lifetime
+                0x56, 0x78, 0x87, 0x65, // lifetime
             ]
         );
     }
@@ -190,7 +179,7 @@ mod tests {
         let buffer: &[u8] = &[
             0x00, 0x00, // reserved
             0x12, 0x34, 0x43, 0x21, // internal port, external port
-            0x12, 0x34, 0x43, 0x21, // lifetime
+            0x56, 0x78, 0x87, 0x65, // lifetime
         ];
 
         let result = MapOpcodeData::try_from((Direction::Request, buffer)).unwrap();
@@ -201,7 +190,7 @@ mod tests {
                 epoch_opt: None,
                 internal_port: 0x1234,
                 external_port: 0x4321,
-                lifetime: 0x12344321,
+                lifetime: 0x56788765,
             }
         );
     }
@@ -211,7 +200,7 @@ mod tests {
         let buffer: &[u8] = &[
             0x43, 0x21, 0x12, 0x34, // epoch
             0x12, 0x34, 0x43, 0x21, // internal port, external port
-            0x12, 0x34, 0x43, 0x21, // lifetime
+            0x56, 0x78, 0x87, 0x65, // lifetime
         ];
 
         let result = MapOpcodeData::try_from((Direction::Response, buffer)).unwrap();
@@ -222,7 +211,7 @@ mod tests {
                 epoch_opt: Some(0x43211234),
                 internal_port: 0x1234,
                 external_port: 0x4321,
-                lifetime: 0x12344321,
+                lifetime: 0x56788765,
             }
         );
     }

@@ -1,15 +1,13 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::bootstrapper::Bootstrapper;
 use super::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::bootstrapper::RealUser;
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
-use crate::node_configurator::node_configurator_standard::standard::server_initializer_collected_params;
+use crate::node_configurator::node_configurator_standard::server_initializer_collected_params;
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
-use crate::sub_lib;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
-use chrono::{DateTime, Local};
 use flexi_logger::{
     Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record,
 };
@@ -18,11 +16,12 @@ use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::test_utils::utils::real_format_function;
 use std::any::Any;
+use std::io;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
-use std::{io, thread};
 use tokio::prelude::{Async, Future};
 
 pub struct ServerInitializerReal {
@@ -257,13 +256,13 @@ fn panic_hook(panic_info: AltPanicInfo) {
     } else {
         "<message indecipherable>".to_string()
     };
-    let logger = sub_lib::logger::Logger::new("PanicHandler");
+    let logger = masq_lib::logger::Logger::new("PanicHandler");
     error!(logger, "{} - {}", location, message);
     let backtrace = Backtrace::new();
     error!(logger, "{:?}", backtrace);
 }
 
-// DeferredNow can't be constructed in a test; therefore this function is untestable...
+// DeferredNow can't be constructed in a test; therefore this function is untestable.
 fn format_function(
     write: &mut dyn io::Write,
     now: &mut DeferredNow,
@@ -272,31 +271,11 @@ fn format_function(
     real_format_function(write, now.now(), record)
 }
 
-// ...but this one isn't.
-pub fn real_format_function(
-    write: &mut dyn io::Write,
-    timestamp: &DateTime<Local>,
-    record: &Record,
-) -> Result<(), io::Error> {
-    let timestamp = timestamp.naive_local().format("%Y-%m-%dT%H:%M:%S%.3f");
-    let thread_id_str = format!("{:?}", thread::current().id());
-    let thread_id = &thread_id_str[9..(thread_id_str.len() - 1)];
-    let level = record.level();
-    let name = record.module_path().unwrap_or("<unnamed>");
-    write.write_fmt(format_args!(
-        "{} Thd{}: {}: {}: ",
-        timestamp, thread_id, level, name
-    ))?;
-    write.write_fmt(*record.args())
-}
-
 #[cfg(test)]
 pub mod test_utils {
     use crate::bootstrapper::RealUser;
     use crate::privilege_drop::PrivilegeDropper;
     use crate::server_initializer::LoggerInitializerWrapper;
-    #[cfg(not(target_os = "windows"))]
-    use crate::test_utils::logging::init_test_logging;
     use log::LevelFilter;
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
@@ -385,8 +364,6 @@ pub mod test_utils {
                     None => None,
                 },
             ));
-            #[cfg(not(target_os = "windows"))]
-            assert!(init_test_logging());
         }
     }
 
@@ -415,17 +392,18 @@ pub mod tests {
     use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::test_utils::pure_test_utils::make_pre_populated_mocked_directory_wrapper;
+    use crate::test_utils::unshared_test_utils::make_pre_populated_mocked_directory_wrapper;
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
-    use masq_lib::multi_config::MultiConfig;
+    use masq_lib::multi_config::{make_arg_matches_accesible, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::fake_stream_holder::{
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
     };
-    use masq_lib::utils::SliceToVec;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::utils::array_of_borrows_to_vec;
     use std::cell::RefCell;
-    use std::ops::{Deref, Not};
+    use std::ops::Not;
     use std::sync::{Arc, Mutex};
 
     impl<C: Send + 'static> ConfiguredByPrivilege for CrashTestDummy<C> {
@@ -563,7 +541,12 @@ pub mod tests {
         ) -> Self {
             self.arg_matches_requested_entries = required
                 .iter()
-                .map(|key| multi_config.deref().value_of(key).unwrap().to_string())
+                .map(|key| {
+                    make_arg_matches_accesible(multi_config)
+                        .value_of(key)
+                        .unwrap()
+                        .to_string()
+                })
                 .collect();
             self
         }
@@ -719,7 +702,7 @@ pub mod tests {
             stderr,
         };
         subject
-            .go(streams, &["MASQNode"].array_of_borrows_to_vec())
+            .go(streams, &array_of_borrows_to_vec(&["MASQNode"]))
             .unwrap();
         let res = subject.wait();
 
@@ -795,17 +778,19 @@ pub mod tests {
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&bootstrapper_init_privileged_params_arc)
             .initialize_as_unprivileged_params(&bootstrapper_init_unprivileged_params_arc)
-            .define_demanded_values_from_multi_config(
-                ["dns-servers", "real-user"].array_of_borrows_to_vec(),
-            );
+            .define_demanded_values_from_multi_config(array_of_borrows_to_vec(&[
+                "dns-servers",
+                "real-user",
+            ]));
         let dns_socket_server = ConfiguredByPrivilegeMock::default()
             .initialize_as_privileged_result(Ok(()))
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&dns_socket_server_privileged_params_arc)
             .initialize_as_unprivileged_params(&dns_socket_server_unprivileged_params_arc)
-            .define_demanded_values_from_multi_config(
-                ["dns-servers", "real-user"].array_of_borrows_to_vec(),
-            );
+            .define_demanded_values_from_multi_config(array_of_borrows_to_vec(&[
+                "dns-servers",
+                "real-user",
+            ]));
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let drop_privileges_params_arc = Arc::new(Mutex::new(vec![]));
         let chown_params_arc = Arc::new(Mutex::new(vec![]));
@@ -829,14 +814,13 @@ pub mod tests {
 
         let result = subject.go(
             streams,
-            &[
+            &array_of_borrows_to_vec(&[
                 "MASQNode",
                 "--real-user",
                 "123:456:/home/alice",
                 "--dns-servers",
                 "5.5.6.6",
-            ]
-            .array_of_borrows_to_vec(),
+            ]),
         );
 
         assert!(result.is_ok());
@@ -845,7 +829,10 @@ pub mod tests {
         assert_eq!(
             *chown_params,
             vec![(
-                PathBuf::from("/home/alice/mock_directory/MASQ/mainnet"),
+                PathBuf::from(format!(
+                    "/home/alice/mock_directory/MASQ/{}",
+                    DEFAULT_CHAIN.rec().literal_identifier
+                )),
                 real_user.clone()
             )]
         );
@@ -896,7 +883,7 @@ pub mod tests {
             privilege_dropper: Box::new(privilege_dropper),
             dirs_wrapper: Box::new(make_pre_populated_mocked_directory_wrapper()),
         };
-        let args = &["MASQNode", "--real-user", "123:123:/home/alice"].array_of_borrows_to_vec();
+        let args = array_of_borrows_to_vec(&["MASQNode", "--real-user", "123:123:/home/alice"]);
         let stderr = ByteArrayWriter::new();
         let mut holder = FakeStreamHolder::new();
         holder.stderr = stderr;

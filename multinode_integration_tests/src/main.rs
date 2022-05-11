@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use self::sub_lib::utils::indicates_dead_stream;
 use masq_lib::command::{Command, StdStreams};
@@ -223,7 +223,7 @@ impl MockNode {
     }
 
     fn usage(stderr: &mut dyn Write) -> u8 {
-        writeln! (stderr, "Usage: MockNode <IP address>:<port>,[<port>,...] where <IP address> is the address MockNode is running on and <port> is between {} and {}",
+        writeln! (stderr, "Usage: MockNode <IP address>:<port>/<port>/... where <IP address> is the address MockNode is running on and <port> is between {} and {}",
             LOWEST_USABLE_INSECURE_PORT,
             HIGHEST_USABLE_PORT,
         ).unwrap ();
@@ -356,6 +356,11 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CONTROL_STREAM_PORT, 42511);
+    }
+
+    #[test]
     fn cant_start_with_no_node_ref() {
         let mut holder = FakeStreamHolder::new();
         let mut subject = MockNode::new();
@@ -364,7 +369,7 @@ mod tests {
 
         assert_eq!(result, 1);
         let stderr = holder.stderr;
-        assert_eq! (stderr.get_string (), String::from ("Usage: MockNode <IP address>:<port>,[<port>,...] where <IP address> is the address MockNode is running on and <port> is between 1025 and 65535\n\n"));
+        assert_eq! (stderr.get_string (), String::from ("Usage: MockNode <IP address>:<port>/<port>/... where <IP address> is the address MockNode is running on and <port> is between 1025 and 65535\n\n"));
     }
 
     #[test]
@@ -382,7 +387,7 @@ mod tests {
         assert_eq!(
             stderr.get_string(),
             String::from(
-                "NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not 'Booga'\n"
+                "NodeAddr should be expressed as '<IP address>:<port>/<port>/...', not 'Booga'\n"
             )
         );
     }

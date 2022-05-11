@@ -1,7 +1,7 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::sub_lib::logger::Logger;
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use masq_lib::command::StdStreams;
+use masq_lib::logger::Logger;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
@@ -93,10 +93,10 @@ mod tests {
     use super::super::packet_facade::PacketFacade;
     use super::*;
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::pure_test_utils::make_simplified_multi_config;
+    use crate::test_utils::unshared_test_utils::make_simplified_multi_config;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use std::borrow::Borrow;
     use std::borrow::BorrowMut;
     use std::clone::Clone;
@@ -109,6 +109,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use tokio;
     use trust_dns::op::ResponseCode;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DNS_PORT, 53);
+    }
 
     struct UdpSocketWrapperMockGuts {
         log: Vec<String>,

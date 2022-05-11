@@ -1,11 +1,11 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use super::gossip::GossipBuilder;
 use super::gossip::Gossip_0v1;
 use super::neighborhood_database::NeighborhoodDatabase;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::utils::time_t_timestamp;
+use masq_lib::logger::Logger;
 use std::cell::Cell;
 
 pub const DEAD_NODE_CHECK_INTERVAL_SECS: u32 = 60;
@@ -111,9 +111,14 @@ mod tests {
     use crate::test_utils::assert_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
     use itertools::Itertools;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::collections::btree_set::BTreeSet;
     use std::convert::TryFrom;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DEAD_NODE_CHECK_INTERVAL_SECS, 60);
+    }
 
     #[test]
     fn constructor_populates_last_dead_node_check() {
@@ -345,7 +350,7 @@ mod tests {
         );
         let result_node_record_inner = NodeRecordInner_0v1::try_from(result_gossip_record).unwrap();
         assert_eq!(result_node_record_inner, our_node_record.inner);
-        let our_cryptde = CryptDENull::from(our_node_record.public_key(), DEFAULT_CHAIN_ID);
+        let our_cryptde = CryptDENull::from(our_node_record.public_key(), TEST_DEFAULT_CHAIN);
         assert_eq!(
             our_cryptde.verify_signature(
                 &our_node_record.signed_gossip,
@@ -370,7 +375,7 @@ mod tests {
         assert_eq!(result_gossip_record.node_addr_opt, None);
         let result_node_record_inner = NodeRecordInner_0v1::try_from(result_gossip_record).unwrap();
         assert_eq!(result_node_record_inner, our_node_record.inner);
-        let our_cryptde = CryptDENull::from(our_node_record.public_key(), DEFAULT_CHAIN_ID);
+        let our_cryptde = CryptDENull::from(our_node_record.public_key(), TEST_DEFAULT_CHAIN);
         assert_eq!(
             our_cryptde.verify_signature(
                 &our_node_record.signed_gossip,

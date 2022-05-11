@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::proxy_client::stream_reader::StreamReader;
 use crate::proxy_client::stream_writer::StreamWriter;
@@ -6,7 +6,6 @@ use crate::sub_lib::channel_wrappers::FuturesChannelFactory;
 use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::proxy_client::{InboundServerData, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
@@ -16,6 +15,7 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use actix::Recipient;
 use crossbeam_channel::Sender;
+use masq_lib::logger::Logger;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;

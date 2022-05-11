@@ -1,9 +1,8 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_cli_lib::terminal::integration_test_utils::{
     MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE,
 };
-use masq_lib::short_writeln;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -85,13 +84,19 @@ impl StdinHandle {
         }
     }
     pub fn type_command(&mut self, command: &str) {
-        short_writeln!(&self.stdin, "{}", command);
+        match self.stdin.write_fmt(format_args!("{}\n", command)) {
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("{}", e);
+                panic!("type_command failed: {}", e)
+            }
+        }
     }
 }
 
 pub struct StopHandle {
     name: String,
-    child: Child,
+    pub child: Child,
 }
 
 #[allow(dead_code)]

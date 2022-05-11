@@ -1,7 +1,8 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::apps::{app_config_dumper, app_daemon, app_node};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
+use crate::run_modes::Leaving::{ExitCode, Not};
 use crate::run_modes_factories::{
     DaemonInitializerFactory, DaemonInitializerFactoryReal, DumpConfigRunnerFactory,
     DumpConfigRunnerFactoryReal, ServerInitializerFactory, ServerInitializerFactoryReal,
@@ -12,7 +13,7 @@ use futures::future::Future;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use EnterProgram::{Enter, LeaveRight, LeaveWrong};
+use ProgramEntering::{Enter, Leave};
 
 #[derive(Debug, PartialEq)]
 enum Mode {
@@ -41,16 +42,10 @@ impl RunModes {
     }
 
     pub fn go(&self, args: &[String], streams: &mut StdStreams<'_>) -> i32 {
-        let (mode, privilege_required) = self.determine_mode_and_priv_req(args);
-        match Self::ensure_help_or_version(args, &mode, streams) {
-            Enter => (),
-            LeaveRight => return 0,
-            LeaveWrong => return 1,
+        let mode = match self.entrance_interview(args, streams) {
+            Enter(mode) => mode,
+            Leave(exit_code) => return exit_code,
         };
-
-        if let LeaveWrong = self.verify_privilege_level(privilege_required, &mode, streams) {
-            return 1;
-        }
 
         match match mode {
             Mode::DumpConfig => self.runner.dump_config(args, streams),
@@ -60,24 +55,35 @@ impl RunModes {
             Ok(_) => 0,
             Err(RunnerError::Numeric(e_num)) => e_num,
             Err(RunnerError::Configurator(conf_e)) => {
-                Self::configurator_err_final_processing(conf_e, streams);
+                Self::process_gathered_errors(conf_e, streams);
                 1
             }
         }
     }
 
-    fn configurator_err_final_processing(error: ConfiguratorError, streams: &mut StdStreams) {
+    fn entrance_interview(&self, args: &[String], streams: &mut StdStreams) -> ProgramEntering {
+        let (mode, privilege_required) = self.determine_mode_and_priv_req(args);
+        if let ExitCode(exit_code) = Self::ensure_help_or_version(args, &mode, streams) {
+            return Leave(exit_code);
+        };
+        if let ExitCode(1) = self.verify_privilege_level(privilege_required, &mode, streams) {
+            return Leave(1);
+        };
+        Enter(mode)
+    }
+
+    fn process_gathered_errors(error: ConfiguratorError, streams: &mut StdStreams) {
         short_writeln!(streams.stderr, "Configuration error");
-        Self::write_unified_err_msgs(streams, error.param_errors)
+        Self::produce_unified_err_msgs(streams, error.param_errors)
     }
 
     fn ensure_help_or_version(
         args: &[String],
         mode: &Mode,
         streams: &mut StdStreams<'_>,
-    ) -> EnterProgram {
+    ) -> Leaving {
         match match match Self::is_help_or_version(args) {
-            false => return Enter,
+            false => return Not,
             true => mode,
         } {
             Mode::DumpConfig => app_config_dumper(),
@@ -86,28 +92,28 @@ impl RunModes {
         }
         .get_matches_from_safe(args)
         {
-            Err(e) => Self::process_clap_error_that_may_contain_help_or_version(e, streams),
-            x => unreachable!("the sieve for 'help' or 'version' failed {:?}", x),
+            Err(e) => Self::clap_error_to_likely_contain_help_or_version(e, streams),
+            x => unreachable!("sieve for 'help' or 'version' has flaws {:?}", x),
         }
     }
 
-    fn process_clap_error_that_may_contain_help_or_version(
+    fn clap_error_to_likely_contain_help_or_version(
         clap_error: Error,
         streams: &mut StdStreams<'_>,
-    ) -> EnterProgram {
+    ) -> Leaving {
         match clap_error {
             err if err.kind == clap::ErrorKind::HelpDisplayed
                 || err.kind == clap::ErrorKind::VersionDisplayed =>
             {
                 short_writeln!(streams.stdout, "{}", err.message);
-                LeaveRight
+                ExitCode(0)
             }
             err => {
-                Self::write_unified_err_msgs(
+                Self::produce_unified_err_msgs(
                     streams,
                     MultiConfig::make_configurator_error(err).param_errors,
                 );
-                LeaveWrong
+                ExitCode(1)
             }
         }
     }
@@ -117,24 +123,24 @@ impl RunModes {
         privilege_required: bool,
         mode: &Mode,
         streams: &mut StdStreams,
-    ) -> EnterProgram {
+    ) -> Leaving {
         match (
             self.privilege_dropper.expect_privilege(privilege_required),
             privilege_required,
         ) {
-            (true, _) => Enter,
+            (true, _) => Not,
             (false, fatal) => {
-                Self::write_msg_about_privilege_mismatch(mode, privilege_required, streams);
+                Self::produce_privilege_mismatch_message(mode, privilege_required, streams);
                 if fatal {
-                    LeaveWrong
+                    ExitCode(1)
                 } else {
-                    Enter
+                    ExitCode(0)
                 }
             }
         }
     }
 
-    fn write_msg_about_privilege_mismatch(
+    fn produce_privilege_mismatch_message(
         mode: &Mode,
         privilege_required: bool,
         streams: &mut StdStreams,
@@ -152,7 +158,7 @@ impl RunModes {
             .any(|searched| args.contains(&searched.to_string()))
     }
 
-    fn write_unified_err_msgs(streams: &mut StdStreams, error: Vec<ParamError>) {
+    fn produce_unified_err_msgs(streams: &mut StdStreams, error: Vec<ParamError>) {
         error.into_iter().for_each(|err_case| {
             short_writeln!(
                 streams.stderr,
@@ -197,10 +203,14 @@ impl RunModes {
     }
 }
 
-enum EnterProgram {
-    Enter,
-    LeaveRight,
-    LeaveWrong,
+enum ProgramEntering {
+    Enter(Mode),
+    Leave(i32),
+}
+
+enum Leaving {
+    Not,
+    ExitCode(i32),
 }
 
 #[derive(Debug, PartialEq)]
@@ -250,7 +260,7 @@ impl Runner for RunnerReal {
     fn run_daemon(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
         let mut initializer = self.daemon_initializer_factory.make(args)?;
         initializer.go(streams, args)?;
-        Ok(()) //there might presently be no way to make this fn terminate politely
+        Ok(()) //there might presently be no way to make this fn terminate politely, it blocks at the previous line until somebody kills the process
     }
 }
 
@@ -279,7 +289,7 @@ mod tests {
     };
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::utils::SliceToVec;
+    use masq_lib::utils::array_of_borrows_to_vec;
     use regex::Regex;
     use std::cell::RefCell;
     use std::ops::{Deref, Not};
@@ -382,12 +392,12 @@ mod tests {
     #[test]
     fn everything_beats_initialization() {
         check_mode(
-            ["--initialization", "--dump-config"].array_of_borrows_to_vec(),
+            array_of_borrows_to_vec(&["--initialization", "--dump-config"]),
             Mode::DumpConfig,
             false,
         );
         check_mode(
-            ["--dump-config", "--initialization"].array_of_borrows_to_vec(),
+            array_of_borrows_to_vec(&["--dump-config", "--initialization"]),
             Mode::DumpConfig,
             false,
         );
@@ -396,7 +406,7 @@ mod tests {
     #[test]
     fn dump_config_rules_all() {
         let args =
-            ["--booga", "--goober", "--initialization", "--dump-config"].array_of_borrows_to_vec();
+            array_of_borrows_to_vec(&["--booga", "--goober", "--initialization", "--dump-config"]);
         check_mode(args, Mode::DumpConfig, false);
     }
 
@@ -484,7 +494,7 @@ parm2 - msg2\n"
         );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = (&["program", "param", "--arg"]).array_of_borrows_to_vec();
+        let args = &array_of_borrows_to_vec(&["program", "param", "--arg"]);
 
         let result = subject.runner.run_node(&args, &mut holder.streams());
 
@@ -504,7 +514,7 @@ parm2 - msg2\n"
         assert_eq!(&holder.stderr.get_string(), "");
         let go_params = go_params_arc.lock().unwrap();
         assert_eq!(go_params.deref().len(), 1);
-        assert_eq!(go_params[0], args)
+        assert_eq!(&go_params[0], args)
     }
 
     #[test]
@@ -522,7 +532,7 @@ parm2 - msg2\n"
         );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = ["program", "param", "param", "--arg"].array_of_borrows_to_vec();
+        let args = array_of_borrows_to_vec(&["program", "param", "param", "--arg"]);
 
         let result = subject
             .runner
@@ -551,7 +561,7 @@ parm2 - msg2\n"
         );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = ["program", "--initialization", "--halabala"].array_of_borrows_to_vec();
+        let args = array_of_borrows_to_vec(&["program", "--initialization", "--halabala"]);
 
         let result = subject.runner.run_daemon(&args, &mut holder.streams());
 
@@ -584,7 +594,7 @@ parm2 - msg2\n"
         );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = ["program", "--initialization", "--ui-port", "52452"].array_of_borrows_to_vec();
+        let args = array_of_borrows_to_vec(&["program", "--initialization", "--ui-port", "52452"]);
 
         let result = subject.runner.run_daemon(&args, &mut holder.streams());
 
@@ -620,7 +630,7 @@ parm2 - msg2\n"
         );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = ["program", "param", "--arg"].array_of_borrows_to_vec();
+        let args = array_of_borrows_to_vec(&["program", "param", "--arg"]);
 
         let result = subject.runner.dump_config(&args, &mut holder.streams());
 
@@ -679,10 +689,10 @@ parm2 - msg2\n"
     #[test]
     fn is_help_or_version_works() {
         vec![
-            ["whatever", "--help", "something"].array_of_borrows_to_vec(),
-            ["whatever", "--version", "something"].array_of_borrows_to_vec(),
-            ["whatever", "-V", "something"].array_of_borrows_to_vec(),
-            ["whatever", "-h", "something"].array_of_borrows_to_vec(),
+            array_of_borrows_to_vec(&["whatever", "--help", "something"]),
+            array_of_borrows_to_vec(&["whatever", "--version", "something"]),
+            array_of_borrows_to_vec(&["whatever", "-V", "something"]),
+            array_of_borrows_to_vec(&["whatever", "-h", "something"]),
         ]
         .into_iter()
         .for_each(|args| assert!(RunModes::is_help_or_version(&args)))
@@ -691,9 +701,7 @@ parm2 - msg2\n"
     #[test]
     fn is_help_or_version_lets_you_in_if_no_specific_arguments() {
         vec![
-            ["whatever", "something"]
-                .array_of_borrows_to_vec()
-                .as_slice(),
+            array_of_borrows_to_vec(&["whatever", "something"]).as_slice(),
             &["drowned--help".to_string()],
             &["drowned--version".to_string()],
             &["drowned-Vin a juice".to_string()],
@@ -710,7 +718,7 @@ parm2 - msg2\n"
         let mut node_h_holder = FakeStreamHolder::new();
 
         let daemon_h_exit_code = subject.go(
-            &["program", "--initialization", "--help"].array_of_borrows_to_vec(),
+            &array_of_borrows_to_vec(&["program", "--initialization", "--help"]),
             &mut daemon_h_holder.streams(),
         );
 
@@ -735,12 +743,13 @@ parm2 - msg2\n"
     //TODO fix the functionality by upgrading Clap;
     // it should be the card GH-460
     // or eventually transform this into an integration test
+    #[ignore]
     #[test]
     fn daemon_and_node_modes_version_call() {
         use chrono::offset::Utc;
         use chrono::NaiveDate;
         //this line here makes us aware that this issue is still unresolved; you may want to set this date more forward if we still cannot answer this
-        if Utc::today().and_hms(0, 0, 0).naive_utc().date() >= NaiveDate::from_ymd(2021, 10, 30) {
+        if Utc::today().and_hms(0, 0, 0).naive_utc().date() >= NaiveDate::from_ymd(2022, 3, 31) {
             let subject = RunModes::new();
             let mut daemon_v_holder = FakeStreamHolder::new();
             let mut node_v_holder = FakeStreamHolder::new();
@@ -787,7 +796,7 @@ parm2 - msg2\n"
         let mut stream_holder = FakeStreamHolder::new();
 
         let daemon_exit_code = subject.go(
-            &["program", "--initiabababa", "--help"].array_of_borrows_to_vec(),
+            &array_of_borrows_to_vec(&["program", "--initiabababa", "--help"]),
             &mut stream_holder.streams(),
         );
 

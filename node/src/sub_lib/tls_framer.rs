@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 use masq_lib::utils::index_of;
@@ -101,6 +101,11 @@ impl TlsFramer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(PRESERVE_HEADER_LEN, 4);
+    }
 
     #[test]
     fn constant_values() {

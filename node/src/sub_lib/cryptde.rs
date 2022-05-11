@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::route::RouteError;
 use ethsign_crypto::Keccak256;
 use rustc_hex::{FromHex, ToHex};
@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
+use std::any::Any;
 use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
@@ -554,6 +555,7 @@ pub trait CryptDE: Send + Sync {
         descriptor_fragment: &str,
     ) -> Result<PublicKey, String>;
     fn digest(&self) -> [u8; 32];
+    fn as_any(&self) -> &dyn Any;
 }
 
 pub struct SerdeCborError {
@@ -626,8 +628,9 @@ pub fn create_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 3
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::main_cryptde;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::{FromHex, FromHexError};
     use serde::de;
     use serde::ser;
@@ -1055,8 +1058,8 @@ mod tests {
 
     #[test]
     fn decodex_handles_decryption_error() {
-        let mut cryptde = main_cryptde().clone();
-        cryptde.set_key_pair(&PublicKey::new(&[]), DEFAULT_CHAIN_ID);
+        let mut cryptde = CryptDENull::new(TEST_DEFAULT_CHAIN);
+        cryptde.set_key_pair(&PublicKey::new(&[]), TEST_DEFAULT_CHAIN);
         let data = CryptData::new(&b"booga"[..]);
 
         let result = decodex::<TestStruct>(&cryptde, &data);

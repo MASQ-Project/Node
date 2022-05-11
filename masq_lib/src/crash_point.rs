@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use clap::arg_enum;
 
@@ -42,6 +42,14 @@ impl From<CrashPoint> for usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(NONE, 0);
+        assert_eq!(PANIC, 1);
+        assert_eq!(ERROR, 2);
+        assert_eq!(MESSAGE, 3);
+    }
 
     #[test]
     fn from_usize_to_crash_point() {

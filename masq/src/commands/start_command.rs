@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
@@ -8,11 +8,13 @@ use masq_lib::short_writeln;
 use std::default::Default;
 use std::fmt::Debug;
 
-const START_COMMAND_TIMEOUT_MILLIS: u64 = 5000;
+const START_COMMAND_TIMEOUT_MILLIS: u64 = 15000;
+const START_SUBCOMMAND_ABOUT: &str =
+    "Starts a MASQNode with the parameters that have been established by 'setup.' \
+     Only valid if Node is not already running.";
 
 pub fn start_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("start")
-        .about("Starts a MASQNode with the parameters that have been established by 'setup.' Only valid if Node is not already running.")
+    SubCommand::with_name("start").about(START_SUBCOMMAND_ABOUT)
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -47,12 +49,22 @@ impl StartCommand {
 #[cfg(test)]
 mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::commands::start_command::START_COMMAND_TIMEOUT_MILLIS;
+    use crate::commands::start_command::{START_COMMAND_TIMEOUT_MILLIS, START_SUBCOMMAND_ABOUT};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use std::string::ToString;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(START_COMMAND_TIMEOUT_MILLIS, 15000);
+        assert_eq!(
+            START_SUBCOMMAND_ABOUT,
+            "Starts a MASQNode with the parameters that have been established by 'setup.' \
+             Only valid if Node is not already running."
+        );
+    }
 
     #[test]
     fn start_command_happy_path() {

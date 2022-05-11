@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod crash_notification;
 pub mod daemon_initializer;
@@ -14,7 +14,6 @@ use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use crate::daemon::setup_reporter::{SetupCluster, SetupReporter, SetupReporterReal};
 use crate::node_configurator::DirsWrapperReal;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use actix::Recipient;
 use actix::{Actor, Context, Handler, Message};
@@ -22,6 +21,7 @@ use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::constants::{NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR};
+use masq_lib::logger::Logger;
 use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Set};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
@@ -128,10 +128,7 @@ impl Handler<NodeFromUiMessage> for Daemon {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        debug!(
-            &self.logger,
-            "Handing NodeFromUiMessage from client {}: {}", msg.client_id, msg.body.opcode
-        );
+        debug!(&self.logger, "Handing NodeFromUiMessage:\n  {:?}", msg);
         let client_id = msg.client_id;
         if let Ok((setup_request, context_id)) = UiSetupRequest::fmb(msg.body.clone()) {
             self.handle_setup(client_id, context_id, setup_request);
@@ -164,7 +161,7 @@ impl Daemon {
             node_process_id: None,
             node_ui_port: None,
             verifier_tools: Box::new(VerifierToolsReal::new()),
-            setup_reporter: Box::new(SetupReporterReal::new(Box::new(DirsWrapperReal))),
+            setup_reporter: Box::new(SetupReporterReal::new(Box::new(DirsWrapperReal {}))),
             logger: Logger::new("Daemon"),
         }
     }
@@ -449,13 +446,27 @@ mod tests {
     };
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageTarget::AllExcept;
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
     use std::cell::RefCell;
     use std::collections::HashSet;
     use std::iter::FromIterator;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        let censorables_expected: HashMap<String, usize> = {
+            vec![
+                ("db-password".to_string(), 16),
+                ("consuming-private-key".to_string(), 64),
+            ]
+            .into_iter()
+            .collect()
+        };
+
+        assert_eq!(*CENSORABLES, censorables_expected);
+    }
 
     struct LauncherMock {
         launch_params: Arc<Mutex<Vec<(HashMap<String, String>, Recipient<CrashNotification>)>>>,
@@ -750,11 +761,15 @@ mod tests {
                 client_id: 1234,
                 body: UiSetupRequest {
                     values: vec![
+                        UiSetupRequestValue::new("ip", "1.2.3.4"),
                         UiSetupRequestValue::new(
                             "data-directory",
                             format!("{:?}", home_dir).as_str(),
                         ),
-                        UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME),
+                        UiSetupRequestValue::new(
+                            "chain",
+                            TEST_DEFAULT_CHAIN.rec().literal_identifier,
+                        ),
                         UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                     ],
                 }
@@ -781,7 +796,11 @@ mod tests {
         assert_eq!(
             actual_pairs.contains(&(
                 "chain".to_string(),
-                UiSetupResponseValue::new("chain", TEST_DEFAULT_CHAIN_NAME, Set)
+                UiSetupResponseValue::new(
+                    "chain",
+                    TEST_DEFAULT_CHAIN.rec().literal_identifier,
+                    Set
+                )
             )),
             true
         );
@@ -810,7 +829,7 @@ mod tests {
             body: UiSetupRequest {
                 values: vec![
                     UiSetupRequestValue::new("data-directory", data_dir.to_str().unwrap()),
-                    UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME),
+                    UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
                     UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                 ],
             }
@@ -828,20 +847,22 @@ mod tests {
                 .get_record::<NodeToUiMessage>(idx)
                 .clone()
         };
-        let check_payload = |running: bool,
-                             values: Vec<UiSetupResponseValue>,
-                             errors: Vec<(String, String)>| {
-            assert_eq!(running, false);
-            let actual_pairs: HashSet<(String, String)> = values
-                .into_iter()
-                .map(|value| (value.name, value.value))
-                .collect();
-            assert_eq!(
-                actual_pairs.contains(&("chain".to_string(), TEST_DEFAULT_CHAIN_NAME.to_string())),
-                true
-            );
-            assert_eq!(errors, vec![]);
-        };
+        let check_payload =
+            |running: bool, values: Vec<UiSetupResponseValue>, errors: Vec<(String, String)>| {
+                assert_eq!(running, false);
+                let actual_pairs: HashSet<(String, String)> = values
+                    .into_iter()
+                    .map(|value| (value.name, value.value))
+                    .collect();
+                assert_eq!(
+                    actual_pairs.contains(&(
+                        "chain".to_string(),
+                        TEST_DEFAULT_CHAIN.rec().literal_identifier.to_string()
+                    )),
+                    true
+                );
+                assert_eq!(errors, vec![]);
+            };
         let record = get_record(0);
         assert_eq!(record.target, ClientId(1234));
         let (payload, context_id): (UiSetupResponse, u64) =
@@ -1160,6 +1181,10 @@ mod tests {
             .process_is_running_result(false);
         let system = System::new("test");
         let mut subject = Daemon::new(Box::new(launcher));
+        subject.params.insert(
+            "ip".to_string(),
+            UiSetupResponseValue::new("ip", "1.2.3.4", Set),
+        );
         subject.params.insert(
             "db-password".to_string(),
             UiSetupResponseValue::new("db-password", "goober", Set),
@@ -1530,13 +1555,7 @@ mod tests {
         subject_addr
             .try_send(make_bind_message(ui_gateway))
             .unwrap();
-        let body: MessageBody = UiFinancialsRequest {
-            payable_minimum_amount: 0,
-            payable_maximum_age: 0,
-            receivable_minimum_amount: 0,
-            receivable_maximum_age: 0,
-        }
-        .tmb(4321);
+        let body: MessageBody = UiFinancialsRequest {}.tmb(4321);
 
         subject_addr
             .try_send(NodeFromUiMessage {

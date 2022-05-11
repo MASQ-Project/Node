@@ -1,9 +1,10 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::bip39::{Bip39, Bip39Error};
+use crate::blockchain::bip39::Bip39;
 use crate::db_config::config_dao::{
     ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord,
 };
+use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use rand::Rng;
 
 pub const EXAMPLE_ENCRYPTED: &str = "example_encrypted";
@@ -77,16 +78,10 @@ impl SecureConfigLayer {
             return Err(SecureConfigLayerError::PasswordError);
         }
         let record = dao.get(name)?;
-        match (record.encrypted, plain_value_opt, password_opt) {
-            (false, value_opt, _) => Ok(value_opt),
-            (true, Some(plain_value), Some(password)) => {
-                match Bip39::encrypt_bytes(&plain_value.as_bytes(), &password) {
-                    Err(_) => panic!("Encryption of '{}' failed", plain_value),
-                    Ok(crypt_data) => Ok(Some(crypt_data)),
-                }
-            }
-            (true, Some(_), None) => Err(SecureConfigLayerError::PasswordError),
-            (true, None, _) => Ok(None),
+        if !record.encrypted {
+            Ok(plain_value_opt)
+        } else {
+            DbEncryptionLayer::encrypt_value(&plain_value_opt, &password_opt, &record.name)
         }
     }
 
@@ -100,20 +95,10 @@ impl SecureConfigLayer {
         if !self.check_password(password_opt.clone(), dao)? {
             return Err(SecureConfigLayerError::PasswordError);
         }
-        match (record.encrypted, record.value_opt, password_opt) {
-            (false, value_opt, _) => Ok(value_opt),
-            (true, Some(value), Some(password)) => match Bip39::decrypt_bytes(&value, &password) {
-                Err(_) => Err(SecureConfigLayerError::PasswordError),
-                Ok(plain_data) => match String::from_utf8(plain_data.into()) {
-                    Err(_) => panic!(
-                        "Database is corrupt: contains a non-UTF-8 value for '{}'",
-                        record.name
-                    ),
-                    Ok(plain_text) => Ok(Some(plain_text)),
-                },
-            },
-            (true, Some(_), None) => Err(SecureConfigLayerError::PasswordError),
-            (true, None, _) => Ok(None),
+        if !record.encrypted {
+            Ok(record.value_opt)
+        } else {
+            DbEncryptionLayer::decrypt_value(&record.value_opt, &password_opt, &record.name)
         }
     }
 
@@ -125,21 +110,10 @@ impl SecureConfigLayer {
         if !example_record.encrypted {
             panic!("Database is corrupt: Password example value is not encrypted");
         }
-        match (db_password_opt, example_record.value_opt) {
-            (None, None) => Ok(true),
-            (None, Some(_)) => Ok(false),
-            (Some(_), None) => Ok(false),
-            (Some(db_password), Some(encrypted_example)) => {
-                match Bip39::decrypt_bytes(&encrypted_example, &db_password) {
-                    Ok(_) => Ok(true),
-                    Err(Bip39Error::DecryptionFailure(_)) => Ok(false),
-                    Err(e) => panic!(
-                        "Database is corrupt: password example value can't be read: {:?}",
-                        e
-                    ),
-                }
-            }
-        }
+        Ok(DbEncryptionLayer::password_matches(
+            &db_password_opt,
+            &example_record.value_opt,
+        ))
     }
 
     #[allow(clippy::borrowed_box)]
@@ -200,11 +174,8 @@ impl SecureConfigLayer {
             (true, None, _) => Ok(old_record),
             (true, Some(_), None) => panic! ("Database is corrupt: configuration value '{}' is encrypted, but database has no password", old_record.name),
             (true, Some(value), Some(old_password)) => {
-                let decrypted_value = match Bip39::decrypt_bytes(value, old_password) {
-                    Ok(plain_data) => plain_data,
-                    Err(_) => panic! ("Database is corrupt: configuration value '{}' cannot be decrypted", old_record.name),
-                };
-                let reencrypted_value = Bip39::encrypt_bytes(&decrypted_value, new_password).expect("Encryption failed");
+                let reencrypted_value = DbEncryptionLayer::reencrypt_value(value,
+                    old_password, new_password, &old_record.name);
                 Ok(ConfigDaoRecord::new(&old_record.name, Some(&reencrypted_value), old_record.encrypted))
             },
         }
@@ -240,6 +211,11 @@ mod tests {
     use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
     use crate::sub_lib::cryptde::PlainData;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(EXAMPLE_ENCRYPTED, "example_encrypted");
+    }
 
     #[test]
     fn secure_config_layer_error_from_config_dao_error() {
@@ -351,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Database is corrupt: Password example value is not encrypted")] // TODO: Modify this test to expect a panic, since database is corrupt
+    #[should_panic(expected = "Database is corrupt: Password example value is not encrypted")]
     fn check_password_fails_when_example_record_is_present_and_unencrypted() {
         let dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             EXAMPLE_ENCRYPTED,

@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
@@ -15,6 +15,7 @@ use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::net::SocketAddr;
@@ -126,6 +127,7 @@ pub struct HopperConfig {
     pub per_routing_service: u64,
     pub per_routing_byte: u64,
     pub is_decentralized: bool,
+    pub crashable: bool,
 }
 
 #[derive(Clone)]
@@ -134,6 +136,7 @@ pub struct HopperSubs {
     pub from_hopper_client: Recipient<IncipientCoresPackage>,
     pub from_hopper_client_no_lookup: Recipient<NoLookupIncipientCoresPackage>,
     pub from_dispatcher: Recipient<InboundClientData>,
+    pub node_from_ui: Recipient<NodeFromUiMessage>,
 }
 
 impl Debug for HopperSubs {
@@ -145,14 +148,13 @@ impl Debug for HopperSubs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
     use actix::Actor;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
 
@@ -165,6 +167,7 @@ mod tests {
             from_hopper_client: recipient!(recorder, IncipientCoresPackage),
             from_hopper_client_no_lookup: recipient!(recorder, NoLookupIncipientCoresPackage),
             from_dispatcher: recipient!(recorder, InboundClientData),
+            node_from_ui: recipient!(recorder, NodeFromUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "HopperSubs");
@@ -222,7 +225,7 @@ mod tests {
             RouteSegment::new(vec![&key12, &key34, &key56], Component::ProxyClient),
             cryptde,
             Some(paying_wallet),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
@@ -271,7 +274,7 @@ mod tests {
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),
             cryptde,
             Some(paying_wallet.clone()),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();

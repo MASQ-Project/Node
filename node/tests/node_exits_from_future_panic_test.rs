@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod utils;
 
@@ -17,6 +17,9 @@ fn node_exits_from_future_panic_integration() {
     let mut node = utils::MASQNode::start_standard(
         "node_exits_from_future_panic_integration",
         Some(panic_config),
+        true,
+        true,
+        false,
         false,
     );
 
@@ -28,8 +31,14 @@ fn node_exits_from_future_panic_integration() {
 fn node_logs_panic_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "panic");
 
-    let mut node =
-        utils::MASQNode::start_standard("node_logs_panic_integration", Some(panic_config), false);
+    let mut node = utils::MASQNode::start_standard(
+        "node_logs_panic_integration",
+        Some(panic_config),
+        true,
+        true,
+        false,
+        false,
+    );
 
     node.wait_for_log("std::panicking::", Some(5000));
 }
@@ -46,6 +55,9 @@ fn node_logfile_does_not_belong_to_root_integration() {
     let mut node = utils::MASQNode::start_standard(
         "node_logfile_does_not_belong_to_root_integration",
         None,
+        true,
+        true,
+        false,
         true,
     );
     let logfile_path = utils::MASQNode::path_to_logfile(&node.data_dir);

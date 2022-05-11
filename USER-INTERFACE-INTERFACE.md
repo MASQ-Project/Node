@@ -329,17 +329,39 @@ Another reason the secrets might be missing is that there are not yet any secret
 ##### Layout:
 ```
 "payload": {
-    "currentSchemaVersion": <string>,
+    "blockchainServiceUrl": <optional string>,
+    "chainName": <String>, 
     "clandestinePort": <string>,
-    "gasPrice": <number>,
-    "mnemonicSeedOpt": <optional string>,
-    "consumingWalletDerivationPathOpt": <optional string>,
+    "currentSchemaVersion": <string>,
     "earningWalletAddressOpt": <optional string>,
-    "pastNeighbors": [
+    "gasPrice": <number>,
+    "neighborhoodMode": <string>,
+    "consumingWalletPrivateKeyOpt": <optional string>,
+    "consumingWalletAddressOpt": <optional string>,
+    "startBlock": <number>,
+    "pastNeighbors":[
         <string>,
         <string>, ...
     ],
-    "startBlock": <number>
+    "PaymentThresholds": {
+        "debtThresholdGwei": <number>,
+        "maturityThresholdSec": <number>,
+        "paymentGracePeriodSec": <number>,
+        "permanentDebtAllowedGwei": <number>,
+        "thresholdIntervalSec": <number>
+        "unbanBelowGwei": <number>
+    },
+    "ratePack": {
+        "routingByteRate": <number>,
+        "routingServiceRate": <number>,
+        "exitByteRate": <number>,
+        "exitServiceRate: <number>"
+    },
+    "scanIntervals": {
+        "pendingPayableSec": <number>,
+        "payableSec": <number>,
+        "receivableSec": <number>
+    },
 }
 ```
 ##### Description:
@@ -348,31 +370,105 @@ because it hasn't been configured yet, or it might be because it's secret and yo
 database password. If you want to know whether the password you have is the correct one, try the
 `checkPassword` message.
 
-* `currentSchemaVersion`: This will be a three-part version number for the database schema. This will always
-be the same for a given version of Node. If you upgrade your Node, and the new Node wants to see a later
-schema version in the database, it will migrate your existing data to the new schema and update its schema
-version. If this attempt fails for some reason, this value can be used to diagnose the issue.
+* `blockchainServiceUrl`: The url which will be used for obtaining a communication to chosen services to interact with the 
+  blockchain. This parameter is read, if present, only if the same parameter wasn't specified at another place (UI,
+  configuration file, environment variables).
+
+* `chainName`: This value reveals the chain which the open database has been created for. It is always present and once 
+  initiated, during creation of the database, it never changes. It's basically a read-only value.  
 
 * `clandestinePort`: The port on which the Node is currently listening for connections from other Nodes.
 
-* `gasPrice`: The Node will not pay more than this number of wei for gas to complete a transaction.
+* `consumingWalletPrivateKey`: This is the private key of the consuming wallet, as a 64-digit hexadecimal number.
+  It's a secret, so if you don't supply the `dbPasswordOpt` in the request you won't see it.
 
-* `mnemonicSeedOpt`: This is a secret string of hexadecimal digits that corresponds exactly with the mnemonic
-phrase, plus any "25th word" mnemonic passphrase. You won't see this if the password isn't correct. You also
-won't see it if the password is correct but the seed hasn't been set yet.
+* `consumingWalletAddress`: This is the address of the consuming wallet, as a 40-digit hexadecimal number prefixed by "0x".
 
-* `consumingWalletDerivationPathOpt`: This is the derivation path (from the mnemonic seed) of the consuming wallet.
-More than likely, it's m/44'/60'/0'/0/0.
-  
+* `currentSchemaVersion`: This will be a version number for the database schema represented as an ordinal numeral. This will
+  always be the same for a given version of Node. If you upgrade your Node, and the new Node wants to see a later
+  schema version in the database, it will migrate your existing data to the new schema and update its schema
+  version. If this attempt fails for some reason, this value can be used to diagnose the issue.
+
 * `earningWalletAddressOpt`: The wallet address for the earning wallet. This is not secret, so
-if you don't get this field, it's because it hasn't been set yet.
+  if you don't get this field, it's because it hasn't been set yet.
 
-* `pastNeighbors`: This is an array containing the Node descriptors of the neighbors the Node is planning to
-try to connect to when it starts up next time.
+* `gasPrice`: The Node will not pay more than this number of Gwei for gas to complete a transaction.
+
+* `neighborhoodMode`: The neighborhood mode being currently used, this parameter has nothing to do with descriptors which 
+  may have been used in order to set the Node's nearest neighborhood. It is only informative, to know what mode is running
+  at the moment. This value is ever present since the creation of the database.    
 
 * `startBlock`: When the Node scans for incoming payments, it can't scan the whole blockchain: that would take
-much too long. So instead, it scans starting from wherever it left off last time. This block number is where
-it left off last time.
+  much too long. So instead, it scans starting from wherever it left off last time. This block number is where
+  it left off last time.
+
+* `pastNeighbors`: This is an array containing the Node descriptors of the neighbors the Node is planning to
+  try to connect to when it starts up next time.  It's a secret, so if you don't supply the `dbPasswordOpt` in the
+  request you won't see it.
+
+* `PaymentThresholds`: These are parameters that define thresholds to determine when and how much to pay other nodes
+  for routing and exit services and the expectations the node should have for receiving payments from other nodes for
+  routing and exit services. The thresholds are also used to determine whether to offer services to other Nodes or
+  enact a ban since they have not paid mature debts. These are ever present values, no matter if the user's set any
+  value, as they have defaults.
+
+* `thresholdIntervalSec`: This interval -- in seconds -- begins after maturityThresholdSec for payables and after
+  maturityThresholdSec + paymentGracePeriodSec for receivables. During the interval, the amount of a payable that is
+  allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the debtThresholdGwei
+  to permanentDebtAllowedGwei or unbanBelowGwei.
+
+* `debtThresholdGwei`: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately upon
+  passing the maturityThresholdSec age. Payables less than this can stay unpaid longer. Receivables higher than this
+  will be expected to be settled by other Nodes, but will never cause bans until they pass the maturityThresholdSec +
+  paymentGracePeriodSec age. Receivables less than this will survive longer without banning.
+
+* `maturityThresholdSec`: Large payables can get this old -- in seconds -- before the Accountant's scanner suggests
+  that it be paid.
+
+* `paymentGracePeriodSec`: A large receivable can get as old as maturityThresholdSec + paymentGracePeriodSec -- in seconds
+  -- before the Node that owes it will be banned.
+
+* `permanentDebtAllowedGwei`: Receivables this small and smaller -- in Gwei of MASQ -- will not cause bans no matter 
+  how old they get.
+
+* `unbanBelowGwei`: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid
+  below this level -- in Gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the
+  same as permanentDebtAllowedGwei.
+
+* `ratePack`: These four parameters specify your rates that your Node will use for charging other Nodes for your provided
+  services. They are currently denominated in Gwei of MASQ, but will be improved to allow denomination in Wei units.
+  These are ever present values, no matter if the user's set any value, they have defaults.
+
+* `exitByteRate`: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload while the Node
+  acts as the exit Node.
+
+* `exitServiceRate`: This parameter indicates an amount of MASQ demanded to provide services, unpacking and repacking
+  1 CORES package, while the Node acts as the exit Node.
+
+* `routingByteRate`: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload while the
+  Node is a common relay Node.
+
+* `routingServiceRate`: This parameter indicates an amount of MASQ demanded to provide services, unpacking and repacking
+  1 CORES package, while the Node is a common relay Node.
+
+* `scanIntervals`: These three intervals describe the length of three different scan cycles running automatically in the
+  background since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete
+  3-hop route. Each parameter can be set independently, but by default are all the same which currently is most desirable
+  for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower limit 
+  for the minimum of time you can set; two scans of the same sort would never run at the same time but the next one is
+  always scheduled not earlier than the end of the previous one. These are ever present values, no matter if the user's
+  set any value, because defaults are prepared.
+
+* `pendingPayableSec`: Amount of seconds between two sequential cycles of scanning for payments that are marked as currently
+  pending; the payments were sent to pay our debts, the payable. The purpose of this process is to confirm the status of
+  the pending payment; either the payment transaction was written on blockchain as successful or failed.
+
+* `payableSec`: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts of that meet
+  the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If they meet the 
+  Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.
+
+* `receivableSec`: Amount of seconds between two sequential cycles of scanning for payments on the blockchain that have
+  been sent by our creditors to us, which are credited against receivables recorded for services provided.
 
 #### `configurationChanged`
 ##### Direction: Broadcast
@@ -454,38 +550,28 @@ Requests the Node descriptor from a Node.
 ##### Layout:
 ```
 "payload": {
-    "nodeDescriptor": <string>
+    "nodeDescriptorOpt": <optional string>
 }
 ```
 ##### Description:
-Contains a Node's Node descriptor.
+If the Node has a Node descriptor, it's returned in this message. If the Node has not yet established its Node
+descriptor (for example, if it's still waiting on the router to get a public IP address) or will never have a
+Node descriptor (for example, if its neighborhood mode is not Standard), the `nodeDescriptorOpt`
+field will be null or absent.
 
 #### `financials`
 ##### Direction: Request
 ##### Correspondent: Node
 ##### Layout:
 ```
-"payload": {
-    "payableMinimumAmount" = <nonnegative integer>,
-    "payableMaximumAge" = <nonnegative integer>,
-    "receivableMinimumAmount" = <nonnegative integer>,
-    "receivableMaximumAge" = <nonnegative integer>
-}
+"payload": {}
 ```
 ##### Description:
-Requests a financial report from the Node.
+Requests financial statistics from the Node.
 
-In most cases, there will be many records in the database, most of them irrelevant because of amount or age.
-Therefore, when the UI requests a financial report, it should specify minimum amounts and maximum ages. Records
-with amounts smaller than the minimums, or older than the maximums, won't be included in the results, although
-their values will be included in the totals.
-
-This request will result in a cluster of queries to the database, which are quick but not instantaneous,
-especially on old databases that contain lots of records. A UI that makes this request too many times per
-second will perceptibly degrade the performance of the Node.
-
-Amounts are specified in gwei (billions of wei); ages are specified in seconds. Values less than zero or
-greater than 64 bits long will cause undefined behavior.
+This request will report back information about a Node's historical financial operations. This will include both
+services ordered from other Nodes and services provided for other Nodes, represented as monetary values owed and
+paid to and from this Node's wallets.
 
 #### `financials`
 ##### Direction: Response
@@ -493,52 +579,30 @@ greater than 64 bits long will cause undefined behavior.
 ##### Layout:
 ```
 "payload": {
-    "payables": [
-        {
-            "wallet": <string>,
-            "age": <nonnegative integer>,
-            "amount": <nonnegative integer>,
-            "pendingTransaction": <optional string>
-        },
-        < ... >
-    ],
-    "totalPayable": <nonnegative integer>,
-    "receivables": [
-        {
-            "wallet": <string>,
-            "age": <nonnegative integer>,
-            "amount": <nonnegative integer>
-        },
-        < ... >
-    ],
-    "totalReceivable": <nonnegative integer>
+    "totalUnpaidAndPendingPayable": <integer>
+    "totalPaidPayable": <nonnegative integer>
+    "totalUnpaidReceivable": <integer>
+    "totalPaidReceivable": <nonnegative integer>
 }
 ```
 ##### Description:
-Contains a financial report from the Node.
+Contains the requested financial statistics.
 
-In most cases, there will be accounts in the database that are too old, or whose balances are too low, to
-show up in this report. The `totalPayable` and `totalReceivable` fields will be accurate, but they will
-probably be larger than the sums of the `payables` and `receivables` `amount` fields. The UI may choose to
-ignore this discrepancy, or it may generate an "Other" account in each case to make up the difference.
+`totalUnpaidAndPendingPayable` is the number of Gwei we believe we owe to other Nodes and that those other Nodes have
+not yet received, as far as we know. This includes both bills we haven't yet paid and bills we have paid, but whose
+transactions we have not yet seen confirmed on the blockchain.
 
-The `wallet` fields will consist of 40 hexadecimal digits, prefixed by "0x".
+`totalPaidPayable` is the number of Gwei we have successfully paid to our creditors and seen confirmed during the time
+the current instance of the Node has been running. In the future, this number may become cumulative over more time than
+just the current Node run.
 
-The `age` fields contain the age in seconds, at the time the request was received, of the most recent transaction
-on the associated account. The value will not be less than zero or longer than 64 bits.
+`totalUnpaidReceivable` is the number of Gwei we believe other Nodes owe to us, but have not yet been included in
+payments we have seen confirmed on the blockchain. This includes both payments that have never been made and also
+payments that have been made but not yet confirmed.
 
-The `amount` fields contain the total amount in gwei owed to or due from the associated account at the time the
-request was received. The value will not be less than zero or longer than 64 bits.
-
-The `pendingTransaction` fields, if present, indicate that an obligation has been paid, but the payment is not
-yet confirmed on the blockchain. If they appear, they will be standard 64-digit hexadecimal transaction numbers,
-prefixed by "0x". If no `pendingTransaction` is given, then there were no pending payments on that account
-at the time the request was received.
-
-The `payables` and `receivables` arrays are not in any particular order.
-
-For security reasons, the Node does not keep track of individual blockchain transactions, with the exception
-of payments that have not yet been confirmed. Only cumulative account balances are retained.
+`totalPaidReceivable` is the number of Gwei we have successfully received in confirmed payments from our debtors during
+the time the current instance of the Node has been running. In the future, this number may become cumulative over more
+time than just the current Node run.
 
 #### `generateWallets`
 ##### Direction: Request
@@ -547,41 +611,64 @@ of payments that have not yet been confirmed. Only cumulative account balances a
 ```
 "payload": {
     "dbPassword": <string>,
-    "mnemonicPhraseSize": <number>,
-    "mnemonicPhraseLanguage": <string>,
-    "mnemonicPassphraseOpt": <optional string>,
-    "consumingDerivationPath": <string>,
-    "earningDerivationPath": <string>
+    "seedSpecOpt": {
+        "mnemonicPhraseSizeOpt": <optional number>,
+        "mnemonicPhraseLanguageOpt": <optional string>,
+        "mnemonicPassphraseOpt": <optional string>
+    },
+    "consumingDerivationPathOpt": <optional string>,
+    "earningDerivationPathOpt": <optional string>
 }
 ```
 ##### Description:
-This message directs the Node to generate a pair of wallets and report their mnemonic phrase and their addresses
-back to the UI. If the database already contains a wallet pair, the wallet generation will fail.
+This message directs the Node to generate a pair of wallets and report their vital statistics back to the UI. 
+If the database already contains a wallet pair, the wallet generation will fail.
 
-`dbPassword` is the current database password. If this is incorrect, the wallet generation will fail.
+Wallets can be generated in several ways:
 
-`mnemonicPhraseSize` is the number of words that should be generated in the mnemonic phrase. The acceptable values
-are 12, 15, 18, 21, and 24. It's recommended that UIs default to 24-word phrases and require the user to specifically
-demand a lower value, if desired.
+* Using derivation paths from a seed: in this case the request should contain a specification for the seed and 
+  a derivation path for each wallet, and the response will contain a mnemonic phrase representing the generated
+  seed, along with the address and private key for each wallet generated.
+* Entirely at random: in this case no direction should be given in the request, and the response will contain
+  only the address and private key for each wallet generated.
+* With one wallet generated using a seed and a derivation path, and the other generated at random: in this case,
+  there should be a specification for the seed and a derivation path for only the seed/path wallet; the other
+  wallet will be generated randomly.
 
-`mnemonicPhraseLanguage` is the language in which the mnemonic phrase should be generated. Acceptable values are
-"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish".
+`dbPassword` is the current database password. If this is incorrect or absent, the wallet generation will fail.
+
+`seedSpecOpt` gives the parameters for generating the seed. This only makes sense if one or more of the 
+derivation paths is supplied. If no derivation paths are supplied, this parameter is ignored.
+
+`mnemonicPhraseSizeOpt` is the number of words that should be generated in the mnemonic phrase. The acceptable values
+are 12, 15, 18, 21, and 24. Default is 24.
+
+`mnemonicPhraseLanguageOpt` is the language in which the mnemonic phrase should be generated. Acceptable values are
+"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish". Default
+is "English."
 
 `mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
 (it can be any word; it's not constrained to the official mnemonic-phrase list) that will be used along with the
 24 standard words to generate the seed number from which the wallet keys are derived. If this value is supplied,
 then the user will have to specify it as well as the 24 standard words in order to recover the wallet pair. Note
 that neither the 24 standard words nor this value is persisted anywhere: it's up to the user to keep track of them.
+Note also that the "25th word," if generated, is part of the seed and can never be changed: a different "25th word"
+will reference a different seed, which means that all wallets derived from it will also be different.
 
-`consumingDerivationPath` is the derivation path from the generated seed number to be used to generate the consuming
-wallet. By convention, it is "m/44'/60'/0'/0/0", but in this message it is required and no defaulting is performed
-by the Node.
+`consumingDerivationPathOpt` if supplied, is the derivation path from the generated seed number to be used to generate
+the consuming wallet. By convention, it is "m/44'/60'/0'/0/0", but you can supply whatever path you want. Note that if
+you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
+wallet. If you don't supply `consumingDerivationPathOpt`, your consuming wallet will be generated entirely at random.
 
-`earningDerivationPath` is the derivation path from the generated seed number to be used to generate the earning
-wallet. By convention, it is "m/44'/60'/0'/0/1", but in this message it is required and no defaulting is performed
-by the Node.
+`earningDerivationPathOpt` is the derivation path from the generated seed number to be used to generate the earning
+wallet. By convention, it is "m/44'/60'/0'/0/1", but you can supply whatever path you want. Note that if
+you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
+wallet. If you don't supply `earningDerivationPathOpt`, your earning wallet will be generated entirely at random.
 
-If the user wants to consume from and earn into the same wallet, he should provide the same derivation path for both.
+If the user wants to consume from and earn into the same wallet, he should supply a `seedSpecOpt` and provide the same 
+derivation path for both. (Note that just because you direct the Node to generate a mnemonic phrase, you don't
+necessarily have to use it. If you need to recover these wallets, you can use their private keys if you don't have
+their mnemonic seeds.)
 
 #### `generateWallets`
 ##### Direction: Response
@@ -589,25 +676,60 @@ If the user wants to consume from and earn into the same wallet, he should provi
 ##### Layout:
 ```
 "payload": {
-    "mnemonicPhrase": [
+    "mnemonicPhraseOpt": [
         <string>,
         <string>,
         [...]
     ],
     "consumingWalletAddress": <string>,
-    "earningWalletAddress": <string>
+    "consumingWalletPrivateKey": <string>,
+    "earningWalletAddress": <string>,
+    "earningWalletPrivateKey": <string>
 }
 ```
 ##### Description:
 This message describes the pair of wallets that has been generated and configured on the Node.
 
-`mnemonicPhrase` is the list of 24 (or 12 or 15 or 18 or 21) words that, when combined with the mnemonic passphrase,
-if specified, will produce the seed from which the consuming and earning wallets are derived. They are rendered in
-the requested language, including non-ASCII Unicode characters encoded in UTF-8 where appropriate.
+`mnemonicPhraseOpt`, if present, is the requested list of 24 (or 12 or 15 or 18 or 21) words that, when combined with 
+the mnemonic passphrase, if present, will produce the seed from which the consuming and earning wallets are derived. 
+They are rendered in the requested language, including non-ASCII Unicode characters encoded in UTF-8 where appropriate.
 
 `consumingWalletAddress` is the address of the generated consuming wallet.
 
+`consumingWalletPrivateKey` is the private key of the generated consuming wallet. The Node will retain this key in
+its database, in encrypted form, because it needs to withdraw money from the wallet to pay other Nodes in the network.
+
 `earningWalletAddress` is the address of the generated earning wallet.
+
+`earningWalletPrivateKey` is the private key of the generated earning wallet. The Node does not need this key, and
+will not retain it; but you'll need it to withdraw earned funds from the wallet, especially if you didn't request or
+retain a mnemonic phrase.
+
+#### `logBroadcast`
+##### Direction: Broadcast
+##### Correspondent: Node
+##### Layout:
+```
+"msg": <String>,
+"logLevel": <String>
+```
+##### Description:
+This broadcast intends to give the user an immediate notification about a significant event that just occurred in
+the Node. At a bit lower level, this is a reaction to when the execution flow crosses any place with logging that bears
+a severity of `Info`, `Warn` or `Error`. Every such situation produces this broadcast along with the usual,
+long-adopted way of writing a log into a file and so both happen simultaneously. 
+
+Certain plans are to diverge between what is going to be printed to the log file and what is going to be given to
+the UI, while the latter in a prettier and user-friendlier form, but more preparation must go before we can implement
+that. 
+
+The log level constraining the UI output from less important messages (`Debug` and `Trace`) is now steadily given 
+by the `Info` level. However, we may consider make it adjustable if there is a demand like that.
+
+`msg` is the message describing a passed event. 
+
+`logLevel` indicates what severity the reported event had. It can only be a string from this list: `Info`, `Warn`,
+`Error`.
 
 #### `newPassword`
 ##### Direction: Broadcast
@@ -627,41 +749,75 @@ If the UI is remembering the database password, it should forget it when this me
 ```
 "payload": {
     "dbPassword": <string>,
-    "mnemonicPhrase": [
-        <string>,
-        <string>,
-        [...]
-    ],
-    "mnemonicPassphraseOpt": <optional string>,
-    "mnemonicPhraseLanguage": <string>,
-    "consumingDerivationPath": <string>,
-    "earningWallet": <string>
+    "seedSpecOpt": {
+        "mnemonicPhrase": [
+            <string>,
+            <string>,
+            [...]
+        ],
+        "mnemonicPhraseLanguageOpt": <optional string>,
+        "mnemonicPassphraseOpt": <optional string>
+    },
+    "consumingDerivationPathOpt": <optional string>,
+    "consumingPrivateKeyOpt": <optional string>,
+    "earningDerivationPathOpt": <optional string>,
+    "earningAddressOpt": <optional string>,
 }
 ```
 ##### Description:
 This message directs the Node to set its wallet pair to a preexisting pair of wallets described in the message.
 If the database already contains a wallet pair, the wallet recovery will fail.
 
+Each wallet can be recovered in one of two ways.
+
+The consuming wallet can be recovered by specifying the mnemonic phrase of its seed and its derivation path, or by
+giving its private key. (The Node needs the private key of the consuming wallet so that it can withdraw funds from it
+to pay bills.)
+
+The earning wallet can be recovered by specifying the mnemonic phrase of its seed and its derivation path, or by
+giving its address. (The Node does not need (and will not accept) the private key of the earning wallet, because all
+it ever has to do is deposit funds in it from other Nodes. The private key can be derived from the seed and the
+derivation path, but the Node does not store it.)
+
+This message schema allows you to provide more information than is necessary: for example, both earning address
+and earning derivation path (which may conflict), or both consuming private key and consuming derivation path
+(which also may conflict). If you do so, the derivation path will be overridden by the key or address and ignored.
+
+If you expect the derivation path to be used for either wallet, you must also provide the seed specification.
+
 `dbPassword` is the current database password. If this is incorrect, the wallet recovery will fail.
 
-`mnemonicPhrase` is the mnemonic phrase that was used to generate the consuming wallet and possibly the earning
-wallet as well. It must have 12, 15, 18, 21, or 24 words.
+`seedSpecOpt` gives the parameters for generating the seed. This only makes sense if one or more of the
+derivation paths is supplied. If no derivation paths are supplied, this parameter is ignored.
+
+`mnemonicPhrase` is the mnemonic phrase that represents the seed. It must have 12, 15, 18, 21, or 24 words.
+
+`mnemonicPhraseLanguageOpt` is the language in which the mnemonic phrase is supplied. Acceptable values are
+"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish". Default
+is "English."
 
 `mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
 (it can be any word; it's not constrained to the official mnemonic-phrase list) that was used along with the
 words of the mnemonic phrase to generate the seed number from which the consuming and possibly earning wallets
-were derived. If no mnemonic passphrase was used to generate the wallets, this value must be absent.
+were derived. If no mnemonic passphrase was used to generate the wallets, this value must be null or absent.
 
-`mnemonicPhraseLanguage` is the language in which the mnemonic phrase is supplied. Acceptable values are
-"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish".
+`consumingDerivationPathOpt`, if supplied, is the derivation path from the generated seed number to be used to generate
+the consuming wallet. By convention, it is "m/44'/60'/0'/0/0", but you can supply whatever path you want. Note that if
+you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
+wallet. If you don't supply `consumingDerivationPathOpt`, you must supply `consumingPrivateKeyOpt`.
 
-`consumingDerivationPath` is the derivation path from the mnemonic phrase that was used to generate the consuming
-wallet. By convention, it is "m/60'/44'/0'/0/0", but in this message it is required and no defaulting is performed
-by the Node.
+`consumingPrivateKeyOpt`, if specified, is the private key of the consuming wallet, represented as a string of 64
+hexadecimal digits. This value supersedes `consumingDerivationPathOpt` if both are supplied; but if you don't supply 
+that value, you must supply this one.
 
-`earningWallet` is either the derivation path from the mnemonic phrase that was used to generate the earning
-wallet, or--if the derivation path is unknown or the earning wallet is not related to the mnemonic phrase--the
-address of the earning wallet.
+`earningDerivationPathOpt` is the derivation path from the generated seed number to be used to generate the earning
+wallet. By convention, it is "m/44'/60'/0'/0/1", but you can supply whatever path you want. Note that if
+you change any of the numbers ending in ', you may have trouble getting other software and hardware to work with your
+wallet. If you don't supply `earningDerivationPathOpt`, you must supply `earningAddressOpt`.
+
+`earningAddressOpt`, if specified, is the address of the earning wallet, represented as "0x" followed by a string
+of 40 hexadecimal digits. This value supersedes `earningDerivationPathOpt` if both are supplied; but if you don't 
+supply that value, you must supply this one.
 
 The consuming and earning wallet information may evaluate to the same wallet; there's nothing wrong with that.
 
@@ -777,6 +933,7 @@ be cleared.
 * `gas-price` - Transaction fee to offer on the blockchain.
 * `ip` - The public IP address of the Node.
 * `log-level` - The lowest level of logs that should be recorded. `off`, `error`, `warn`, `info`, `debug`, `trace`
+* `mapping-protocol` - The management protocol to try first with the router. `pcp`, `pmp`, `igdp`
 * `neighborhood-mode` - `zero-hop`, `originate-only`, `consume-only`, `standard`
 * `neighbors` - Comma-separated list of Node descriptors for neighbors to contact on startup
 * `real-user` - Non-Windows platforms only, only where required: <uid>:<gid>:<home directory>
@@ -864,7 +1021,6 @@ information is presently in its Setup space.
 ```
 "payload": {
     "newProcessId": <integer>,
-    "nodeDescriptor": <string>,
     "redirectUiPort": <integer greater than 1024>,
 }
 ```

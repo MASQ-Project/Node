@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::dispatcher::InboundClientData;
@@ -13,6 +13,7 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::versioned_data::VersionedData;
 use actix::Message;
 use actix::Recipient;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 
@@ -79,6 +80,7 @@ pub struct ProxyServerSubs {
     pub add_route: Recipient<AddRouteMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
+    pub node_from_ui: Recipient<NodeFromUiMessage>,
 }
 
 impl Debug for ProxyServerSubs {
@@ -93,6 +95,11 @@ mod tests {
     use crate::sub_lib::proxy_server::ProxyServerSubs;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DEFAULT_MINIMUM_HOP_COUNT, 3);
+    }
 
     #[test]
     fn proxy_server_subs_debug() {
@@ -110,6 +117,7 @@ mod tests {
             add_route: recipient!(recorder, AddRouteMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
+            node_from_ui: recipient!(recorder, NodeFromUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "ProxyServerSubs");
