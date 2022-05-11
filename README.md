@@ -1,4 +1,4 @@
-# MASQ Node
+# MASQ Node ![masq-logo](images/masq-logo-sm.png)
 
 ![ci-matrix](https://github.com/MASQ-Project/Node/workflows/ci-matrix/badge.svg)
 
