@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::arbitrary_id_stamp;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -13,6 +14,7 @@ use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
@@ -142,6 +144,8 @@ pub trait PersistentConfiguration {
     fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError>;
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError>;
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError>;
+
+    arbitrary_id_stamp!();
 }
 
 pub struct PersistentConfigurationReal {

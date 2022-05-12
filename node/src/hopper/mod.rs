@@ -4,8 +4,8 @@ mod consuming_service;
 pub mod live_cores_package;
 mod routing_service;
 
+use crate::bootstrapper::CryptDEPair;
 use crate::hopper::routing_service::RoutingServiceSubs;
-use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hopper::HopperSubs;
 use crate::sub_lib::hopper::IncipientCoresPackage;
@@ -24,8 +24,7 @@ use routing_service::RoutingService;
 pub const CRASH_KEY: &str = "HOPPER";
 
 pub struct Hopper {
-    main_cryptde: &'static dyn CryptDE,
-    alias_cryptde: &'static dyn CryptDE,
+    cryptdes: CryptDEPair,
     consuming_service: Option<ConsumingService>,
     routing_service: Option<RoutingService>,
     per_routing_service: u64,
@@ -45,13 +44,12 @@ impl Handler<BindMessage> for Hopper {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.consuming_service = Some(ConsumingService::new(
-            self.main_cryptde,
+            self.cryptdes.main,
             msg.peer_actors.dispatcher.from_dispatcher_client.clone(),
             msg.peer_actors.hopper.from_dispatcher.clone(),
         ));
         self.routing_service = Some(RoutingService::new(
-            self.main_cryptde,
-            self.alias_cryptde,
+            self.cryptdes,
             RoutingServiceSubs {
                 proxy_client_subs_opt: msg.peer_actors.proxy_client_opt,
                 proxy_server_subs: msg.peer_actors.proxy_server,
@@ -119,8 +117,7 @@ impl Handler<NodeFromUiMessage> for Hopper {
 impl Hopper {
     pub fn new(config: HopperConfig) -> Hopper {
         Hopper {
-            main_cryptde: config.main_cryptde,
-            alias_cryptde: config.alias_cryptde,
+            cryptdes: config.cryptdes,
             consuming_service: None,
             routing_service: None,
             crashable: config.crashable,
@@ -154,8 +151,8 @@ mod tests {
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::{
-        alias_cryptde, main_cryptde, make_meaningless_message_type, make_paying_wallet,
-        route_to_proxy_client,
+        alias_cryptde, main_cryptde, make_cryptde_pair, make_meaningless_message_type,
+        make_paying_wallet, route_to_proxy_client,
     };
     use actix::Actor;
     use actix::System;
@@ -199,8 +196,10 @@ mod tests {
         };
         let system = System::new("panics_if_routing_service_is_unbound");
         let subject = Hopper::new(HopperConfig {
-            main_cryptde,
-            alias_cryptde,
+            cryptdes: CryptDEPair {
+                main: main_cryptde,
+                alias: alias_cryptde,
+            },
             per_routing_service: 100,
             per_routing_byte: 200,
             is_decentralized: false,
@@ -240,8 +239,10 @@ mod tests {
         .unwrap();
         let system = System::new("panics_if_consuming_service_is_unbound");
         let subject = Hopper::new(HopperConfig {
-            main_cryptde,
-            alias_cryptde,
+            cryptdes: CryptDEPair {
+                main: main_cryptde,
+                alias: alias_cryptde,
+            },
             per_routing_service: 100,
             per_routing_byte: 200,
             is_decentralized: false,
@@ -261,8 +262,7 @@ mod tests {
     )]
     fn hopper_can_be_crashed_properly_but_not_improperly() {
         let hopper = Hopper::new(HopperConfig {
-            main_cryptde: main_cryptde(),
-            alias_cryptde: alias_cryptde(),
+            cryptdes: make_cryptde_pair(),
             per_routing_service: 100,
             per_routing_byte: 200,
             is_decentralized: false,

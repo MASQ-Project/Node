@@ -78,14 +78,24 @@ fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
     }
 }
 
-pub struct CryptdePair {
+impl Clone for CryptDEPair {
+    fn clone(&self) -> Self {
+        Self {
+            main: self.main,
+            alias: self.alias,
+        }
+    }
+}
+
+#[derive(Copy)]
+pub struct CryptDEPair {
     pub main: &'static dyn CryptDE,
     pub alias: &'static dyn CryptDE,
 }
 
-impl Default for CryptdePair {
+impl Default for CryptDEPair {
     fn default() -> Self {
-        CryptdePair {
+        CryptDEPair {
             main: main_cryptde_ref(),
             alias: alias_cryptde_ref(),
         }
@@ -497,8 +507,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
                 &self.config.data_directory,
                 false,
                 MigratorConfig::panic_on_migration(),
-            )
-            .as_mut(),
+            ),
         );
 
         self.listener_handlers
@@ -526,7 +535,7 @@ impl Bootstrapper {
     pub fn pub_initialize_cryptdes_for_testing(
         main_cryptde_null_opt: &Option<&dyn CryptDE>,
         alias_cryptde_null_opt: &Option<&dyn CryptDE>,
-    ) -> CryptdePair {
+    ) -> CryptDEPair {
         Self::initialize_cryptdes(
             main_cryptde_null_opt,
             alias_cryptde_null_opt,
@@ -538,7 +547,7 @@ impl Bootstrapper {
         main_cryptde_null_opt: &Option<&dyn CryptDE>,
         alias_cryptde_null_opt: &Option<&dyn CryptDE>,
         chain: Chain,
-    ) -> CryptdePair {
+    ) -> CryptDEPair {
         unsafe {
             Self::initialize_single_cryptde(main_cryptde_null_opt, &mut MAIN_CRYPTDE_BOX_OPT, chain)
         };
@@ -549,7 +558,7 @@ impl Bootstrapper {
                 chain,
             )
         }
-        CryptdePair::default()
+        CryptDEPair::default()
     }
 
     fn initialize_single_cryptde(
@@ -739,12 +748,12 @@ mod tests {
     use std::io::ErrorKind;
     use std::marker::Sync;
     use std::net::{IpAddr, SocketAddr};
-    use std::ops::DerefMut;
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio;
+    use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
 
@@ -779,6 +788,12 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct PollingSetting {
+        counter: usize,
+        how_many_attempts_wanted_opt: Option<usize>, //None for infinite
+    }
+
     struct ListenerHandlerNull {
         log: Arc<Mutex<TestLog>>,
         bind_port_and_discriminator_factories_result: Option<io::Result<()>>,
@@ -786,6 +801,8 @@ mod tests {
         add_stream_sub: Option<Recipient<AddStreamMsg>>,
         add_stream_msgs: Arc<Mutex<Vec<AddStreamMsg>>>,
         _listen_results: Vec<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
+        //to be able to eliminate hanging and the need of a background thread in the test
+        polling_setting: PollingSetting,
     }
 
     impl ListenerHandler for ListenerHandlerNull {
@@ -826,6 +843,12 @@ mod tests {
                     .try_send(add_stream_msg)
                     .expect("StreamHandlerPool is dead");
             }
+            if let Some(desired_number) = self.polling_setting.how_many_attempts_wanted_opt {
+                self.polling_setting.counter += 1;
+                if self.polling_setting.counter == desired_number {
+                    return Ok(Async::Ready(())); //breaking the infinite looping
+                }
+            }
             Ok(Async::NotReady)
         }
     }
@@ -845,11 +868,18 @@ mod tests {
                 add_stream_sub: None,
                 add_stream_msgs: Arc::new(Mutex::new(add_stream_msgs)),
                 _listen_results: vec![],
+                polling_setting: PollingSetting::default(),
             }
         }
 
         fn bind_port_result(mut self, result: io::Result<()>) -> ListenerHandlerNull {
             self.bind_port_and_discriminator_factories_result = Some(result);
+            self
+        }
+
+        fn stop_runtime_after_prepared_messages_exhausted(mut self) -> ListenerHandlerNull {
+            self.polling_setting.how_many_attempts_wanted_opt =
+                Some(self.add_stream_msgs.lock().unwrap().len());
             self
         }
     }
@@ -1391,7 +1421,8 @@ mod tests {
         ];
         let mut holder = FakeStreamHolder::new();
         let actor_system_factory = ActorSystemFactoryActiveMock::new();
-        let dns_servers_arc = actor_system_factory.dnss.clone();
+        let make_and_start_actor_params_arc =
+            actor_system_factory.make_and_start_actors_params.clone();
         let mut subject = BootstrapperBuilder::new()
             .actor_system_factory(Box::new(actor_system_factory))
             .add_listener_handler(Box::new(
@@ -1411,10 +1442,12 @@ mod tests {
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .unwrap();
 
-        let dns_servers_guard = dns_servers_arc.lock().unwrap();
+        let mut make_and_start_actor_params = make_and_start_actor_params_arc.lock().unwrap();
+        let (bootstrapper_config, _, _) = make_and_start_actor_params.remove(0);
+        assert!(make_and_start_actor_params.is_empty());
         assert_eq!(
-            dns_servers_guard.as_ref().unwrap(),
-            &vec![
+            bootstrapper_config.dns_servers,
+            vec![
                 SocketAddr::from_str("1.2.3.4:53").unwrap(),
                 SocketAddr::from_str("2.3.4.5:53").unwrap()
             ]
@@ -1689,10 +1722,12 @@ mod tests {
             origin_port: Some(443),
             port_configuration: PortConfiguration::new(vec![], false),
         };
-        let one_listener_handler =
-            ListenerHandlerNull::new(vec![first_message, second_message]).bind_port_result(Ok(()));
-        let another_listener_handler =
-            ListenerHandlerNull::new(vec![third_message]).bind_port_result(Ok(()));
+        let one_listener_handler = ListenerHandlerNull::new(vec![first_message, second_message])
+            .bind_port_result(Ok(()))
+            .stop_runtime_after_prepared_messages_exhausted();
+        let another_listener_handler = ListenerHandlerNull::new(vec![third_message])
+            .bind_port_result(Ok(()))
+            .stop_runtime_after_prepared_messages_exhausted();
         let mut actor_system_factory = ActorSystemFactoryActiveMock::new();
         let awaiter = actor_system_factory
             .stream_handler_pool_cluster
@@ -1722,9 +1757,7 @@ mod tests {
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .unwrap();
 
-        thread::spawn(|| {
-            tokio::run(subject);
-        });
+        CurrentThread::new().block_on(subject).unwrap();
 
         let number_of_expected_messages = 3;
         awaiter.await_message_count(number_of_expected_messages);
@@ -2080,19 +2113,26 @@ mod tests {
 
     struct ActorSystemFactoryActiveMock {
         stream_handler_pool_cluster: StreamHandlerPoolCluster,
-        dnss: Arc<Mutex<Option<Vec<SocketAddr>>>>,
+        make_and_start_actors_params: Arc<
+            Mutex<
+                Vec<(
+                    BootstrapperConfig,
+                    Box<dyn ActorFactory>,
+                    Box<dyn PersistentConfiguration>,
+                )>,
+            >,
+        >,
     }
 
     impl ActorSystemFactory for ActorSystemFactoryActiveMock {
         fn make_and_start_actors(
             &self,
             config: BootstrapperConfig,
-            _actor_factory: Box<dyn ActorFactory>,
-            _persist_config: &mut dyn PersistentConfiguration,
+            actor_factory: Box<dyn ActorFactory>,
+            persist_config: Box<dyn PersistentConfiguration>, //the trait cannot be sent safely
         ) -> StreamHandlerPoolSubs {
-            let mut parameter_guard = self.dnss.lock().unwrap();
-            let parameter_ref = parameter_guard.deref_mut();
-            *parameter_ref = Some(config.dns_servers);
+            let mut parameter_guard = self.make_and_start_actors_params.lock().unwrap();
+            parameter_guard.push((config.clone(), actor_factory, persist_config));
 
             self.stream_handler_pool_cluster.subs.clone()
         }
@@ -2119,7 +2159,7 @@ mod tests {
             let stream_handler_pool_cluster = rx.recv().unwrap();
             ActorSystemFactoryActiveMock {
                 stream_handler_pool_cluster,
-                dnss: Arc::new(Mutex::new(None)),
+                make_and_start_actors_params: Arc::new(Mutex::new(vec![])),
             }
         }
     }

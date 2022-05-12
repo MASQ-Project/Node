@@ -234,7 +234,7 @@ impl AutomapControlReal {
         if let Some(usual_protocol) = self.usual_protocol_opt {
             debug!(
                 self.logger,
-                "Using a previously discovered protocol: {}", usual_protocol
+                "Trying a predetermined protocol: {}", usual_protocol
             );
             let transactor = transactors_ref_mut
                 .iter_mut()

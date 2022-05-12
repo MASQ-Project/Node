@@ -17,7 +17,7 @@ pub mod tokio_wrapper_mocks;
 
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::payer::Payer;
-use crate::bootstrapper::CryptdePair;
+use crate::bootstrapper::CryptDEPair;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
@@ -75,8 +75,8 @@ pub fn alias_cryptde() -> &'static dyn CryptDE {
     ALIAS_CRYPTDE_NULL.as_ref()
 }
 
-pub fn make_cryptde_pair() -> CryptdePair {
-    CryptdePair {
+pub fn make_cryptde_pair() -> CryptDEPair {
+    CryptDEPair {
         main: main_cryptde(),
         alias: alias_cryptde(),
     }
@@ -789,6 +789,36 @@ pub mod unshared_test_utils {
                 closure(msg)
             }
         }
+    }
+
+    //The idea here is following. It is intended as an aid when standard constructs (e.g. downcasting,
+    //raw pointers) fail to help us make an assertion on a parameter use of a particular trait object.
+    //It actually is handy for a very specific scenario:
+    //
+    //Consider a test definition area. We initiate a mocked trait object "O" encapsulated in a Box (so we will be
+    //moving ownership) and we plan to past it in a function A. The function contains other functions like
+    //B, C, D. Let's say C takes our trait object as downgraded (with a plain reference) because D takes
+    //actually "O" wholly within the box. That means we couldn't easily call it in C.
+    //We need to assert from outside fn A that "O" was pasted in C properly. However for capturing a param
+    //we need an owned or a clonable object, any of that is not usually acceptable. The raw reference we create outsde fn A
+    //will be always different than what we grab in C, because a move occurred in between, by moving the Box around.
+    //Downcasting is also a pain and not proving anything alone.
+    //
+    //That's why we can add a test-only method to our arbitrary trait by this macro. It allows implement
+    //a method fetching a made up id which we initially gives the object at the start of the test. It can
+    //be a random number. Then, at any stage, there is a chance to ask for that id from within any mocked function
+    //where we want to exactly identify what we get with the arguments that come in. The captured id can be later
+    //asserted against the id which we chose and gave to the object.
+    pub type ArbitraryIdStamp = u16;
+
+    #[macro_export]
+    macro_rules! arbitrary_id_stamp {
+        () => {
+            #[cfg(test)]
+            fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                intentionally_blank!() //not necessarily implemented for all versions
+            }
+        };
     }
 }
 

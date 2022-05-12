@@ -428,18 +428,16 @@ impl TransactorMock {
     }
 }
 
-pub fn pmp_protocol_scenario_for_actor_system_factory_test(
-    sender: Sender<HousekeepingThreadCommand>,
+pub fn parameterizable_automap_control(
+    change_handler: ChangeHandler,
+    usual_protocol_opt: Option<AutomapProtocol>,
+    mock_transactors: Vec<TransactorMock>,
 ) -> AutomapControlReal {
-    let change_handler = Box::new(|_| ());
-    let subject = AutomapControlReal::new(None, change_handler);
-    let pcp_mock = TransactorMock::new(AutomapProtocol::Pcp).find_routers_result(Ok(vec![]));
-    let pmp_mock = TransactorMock::new(AutomapProtocol::Pmp)
-        .find_routers_result(Ok(vec![*ROUTER_IP]))
-        .start_housekeeping_thread_result(Ok(sender))
-        .stop_housekeeping_thread_result(Ok(Box::new(|_| ())))
-        .get_public_ip_result(Ok(*PUBLIC_IP))
-        .add_mapping_result(Ok(1000));
-    let subject = replace_transactor(subject, Box::new(pcp_mock));
-    replace_transactor(subject, Box::new(pmp_mock))
+    let subject = AutomapControlReal::new(usual_protocol_opt, change_handler);
+    mock_transactors
+        .into_iter()
+        .fold(subject, |mut subject_so_far, transactor| {
+            subject_so_far = replace_transactor(subject_so_far, Box::new(transactor));
+            subject_so_far
+        })
 }
