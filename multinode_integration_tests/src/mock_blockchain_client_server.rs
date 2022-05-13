@@ -128,7 +128,7 @@ impl Drop for MockBlockchainClientServer {
                 let msg = match e.downcast_ref::<&'static str>() {
                     Some(m) => m.to_string(),
                     None => match e.downcast::<String>() {
-                        Ok(m) => m.to_string(),
+                        Ok(m) => m,
                         Err(e) => format!("{:?}", e),
                     },
                 };
@@ -470,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn works() {
+    fn mbcs_works_for_responses_and_errors_both_inside_a_batch_and_outside() {
         let port = find_free_port();
         let (notifier, notified) = unbounded();
         let subject = MockBlockchainClientServer::builder(port)
