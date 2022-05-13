@@ -1776,8 +1776,10 @@ mod tests {
         let alias_cryptde_public_key_before = public_key_for_dyn_cryptde_being_null(alias_cryptde);
         let actor_factory = Box::new(ActorFactoryReal {}) as Box<dyn ActorFactory>;
         let actor_factory_before_raw_address = addr_of!(*actor_factory);
-        let mut persistent_config =
-            Box::new(PersistentConfigurationMock::default().set_arbitrary_id_stamp(4578112));
+        let persistent_config = Box::new(
+            PersistentConfigurationMock::default()
+                .set_arbitrary_id_stamp(ArbitraryIdStamp::new(457812)),
+        );
         let persistent_config_before_raw = addr_of!(*persistent_config);
         let tools = ActorSystemFactoryToolsMock::default()
             .cryptdes_result(CryptDEPair {
@@ -1795,7 +1797,7 @@ mod tests {
         let mut validate_database_chain_params = validate_database_chain_params_arc.lock().unwrap();
         let (persistent_config_id, chain) = validate_database_chain_params.remove(0);
         assert!(validate_database_chain_params.is_empty());
-        assert_eq!(persistent_config_id, 4578112);
+        assert_eq!(persistent_config_id, ArbitraryIdStamp::new(457812));
         assert_eq!(chain, Chain::PolyMainnet);
         let mut prepare_initial_messages_params =
             prepare_initial_messages_params_arc.lock().unwrap();
