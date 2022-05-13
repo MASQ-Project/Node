@@ -479,6 +479,9 @@ fn configure_accountant_config(
     config: &mut BootstrapperConfig,
     persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
+    let suppress_initial_scans =
+        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
+
     let accountant_config = AccountantConfig {
         scan_intervals: process_combined_params(
             "scan-intervals",
@@ -496,6 +499,7 @@ fn configure_accountant_config(
             |pc: &dyn PersistentConfiguration| pc.payment_thresholds(),
             |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_thresholds(curves),
         )?,
+        suppress_initial_scans,
         when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
     };
     config.accountant_config_opt = Some(accountant_config);
@@ -1749,6 +1753,7 @@ mod tests {
                 permanent_debt_allowed_gwei: 20000,
                 unban_below_gwei: 20000,
             },
+            suppress_initial_scans: false,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         assert_eq!(actual_accountant_config, expected_accountant_config);
@@ -1816,6 +1821,7 @@ mod tests {
                 permanent_debt_allowed_gwei: 20000,
                 unban_below_gwei: 20000,
             },
+            suppress_initial_scans: false,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         assert_eq!(actual_accountant_config, expected_accountant_config);
@@ -2330,6 +2336,87 @@ mod tests {
         let result = get_public_ip(&multi_config);
 
         assert_eq!(result, Ok(IpAddr::from_str("4.3.2.1").unwrap()));
+    }
+
+    #[test]
+    fn unprivileged_configuration_handles_scans_off() {
+        running_test();
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
+        let args = ["--ip", "1.2.3.4", "--scans", "off"];
+        let mut bootstrapper_config = BootstrapperConfig::new();
+
+        subject
+            .unprivileged_parse_args(
+                &make_simplified_multi_config(args),
+                &mut bootstrapper_config,
+                &mut configure_default_persistent_config(
+                    ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK,
+                ),
+                &Logger::new("test"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            bootstrapper_config
+                .accountant_config_opt
+                .unwrap()
+                .suppress_initial_scans,
+            true
+        );
+    }
+
+    #[test]
+    fn unprivileged_configuration_handles_scans_on() {
+        running_test();
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
+        let args = ["--ip", "1.2.3.4", "--scans", "on"];
+        let mut bootstrapper_config = BootstrapperConfig::new();
+
+        subject
+            .unprivileged_parse_args(
+                &make_simplified_multi_config(args),
+                &mut bootstrapper_config,
+                &mut configure_default_persistent_config(
+                    ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK,
+                ),
+                &Logger::new("test"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            bootstrapper_config
+                .accountant_config_opt
+                .unwrap()
+                .suppress_initial_scans,
+            false
+        );
+    }
+
+    #[test]
+    fn unprivileged_configuration_defaults_scans() {
+        running_test();
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
+        let args = ["--ip", "1.2.3.4"];
+        let mut bootstrapper_config = BootstrapperConfig::new();
+
+        subject
+            .unprivileged_parse_args(
+                &make_simplified_multi_config(args),
+                &mut bootstrapper_config,
+                &mut configure_default_persistent_config(
+                    ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK,
+                ),
+                &Logger::new("test"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            bootstrapper_config
+                .accountant_config_opt
+                .unwrap()
+                .suppress_initial_scans,
+            false
+        );
     }
 
     fn make_persistent_config(

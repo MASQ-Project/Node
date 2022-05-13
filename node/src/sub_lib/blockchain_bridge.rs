@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::PayableAccount;
-use crate::accountant::RequestTransactionReceipts;
+use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
@@ -36,6 +36,13 @@ impl Debug for BlockchainBridgeSubs {
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportAccountsPayable {
     pub accounts: Vec<PayableAccount>,
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
+}
+
+impl SkeletonOptHolder for ReportAccountsPayable {
+    fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
+        self.response_skeleton_opt
+    }
 }
 
 #[derive(Clone, PartialEq, Debug, Message)]
