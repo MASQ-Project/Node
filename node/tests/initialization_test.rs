@@ -4,7 +4,8 @@ pub mod utils;
 
 use masq_lib::constants::{DEFAULT_CHAIN, NODE_NOT_RUNNING_ERROR};
 use masq_lib::messages::{
-    ToMessageBody, UiFinancialsResponse, UiSetupRequest, UiShutdownRequest, NODE_UI_PROTOCOL,
+    ToMessageBody, UiFinancialsResponse, UiSetupRequest, UiSetupResponse, UiShutdownRequest,
+    NODE_UI_PROTOCOL,
 };
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
@@ -70,7 +71,7 @@ fn initialization_sequence_integration() {
         "initialization_test",
         "initialization_sequence_integration",
     );
-    let _: UiSetupRequest = initialization_client
+    let _: UiSetupResponse = initialization_client
         .transact(UiSetupRequest::new(vec![
             ("dns-servers", Some("1.1.1.1")),
             ("neighborhood-mode", Some("zero-hop")),

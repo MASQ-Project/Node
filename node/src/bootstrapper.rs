@@ -737,6 +737,7 @@ mod tests {
     use log::LevelFilter::Off;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::logger::Logger;
+    use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
@@ -1403,6 +1404,7 @@ mod tests {
     #[test]
     fn init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged(
     ) {
+        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap(); // protection to interfering with 'prepare_initial_messages_initiates_global_log_recipient'
         let _lock = INITIALIZATION.lock();
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
