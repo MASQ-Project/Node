@@ -19,7 +19,7 @@ use std::time::{Duration, SystemTime};
 /// Note: if you decide to change this, make sure you test thoroughly. Values less than 5 may lead
 /// to inability to grow the network beyond a very small size; values greater than 5 may lead to
 /// Gossip storms.
-const MAX_DEGREE: usize = 5;
+pub const MAX_DEGREE: usize = 5;
 // In case we meet a pass target after this duration, we would treat
 // pass target as if we met it for the first time.
 const PASS_GOSSIP_EXPIRED_TIME: Duration = Duration::from_secs(60);
