@@ -128,7 +128,7 @@ impl Drop for MockBlockchainClientServer {
                 let msg = match e.downcast_ref::<&'static str>() {
                     Some(m) => m.to_string(),
                     None => match e.downcast::<String>() {
-                        Ok(m) => m,
+                        Ok(m) => *m,
                         Err(e) => format!("{:?}", e),
                     },
                 };
