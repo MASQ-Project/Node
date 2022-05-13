@@ -385,7 +385,7 @@ impl Debug for NeighborhoodSubs {
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeQueryResponseMetadata {
     pub public_key: PublicKey,
-    pub node_addr_opt: Option<NodeAddr>, // Why is it an Option?
+    pub node_addr_opt: Option<NodeAddr>,
     pub rate_pack: RatePack,
 }
 

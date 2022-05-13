@@ -220,8 +220,9 @@ impl OverallConnectionStatus {
         node_to_ui_recipient: &Recipient<NodeToUiMessage>,
     ) {
         // For now, this function is only called when Standard or Introduction Gossip
-        // is received,
-        // TODO: Write a more generalized fn, which can be called when any stage gets updated
+        // is received, as it is implemented only for the advancing transitions right now
+        // TODO: Modify this fn when you're implementing the regressing transitions and try to
+        // write a more generalized fn, which can be called when any stage gets updated
         let prev_stage = self.stage;
         if self.can_make_routes() {
             self.stage = OverallConnectionStage::ThreeHopsRouteFound;

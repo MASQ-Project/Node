@@ -393,8 +393,6 @@ impl Neighborhood {
                 "A zero-hop MASQ Node is not decentralized and cannot have a --neighbors setting"
             )
         }
-        // let gossip_acceptor: Box<dyn GossipAcceptor> = Box::new(GossipAcceptorReal::new(cryptde));
-        // let gossip_producer = Box::new(GossipProducerReal::new());
         let neighborhood_database = NeighborhoodDatabase::new(
             cryptde.public_key(),
             neighborhood_config.mode.clone(),
@@ -523,6 +521,24 @@ impl Neighborhood {
         }
     }
 
+    fn send_debut_gossip_to_all_initial_descriptors(&mut self) {
+        if self.overall_connection_status.is_empty() {
+            info!(self.logger, "Empty. No Nodes to report to; continuing");
+            return;
+        }
+
+        let gossip = self
+            .gossip_producer_opt
+            .as_ref()
+            .expect("Gossip Producer uninitialized")
+            .produce_debut(&self.neighborhood_database);
+        self.overall_connection_status
+            .iter_initial_node_descriptors()
+            .for_each(|node_descriptor| {
+                self.send_debut_gossip_to_descriptor(&gossip, node_descriptor)
+            });
+    }
+
     fn send_debut_gossip_to_descriptor(
         &self,
         debut_gossip: &Gossip_0v1,
@@ -548,24 +564,6 @@ impl Neighborhood {
                 ),
             )
         )
-    }
-
-    fn send_debut_gossip_to_all_initial_descriptors(&mut self) {
-        if self.overall_connection_status.is_empty() {
-            info!(self.logger, "Empty. No Nodes to report to; continuing");
-            return;
-        }
-
-        let gossip = self
-            .gossip_producer_opt
-            .as_ref()
-            .expect("Gossip Producer uninitialized")
-            .produce_debut(&self.neighborhood_database);
-        self.overall_connection_status
-            .iter_initial_node_descriptors()
-            .for_each(|node_descriptor| {
-                self.send_debut_gossip_to_descriptor(&gossip, node_descriptor)
-            });
     }
 
     fn log_incoming_gossip(&self, incoming_gossip: &Gossip_0v1, gossip_source: SocketAddr) {
