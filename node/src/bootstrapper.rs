@@ -878,7 +878,7 @@ mod tests {
             self
         }
 
-        fn stop_runtime_after_prepared_messages_exhausted(mut self) -> ListenerHandlerNull {
+        fn stop_polling_after_prepared_messages_exhausted(mut self) -> ListenerHandlerNull {
             self.polling_setting.how_many_attempts_wanted_opt =
                 Some(self.add_stream_msgs.lock().unwrap().len());
             self
@@ -1726,10 +1726,10 @@ mod tests {
         };
         let one_listener_handler = ListenerHandlerNull::new(vec![first_message, second_message])
             .bind_port_result(Ok(()))
-            .stop_runtime_after_prepared_messages_exhausted();
+            .stop_polling_after_prepared_messages_exhausted();
         let another_listener_handler = ListenerHandlerNull::new(vec![third_message])
             .bind_port_result(Ok(()))
-            .stop_runtime_after_prepared_messages_exhausted();
+            .stop_polling_after_prepared_messages_exhausted();
         let mut actor_system_factory = ActorSystemFactoryActiveMock::new();
         let awaiter = actor_system_factory
             .stream_handler_pool_cluster
@@ -2131,7 +2131,7 @@ mod tests {
             &self,
             config: BootstrapperConfig,
             actor_factory: Box<dyn ActorFactory>,
-            persist_config: Box<dyn PersistentConfiguration>, //the trait cannot be sent safely
+            persist_config: Box<dyn PersistentConfiguration>,
         ) -> StreamHandlerPoolSubs {
             let mut parameter_guard = self.make_and_start_actors_params.lock().unwrap();
             parameter_guard.push((config.clone(), actor_factory, persist_config));

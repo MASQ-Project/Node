@@ -529,8 +529,11 @@ pub mod unshared_test_utils {
     use actix::Message;
     use actix::{Actor, Addr, AsyncContext, Context, Handler, SpawnHandle, System};
     use crossbeam_channel::{Receiver, Sender};
+    use lazy_static::lazy_static;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
+    #[cfg(not(feature = "no_test_share"))]
+    use masq_lib::test_utils::utils::MutexIncrementInset;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::cell::RefCell;
@@ -824,7 +827,7 @@ pub mod unshared_test_utils {
     //It is actually handy for very specific scenarios:
     //
     //Consider writing a test. We initiate a mocked trait object "O" encapsulated in a Box (so we will be
-    //moving ownership) and we plan to past it in a function A. The function contains other functions like
+    //moving ownership) and we plan to paste it in a function A. The function contains other functions like
     //B, C, D. Let's say C takes our trait object as downgraded (with a plain reference) because D later takes
     //"O" wholly as within the box. That means we couldn't easily call it in C.
     //We need to assert from outside of fn A that "O" was pasted in C properly. However for capturing a param
@@ -833,22 +836,28 @@ pub mod unshared_test_utils {
     //in between, by moving the Box around.
     //Downcasting is also a pain and not proving anything alone.
     //
-    //That's why we can add a test-only method to our arbitrary trait by this macro. It allows implement
-    //a method fetching a made up id which we initially gives the object at the start of the test. It can
-    //be a random number. Then, at any stage, there is a chance to ask for that id from within any mocked function
-    //where we want to exactly identify what we get with the arguments that come in. The captured id can be later
-    //asserted against the id which we chose and gave to the object.
+    //That's why we can add a test-only method to our arbitrary trait by this macro. It allows to implement
+    //a method fetching a made up id which is internally generated and dedicated to the object before the test begins.
+    //Then, at any stage, there is a chance to ask for that id from within any mocked function
+    //where we want to precisely identify what we get with the arguments that come in. The captured id represents the
+    //supplied instance, one of the function's parameters, and can be later asserted by comparing it with a copy of
+    //the same artificial id generated in the setup part of the test.
+
+    lazy_static! {
+        pub static ref ARBITRARY_ID_STAMP_SEQUENCER: Mutex<MutexIncrementInset> =
+            Mutex::new(MutexIncrementInset(0));
+    }
 
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct ArbitraryIdStamp(u32);
+    pub struct ArbitraryIdStamp(usize);
 
     impl ArbitraryIdStamp {
-        pub fn new(id: u32) -> Self {
-            assert!(
-                100000 <= id && id <= 999999,
-                "ArbitraryIdStamp has to be a number of range 100000..=999999"
-            );
-            Self(id)
+        pub fn new() -> Self {
+            ArbitraryIdStamp({
+                let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
+                access.0 += 1;
+                access.0
+            })
         }
     }
 
@@ -857,7 +866,8 @@ pub mod unshared_test_utils {
         () => {
             #[cfg(test)]
             fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                intentionally_blank!() //not necessarily implemented for all takers of the trait
+                //no necessity to implemented it for all impls of the trait this becomes a member of
+                intentionally_blank!()
             }
         };
     }
