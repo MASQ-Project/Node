@@ -4,7 +4,7 @@ use crate::blockchain::payer::Payer;
 use crate::bootstrapper::CryptDEPair;
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-use crate::sub_lib::cryptde::{decodex, encodex, CodexError, CryptDE, CryptData, CryptdecError};
+use crate::sub_lib::cryptde::{decodex, encodex, CodexError, CryptData, CryptdecError};
 use crate::sub_lib::dispatcher::{Component, Endpoint, InboundClientData};
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperSubs, MessageType};
@@ -519,7 +519,7 @@ mod tests {
     use crate::banned_dao::BAN_CACHE;
     use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-    use crate::sub_lib::cryptde::{encodex, PlainData, PublicKey};
+    use crate::sub_lib::cryptde::{encodex, CryptDE, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType, MessageType::ClientRequest};
     use crate::sub_lib::neighborhood::GossipFailure_0v1;
