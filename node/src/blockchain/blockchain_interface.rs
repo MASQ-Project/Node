@@ -730,8 +730,44 @@ mod tests {
     fn blockchain_interface_non_clandestine_retrieves_transactions() {
         let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
         let port = find_free_port();
+        #[rustfmt::skip]
         let test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"},{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be662","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0680","transactionIndex":"0x0"}]}"#.to_vec(),
+            br#"{
+                "jsonrpc":"2.0",
+                "id":3,
+                "result":[
+                    {
+                        "address":"0xcd6c588e005032dd882cd43bf53a32129be81302",
+                        "blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a",
+                        "blockNumber":"0x4be663",
+                        "data":"0x0000000000000000000000000000000000000000000000000010000000000000",
+                        "logIndex":"0x0",
+                        "removed":false,
+                        "topics":[
+                            "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                            "0x0000000000000000000000003ab28ecedea6cdb6feed398e93ae8c7b316b1182",
+                            "0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"
+                        ],
+                        "transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681",
+                        "transactionIndex":"0x0"
+                    },
+                    {
+                        "address":"0xcd6c588e005032dd882cd43bf53a32129be81302",
+                        "blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732b",
+                        "blockNumber":"0x4be662",
+                        "data":"0x0000000000000000000000000000000000000000000000000010000000000000",
+                        "logIndex":"0x0",
+                        "removed":false,
+                        "topics":[
+                            "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                            "0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc",
+                            "0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"
+                        ],
+                        "transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0680",
+                        "transactionIndex":"0x0"
+                    }
+                ]
+            }"#.to_vec(),
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
@@ -764,16 +800,16 @@ mod tests {
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
-                new_start_block: 4_974_179 + 1,
+                new_start_block: 0x4be663 + 1,
                 transactions: vec![
                     BlockchainTransaction {
-                        block_number: 4_974_179,
-                        from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
+                        block_number: 0x4be663,
+                        from: Wallet::from_str("0x3ab28ecedea6cdb6feed398e93ae8c7b316b1182")
                             .unwrap(),
                         gwei_amount: 4_503_599,
                     },
                     BlockchainTransaction {
-                        block_number: 4_974_178,
+                        block_number: 0x4be662,
                         from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
                             .unwrap(),
                         gwei_amount: 4_503_599,

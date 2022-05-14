@@ -7,24 +7,9 @@ pub(in crate::accountant) mod accountant_tools {
         ScanForReceivables,
     };
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
-    use actix::{AsyncContext, Context, Recipient};
+    use actix::{Context, Recipient};
     #[cfg(test)]
     use std::any::Any;
-    use std::time::Duration;
-
-    macro_rules! notify_later_assertable {
-        ($accountant: expr, $ctx: expr, $message_type: ident, $notify_later_handle_field: ident, $scan_interval: expr) => {
-            let closure =
-                Box::new(|msg: $message_type, interval: Duration| $ctx.notify_later(msg, interval));
-            let _ = $accountant.tools.$notify_later_handle_field.notify_later(
-                $message_type {
-                    response_skeleton_opt: None,
-                },
-                $scan_interval,
-                closure,
-            );
-        };
-    }
 
     pub struct Scanners {
         pub pending_payables: Box<dyn Scanner>,
@@ -56,16 +41,19 @@ pub(in crate::accountant) mod accountant_tools {
             accountant.scan_for_pending_payable(response_skeleton_opt)
         }
         fn notify_later_assertable(&self, accountant: &Accountant, ctx: &mut Context<Accountant>) {
-            notify_later_assertable!(
-                accountant,
-                ctx,
-                ScanForPendingPayables,
-                notify_later_scan_for_pending_payable,
-                accountant
-                    .config
-                    .scan_intervals
-                    .pending_payable_scan_interval
-            );
+            let _ = accountant
+                .tools
+                .notify_later_scan_for_pending_payable
+                .notify_later(
+                    ScanForPendingPayables {
+                        response_skeleton_opt: None, // because scheduled scans don't respond
+                    },
+                    accountant
+                        .config
+                        .scan_intervals
+                        .pending_payable_scan_interval,
+                    ctx,
+                );
         }
         as_any_impl!();
     }
@@ -79,12 +67,12 @@ pub(in crate::accountant) mod accountant_tools {
         }
 
         fn notify_later_assertable(&self, accountant: &Accountant, ctx: &mut Context<Accountant>) {
-            notify_later_assertable!(
-                accountant,
+            let _ = accountant.tools.notify_later_scan_for_payable.notify_later(
+                ScanForPayables {
+                    response_skeleton_opt: None,
+                },
+                accountant.config.scan_intervals.payable_scan_interval,
                 ctx,
-                ScanForPayables,
-                notify_later_scan_for_payable,
-                accountant.config.scan_intervals.payable_scan_interval
             );
         }
 
@@ -102,13 +90,16 @@ pub(in crate::accountant) mod accountant_tools {
         }
 
         fn notify_later_assertable(&self, accountant: &Accountant, ctx: &mut Context<Accountant>) {
-            notify_later_assertable!(
-                accountant,
-                ctx,
-                ScanForReceivables,
-                notify_later_scan_for_receivable,
-                accountant.config.scan_intervals.receivable_scan_interval
-            );
+            let _ = accountant
+                .tools
+                .notify_later_scan_for_receivable
+                .notify_later(
+                    ScanForReceivables {
+                        response_skeleton_opt: None,
+                    },
+                    accountant.config.scan_intervals.receivable_scan_interval,
+                    ctx,
+                );
         }
 
         as_any_impl!();
@@ -133,11 +124,14 @@ pub(in crate::accountant) mod accountant_tools {
     #[derive(Default)]
     pub struct TransactionConfirmationTools {
         pub notify_later_scan_for_pending_payable:
-            Box<dyn NotifyLaterHandle<ScanForPendingPayables>>,
-        pub notify_later_scan_for_payable: Box<dyn NotifyLaterHandle<ScanForPayables>>,
-        pub notify_later_scan_for_receivable: Box<dyn NotifyLaterHandle<ScanForReceivables>>,
-        pub notify_confirm_transaction: Box<dyn NotifyHandle<ConfirmPendingTransaction>>,
-        pub notify_cancel_failed_transaction: Box<dyn NotifyHandle<CancelFailedPendingTransaction>>,
+            Box<dyn NotifyLaterHandle<ScanForPendingPayables, Accountant>>,
+        pub notify_later_scan_for_payable: Box<dyn NotifyLaterHandle<ScanForPayables, Accountant>>,
+        pub notify_later_scan_for_receivable:
+            Box<dyn NotifyLaterHandle<ScanForReceivables, Accountant>>,
+        pub notify_confirm_transaction:
+            Box<dyn NotifyHandle<ConfirmPendingTransaction, Accountant>>,
+        pub notify_cancel_failed_transaction:
+            Box<dyn NotifyHandle<CancelFailedPendingTransaction, Accountant>>,
         pub request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
     }
 }

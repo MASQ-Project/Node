@@ -1,6 +1,6 @@
 [package]
 name = "masq_lib"
-version = "1.0.0"
+version = "0.6.0"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
 copyright = "Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved."
@@ -28,6 +28,7 @@ websocket = {version = "0.26.2", default-features = false, features = ["sync"]}
 
 [features]
 no_test_share = []
+log_recipient_test = []
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 nix = "0.23.0"

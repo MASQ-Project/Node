@@ -87,9 +87,7 @@ fn debtors_are_credited_once_but_not_twice() {
             }
         }
         let mut stmt = conn
-            .prepare(
-                "update config set value = '1000' where name = 'start_block'",
-            )
+            .prepare("update config set value = '1000' where name = 'start_block'")
             .unwrap();
         match stmt.execute([]) {
             Ok(_) => (),
@@ -117,7 +115,7 @@ fn debtors_are_credited_once_but_not_twice() {
     );
     let response = ui_client.wait_for_response(1235, Duration::from_secs(10));
     let (_, context_id) = UiScanResponse::fmb(response).unwrap();
-    assert_eq! (context_id, 1235);
+    assert_eq!(context_id, 1235);
     // Kill the real Node
     node.kill_node();
     // Use the receivable DAO to verify that the receivable's balance has been adjusted
