@@ -110,6 +110,14 @@ pub const REAL_USER_HELP: &str =
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
      you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
      like <uid>:<gid>:<home directory>.";
+pub const SCANS_HELP: &str =
+    "The Node, when running, performs various periodic scans, including scanning for payables that need to be paid, \
+    for pending payables that have arrived (and are no longer pending), for incoming receivables that need to be \
+    recorded, and for delinquent Nodes that need to be banned. If you don't specify this parameter, or if you give \
+    it the value 'on', these scans will proceed normally. But if you give the value 'off', the scans won't be \
+    started when the Node starts, and will have to be triggered later manually and individually with the \
+    MASQNode-UIv2 'scan' command. (If you don't, you'll most likely be delinquency-banned by all your neighbors.) \
+    This parameter is most useful for testing.";
 pub const RATE_PACK_HELP: &str = "\
      These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
      services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
@@ -417,6 +425,14 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(NEIGHBORS_HELP),
     )
     .arg(real_user_arg())
+    .arg(
+        Arg::with_name("scans")
+            .long("scans")
+            .value_name("SCANS")
+            .takes_value(true)
+            .possible_values(&["on", "off"])
+            .help(SCANS_HELP),
+    )
     .arg(common_parameter_with_separate_u64_values(
         "scan-intervals",
         SCAN_INTERVALS_HELP,

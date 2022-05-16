@@ -50,6 +50,7 @@ pub const NODE_ALREADY_RUNNING_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 3;
 pub const UNMARSHAL_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 4;
 pub const SETUP_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 5;
 pub const TIMEOUT_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 6;
+pub const SCAN_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 7;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
