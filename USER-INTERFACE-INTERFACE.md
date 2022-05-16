@@ -860,6 +860,41 @@ The UI should disconnect from the Daemon, connect to the Node on `localhost` at 
 reconstruct the original message from the `opcode`, `contextId`, and `payload` fields, and send it to the
 Node.
 
+#### `scan`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "name": <string>
+}
+```
+##### Description:
+This message instructs the Node to perform a payables scan, a pending-payables scan, or a receivables scan, depending 
+on the `name` parameter. This will be an extra, additional scan and will not affect the Node's regular schedule of 
+autonomous scans, if any, except that it's possible that it may delay a regular autonomous scan if the Node is busy 
+with your scan when the autonomous scan is scheduled.
+
+The `name` field in the payload must be "payables" or "pendingpayables" or "receivables".
+
+A payables scan will search through the database for payable bills that are big enough and old enough to pay, and will 
+pay them from your consuming wallet. A pending-payables scan will find payments you've already made on the blockchain
+that have since been confirmed--actually received by your creditors--and remove them from your books. A receivables 
+scan will do two things: first, it will scan the blockchain for receivables that have been paid to your earning wallet, 
+and adjust your books to reflect those payments; second, it will run a database scan to handle delinquency banning and 
+unbanning.
+
+#### `scan`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+}
+```
+##### Description:
+This is a simple acknowledgment that the requested scan has been completed.
+
 #### `setConfiguration`
 ##### Direction: Request
 ##### Correspondent: Node

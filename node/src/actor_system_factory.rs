@@ -453,7 +453,6 @@ impl ActorFactory for ActorFactoryReal {
             false,
             MigratorConfig::panic_on_migration(),
         ));
-        let config_dao_factory = Accountant::dao_factory(data_directory);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
@@ -462,7 +461,6 @@ impl ActorFactory for ActorFactoryReal {
                 Box::new(receivable_dao_factory),
                 Box::new(pending_payable_dao_factory),
                 Box::new(banned_dao_factory),
-                Box::new(config_dao_factory),
             )
         });
         Accountant::make_subs_from(&addr)
@@ -629,8 +627,7 @@ mod tests {
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::{
-        make_populated_accountant_config_with_defaults, ArbitraryIdStamp, CleanUpMessage,
-        DummyActor,
+        make_populated_accountant_config_with_defaults, ArbitraryIdStamp, SystemKillerActor,
     };
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
@@ -641,7 +638,7 @@ mod tests {
     use automap_lib::mocks::{
         parameterizable_automap_control, TransactorMock, PUBLIC_IP, ROUTER_IP,
     };
-    use crossbeam_channel::{bounded, unbounded};
+    use crossbeam_channel::unbounded;
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
@@ -1698,10 +1695,10 @@ mod tests {
     where
         F: FnOnce() -> Recipient<NodeFromUiMessage>,
     {
-        let (mercy_signal_tx, mercy_signal_rx) = bounded(1);
         let system = System::new("test");
-        let dummy_actor = DummyActor::new(Some(mercy_signal_tx));
-        let dummy_addr = Arbiter::start(|_| dummy_actor);
+        let killer = SystemKillerActor::new(Duration::from_millis(1500));
+        let mercy_signal_rx = killer.receiver();
+        Arbiter::start(|_| killer);
         let ui_node_addr = actor_initialization();
         let crash_request = UiCrashRequest {
             actor: actor_crash_key.to_string(),
@@ -1714,9 +1711,6 @@ mod tests {
             client_id: 1,
             body: crash_request.tmb(123),
         };
-        dummy_addr
-            .try_send(CleanUpMessage { sleep_ms: 1500 })
-            .unwrap();
         ui_node_addr.try_send(actor_message).unwrap();
         system.run();
         assert!(

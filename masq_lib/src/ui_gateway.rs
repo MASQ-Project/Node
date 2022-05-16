@@ -10,7 +10,7 @@ pub enum MessageTarget {
     AllClients,
 }
 
-#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum MessagePath {
     FireAndForget,
     Conversation(u64), // context_id
