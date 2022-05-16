@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, SentPayable};
+use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, ScanError, SentPayable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
@@ -70,6 +70,7 @@ pub struct ScanIntervals {
 pub struct AccountantConfig {
     pub scan_intervals: ScanIntervals,
     pub payment_thresholds: PaymentThresholds,
+    pub suppress_initial_scans: bool,
     pub when_pending_too_long_sec: u64,
 }
 
@@ -85,6 +86,7 @@ pub struct AccountantSubs {
     pub pending_payable_fingerprint: Recipient<PendingPayableFingerprint>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
     pub report_sent_payments: Recipient<SentPayable>,
+    pub scan_errors: Recipient<ScanError>,
     pub ui_message_sub: Recipient<NodeFromUiMessage>,
 }
 

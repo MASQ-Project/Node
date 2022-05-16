@@ -10,6 +10,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
+use std::str::FromStr;
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 
@@ -690,6 +691,37 @@ conversation_message!(UiRecoverWalletsRequest, "recoverWallets");
 pub struct UiRecoverWalletsResponse {}
 conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+pub enum ScanType {
+    Payables,
+    Receivables,
+    PendingPayables,
+}
+
+impl FromStr for ScanType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            s if &s.to_lowercase() == "payables" => Ok(ScanType::Payables),
+            s if &s.to_lowercase() == "receivables" => Ok(ScanType::Receivables),
+            s if &s.to_lowercase() == "pendingpayables" => Ok(ScanType::PendingPayables),
+            s => Err(format!("Unrecognized ScanType: '{}'", s)),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiScanRequest {
+    #[serde(rename = "scanType")]
+    pub scan_type: ScanType,
+}
+conversation_message!(UiScanRequest, "scan");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiScanResponse {}
+conversation_message!(UiScanResponse, "scan");
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiSetConfigurationRequest {
     pub name: String,
@@ -1033,6 +1065,43 @@ mod tests {
                 },
                 0
             ))
+        );
+    }
+
+    #[test]
+    fn scan_type_from_string_happy_path() {
+        let result: Vec<ScanType> = vec![
+            "Payables",
+            "pAYABLES",
+            "Receivables",
+            "rECEIVABLES",
+            "PendingPayables",
+            "pENDINGpAYABLES",
+        ]
+        .into_iter()
+        .map(|s| ScanType::from_str(s).unwrap())
+        .collect();
+
+        assert_eq!(
+            result,
+            vec![
+                ScanType::Payables,
+                ScanType::Payables,
+                ScanType::Receivables,
+                ScanType::Receivables,
+                ScanType::PendingPayables,
+                ScanType::PendingPayables,
+            ]
+        )
+    }
+
+    #[test]
+    fn scan_type_from_string_error() {
+        let result = ScanType::from_str("unrecognized");
+
+        assert_eq!(
+            result,
+            Err("Unrecognized ScanType: 'unrecognized'".to_string())
         );
     }
 }

@@ -14,7 +14,6 @@ pub mod recorder;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
-
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::sub_lib::cryptde::CryptDE;
@@ -518,9 +517,9 @@ pub mod unshared_test_utils {
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use actix::Message;
-    use actix::{Actor, Addr, AsyncContext, Context, Handler, SpawnHandle, System};
-    use crossbeam_channel::{Receiver, Sender};
+    use actix::{Actor, Addr, AsyncContext, Context, Handler, System};
+    use actix::{Message, SpawnHandle};
+    use crossbeam_channel::{unbounded, Receiver, Sender};
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -530,7 +529,6 @@ pub mod unshared_test_utils {
     use std::num::ParseIntError;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
-    use std::thread;
     use std::time::Duration;
 
     #[derive(Message)]
@@ -600,6 +598,7 @@ pub mod unshared_test_utils {
             scan_intervals: *DEFAULT_SCAN_INTERVALS,
             payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+            suppress_initial_scans: false,
         }
     }
 
@@ -608,6 +607,7 @@ pub mod unshared_test_utils {
             scan_intervals: Default::default(),
             payment_thresholds: Default::default(),
             when_pending_too_long_sec: Default::default(),
+            suppress_initial_scans: false,
         }
     }
 
@@ -656,17 +656,14 @@ pub mod unshared_test_utils {
     ) {
         let system = System::new("test");
         let addr: Addr<T> = actor.start();
-        let dummy_actor = DummyActor::new(None);
-        let dummy_address = dummy_actor.start();
+        let killer = SystemKillerActor::new(Duration::from_millis(2000));
+        killer.start();
 
         addr.try_send(NodeFromUiMessage {
             client_id: 0,
             body: UiCrashRequest::new(crash_key, "panic message").tmb(0),
         })
         .unwrap();
-        dummy_address
-            .try_send(CleanUpMessage { sleep_ms: 2000 })
-            .unwrap();
         system.run();
         panic!("test failed")
     }
@@ -684,39 +681,46 @@ pub mod unshared_test_utils {
         pub sleep_ms: u64,
     }
 
-    pub struct DummyActor {
-        system_stop_signal_opt: Option<Sender<()>>,
-    }
-
-    impl DummyActor {
-        pub fn new(system_stop_signal: Option<Sender<()>>) -> Self {
-            Self {
-                system_stop_signal_opt: system_stop_signal,
-            }
-        }
-    }
-
-    impl Actor for DummyActor {
-        type Context = Context<Self>;
-    }
-
-    impl Handler<CleanUpMessage> for DummyActor {
-        type Result = ();
-
-        fn handle(&mut self, msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
-            thread::sleep(Duration::from_millis(msg.sleep_ms));
-            if let Some(sender) = &self.system_stop_signal_opt {
-                let _ = sender.send(());
-            };
-            System::current().stop();
-        }
-    }
-
     pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
         (0..s.len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
             .collect()
+    }
+
+    pub struct SystemKillerActor {
+        after: Duration,
+        tx: Sender<()>,
+        rx: Receiver<()>,
+    }
+
+    impl Actor for SystemKillerActor {
+        type Context = Context<Self>;
+
+        fn started(&mut self, ctx: &mut Self::Context) {
+            ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after.clone());
+        }
+    }
+
+    // Note: the sleep_ms field of the CleanUpMessage is unused; all we need is a time strobe.
+    impl Handler<CleanUpMessage> for SystemKillerActor {
+        type Result = ();
+
+        fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
+            System::current().stop();
+            self.tx.try_send(()).expect("Receiver is dead");
+        }
+    }
+
+    impl SystemKillerActor {
+        pub fn new(after: Duration) -> Self {
+            let (tx, rx) = unbounded();
+            Self { after, tx, rx }
+        }
+
+        pub fn receiver(&self) -> Receiver<()> {
+            self.rx.clone()
+        }
     }
 
     pub struct NotifyLaterHandleMock<M> {

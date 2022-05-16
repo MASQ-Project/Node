@@ -464,6 +464,7 @@ impl Neighborhood {
     }
 
     fn handle_start_message(&mut self) {
+        debug!(self.logger, "Connecting to persistent database");
         self.connect_database();
         self.send_debut_gossip_to_all_initial_descriptors();
     }
