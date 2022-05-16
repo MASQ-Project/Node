@@ -36,7 +36,7 @@ impl DaemonProcess {
         let start = Instant::now();
         loop {
             if Instant::now().duration_since(start) >= interval {
-                panic!("Daemon didn't start up successfully. Maybe try to run again the tests with privilege next time.");
+                panic!("Daemon didn't start up successfully. Maybe try to run the tests again with privilege.");
             }
 
             let masq_handle = MasqProcess::new().start_noninteractive(vec![
