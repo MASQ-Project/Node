@@ -157,5 +157,66 @@ Keep close track of both of these processes so that you can answer any questions
 If the pull request does not pass review or testing, you'll be notified and the card will be moved back into
 Awaiting Development, from whence you can reclaim it if you like.
 
+Around this tme, there will also be discussion with the core developers and Product Owner to determine what type of version increment will be involved and adding a git tag after the review, QA and merge to master are completed. If there is a planned release version, then the merge commit may be tagged as a pre-release pending a confirmed release version number.
+
+Versioning will follow basic semver - vx.x.x and qualifiers if needed, eg. v0.6.0, 0.7.1-rc1, 1.0.0-beta etc
+
 ## Quality Assurance
-[Somebody who knows QA should fill this in]
+Quality Assurance usually involves software testing - the execution of a software component or system component to evaluate one or more properties of interest.
+
+### In general, these properties indicate the extent to which the component or system under test:
+
+ - [ ] Meets the requirements that guided its design and development
+ - [ ] responds correctly to all kinds of inputs
+ - [ ] performs its functions within an acceptable time
+ - [ ] is sufficiently usable
+ - [ ] can be installed and run in its intended environments
+ - [ ] achieves the general result its stakeholders desire
+
+As the number of possible tests for even simple software components is practically infinite, all software testing uses some strategy to select tests that are feasible for the available time and resources. As a result, software testing typically, but not exclusively, attempts to execute a program or application with the intent of finding failures due to software faults. The job of testing is an iterative process as when one fault is fixed, it can illuminate other failures due to deeper faults, or can even create new ones.
+
+Software testing can be conducted as soon as executable software (even if partially complete) exists. The overall approach to software development often determines when and how testing is conducted. For example, in a phased process, most testing occurs after system requirements have been defined and then implemented in testable programs.
+
+In the MASQ Network project, the process of QA is triggered when a card is moved into the 'Quality Assurance In Progress' column on our [Card Wall](https://github.com/MASQ-Project/Node/blob/master/COLUMNS.md)
+
+The Testing Supervisor or QA Manager is responsible for passing or failing a card based on the feedback from the test team across the different operating systems being supported. Any feedback, bugs or suggestions are communicated to the developer of the card, and another iteration of development, testing and review is completed.
+
+CLI-based QA requires some basic command-line knowledge and understanding of the Node software itself.
+
+If you would like to contribute to QA testing, and have a good foundational knowledge of CLI, please reach out to our team by [email](mailto:info@masq.ai) or join our [Discord](https://discord.gg/masq) and tag one of our admins.
+
+## Software Versioning
+The determination of versioning will start with a discussion of the core developers and the Product Owner. This will begin towards the end of a card's engineering practice above, most likely during final review and QA steps.
+
+Versioning follows basic [semver format](https://semver.org) - view the formal documentation and conventions for reference.
+
+The core specifications to be followed are:
+
+- Once a versioned package has been released, the contents of that version MUST NOT be modified. Any modifications MUST be released as a new version.
+- A pre-release version MAY be denoted by appending a hyphen and a series of dot separated - Example: 0.7.3-prerelease. A pre-release version indicates that the version is unstable and might not satisfy the intended compatibility requirements as denoted by its associated normal version.
+
+Once the discussion around the development/feature branch or group of branch has finished, there will be a git tag added to the merge commit when all branch in a determined release are passed through QA and merged to `master` by an admin user of the Node repo.
+If a single branch being merged is not determined to be included in an immediate release with version increment, then no git tag is required unless agreed upon by the majority of the team for testing reasons with other parts of software stack such as the Electron MASQ app.
+
+If a merging branch qualifies as a patch or minor release version, then prior to merge the developer will add a commit for review that adjusts all the version numbers in the `cargo.toml` files for all the major components within the codebase. This will be important for monitoring QA testing and logging of issues with different release versions in the wild.
+In the future, the team may determine that individual components within the code will have versions independent of each other, e.g. `automap` may be version 0.6.1, while `node` may have version 0.7.2
+
+### Steps for Creating and Tagging the Next Version
+
+Currently, the tag is expected to be just a lightweight tag following semver format.
+
+The developer should follow these steps to complete the git tag before a repo admin is to merge into `master`
+
+ - [ ] First acquire an agreement from the Product Owner that your branch (in your open PR) is going to enclose the current, pending release.
+ - [ ] Your code in your branch should appear errorless in Actions (it's passed all checks) and also it's satisfied all reviews, so is approved by the reviewer.
+ - [ ] Create a tag to the HEAD commit of your branch with the previously agreed version number. If you do that locally on your machine you may want to use e.g.:
+```
+git tag v0.6.1
+
+git push origin v0.6.1
+```
+ - [ ] The last step should cause a new trigger of a run in Actions, this time with a different workflow than usual, producing official release binaries.
+ - [ ] Now the git tag is in place at HEAD commit of your branch, you're finally ready to let the merge button for your PR to `master` be pressed!
+
+With the above steps, automated pipelines and CI will build the software binaries for the 3 currently supported Operating Systems (OS) and upload them into an S3 repository to be archived against their version released whenever there is a version increment.
+There will be a designated repo folder in this repository labelled `latest` which will contain the latest versioned binaries for each OS.
