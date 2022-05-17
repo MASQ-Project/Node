@@ -258,6 +258,7 @@ where
         let logger = self.logger.clone();
         log_request
             .then(|logs| {
+                debug!(logger,"Transaction retrieval completed: {:?}",logs);
                 future::result::<RetrievedBlockchainTransactions, BlockchainError>(match logs {
                     Ok(logs) => {
                         if logs
