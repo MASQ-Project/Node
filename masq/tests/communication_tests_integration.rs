@@ -23,7 +23,6 @@ fn setup_results_are_broadcast_to_all_uis_integration() {
     );
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
-    thread::sleep(Duration::from_millis(300));
     let mut setupper_handle = MasqProcess::new().start_interactive(port, true);
     let mut receiver_handle = MasqProcess::new().start_interactive(port, true);
     let mut stdin_handle_setupper = setupper_handle.create_stdin_handle();

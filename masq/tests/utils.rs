@@ -32,7 +32,7 @@ impl DaemonProcess {
         let mut command = Command::new(executable);
         let command = command.args(args);
         let child = child_from_command(command);
-        let interval = Duration::from_millis(200);
+        let interval = Duration::from_secs(5);
         let start = Instant::now();
         loop {
             if Instant::now().duration_since(start) >= interval {
