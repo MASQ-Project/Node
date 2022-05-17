@@ -199,11 +199,11 @@ Once the discussion around the development/feature branch or group of branch has
 If a single branch being merged is not determined to be included in an immediate release with version increment, then no git tag is required unless agreed upon by the majority of the team for testing reasons with other parts of software stack such as the Electron MASQ app.
 
 If a merging branch qualifies as a patch or minor release version, then prior to merge the developer will add a commit for review that adjusts all the version numbers in the `cargo.toml` files for all the major components within the codebase. This will be important for monitoring QA testing and logging of issues with different release versions in the wild.
-In the future, the team may determine that individual components within the code will have versions independant of eachother, eg `automap` may be version 0.6.1, while `node` may have version 0.7.2
+In the future, the team may determine that individual components within the code will have versions independent of each other, e.g. `automap` may be version 0.6.1, while `node` may have version 0.7.2
 
 ### Steps for Creating and Tagging the Next Version
 
-Currently the tag itself can be considerd just a lightweight tag following semver format.
+Currently, the tag is expected to be just a lightweight tag following semver format.
 
 The developer should follow these steps to complete the git tag before a repo admin is to merge into `master`
 
