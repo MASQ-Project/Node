@@ -1,8 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::dao_utils::Table::Receivable;
-use crate::accountant::dao_utils::{
-    InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, SQLExtParams, UpdateConfig,
-};
+use crate::accountant::dao_utils::{BalanceChange, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, SQLExtParams, UpdateConfig};
 use crate::accountant::{checked_conversion, checked_conversion_negative, unsigned_to_signed};
 use crate::blockchain::blockchain_interface::PaidReceivable;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -99,7 +97,7 @@ impl ReceivableDao for ReceivableDaoReal {
             params: SQLExtParams::new(
                 vec![
                     (":wallet", &&*wallet.to_string()),
-                    (":balance", &checked_conversion::<u128,i128>(amount))
+                    (":balance", &BalanceChange::new_addition(amount))
                 ]),
             table: Receivable,
         })?)
@@ -343,7 +341,7 @@ impl ReceivableDaoReal {
                         vec![
                             (":wallet", &&*transaction.from.to_string()),
                             //:balance is later recomputed into :updated_balance
-                            (":balance", &checked_conversion_negative::<u128,i128>(transaction.wei_amount)),
+                            (":balance", &BalanceChange::new_subtraction(transaction.wei_amount)),
                             (":last_received", &now_time_t()),
                         ]),
                     table: Receivable

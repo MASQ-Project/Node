@@ -1,9 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::dao_utils::{
-    get_unsized_128, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, SQLExtParams,
-    Table, UpdateConfig,
-};
+use crate::accountant::dao_utils::{BalanceChange, get_unsized_128, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, ParamKeyWrapper, SQLExtParams, Table, UpdateConfig};
 use crate::accountant::{checked_conversion, unsigned_to_signed, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -149,9 +146,9 @@ impl PayableDao for PayableDaoReal {
             update_sql: "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid where pending_payable_rowid = :rowid",
             params: SQLExtParams::new(
                 vec![
-                    (":balance", &checked_conversion::<u128, i128>(fingerprint.amount)),
+                    (":balance", &BalanceChange::new_subtraction(fingerprint.amount)),
                     (":last_paid", &to_time_t(fingerprint.timestamp)),
-                    (":rowid", &checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"))),
+                    (":rowid", &ParamKeyWrapper::new(Box::new(checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"))))),
                 ]),
             table: Table::Payable,
         })?)

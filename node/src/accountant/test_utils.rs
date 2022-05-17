@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::accountant::dao_utils::{
-    get_unsized_128, InsertConfiguration, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError,
+    get_unsized_128, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError,
     Table, UpdateConfiguration,
 };
 use crate::accountant::payable_dao::{

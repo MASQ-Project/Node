@@ -4,12 +4,16 @@ use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::receivable_dao::ReceivableDaoError;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::accountant::SignConversionError;
-use itertools::Either;
+use itertools::{Either, Itertools};
 use masq_lib::utils::ExpectValue;
 use rusqlite::ErrorCode::ConstraintViolation;
 use rusqlite::{Error, Row, Statement, ToSql, Transaction};
 use std::any::Any;
+use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
+use std::ops::Neg;
+use rusqlite::types::ToSqlOutput;
+use crate::accountant::checked_conversion;
 
 pub trait InsertUpdateCore {
     fn update<'a>(
@@ -26,7 +30,7 @@ pub trait InsertUpdateCore {
 
 pub trait FetchValue<'a> {
     fn fetch_balance_change(&'a self) -> Result<i128, InsertUpdateError>;
-    fn fetch_wallet(&'a self) -> Result<String, InsertUpdateError>;
+    fn fetch_key(&'a self) -> Result<(String,Box<dyn ExtendedParamsMarker>), InsertUpdateError>;
 }
 
 type ExtendedParamsVec<'a> = &'a Vec<(&'a str, &'a dyn ExtendedParamsMarker)>;
@@ -34,6 +38,9 @@ type ExtendedParamsVec<'a> = &'a Vec<(&'a str, &'a dyn ExtendedParamsMarker)>;
 pub trait ExtendedParamsMarker: ToSql + Display {
     fn countable_as_any(&self) -> &dyn Any {
         intentionally_blank!()
+    }
+    fn get_key(&self)->Option<Box<dyn ExtendedParamsMarker>>{
+        todo!() //false
     }
 }
 
@@ -48,8 +55,8 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
         let present_state_query = config.select_sql();
         let mut statement = Self::prepare_statement(form_of_conn, present_state_query.as_str());
         let update_params = config.update_params().params();
-        let (wallet, balance_change) = Self::fetch_fundamentals(update_params)?;
-        match statement.query_row(&[(":wallet", &wallet)], |row| {
+        let ((key_name,key_value), balance_change) = Self::fetch_fundamentals(update_params)?;
+        match statement.query_row(&[(&*key_name, &key_value as &dyn ToSql)], |row| {
             let balance_result: rusqlite::Result<i128> = row.get(0);
             match balance_result {
                 Ok(balance) => {
@@ -69,7 +76,7 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
                 "Updating balance for {} of {} Wei to {}; failing on: '{}'",
                 config.table(),
                 balance_change,
-                wallet,
+                key_value,
                 e
             ))),
         }
@@ -101,10 +108,10 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
             }
             Err(e) => {
                 let params = config.params.params();
-                let (wallet, amount) = Self::fetch_fundamentals(params)?;
+                let ((_,key_value), amount) = Self::fetch_fundamentals(params)?;
                 Err(InsertUpdateError(format!(
                     "Updating balance after invalid insertion for {} of {} Wei to {}; failing on: '{}'",
-                    config.table, amount, wallet, e
+                    config.table, amount, key_value, e
                 )))
             }
         }
@@ -114,8 +121,8 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
 impl InsertUpdateCoreReal {
     fn fetch_fundamentals(
         params: ExtendedParamsVec<'_>,
-    ) -> Result<(String, i128), InsertUpdateError> {
-        Ok((params.fetch_wallet()?, params.fetch_balance_change()?))
+    ) -> Result<((String,Box<dyn ExtendedParamsMarker>), i128), InsertUpdateError> {
+        Ok((params.fetch_key()?, params.fetch_balance_change()?))
     }
 
     fn prepare_statement<'a>(
@@ -137,40 +144,49 @@ pub struct InsertUpdateConfig<'a> {
     pub table: Table,
 }
 
-pub struct InsertConfig<'a> {
-    pub insert_sql: &'a str,
-    pub params: &'a [(&'static str, &'a dyn ToSql)],
-    pub table: Table,
-}
-
 pub struct UpdateConfig<'a> {
     pub update_sql: &'a str,
     pub params: SQLExtParams<'a>,
     pub table: Table,
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
-pub enum Table {
-    Payable,
-    Receivable,
-}
-
-impl Display for Table {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Table::Payable => write!(f, "payable"),
-            Table::Receivable => write!(f, "receivable"),
-        }
-    }
-}
-
-impl ExtendedParamsMarker for i128 {
+//please don't implement for i128 instead use BalanceChange as intended
+impl ExtendedParamsMarker for i64 {}
+impl ExtendedParamsMarker for &str {}
+impl ExtendedParamsMarker for BalanceChange {
     fn countable_as_any(&self) -> &dyn Any {
         self
     }
 }
-impl ExtendedParamsMarker for i64 {}
-impl ExtendedParamsMarker for &str {}
+impl ExtendedParamsMarker for ParamKeyWrapper {
+    fn get_key(&self) -> Option<Box<dyn ExtendedParamsMarker>> {
+        todo!()
+    }
+}
+
+impl ToSql for BalanceChange {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        todo!()
+    }
+}
+
+impl Display for BalanceChange {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+impl ToSql for ParamKeyWrapper {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        todo!() //will be fun hahaha
+    }
+}
+
+impl Display for ParamKeyWrapper {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
 
 pub struct SQLExtParams<'a> {
     params: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
@@ -198,34 +214,28 @@ impl<'a> FetchValue<'a> for ExtendedParamsVec<'a> {
             .iter()
             .find(|(param_name, _)| *param_name == ":balance")
         {
-            Some((_, value)) => Ok(*value.countable_as_any().downcast_ref().expectv("i128")),
+            Some((_, value)) => Ok({
+                let balance_change: &BalanceChange = value.countable_as_any().downcast_ref().expectv("BalanceChange");
+                balance_change.change
+            }),
             None => Err(InsertUpdateError(
                 "Missing parameter and value for the change in balance".to_string(),
             )),
         }
     }
 
-    fn fetch_wallet(&'a self) -> Result<String, InsertUpdateError> {
-        match self.iter().find(|(param_name, _)| *param_name == ":wallet") {
-            Some((_, value)) => Ok(value.to_string()),
-            None => Err(InsertUpdateError(
-                "Missing parameter and value for the wallet address".to_string(),
-            )),
+    fn fetch_key(&'a self) -> Result<(String, Box<dyn ExtendedParamsMarker>), InsertUpdateError> {
+        match self.iter().fold(None,|acc: Option<Box<dyn ExtendedParamsMarker>>,(_,key_candidate )|
+            match acc {
+                Some(x) => todo!(),
+                None => match key_candidate.get_key(){
+                    Some(value) => todo!(), //value.get_key().expectv("key value")),
+                    None => todo!(),
+                }
+            }){
+            Some(x) => todo!(),
+            None => todo!()
         }
-    }
-}
-
-pub trait InsertConfiguration<'a> {
-    fn insert_sql(&self) -> &'a str;
-    fn insert_params(&self) -> &'a [(&'static str, &'a dyn ToSql)];
-}
-
-impl<'a> InsertConfiguration<'a> for InsertUpdateConfig<'a> {
-    fn insert_sql(&self) -> &'a str {
-        todo!()
-    }
-    fn insert_params(&self) -> &'a [(&'static str, &'a dyn ToSql)] {
-        todo!()
     }
 }
 
@@ -297,6 +307,47 @@ pub fn get_unsized_128(row: &Row, index: usize) -> Result<u128, rusqlite::Error>
     row.get::<usize, i128>(index).map(|val| val as u128)
 }
 
+
+#[derive(PartialEq, Debug)]
+pub struct BalanceChange {
+    change:i128
+}
+
+impl BalanceChange {
+    pub fn new_addition(abs_change: u128)->Self{
+        Self{change: checked_conversion::<u128,i128>(abs_change)}
+    }
+    pub fn new_subtraction(abs_change: u128)->Self{
+        Self{change: checked_conversion::<u128,i128>(abs_change).neg()}
+    }
+}
+
+pub struct ParamKeyWrapper{
+    param: RefCell<Box<dyn ExtendedParamsMarker>>
+}
+
+impl ParamKeyWrapper {
+    pub fn new(inner_value: Box<dyn ExtendedParamsMarker>)->Self{
+        todo!()
+    }
+}
+
+
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub enum Table {
+    Payable,
+    Receivable,
+}
+
+impl Display for Table {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Table::Payable => write!(f, "payable"),
+            Table::Receivable => write!(f, "receivable"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct InsertUpdateError(pub String);
 
@@ -312,16 +363,11 @@ impl From<InsertUpdateError> for ReceivableDaoError {
     }
 }
 
-pub fn reverse_sign(amount: i128) -> Result<i128, SignConversionError> {
-    amount.checked_abs().map(|val| -val).ok_or_else(|| {
-        SignConversionError::I128(format!("Reversing the sign for value: {}", amount))
-    })
-}
-
 //TODO after you move the tests rename the modules of home dirs to the right ones
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Neg;
     use super::*;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -344,11 +390,12 @@ mod tests {
 
     #[test]
     fn finalize_update_params_for_update_config_works() {
+        let balance_change = BalanceChange::new_addition(5555);
         let subject = UpdateConfig {
             update_sql: "blah",
             params: SQLExtParams::new(vec![
                 (":something", &152_i64),
-                (":balance", &5555_i128),
+                (":balance", &balance_change),
                 (":something_else", &"foooo"),
             ]),
             table: Table::Payable,
@@ -359,12 +406,13 @@ mod tests {
 
     #[test]
     fn finalize_update_params_for_insert_update_config_works() {
+        let balance_change = BalanceChange::new_addition(5555);
         let subject = InsertUpdateConfig {
             insert_sql: "blah1",
             update_sql: "blah2",
             params: SQLExtParams::new(vec![
                 (":something", &152_i64),
-                (":balance", &5555_i128),
+                (":balance",&balance_change),
                 (":something_else", &"foooo"),
             ]),
             table: Table::Payable,
@@ -375,6 +423,7 @@ mod tests {
 
     fn finalize_update_params_assertion<'a>(subject: &'a dyn UpdateConfiguration<'a>) {
         let updated_balance = 456789;
+        let balance_change = BalanceChange::new_addition(updated_balance as u128);
 
         let result = subject.finalize_update_params(
             &updated_balance,
@@ -383,12 +432,22 @@ mod tests {
 
         let expected_params: Vec<(&str, &dyn ToSql)> = vec![
             (":something", &152_i64),
-            (":updated_balance", &updated_balance),
+            (":updated_balance", &balance_change),
             (":something_else", &"foooo"),
         ];
         let expected_assertable = convert_params_to_debuggable_values(expected_params);
         let result_assertable = convert_params_to_debuggable_values(result);
         assert_eq!(result_assertable, expected_assertable)
+    }
+
+    #[test]
+    fn fetch_balance_change_works() {
+        let balance_change = BalanceChange::new_addition(5021);
+        let params: ExtendedParamsVec =  &vec![(":something", &"yo-yo"), (":balance",&balance_change), (":something_else", &55_i64)];
+
+        let result = params.fetch_balance_change();
+
+        assert_eq!(result,Ok(5021))
     }
 
     #[test]
@@ -402,7 +461,7 @@ mod tests {
     #[test]
     fn fetch_wallet_works_for_err() {
         fetch_param_assertion(
-            &|subject| subject.fetch_wallet(),
+            &|subject| subject.fetch_key(),
             String::from("Missing parameter and value for the wallet address"),
         );
     }
@@ -451,18 +510,45 @@ mod tests {
     }
 
     #[test]
+    fn constructor_for_balance_change_works_for_addition(){
+        let addition = BalanceChange::new_addition(50);
+
+        assert_eq!(addition, BalanceChange{change: 50_i128});
+    }
+
+    //loosing one unit but I can dare it, such an amount of our tokens doesn't exist
+    #[test]
+    fn constructor_for_balance_change_works_for_subtraction(){
+        let subtraction = BalanceChange::new_subtraction(i128::MIN as u128 - 1);
+
+        assert_eq!(subtraction, BalanceChange{change: i128::MIN + 1})
+    }
+
+    #[test]
+    #[should_panic(expected="Overflow detected with 170141183460469231731687303715884105728: cannot be converted from u128 to i128")]
+    fn balance_change_constructor_blows_up_on_overflow_in_addition(){
+        let _ = BalanceChange::new_addition(i128::MAX as u128 + 1);
+    }
+
+    #[test]
+    #[should_panic(expected="Overflow detected with 170141183460469231731687303715884105728: cannot be converted from u128 to i128")]
+    fn balance_change_constructor_blows_up_on_overflow_in_subtraction(){
+        let _ = BalanceChange::new_subtraction(i128::MIN as u128);
+    }
+
+    #[test]
     fn update_handles_error_for_insert_update_config() {
         let wallet_address = "a11122";
         let conn = Connection::open_in_memory().unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(conn);
         create_broken_payable(&wrapped_conn);
-        let amount_wei = 100_i128;
+        let balance_change = BalanceChange::new_addition(100);
         let update_config = InsertUpdateConfig {
             insert_sql: "",
             update_sql: "",
             params: SQLExtParams::new(vec![
                 (":wallet", &wallet_address),
-                (":balance", &amount_wei),
+                (":balance", &balance_change),
             ]),
             table: Table::Payable,
         };
@@ -484,11 +570,11 @@ mod tests {
             .unwrap();
         let conn_ref = conn.as_ref();
         insert_payable_with_bad_data_types(conn_ref, wallet_address);
-        let amount_wei = 100_i128;
+        let balance_change = BalanceChange::new_addition(100);
         let last_received_time_stamp_sec = 123_i64;
         let update_config = UpdateConfig {
             update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
-            params: SQLExtParams::new(vec![(":wallet", &wallet_address), (":balance", &amount_wei), (":last_received", &last_received_time_stamp_sec)]),
+            params: SQLExtParams::new(vec![(":wallet", &wallet_address), (":balance", &balance_change), (":last_received", &last_received_time_stamp_sec)]),
             table:Table::Payable,
         };
 
@@ -510,11 +596,11 @@ mod tests {
         let conn_ref = conn.as_ref();
         let mut stm = conn_ref.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?,?,strftime('%s','now'),null)").unwrap();
         stm.execute(params![wallet_address, 45245_i128]).unwrap();
-        let amount_wei = 100_i128;
+        let balance_change= BalanceChange::new_addition(100);
         let last_received_time_stamp_sec = 123_i64;
         let update_config = UpdateConfig {
             update_sql: "update receivable set balance = ?, last_received_timestamp = ? where wallet_address = ?",
-            params: SQLExtParams::new( vec![(":woodstock", &wallet_address), (":hendrix", &last_received_time_stamp_sec), (":wallet", &wallet_address), (":balance", &amount_wei)]),
+            params: SQLExtParams::new( vec![(":woodstock", &wallet_address), (":hendrix", &last_received_time_stamp_sec), (":wallet", &wallet_address), (":balance", &balance_change)]),
             table:Table::Payable,
         };
 
@@ -524,18 +610,6 @@ mod tests {
     }
 
     //TODO are upsert detailed tests missing???
-
-    #[test]
-    fn reverse_sign_works_for_min_value() {
-        let result = reverse_sign(i128::MIN);
-
-        assert_eq!(
-            result,
-            Err(SignConversionError::I128(String::from(
-                "Reversing the sign for value: -170141183460469231731687303715884105728"
-            )))
-        )
-    }
 
     fn insert_payable_with_bad_data_types(conn: &dyn ConnectionWrapper, wallet: &str) {
         let params = named_params! {
