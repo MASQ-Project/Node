@@ -203,16 +203,16 @@ In the future, the team may determine that individual components within the code
 
 ### Steps for Creating and Tagging the Next Version
 
-Currently, the tag is expected to be just a lightweight tag following semver format.
-
 The developer should follow these steps to complete the git tag before a repo admin is to merge into `master`
 
  - [ ] First acquire an agreement from the Product Owner that your branch (in your open PR) is going to enclose the current, pending release.
  - [ ] Your code in your branch should appear errorless in Actions (it's passed all checks) and also it's satisfied all reviews, so is approved by the reviewer.
  - [ ] Create a tag to the HEAD commit of your branch with the previously agreed version number. If you do that locally on your machine you may want to use e.g.:
 ```
-git tag v0.6.1
-
+git tag v0.6.1 -m ""      
+```
+_Currently, we prefer the style with an empty annotation instead of the so-called lightweight tag because this way we can prevent the message of the last commit to be displayed together with the tag. It's possible that the message would be quite irrelevant to the complete release itself. We may decide to implement a release changelog that could fill that empty space by a good description in the future._
+```
 git push origin v0.6.1
 ```
  - [ ] The last step should cause a new trigger of a run in Actions, this time with a different workflow than usual, producing official release binaries.
