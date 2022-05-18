@@ -553,8 +553,8 @@ impl Accountant {
         payload_size: usize,
         wallet: &Wallet,
     ) {
-        let byte_charge = byte_rate * (payload_size as u64);
-        let total_charge = service_rate + byte_charge;
+        let byte_charge = byte_rate as u128 * (payload_size as u128);
+        let total_charge = service_rate as u128 + byte_charge;
         if !self.our_wallet(wallet) {
             match self.payable_dao
                 .as_ref()

@@ -14,6 +14,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::Neg;
 use rusqlite::types::ToSqlOutput;
 use crate::accountant::checked_conversion;
+use crate::sub_lib::wallet::Wallet;
 
 pub trait InsertUpdateCore {
     fn update<'a>(
@@ -153,6 +154,7 @@ pub struct UpdateConfig<'a> {
 //please don't implement for i128 instead use BalanceChange as intended
 impl ExtendedParamsMarker for i64 {}
 impl ExtendedParamsMarker for &str {}
+impl ExtendedParamsMarker for Wallet{}
 impl ExtendedParamsMarker for BalanceChange {
     fn countable_as_any(&self) -> &dyn Any {
         self
@@ -172,7 +174,7 @@ impl ToSql for BalanceChange {
 
 impl Display for BalanceChange {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        write!(f,"{}",self.change)
     }
 }
 
@@ -184,7 +186,7 @@ impl ToSql for ParamKeyWrapper {
 
 impl Display for ParamKeyWrapper {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        write!(f,"{}",self.param.borrow_mut().as_ref().expectv("inner ExtendedParamsMarker")) //TODO do we really need this?
     }
 }
 
@@ -323,12 +325,12 @@ impl BalanceChange {
 }
 
 pub struct ParamKeyWrapper{
-    param: RefCell<Box<dyn ExtendedParamsMarker>>
+    param: RefCell<Option<Box<dyn ExtendedParamsMarker>>>
 }
 
 impl ParamKeyWrapper {
     pub fn new(inner_value: Box<dyn ExtendedParamsMarker>)->Self{
-        todo!()
+        Self{ param: RefCell::new(Some(inner_value)) }
     }
 }
 
@@ -376,6 +378,7 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::types::ToSqlOutput;
     use rusqlite::{named_params, params, Connection, ToSql};
+    use crate::test_utils::make_wallet;
 
     fn convert_params_to_debuggable_values<'a>(
         standard_params: Vec<(&'a str, &'a dyn ToSql)>,
@@ -522,6 +525,36 @@ mod tests {
         let subtraction = BalanceChange::new_subtraction(i128::MIN as u128 - 1);
 
         assert_eq!(subtraction, BalanceChange{change: i128::MIN + 1})
+    }
+
+    #[test]
+    fn display_for_balance_change_works(){
+        let subtraction = BalanceChange::new_subtraction(100);
+        let addition = BalanceChange::new_addition(50);
+
+        assert_eq!(subtraction.to_string(),"-100".to_string());
+        assert_eq!(addition.to_string(),"50".to_string())
+    }
+
+    #[test]
+    fn display_for_param_key_wrapper_works(){
+        let wallet = make_wallet("booga");
+        let key_wrapper_with_wallet = ParamKeyWrapper::new(Box::new(wallet.clone()));
+        let rowid = 56_i64;
+        let key_wrapper_with_rowid = ParamKeyWrapper::new(Box::new(rowid));
+
+        assert_eq!(key_wrapper_with_wallet.to_string(),wallet.to_string());
+        assert_eq!(key_wrapper_with_rowid.to_string(),rowid.to_string())
+    }
+
+    #[test]
+    fn get_key_for_non_key_params_is_always_none(){
+        todo!()
+    }
+
+    #[test]
+    fn get_key_for_key_params_are_something(){
+        todo!()
     }
 
     #[test]

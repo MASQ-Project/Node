@@ -286,7 +286,7 @@ impl ConfigDaoFactoryMock {
 
 #[derive(Debug, Default)]
 pub struct PayableDaoMock {
-    more_money_payable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
+    more_money_payable_parameters: Arc<Mutex<Vec<(Wallet, u128)>>>,
     more_money_payable_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     non_pending_payables_params: Arc<Mutex<Vec<()>>>,
     non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
@@ -307,7 +307,7 @@ impl PayableDao for PayableDaoMock {
         &self,
         core: &dyn InsertUpdateCore,
         wallet: &Wallet,
-        amount: u64,
+        amount: u128,
     ) -> Result<(), PayableDaoError> {
         self.more_money_payable_parameters
             .lock()
@@ -373,7 +373,7 @@ impl PayableDaoMock {
 
     pub fn more_money_payable_parameters(
         mut self,
-        parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
+        parameters: Arc<Mutex<Vec<(Wallet, u128)>>>,
     ) -> Self {
         self.more_money_payable_parameters = parameters;
         self

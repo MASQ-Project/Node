@@ -55,7 +55,7 @@ pub trait PayableDao: Debug + Send {
         &self,
         core: &dyn InsertUpdateCore,
         wallet: &Wallet,
-        amount: u64,
+        amount: u128,
     ) -> Result<(), PayableDaoError>;
 
     fn mark_pending_payable_rowid(
@@ -98,7 +98,7 @@ impl PayableDao for PayableDaoReal {
         &self,
         core: &dyn InsertUpdateCore,
         wallet: &Wallet,
-        amount: u64,
+        amount: u128,
     ) -> Result<(), PayableDaoError> {
         Ok(core.upsert(self.conn.as_ref(), InsertUpdateConfig{
             insert_sql: "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,strftime('%s','now'),null)",
@@ -106,7 +106,7 @@ impl PayableDao for PayableDaoReal {
             params: SQLExtParams::new(
                 vec![
                     (":wallet", &wallet.to_string().as_str()),
-                    (":balance", &checked_conversion::<u64,i64>(amount))
+                    (":balance", &BalanceChange::new_addition(amount))
                 ]),
             table: Table::Payable,
         })?)
@@ -450,7 +450,8 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_payable(&InsertUpdateCoreReal, &wallet, u64::MAX);
+        let result = subject.more_money_payable(&InsertUpdateCoreReal, &wallet, u128::MAX);
+        //TODO here I don't know....should we prevent panicking on overflow?
 
         assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)));
     }
@@ -764,6 +765,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected="Overflow detected with 18446744073709551615: cannot be converted from u128 to i128")]
     fn payable_amount_errors_on_insert_when_out_of_range() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
@@ -775,10 +777,8 @@ mod tests {
                 .unwrap(),
         );
 
-        let result =
-            subject.more_money_payable(&InsertUpdateCoreReal, &make_wallet("foobar"), u64::MAX);
-
-        assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)))
+        let _ =
+            subject.more_money_payable(&InsertUpdateCoreReal, &make_wallet("foobar"), u128::MAX);
     }
 
     #[test]
@@ -923,7 +923,7 @@ mod tests {
         let fingerprint = make_pending_payable_fingerprint();
         let insert_update_core = InsertUpdateCoreMock::default()
             .update_params(&update_params_arc)
-            .upsert_results(Ok(()));
+            .update_result(Ok(()));
         let subject = PayableDaoReal::new(Box::new(wrapped_conn));
 
         let result = subject.transaction_confirmed(&insert_update_core, &fingerprint);
@@ -932,8 +932,8 @@ mod tests {
         let mut update_params = update_params_arc.lock().unwrap();
         let (select_sql, update_sql, table, sql_param_names) = update_params.remove(0);
         assert!(update_params.is_empty());
-        assert_eq!(select_sql, "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = :rowid where wallet_address = :wallet");
-        assert_eq!(update_sql, "insert into payable (balance, last_paid_timestamp, pending_payable_rowid, wallet_address) values (:balance, :last_paid, :rowid, :wallet)");
+        assert_eq!(select_sql, "select balance from payable where pending_payable_rowid = :rowid");
+        assert_eq!(update_sql,"update payable set balance = :updated_balance, last_paid_timestamp = :last_paid where pending_payable_rowid = :rowid");
         assert_eq!(table, Table::Payable.to_string());
         assert_eq!(
             sql_param_names,
