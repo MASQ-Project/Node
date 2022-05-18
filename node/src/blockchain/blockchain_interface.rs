@@ -258,14 +258,18 @@ where
         let logger = self.logger.clone();
         log_request
             .then(|logs| {
-                debug!(logger,"Transaction retrieval completed: {:?}",logs);
+                debug!(logger, "Transaction retrieval completed: {:?}", logs);
                 future::result::<RetrievedBlockchainTransactions, BlockchainError>(match logs {
                     Ok(logs) => {
                         if logs
                             .iter()
                             .any(|log| log.topics.len() < 2 || log.data.0.len() > 32)
                         {
-                            warning!(logger, "Invalid response from blockchain server: {:?}", logs);
+                            warning!(
+                                logger,
+                                "Invalid response from blockchain server: {:?}",
+                                logs
+                            );
                             Err(BlockchainError::InvalidResponse)
                         } else {
                             let transactions: Vec<BlockchainTransaction> = logs

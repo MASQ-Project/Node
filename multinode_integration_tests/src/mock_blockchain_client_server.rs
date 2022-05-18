@@ -155,38 +155,27 @@ impl MockBlockchainClientServer {
     }
 
     pub fn start(&mut self) {
-eprintln! ("Starting MBCS");
         let addr = SocketAddr::new(MASQNodeCluster::host_ip_addr(), self.port);
-        let listener =
-            TcpListener::bind(addr).unwrap();
+        let listener = TcpListener::bind(addr).unwrap();
         listener.set_nonblocking(true).unwrap();
         let requests_arc = self.requests_arc.clone();
         let mut responses: Vec<String> = self.responses.drain(..).collect();
         let (stopper_tx, stopper_rx) = unbounded();
         let notifier = self.notifier.clone();
-eprintln! ("Spawning accept thread");
         let join_handle = thread::spawn(move || {
-eprintln! ("Accept thread started; entering accept loop");
             let conn = loop {
                 if stopper_rx.try_recv().is_ok() {
-eprintln! ("Accept loop received stop order");
                     return;
                 }
-eprintln! ("Blocking to accept at {:?}", addr);
                 match listener.accept() {
-                    Ok((conn, _)) => {
-eprintln! ("Accept found connection");
-                        break conn
-                    },
+                    Ok((conn, _)) => break conn,
                     Err(e) if e.kind() == ErrorKind::WouldBlock => (),
                     Err(e) if e.kind() == ErrorKind::TimedOut => (),
                     Err(e) => panic!("MBCS accept() failed: {:?}", e),
                 };
-eprintln! ("Accept found no connection yet; continuing to wait");
                 thread::sleep(Duration::from_millis(100));
             };
             drop(listener);
-eprintln! ("Dropped listener; setting up connection");
             conn.set_nonblocking(true).unwrap();
             let mut conn_state = ConnectionState {
                 conn,
@@ -195,7 +184,6 @@ eprintln! ("Dropped listener; setting up connection");
                 request_stage: RequestStage::Unparsed,
                 request_accumulator: "".to_string(),
             };
-eprintln! ("Handling connection");
             Self::thread_guts(
                 &mut conn_state,
                 &requests_arc,
@@ -219,35 +207,23 @@ eprintln! ("Handling connection");
     ) {
         loop {
             if stopper_rx.try_recv().is_ok() {
-eprintln! ("Connection handler received stop order");
                 break;
             }
-eprintln! ("Checking for message on connection");
             Self::receive_body(conn_state);
             let body_opt = Self::process_body(conn_state);
             match body_opt {
-                Some(body) if body.len() == 0 => {
-eprintln! ("Zero-length body received; aborting");
-                    break
-                },
+                Some(body) if body.len() == 0 => break,
                 Some(body) => {
-eprintln! ("{}-byte body received; accumulating", body.len());
                     {
                         let mut requests = requests_arc.lock().unwrap();
                         requests.push(body);
                     }
                     let response = responses.remove(0);
-eprintln! ("Sending prepared response");
                     Self::send_body(conn_state, response);
-eprintln! ("Prepared response sent; notifying test");
                     let _ = notifier_tx.send(()); // receiver doesn't exist if test didn't set it up
                 }
-                None => {
-eprintln! ("Data received so far cannot yet be processed into a message; continuing to wait");
-                    ()
-                },
+                None => (),
             };
-eprintln! ("Waiting to receive more bytes");
             thread::sleep(Duration::from_millis(100));
         }
     }
@@ -265,38 +241,22 @@ eprintln! ("Waiting to receive more bytes");
             .conn
             .read(&mut conn_state.receive_buffer[offset..limit])
         {
-            Ok(n) => {
-eprintln! ("Received {} bytes", n);
-                n
-            },
-            Err(e) if e.kind() == ErrorKind::Interrupted => {
-eprintln! ("Connection interrupted; aborting");
-                return
-            },
-            Err(e) if e.kind() == ErrorKind::TimedOut => {
-eprintln! ("Timed out waiting for bytes: TimedOut");
-                return
-            },
-            Err(e) if e.kind() == ErrorKind::WouldBlock => {
-eprintln! ("Timed out waiting for bytes: WouldBlock");
-                return
-            },
+            Ok(n) => n,
+            Err(e) if e.kind() == ErrorKind::Interrupted => return,
+            Err(e) if e.kind() == ErrorKind::TimedOut => return,
+            Err(e) if e.kind() == ErrorKind::WouldBlock => return,
             Err(e) => panic!("{:?}", e),
         };
         conn_state.receive_buffer_occupied += len;
         let chunk = String::from_utf8_lossy(
             &conn_state.receive_buffer[offset..conn_state.receive_buffer_occupied],
         );
-eprintln! ("Received chunk so far: '{:?}'", chunk);
         conn_state.request_accumulator.extend(chunk.chars());
-eprintln! ("Entire message so far: '{}'", &conn_state.request_accumulator);
     }
 
     fn process_body(conn_state: &mut ConnectionState) -> Option<String> {
-eprintln! ("Processing body: '{}'", &conn_state.request_accumulator);
         loop {
             let original_stage = conn_state.request_stage.clone();
-eprintln! ("original_stage: {:?}", original_stage);
             let request_str_opt = match conn_state.request_stage {
                 RequestStage::Unparsed => Self::handle_unparsed(conn_state),
                 RequestStage::Parsed {
@@ -304,7 +264,6 @@ eprintln! ("original_stage: {:?}", original_stage);
                     content_length,
                 } => Self::handle_parsed(conn_state, content_offset, content_length),
             };
-eprintln! ("request_str_opt: {:?}", request_str_opt);
             match request_str_opt {
                 Some(request_str) => return Some(request_str),
                 None => {
@@ -317,12 +276,8 @@ eprintln! ("request_str_opt: {:?}", request_str_opt);
     }
 
     fn handle_unparsed(conn_state: &mut ConnectionState) -> Option<String> {
-eprintln! ("Handling unparsed: {:?}", conn_state.request_accumulator);
         match conn_state.request_accumulator.find("\r\n\r\n") {
-            None => {
-eprintln! ("No double CRLFs yet");
-                None
-            },
+            None => None,
             Some(crlf_offset) => {
                 let content_offset = crlf_offset + 4;
                 match HTTP_VERSION_DETECTOR.captures(&conn_state.request_accumulator) {
@@ -409,7 +364,7 @@ mod tests {
     use std::ops::Add;
     use std::time::{Duration, Instant};
 
-    use masq_lib::utils::{find_free_port};
+    use masq_lib::utils::find_free_port;
 
     use super::*;
 
@@ -625,10 +580,8 @@ mod tests {
         let addr = SocketAddr::new(MASQNodeCluster::host_ip_addr(), port);
         loop {
             thread::sleep(Duration::from_millis(100));
-eprintln! ("Trying to connect to server at {:?}", addr);
             match TcpStream::connect(&addr) {
                 Ok(client) => {
-eprintln! ("Connected! Turning off blocking");
                     client.set_nonblocking(true).unwrap();
                     return client;
                 }
