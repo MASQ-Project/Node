@@ -41,8 +41,8 @@ fn debtors_are_credited_once_but_not_twice() {
                 data: "0x000000000000000000000000000000000000000000000000000000003b5dc100"
                     .to_string(),
                 topics: vec![
-                    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-                        .to_string(),
+                    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef".to_string(),
+                    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef".to_string(),
                 ],
             }],
             1,

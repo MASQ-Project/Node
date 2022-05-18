@@ -265,6 +265,7 @@ where
                             .iter()
                             .any(|log| log.topics.len() < 2 || log.data.0.len() > 32)
                         {
+                            warning!(logger, "Invalid response from blockchain server: {:?}", logs);
                             Err(BlockchainError::InvalidResponse)
                         } else {
                             let transactions: Vec<BlockchainTransaction> = logs
