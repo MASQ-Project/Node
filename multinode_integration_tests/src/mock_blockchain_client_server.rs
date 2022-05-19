@@ -1,18 +1,21 @@
 // Copyright (c) 2022, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::io::{ErrorKind, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use itertools::Either;
+use itertools::Either::{Left, Right};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Serialize;
 
-use crate::masq_node_cluster::MASQNodeCluster;
+use crate::masq_node_cluster::{DockerHostSocketAddr};
 
 lazy_static! {
     static ref CONTENT_LENGTH_DETECTOR: Regex =
@@ -88,7 +91,7 @@ impl MBCSBuilder {
     pub fn start(self) -> MockBlockchainClientServer {
         let requests = Arc::new(Mutex::new(vec![]));
         let mut server = MockBlockchainClientServer {
-            port: self.port,
+            port_or_local_addr: Left (self.port),
             thread_info_opt: None,
             requests_arc: requests,
             responses: self.responses,
@@ -113,7 +116,7 @@ struct MBCSThreadInfo {
 }
 
 pub struct MockBlockchainClientServer {
-    port: u16,
+    port_or_local_addr: Either<u16, SocketAddr>,
     thread_info_opt: Option<MBCSThreadInfo>,
     requests_arc: Arc<Mutex<Vec<String>>>,
     responses: Vec<String>,
@@ -155,8 +158,9 @@ impl MockBlockchainClientServer {
     }
 
     pub fn start(&mut self) {
-        let addr = SocketAddr::new(MASQNodeCluster::host_ip_addr(), self.port);
-        let listener = TcpListener::bind(addr).unwrap();
+        // let listener = TcpListener::bind(DockerHostSocketAddr::new(self.port_or_local_addr.unwrap_left())).unwrap();
+        let listener = TcpListener::bind (SocketAddr::new (IpAddr::from_str ("172.18.0.1").unwrap(), self.port_or_local_addr.unwrap_left())).unwrap();
+        self.port_or_local_addr = Right(listener.local_addr().unwrap());
         listener.set_nonblocking(true).unwrap();
         let requests_arc = self.requests_arc.clone();
         let mut responses: Vec<String> = self.responses.drain(..).collect();
@@ -196,6 +200,13 @@ impl MockBlockchainClientServer {
             stopper: stopper_tx,
             join_handle,
         })
+    }
+
+    pub fn local_addr(&self) -> Option<SocketAddr> {
+        match self.port_or_local_addr {
+            Left(_) => None,
+            Right(local_addr) => Some (local_addr),
+        }
     }
 
     fn thread_guts(
