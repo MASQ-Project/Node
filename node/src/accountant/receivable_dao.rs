@@ -1,7 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::dao_utils::Table::Receivable;
-use crate::accountant::dao_utils::{BalanceChange, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, SQLExtParams, UpdateConfig};
-use crate::accountant::{checked_conversion, checked_conversion_negative, unsigned_to_signed};
+use crate::accountant::dao_utils::{
+    BalanceChange, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, SQLExtParams,
+    UpdateConfig,
+};
+use crate::accountant::{checked_conversion, unsigned_to_signed};
 use crate::blockchain::blockchain_interface::PaidReceivable;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -173,9 +176,10 @@ impl ReceivableDao for ReceivableDaoReal {
     ) -> Vec<ReceivableAccount> {
         let now = to_time_t(system_now);
         //TODO this slope is tilt in the wrong direction; a minus is absent there at the beginning
-        let slope = (checked_conversion::<u64, i64>(payment_thresholds.permanent_debt_allowed_gwei)
-            - checked_conversion::<u64, i64>(payment_thresholds.debt_threshold_gwei))
-            / (checked_conversion::<u64, i64>(payment_thresholds.threshold_interval_sec));
+        let slope =
+            (checked_conversion::<u64, i64>(payment_thresholds.permanent_debt_allowed_gwei)
+                - checked_conversion::<u64, i64>(payment_thresholds.debt_threshold_gwei))
+                / (checked_conversion::<u64, i64>(payment_thresholds.threshold_interval_sec));
         let sql = indoc!(
             r"
             select r.wallet_address, r.balance, r.last_received_timestamp
@@ -1196,14 +1200,18 @@ mod tests {
             ))
         );
         let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
-        let (select_sql, update_sql, table, sql_param_names) = insert_or_update_params.pop().unwrap();
+        let (select_sql, update_sql, table, sql_param_names) =
+            insert_or_update_params.pop().unwrap();
         assert_eq!(
             select_sql,
             "select balance from receivable where wallet_address = :wallet"
         );
         assert_eq!(update_sql, "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet");
         assert_eq!(table, Table::Receivable.to_string());
-        let sql_param_names_assertable:Vec<(String,String)> = sql_param_names.into_iter().filter(|(param,_)|param.as_str() != ":last_received").collect();
+        let sql_param_names_assertable: Vec<(String, String)> = sql_param_names
+            .into_iter()
+            .filter(|(param, _)| param.as_str() != ":last_received")
+            .collect();
         assert_eq!(
             sql_param_names_assertable,
             convert_to_all_string_values(vec![
@@ -1211,11 +1219,15 @@ mod tests {
                 (":balance", &18446744073709551615_i128.to_string()),
             ])
         );
-        let (select_sql_2, update_sql_2, table_2, sql_param_names_2) = insert_or_update_params.pop().unwrap();
-        assert_eq!(select_sql_2,select_sql);
-        assert_eq!(update_sql_2,update_sql);
-        assert_eq!(table_2,table);
-        let sql_param_names_2_assertable: Vec<(String,String)>  = sql_param_names_2.into_iter().filter(|(param,_)|param.as_str() != ":last_received").collect();
+        let (select_sql_2, update_sql_2, table_2, sql_param_names_2) =
+            insert_or_update_params.pop().unwrap();
+        assert_eq!(select_sql_2, select_sql);
+        assert_eq!(update_sql_2, update_sql);
+        assert_eq!(table_2, table);
+        let sql_param_names_2_assertable: Vec<(String, String)> = sql_param_names_2
+            .into_iter()
+            .filter(|(param, _)| param.as_str() != ":last_received")
+            .collect();
         assert_eq!(
             sql_param_names_2_assertable,
             convert_to_all_string_values(vec![
@@ -1223,7 +1235,7 @@ mod tests {
                 (":balance", &444444555333337_i128.to_string()),
             ])
         );
-        assert_eq!(insert_or_update_params.pop(),None)
+        assert_eq!(insert_or_update_params.pop(), None)
     }
 
     // #[test]

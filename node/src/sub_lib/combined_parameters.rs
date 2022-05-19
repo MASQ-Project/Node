@@ -80,9 +80,13 @@ impl CombinedParamsValueRetriever {
             CombinedParamsValueRetriever::I64(num) => num,
             CombinedParamsValueRetriever::U128(num) => num,
         };
-        *dynamic
-            .downcast_ref::<T>()
-            .unwrap_or_else(|| panic!("expected Some() of {} for {}", std::any::type_name::<T>(),parameter_name))
+        *dynamic.downcast_ref::<T>().unwrap_or_else(|| {
+            panic!(
+                "expected Some() of {} for {}",
+                std::any::type_name::<T>(),
+                parameter_name
+            )
+        })
     }
 }
 

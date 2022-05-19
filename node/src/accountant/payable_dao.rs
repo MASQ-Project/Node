@@ -1,6 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::dao_utils::{BalanceChange, get_unsized_128, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, ParamKeyWrapper, SQLExtParams, Table, UpdateConfig};
+use crate::accountant::dao_utils::{
+    get_unsized_128, BalanceChange, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal,
+    ParamKeyHolder, SQLExtParams, Table, UpdateConfig,
+};
 use crate::accountant::{checked_conversion, unsigned_to_signed, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -148,7 +151,7 @@ impl PayableDao for PayableDaoReal {
                 vec![
                     (":balance", &BalanceChange::new_subtraction(fingerprint.amount)),
                     (":last_paid", &to_time_t(fingerprint.timestamp)),
-                    (":rowid", &ParamKeyWrapper::new(Box::new(checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"))))),
+                    (":rowid", &ParamKeyHolder::new(Box::new(checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"))))),
                 ]),
             table: Table::Payable,
         })?)
@@ -765,7 +768,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected="Overflow detected with 18446744073709551615: cannot be converted from u128 to i128")]
+    #[should_panic(
+        expected = "Overflow detected with 18446744073709551615: cannot be converted from u128 to i128"
+    )]
     fn payable_amount_errors_on_insert_when_out_of_range() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
@@ -932,7 +937,10 @@ mod tests {
         let mut update_params = update_params_arc.lock().unwrap();
         let (select_sql, update_sql, table, sql_param_names) = update_params.remove(0);
         assert!(update_params.is_empty());
-        assert_eq!(select_sql, "select balance from payable where pending_payable_rowid = :rowid");
+        assert_eq!(
+            select_sql,
+            "select balance from payable where pending_payable_rowid = :rowid"
+        );
         assert_eq!(update_sql,"update payable set balance = :updated_balance, last_paid_timestamp = :last_paid where pending_payable_rowid = :rowid");
         assert_eq!(table, Table::Payable.to_string());
         assert_eq!(

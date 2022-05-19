@@ -1077,8 +1077,10 @@ pub fn checked_conversion<T: Copy + Display, S: TryFrom<T>>(unsigned: T) -> S {
     })
 }
 
-pub fn checked_conversion_negative<T: Copy + Display, S: TryFrom<T> + Neg + Neg<Output = S>>(unsigned: T) -> S {
-    -checked_conversion::<T,S>(unsigned)
+pub fn checked_conversion_negative<T: Copy + Display, S: TryFrom<T> + Neg + Neg<Output = S>>(
+    unsigned: T,
+) -> S {
+    -checked_conversion::<T, S>(unsigned)
 }
 
 pub fn gwei_to_wei<T: Mul + Mul<Output = T> + From<u64> + From<S>, S>(gwei: S) -> T {
@@ -1562,7 +1564,9 @@ mod tests {
                 balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 55),
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now())
-                        - checked_conversion::<u64,i64>(DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec)
+                        - checked_conversion::<u64, i64>(
+                            DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec,
+                        )
                         - 5,
                 ),
                 pending_payable_opt: None,
@@ -1572,7 +1576,9 @@ mod tests {
                 balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 66),
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now())
-                        - checked_conversion::<u64,i64>(DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec)
+                        - checked_conversion::<u64, i64>(
+                            DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec,
+                        )
                         - 500,
                 ),
                 pending_payable_opt: None,
@@ -2013,7 +2019,9 @@ mod tests {
             wallet: make_wallet("wallet"),
             balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 5),
             last_paid_timestamp: from_time_t(
-                now - checked_conversion::<u64,i64>(DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10),
+                now - checked_conversion::<u64, i64>(
+                    DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10,
+                ),
             ),
             pending_payable_opt: None,
         };
@@ -2090,7 +2098,9 @@ mod tests {
                 wallet: make_wallet("wallet0"),
                 balance: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei - 1),
                 last_paid_timestamp: from_time_t(
-                    now - checked_conversion::<u64,i64>(payment_thresholds.threshold_interval_sec - 10),
+                    now - checked_conversion::<u64, i64>(
+                        payment_thresholds.threshold_interval_sec - 10,
+                    ),
                 ),
                 pending_payable_opt: None,
             },
@@ -2099,7 +2109,9 @@ mod tests {
                 wallet: make_wallet("wallet1"),
                 balance: gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1),
                 last_paid_timestamp: from_time_t(
-                    now - checked_conversion::<u64,i64>(payment_thresholds.maturity_threshold_sec + 10),
+                    now - checked_conversion::<u64, i64>(
+                        payment_thresholds.maturity_threshold_sec + 10,
+                    ),
                 ),
                 pending_payable_opt: None,
             },
@@ -2108,7 +2120,9 @@ mod tests {
                 wallet: make_wallet("wallet2"),
                 balance: gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1000),
                 last_paid_timestamp: from_time_t(
-                    now - checked_conversion::<u64,i64>(payment_thresholds.maturity_threshold_sec - 1),
+                    now - checked_conversion::<u64, i64>(
+                        payment_thresholds.maturity_threshold_sec - 1,
+                    ),
                 ),
                 pending_payable_opt: None,
             },
@@ -2160,7 +2174,9 @@ mod tests {
                 wallet: make_wallet("wallet0"),
                 balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei + 1),
                 last_paid_timestamp: from_time_t(
-                    now - checked_conversion::<u64,i64>(DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10),
+                    now - checked_conversion::<u64, i64>(
+                        DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10,
+                    ),
                 ),
                 pending_payable_opt: None,
             },
@@ -2169,7 +2185,9 @@ mod tests {
                 wallet: make_wallet("wallet1"),
                 balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
                 last_paid_timestamp: from_time_t(
-                    now - checked_conversion::<u64,i64>(DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec - 10),
+                    now - checked_conversion::<u64, i64>(
+                        DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec - 10,
+                    ),
                 ),
                 pending_payable_opt: None,
             },
@@ -3314,7 +3332,9 @@ mod tests {
                 wallet: make_wallet("wallet0"),
                 balance: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1000),
                 last_paid_timestamp: from_time_t(
-                    now - checked_conversion::<u64,i64>(payment_thresholds.threshold_interval_sec - 1234),
+                    now - checked_conversion::<u64, i64>(
+                        payment_thresholds.threshold_interval_sec - 1234,
+                    ),
                 ),
                 pending_payable_opt: None,
             },
@@ -3322,7 +3342,8 @@ mod tests {
                 wallet: make_wallet("wallet1"),
                 balance: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1),
                 last_paid_timestamp: from_time_t(
-                    now - checked_conversion::<u64,i64>(payment_thresholds.threshold_interval_sec) - 1
+                    now - checked_conversion::<u64, i64>(payment_thresholds.threshold_interval_sec)
+                        - 1,
                 ),
                 pending_payable_opt: None,
             },

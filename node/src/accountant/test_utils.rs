@@ -3,8 +3,8 @@
 #![cfg(test)]
 
 use crate::accountant::dao_utils::{
-    get_unsized_128, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError,
-    Table, UpdateConfiguration,
+    get_unsized_128, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError, Table,
+    UpdateConfiguration,
 };
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
@@ -883,7 +883,10 @@ pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccou
                     None => None,
                 },
             }),
-            e => panic!("Database is corrupt: PAYABLE table columns and/or types: {:?}",e),
+            e => panic!(
+                "Database is corrupt: PAYABLE table columns and/or types: {:?}",
+                e
+            ),
         }
     })
     .optional()
