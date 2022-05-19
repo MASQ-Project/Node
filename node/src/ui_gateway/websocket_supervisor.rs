@@ -807,7 +807,7 @@ mod tests {
         wait_for_server(port);
         let mail = rx.recv().unwrap();
 
-        let client = make_client(port, "MASQNode-UIv2").unwrap();
+        let client = make_client(port, NODE_UI_PROTOCOL).unwrap();
 
         let socket_addr = client.local_addr().unwrap();
         let websocket_supervisor_inner = mail.lock().unwrap();

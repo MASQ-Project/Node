@@ -779,9 +779,7 @@ impl Accountant {
     }
 
     fn handle_received_payments(&mut self, msg: ReceivedPayments) {
-        if msg.payments.is_empty() {
-            warning!(self.logger, "Handling received payments we got zero payments but expected some, skipping database operations")
-        } else {
+        if !msg.payments.is_empty() {
             let total_newly_paid_receivable = msg
                 .payments
                 .iter()
@@ -3263,20 +3261,6 @@ mod tests {
             "INFO: Accountant: Not recording service provided for our wallet {}",
             earning_wallet,
         ));
-    }
-
-    #[test]
-    fn handle_received_payments_aborts_if_no_payments_supplied() {
-        init_test_logging();
-        let mut subject = AccountantBuilder::default().build();
-        let msg = ReceivedPayments {
-            payments: vec![],
-            response_skeleton_opt: None,
-        };
-
-        let _ = subject.handle_received_payments(msg);
-
-        TestLogHandler::new().exists_log_containing("WARN: Accountant: Handling received payments we got zero payments but expected some, skipping database operations");
     }
 
     #[test]
