@@ -156,7 +156,10 @@ impl MockBlockchainClientServer {
 
     pub fn start(&mut self) {
         let addr = SocketAddr::new(MASQNodeCluster::host_ip_addr(), self.port);
-        let listener = TcpListener::bind(addr).unwrap();
+        let listener = match TcpListener::bind(addr) {
+            Ok (listener) => listener,
+            Err (e) => panic! ("Error binding MBCS listener: did you remember to start the cluster first? ({:?})", e),
+        };
         listener.set_nonblocking(true).unwrap();
         let requests_arc = self.requests_arc.clone();
         let mut responses: Vec<String> = self.responses.drain(..).collect();

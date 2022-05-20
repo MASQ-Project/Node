@@ -21,6 +21,7 @@ use multinode_integration_tests_lib::utils::{config_dao, database_conn, receivab
 fn debtors_are_credited_once_but_not_twice() {
     let mbcs_port = find_free_port();
     let ui_port = find_free_port();
+    let mut cluster = MASQNodeCluster::start().unwrap();
     // Create and initialize mock blockchain client: prepare a receivable at block 2000
     let _blockchain_client_server = MBCSBuilder::new(mbcs_port)
         .response(
@@ -51,7 +52,6 @@ fn debtors_are_credited_once_but_not_twice() {
         )
         .start();
     // Start a real Node pointing at the mock blockchain client with a start block of 1000
-    let mut cluster = MASQNodeCluster::start().unwrap();
     let node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .log_level(Level::Debug)
