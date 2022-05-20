@@ -6,7 +6,6 @@ pub mod sub_lib;
 
 #[macro_use]
 extern crate masq_lib;
-extern crate core;
 
 #[cfg(test)]
 mod node_test_utils;
