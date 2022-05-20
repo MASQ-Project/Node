@@ -1,8 +1,7 @@
 // Copyright (c) 2022, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::io::{ErrorKind, Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
-use std::str::FromStr;
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -15,7 +14,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Serialize;
 
-use crate::masq_node_cluster::{DockerHostSocketAddr};
+use crate::masq_node_cluster::DockerHostSocketAddr;
 
 lazy_static! {
     static ref CONTENT_LENGTH_DETECTOR: Regex =
@@ -91,7 +90,7 @@ impl MBCSBuilder {
     pub fn start(self) -> MockBlockchainClientServer {
         let requests = Arc::new(Mutex::new(vec![]));
         let mut server = MockBlockchainClientServer {
-            port_or_local_addr: Left (self.port),
+            port_or_local_addr: Left(self.port),
             thread_info_opt: None,
             requests_arc: requests,
             responses: self.responses,
@@ -158,10 +157,16 @@ impl MockBlockchainClientServer {
     }
 
     pub fn start(&mut self) {
-        // let listener = TcpListener::bind(DockerHostSocketAddr::new(self.port_or_local_addr.unwrap_left())).unwrap();
-        let listener = TcpListener::bind (SocketAddr::new (IpAddr::from_str ("172.18.0.1").unwrap(), self.port_or_local_addr.unwrap_left())).unwrap();
-        self.port_or_local_addr = Right(listener.local_addr().unwrap());
+        let addr = DockerHostSocketAddr::new(self.port_or_local_addr.unwrap_left());
+        let listener = match TcpListener::bind(addr) {
+            Ok(listener) => listener,
+            Err(e) => panic!(
+                "Error binding MBCS listener: did you remember to start the cluster first? ({:?})",
+                e
+            ),
+        };
         listener.set_nonblocking(true).unwrap();
+        self.port_or_local_addr = Right(listener.local_addr().unwrap());
         let requests_arc = self.requests_arc.clone();
         let mut responses: Vec<String> = self.responses.drain(..).collect();
         let (stopper_tx, stopper_rx) = unbounded();
@@ -205,7 +210,7 @@ impl MockBlockchainClientServer {
     pub fn local_addr(&self) -> Option<SocketAddr> {
         match self.port_or_local_addr {
             Left(_) => None,
-            Right(local_addr) => Some (local_addr),
+            Right(local_addr) => Some(local_addr),
         }
     }
 
@@ -371,7 +376,7 @@ struct ConnectionState {
 mod tests {
     use serde_derive::Deserialize;
     use std::io::{Read, Write};
-    use std::net::{SocketAddr, TcpStream};
+    use std::net::TcpStream;
     use std::ops::Add;
     use std::time::{Duration, Instant};
 
@@ -588,7 +593,7 @@ mod tests {
 
     fn connect(port: u16) -> TcpStream {
         let deadline = Instant::now().add(Duration::from_secs(1));
-        let addr = SocketAddr::new(MASQNodeCluster::host_ip_addr(), port);
+        let addr = DockerHostSocketAddr::new(port);
         loop {
             thread::sleep(Duration::from_millis(100));
             match TcpStream::connect(&addr) {

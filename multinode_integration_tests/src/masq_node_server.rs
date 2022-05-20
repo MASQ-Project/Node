@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::masq_node_cluster::{DockerHostSocketAddr};
+use crate::masq_node_cluster::DockerHostSocketAddr;
 use crate::utils;
 use std::io;
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -14,7 +14,7 @@ pub struct MASQNodeServer {
 
 impl MASQNodeServer {
     pub fn new(port: u16) -> MASQNodeServer {
-        let socket_addr = DockerHostSocketAddr::new (port);
+        let socket_addr = DockerHostSocketAddr::new(port);
         let listener = TcpListener::bind(socket_addr).unwrap();
         MASQNodeServer {
             local_addr: listener.local_addr().unwrap(),

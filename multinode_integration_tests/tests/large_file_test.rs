@@ -21,7 +21,7 @@ fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it
             .memory(&maximum_kbytes_str)
             .build(),
     );
-    let socket_addr = DockerHostSocketAddr::new (80);
+    let socket_addr = DockerHostSocketAddr::new(80);
     let server = BigDataServer::start(&socket_addr, NODE_MEMORY_REQUIRED);
 
     let mut client = originating_node.make_client(8080);

@@ -236,14 +236,7 @@ impl MASQNodeCluster {
     }
 
     fn remove_network_if_running() -> Result<(), String> {
-        let mut command = Command::new("docker", Command::strings(vec!["network", "ls"]));
-        if command.wait_for_exit() != 0 {
-            return Err(format!(
-                "Could not list networks: {}",
-                command.stderr_as_string()
-            ));
-        }
-        let output = command.stdout_as_string();
+        let output = Self::list_network()?;
         if !output.contains("integration_net") {
             return Ok(());
         }
@@ -253,11 +246,28 @@ impl MASQNodeCluster {
         );
         match command.wait_for_exit() {
             0 => Ok(()),
+            _ if command
+                .stderr_as_string()
+                .starts_with("Error: No such network: integration_net") =>
+            {
+                Ok(())
+            }
             _ => Err(format!(
                 "Could not remove network integration_net: {}",
                 command.stderr_as_string()
             )),
         }
+    }
+
+    fn list_network() -> Result<String, String> {
+        let mut command = Command::new("docker", Command::strings(vec!["network", "ls"]));
+        if command.wait_for_exit() != 0 {
+            return Err(format!(
+                "Could not list networks: {}",
+                command.stderr_as_string()
+            ));
+        }
+        Ok(command.stdout_as_string())
     }
 
     fn create_network() -> Result<(), String> {
@@ -295,25 +305,24 @@ impl MASQNodeCluster {
 }
 
 pub struct DockerHostSocketAddr {
-    socket_addrs: Vec<SocketAddr>
+    socket_addrs: Vec<SocketAddr>,
 }
 
 impl ToSocketAddrs for DockerHostSocketAddr {
     type Iter = std::vec::IntoIter<SocketAddr>;
 
     fn to_socket_addrs(&self) -> std::io::Result<Self::Iter> {
-        Ok (self.socket_addrs.clone().into_iter())
+        Ok(self.socket_addrs.clone().into_iter())
     }
 }
 
 impl DockerHostSocketAddr {
     pub fn new(port: u16) -> Self {
         Self {
-            socket_addrs: vec! [
-                SocketAddr::V4 (SocketAddrV4::new (Ipv4Addr::new (172, 18, 0, 2), port)),
-                SocketAddr::V4 (SocketAddrV4::new (Ipv4Addr::new (172, 18, 0, 1), port)),
-                // SocketAddr::V4 (SocketAddrV4::new (Ipv4Addr::new (172, 17, 0, 1), port)),
-            ]
+            socket_addrs: vec![
+                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(172, 18, 0, 2), port)),
+                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(172, 18, 0, 1), port)),
+            ],
         }
     }
 }

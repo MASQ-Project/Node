@@ -21,7 +21,10 @@ impl Drop for BigDataServer {
 }
 
 impl BigDataServer {
-    pub fn start(socket_addr: &dyn ToSocketAddrs<Iter = std::vec::IntoIter<SocketAddr>>, size: usize) -> BigDataServer {
+    pub fn start(
+        socket_addr: &dyn ToSocketAddrs<Iter = std::vec::IntoIter<SocketAddr>>,
+        size: usize,
+    ) -> BigDataServer {
         let listener = TcpListener::bind(socket_addr).unwrap();
         let local_addr = listener.local_addr().unwrap();
         let (tx, rx) = unbounded();
