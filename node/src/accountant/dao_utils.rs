@@ -30,16 +30,16 @@ pub trait InsertUpdateCore {
 
 pub trait FetchValue<'a> {
     fn fetch_balance_change(&'a self) -> i128;
-    fn fetch_key(&'a self) -> (String, Box<dyn ExtendedParamsMarker>);
+    fn fetch_key(&'a self) -> (String, String, Box<dyn ExtendedParamsMarker>);
 }
 
 type ExtendedParamsVec<'a> = &'a Vec<(&'a str, &'a dyn ExtendedParamsMarker)>;
 
 pub trait ExtendedParamsMarker: ToSql + Display {
-    fn countable_as_any(&self) -> &dyn Any {
+    fn as_any(&self) -> &dyn Any {
         intentionally_blank!()
     }
-    fn get_key(&self) -> Option<Box<dyn ExtendedParamsMarker>> {
+    fn get_key(&self) -> Option<(String, Box<dyn ExtendedParamsMarker>)> {
         None
     }
 }
@@ -52,16 +52,18 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
         form_of_conn: Either<&dyn ConnectionWrapper, &Transaction>,
         config: &'a (dyn UpdateConfiguration<'a> + 'a),
     ) -> Result<(), InsertUpdateError> {
-        let present_state_query = config.select_sql();
+        let params = config.update_params();
+        let update_params = params.params();
+        let ((in_table_key_name, sql_key_name, key_value), balance_change) =
+            Self::fetch_fundamentals(update_params);
+        let present_state_query = config.select_sql(&in_table_key_name, &sql_key_name);
         let mut statement = Self::prepare_statement(form_of_conn, present_state_query.as_str());
-        let update_params = config.update_params().params();
-        let ((key_name, key_value), balance_change) = Self::fetch_fundamentals(update_params);
-        match statement.query_row(&[(&*key_name, &key_value as &dyn ToSql)], |row| {
+        match statement.query_row(&[(&*sql_key_name, &key_value as &dyn ToSql)], |row| {
             let balance_result: rusqlite::Result<i128> = row.get(0);
             match balance_result {
                 Ok(balance) => {
                     let updated_balance = balance + balance_change;
-                    let params_to_update = config.update_params().all_rusqlite_params();
+                    let params_to_update = params.all_rusqlite_params();
                     let update_params =
                         config.finalize_update_params(&updated_balance, params_to_update);
                     let update_query = config.update_sql();
@@ -108,7 +110,7 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
             }
             Err(e) => {
                 let params = config.params.params();
-                let ((_, key_value), amount) = Self::fetch_fundamentals(params);
+                let ((_, _, key_value), amount) = Self::fetch_fundamentals(params);
                 Err(InsertUpdateError(format!(
                     "Updating balance after invalid insertion for {} of {} Wei to {}; failing on: '{}'",
                     config.table, amount, key_value, e
@@ -121,7 +123,7 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
 impl InsertUpdateCoreReal {
     fn fetch_fundamentals(
         params: ExtendedParamsVec<'_>,
-    ) -> ((String, Box<dyn ExtendedParamsMarker>), i128) {
+    ) -> ((String, String, Box<dyn ExtendedParamsMarker>), i128) {
         (params.fetch_key(), params.fetch_balance_change())
     }
 
@@ -140,13 +142,13 @@ impl InsertUpdateCoreReal {
 pub struct InsertUpdateConfig<'a> {
     pub insert_sql: &'a str,
     pub update_sql: &'a str,
-    pub params: SQLExtParams<'a>,
+    pub params: SQLExtendedParams<'a>,
     pub table: Table,
 }
 
 pub struct UpdateConfig<'a> {
     pub update_sql: &'a str,
-    pub params: SQLExtParams<'a>,
+    pub params: SQLExtendedParams<'a>,
     pub table: Table,
 }
 
@@ -155,21 +157,21 @@ impl ExtendedParamsMarker for i64 {}
 impl ExtendedParamsMarker for &str {}
 impl ExtendedParamsMarker for Wallet {}
 impl ExtendedParamsMarker for BalanceChange {
-    fn countable_as_any(&self) -> &dyn Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 }
 impl ExtendedParamsMarker for ParamKeyHolder {
-    fn get_key(&self) -> Option<Box<dyn ExtendedParamsMarker>> {
-        self.param.take()
+    fn get_key(&self) -> Option<(String, Box<dyn ExtendedParamsMarker>)> {
+        self.key_name_and_full_value.take()
     }
 }
 
-pub struct SQLExtParams<'a> {
+pub struct SQLExtendedParams<'a> {
     params: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
 }
 
-impl<'a> SQLExtParams<'a> {
+impl<'a> SQLExtendedParams<'a> {
     pub fn new(params: Vec<(&'a str, &'a (dyn ExtendedParamsMarker + 'a))>) -> Self {
         Self { params }
     }
@@ -192,17 +194,19 @@ impl<'a> FetchValue<'a> for ExtendedParamsVec<'a> {
             .find(|(param_name, _)| *param_name == ":balance")
         {
             Some((_, value)) => {
-                let balance_change: &BalanceChange = value.countable_as_any().downcast_ref().expectv("BalanceChange");
+                let balance_change: &BalanceChange =
+                    value.as_any().downcast_ref().expectv("BalanceChange");
                 balance_change.change
-            },
-            None => panic!("missing parameter of the balance change; broken")
+            }
+            None => panic!("missing parameter of the balance change; broken"),
         }
     }
 
-    fn fetch_key(&'a self) -> (String, Box<dyn ExtendedParamsMarker>) {
+    fn fetch_key(&'a self) -> (String, String, Box<dyn ExtendedParamsMarker>) {
         match self.iter().fold(
             None,
-            |acc: Option<(String, Box<dyn ExtendedParamsMarker>)>, (param_name, key_candidate)| {
+            |acc: Option<(String, String, Box<dyn ExtendedParamsMarker>)>,
+             (param_name, key_candidate)| {
                 match acc {
                     Some(x) => {
                         if key_candidate.get_key().is_some() {
@@ -211,7 +215,9 @@ impl<'a> FetchValue<'a> for ExtendedParamsVec<'a> {
                         Some(x)
                     }
                     None => match key_candidate.get_key() {
-                        Some(value) => Some((param_name.to_string(), value)),
+                        Some((in_table_param_name, value)) => {
+                            Some((in_table_param_name, param_name.to_string(), value))
+                        }
                         None => None,
                     },
                 }
@@ -225,9 +231,11 @@ impl<'a> FetchValue<'a> for ExtendedParamsVec<'a> {
 
 pub trait UpdateConfiguration<'a> {
     fn table(&self) -> String;
-    fn select_sql(&self) -> String;
+    fn select_sql(&self, in_table_param_name: &str, sql_param_name: &str) -> String {
+        select_statement(&self.table(), in_table_param_name, sql_param_name)
+    }
     fn update_sql(&self) -> &'a str;
-    fn update_params(&self) -> &SQLExtParams;
+    fn update_params(&self) -> &SQLExtendedParams;
     fn finalize_update_params<'b>(
         &'a self,
         updated_balance: &'b i128,
@@ -249,15 +257,11 @@ impl<'a> UpdateConfiguration<'a> for InsertUpdateConfig<'a> {
         self.table.to_string()
     }
 
-    fn select_sql(&self) -> String {
-        select_statement(&self.table)
-    }
-
     fn update_sql(&self) -> &'a str {
         self.update_sql
     }
 
-    fn update_params(&self) -> &SQLExtParams {
+    fn update_params(&self) -> &SQLExtendedParams {
         &self.params
     }
 }
@@ -267,23 +271,19 @@ impl<'a> UpdateConfiguration<'a> for UpdateConfig<'a> {
         self.table.to_string()
     }
 
-    fn select_sql(&self) -> String {
-        select_statement(&self.table)
-    }
-
     fn update_sql(&self) -> &'a str {
         self.update_sql
     }
 
-    fn update_params(&self) -> &SQLExtParams {
+    fn update_params(&self) -> &SQLExtendedParams {
         &self.params
     }
 }
 
-fn select_statement(table: &Table) -> String {
+fn select_statement(table: &str, in_table_param_name: &str, sql_param_name: &str) -> String {
     format!(
-        "select balance from {} where wallet_address = :wallet",
-        table
+        "select balance from {} where {} = {}",
+        table, in_table_param_name, sql_param_name
     )
 }
 
@@ -322,20 +322,23 @@ impl Display for BalanceChange {
 }
 
 pub struct ParamKeyHolder {
-    param: RefCell<Option<Box<dyn ExtendedParamsMarker>>>,
+    key_name_and_full_value: RefCell<Option<(String, Box<dyn ExtendedParamsMarker>)>>,
 }
 
 impl ParamKeyHolder {
-    pub fn new(inner_value: Box<dyn ExtendedParamsMarker>) -> Self {
+    pub fn new(inner_value: Box<dyn ExtendedParamsMarker>, key_parameter_name: &str) -> Self {
         Self {
-            param: RefCell::new(Some(inner_value)),
+            key_name_and_full_value: RefCell::new(Some((
+                key_parameter_name.to_string(),
+                inner_value,
+            ))),
         }
     }
 }
 
 impl ToSql for ParamKeyHolder {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        todo!() //will be fun hahaha
+        self.key_name_and_full_value.borrow().as_ref().expectv("key param").1.to_sql()
     }
 }
 
@@ -344,10 +347,11 @@ impl Display for ParamKeyHolder {
         write!(
             f,
             "{}",
-            self.param
+            self.key_name_and_full_value
                 .borrow_mut()
                 .as_ref()
                 .expectv("inner ExtendedParamsMarker")
+                .1
         ) //TODO do we really need this?
     }
 }
@@ -393,7 +397,7 @@ mod tests {
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::types::ToSqlOutput;
+    use rusqlite::types::{ToSqlOutput, Value};
     use rusqlite::{named_params, params, Connection, ToSql};
     use std::ptr::addr_of;
 
@@ -413,7 +417,7 @@ mod tests {
         let balance_change = BalanceChange::new_addition(5555);
         let subject = UpdateConfig {
             update_sql: "blah",
-            params: SQLExtParams::new(vec![
+            params: SQLExtendedParams::new(vec![
                 (":something", &55_i64),
                 (":balance", &balance_change),
                 (":something_else", &"foooo"),
@@ -430,7 +434,7 @@ mod tests {
         let subject = InsertUpdateConfig {
             insert_sql: "blah1",
             update_sql: "blah2",
-            params: SQLExtParams::new(vec![
+            params: SQLExtendedParams::new(vec![
                 (":something", &152_i64),
                 (":balance", &balance_change),
                 (":something_else", &"foooo"),
@@ -478,7 +482,7 @@ mod tests {
     fn fetch_key_works() {
         let wallet: Box<dyn ExtendedParamsMarker> = Box::new(make_wallet("blah"));
         let raw_address = addr_of!(*wallet);
-        let key_holder = ParamKeyHolder::new(wallet);
+        let key_holder = ParamKeyHolder::new(wallet, "wallet");
         let params: ExtendedParamsVec = &vec![
             (":something", &"yo-yo"),
             (":wonderful_wallet", &key_holder),
@@ -487,16 +491,17 @@ mod tests {
 
         let result = params.fetch_key();
 
-        let (str_param_name, value) = result;
-        assert_eq!(str_param_name, ":wonderful_wallet".to_string());
+        let (in_table_name, sql_param_name, value) = result;
+        assert_eq!(in_table_name, "wallet".to_string());
+        assert_eq!(sql_param_name, ":wonderful_wallet".to_string());
         assert_eq!(addr_of!(*value), raw_address)
     }
 
     #[test]
     #[should_panic(expected = "only one key parameter is allowed")]
     fn we_support_only_one_key_a_time_now() {
-        let key_holder_1 = ParamKeyHolder::new(Box::new(make_wallet("blah")));
-        let key_holder_2 = ParamKeyHolder::new(Box::new(66_i64));
+        let key_holder_1 = ParamKeyHolder::new(Box::new(make_wallet("blah")), "param_name");
+        let key_holder_2 = ParamKeyHolder::new(Box::new(66_i64), "param_name_2");
         let params: ExtendedParamsVec = &vec![
             (":something", &"yo-yo"),
             (":wonderful_wallet", &key_holder_1),
@@ -584,12 +589,28 @@ mod tests {
     #[test]
     fn display_for_param_key_holder_works() {
         let wallet = make_wallet("booga");
-        let key_holder_with_wallet = ParamKeyHolder::new(Box::new(wallet.clone()));
+        let key_holder_with_wallet =
+            ParamKeyHolder::new(Box::new(wallet.clone()), "wallet_address");
         let rowid = 56_i64;
-        let key_holder_with_rowid = ParamKeyHolder::new(Box::new(rowid));
+        let key_holder_with_rowid = ParamKeyHolder::new(Box::new(rowid), "pending_payable_rowid");
 
         assert_eq!(key_holder_with_wallet.to_string(), wallet.to_string());
         assert_eq!(key_holder_with_rowid.to_string(), rowid.to_string())
+    }
+
+    #[test]
+    fn to_sql_for_param_key_holder_works()
+    {
+        let value_1 = make_wallet("boooga");
+        let value_2 = 235_i64;
+        let key_holder_1 = ParamKeyHolder::new(Box::new(value_1.clone()), "random_wallet");
+        let key_holder_2 = ParamKeyHolder::new(Box::new(value_2),"random_parameter");
+
+        let result_1 = key_holder_1.to_sql();
+        let result_2 = key_holder_2.to_sql();
+
+        assert_eq!(result_1,value_1.to_sql());
+        assert_eq!(result_2,value_2.to_sql())
     }
 
     #[test]
@@ -603,12 +624,12 @@ mod tests {
     #[test]
     fn get_key_for_param_key_holder_is_something() {
         //notice that i64 alone returns None but inside this holder it is Some()...
+        let key_object = ParamKeyHolder::new(Box::new(8989_i64), "balance").get_key();
+
+        let (in_table_param_name, value) = key_object.unwrap();
         assert_eq!(
-            ParamKeyHolder::new(Box::new(8989_i64))
-                .get_key()
-                .unwrap()
-                .to_string(),
-            "8989".to_string()
+            (in_table_param_name, value.to_string()),
+            ("balance".to_string(), "8989".to_string())
         );
         //means that Some() was returned, I cannot assert directly because it is a trait object
     }
@@ -639,7 +660,7 @@ mod tests {
         let update_config = InsertUpdateConfig {
             insert_sql: "",
             update_sql: "",
-            params: SQLExtParams::new(vec![
+            params: SQLExtendedParams::new(vec![
                 (":wallet", &wallet_address),
                 (":balance", &balance_change),
             ]),
@@ -667,7 +688,7 @@ mod tests {
         let last_received_time_stamp_sec = 123_i64;
         let update_config = UpdateConfig {
             update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
-            params: SQLExtParams::new(vec![(":wallet", &wallet_address), (":balance", &balance_change), (":last_received", &last_received_time_stamp_sec)]),
+            params: SQLExtendedParams::new(vec![(":wallet", &wallet_address), (":balance", &balance_change), (":last_received", &last_received_time_stamp_sec)]),
             table:Table::Payable,
         };
 
@@ -693,7 +714,7 @@ mod tests {
         let last_received_time_stamp_sec = 123_i64;
         let update_config = UpdateConfig {
             update_sql: "update receivable set balance = ?, last_received_timestamp = ? where wallet_address = ?",
-            params: SQLExtParams::new( vec![(":woodstock", &wallet_address), (":hendrix", &last_received_time_stamp_sec), (":wallet", &wallet_address), (":balance", &balance_change)]),
+            params: SQLExtendedParams::new( vec![(":woodstock", &wallet_address), (":hendrix", &last_received_time_stamp_sec), (":wallet", &wallet_address), (":balance", &balance_change)]),
             table:Table::Payable,
         };
 

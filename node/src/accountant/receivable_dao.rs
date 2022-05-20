@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::dao_utils::Table::Receivable;
 use crate::accountant::dao_utils::{
-    BalanceChange, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, SQLExtParams,
-    UpdateConfig,
+    BalanceChange, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, ParamKeyHolder,
+    SQLExtendedParams, UpdateConfig,
 };
 use crate::accountant::{checked_conversion, unsigned_to_signed};
 use crate::blockchain::blockchain_interface::PaidReceivable;
@@ -97,9 +97,9 @@ impl ReceivableDao for ReceivableDaoReal {
         Ok(core.upsert(&*self.conn,  InsertUpdateConfig{
             insert_sql: "insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet,:balance,strftime('%s','now'))",
             update_sql: "update receivable set balance = :updated_balance where wallet_address = :wallet",
-            params: SQLExtParams::new(
+            params: SQLExtendedParams::new(
                 vec![
-                    (":wallet", &&*wallet.to_string()),
+                    (":wallet", &ParamKeyHolder::new(Box::new(wallet.clone()),"wallet_address")),
                     (":balance", &BalanceChange::new_addition(amount))
                 ]),
             table: Receivable,
@@ -341,9 +341,9 @@ impl ReceivableDaoReal {
             for transaction in payments {
                 core.update(Either::Right(&tx), &UpdateConfig {
                     update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
-                    params: SQLExtParams::new(
+                    params: SQLExtendedParams::new(
                         vec![
-                            (":wallet", &&*transaction.from.to_string()),
+                            (":wallet", &ParamKeyHolder::new(Box::new(transaction.from.clone()),"wallet_address")),
                             //:balance is later recomputed into :updated_balance
                             (":balance", &BalanceChange::new_subtraction(transaction.wei_amount)),
                             (":last_received", &now_time_t()),

@@ -2,7 +2,7 @@
 
 use crate::accountant::dao_utils::{
     get_unsized_128, BalanceChange, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal,
-    ParamKeyHolder, SQLExtParams, Table, UpdateConfig,
+    ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
 use crate::accountant::{checked_conversion, unsigned_to_signed, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
@@ -106,9 +106,9 @@ impl PayableDao for PayableDaoReal {
         Ok(core.upsert(self.conn.as_ref(), InsertUpdateConfig{
             insert_sql: "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,strftime('%s','now'),null)",
             update_sql: "update payable set balance = :updated_balance where wallet_address = :wallet",
-            params: SQLExtParams::new(
+            params: SQLExtendedParams::new(
                 vec![
-                    (":wallet", &wallet.to_string().as_str()),
+                    (":wallet", &ParamKeyHolder::new(Box::new(wallet.clone()),"wallet_address")),
                     (":balance", &BalanceChange::new_addition(amount))
                 ]),
             table: Table::Payable,
@@ -147,11 +147,11 @@ impl PayableDao for PayableDaoReal {
     ) -> Result<(), PayableDaoError> {
         Ok(core.update(Either::Left(self.conn.as_ref()), &UpdateConfig{
             update_sql: "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid where pending_payable_rowid = :rowid",
-            params: SQLExtParams::new(
+            params: SQLExtendedParams::new(
                 vec![
                     (":balance", &BalanceChange::new_subtraction(fingerprint.amount)),
                     (":last_paid", &to_time_t(fingerprint.timestamp)),
-                    (":rowid", &ParamKeyHolder::new(Box::new(checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"))))),
+                    (":rowid", &ParamKeyHolder::new(Box::new(checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"))),"pending_payable_rowid")),
                 ]),
             table: Table::Payable,
         })?)
