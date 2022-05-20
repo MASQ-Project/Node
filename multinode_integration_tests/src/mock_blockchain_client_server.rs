@@ -380,6 +380,7 @@ mod tests {
     use std::ops::Add;
     use std::time::{Duration, Instant};
 
+    use crate::masq_node_cluster::MASQNodeCluster;
     use masq_lib::utils::find_free_port;
 
     use super::*;
@@ -392,6 +393,7 @@ mod tests {
 
     #[test]
     fn receives_request_in_multiple_chunks() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("Thank you and good night", 40)
@@ -421,6 +423,7 @@ mod tests {
 
     #[test]
     fn parses_out_multiple_requests_from_single_chunk() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("Welcome, and thanks for coming!", 39)
@@ -444,6 +447,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Request has no Content-Length header")]
     fn panics_if_given_a_request_without_a_content_length() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("irrelevant".to_string(), 42)
@@ -459,6 +463,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Request has no HTTP version")]
     fn panics_if_http_version_is_missing() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("irrelevant".to_string(), 42)
@@ -474,6 +479,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "MBCS handles only HTTP version 1.1, not 2.0")]
     fn panics_if_http_version_is_not_1_1() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("irrelevant".to_string(), 42)
@@ -488,6 +494,7 @@ mod tests {
 
     #[test]
     fn mbcs_works_for_responses_and_errors_both_inside_a_batch_and_outside() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let (notifier, notified) = unbounded();
         let subject = MockBlockchainClientServer::builder(port)
@@ -562,6 +569,7 @@ mod tests {
 
     #[test]
     fn mbcs_understands_real_world_request() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let subject = MockBlockchainClientServer::builder(port)
             .response(
