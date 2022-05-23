@@ -492,8 +492,6 @@ impl WebSocketSupervisorReal {
             .client_by_id
             .remove(&client_id)
             .expectv("client");
-        //existence of socket_addr_by_client_id holds only by
-        //its ability to let us clear out client_id_by_socket_addr
         let socket_addr = locked_inner
             .socket_addr_by_client_id
             .remove(&client_id)

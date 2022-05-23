@@ -47,7 +47,7 @@ jobs:
           rustup component add clippy
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
-          #this provides the best optimised build for MASQNode but enabled only without tests
+          #MASQNode with the farthest optimization 
           ./node/ci/build.sh
           ./ci/collect_results.sh
         shell: bash
