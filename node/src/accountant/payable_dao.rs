@@ -146,7 +146,7 @@ impl PayableDao for PayableDaoReal {
         fingerprint: &PendingPayableFingerprint,
     ) -> Result<(), PayableDaoError> {
         Ok(core.update(Either::Left(self.conn.as_ref()), &UpdateConfig{
-            update_sql: "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid where pending_payable_rowid = :rowid",
+            update_sql: "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid",
             params: SQLExtendedParams::new(
                 vec![
                     (":balance", &BalanceChange::new_subtraction(fingerprint.amount)),
@@ -648,7 +648,7 @@ mod tests {
         assert_eq!(
             result,
             Err(PayableDaoError::RusqliteError(
-                "attempt to write a readonly database".to_string()
+                "Updating balance for payable of -12345 Wei to 789; failing on: 'Query returned no rows'".to_string()
             ))
         )
     }
@@ -941,7 +941,7 @@ mod tests {
             select_sql,
             "select balance from payable where pending_payable_rowid = :rowid"
         );
-        assert_eq!(update_sql,"update payable set balance = :updated_balance, last_paid_timestamp = :last_paid where pending_payable_rowid = :rowid");
+        assert_eq!(update_sql,"update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid");
         assert_eq!(table, Table::Payable.to_string());
         assert_eq!(
             sql_param_names,
