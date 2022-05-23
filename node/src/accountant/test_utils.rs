@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::accountant::dao_utils::{
+use crate::accountant::blob_utils::{
     get_unsized_128, FetchValue, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError, Table,
     UpdateConfiguration,
 };
@@ -914,7 +914,7 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
             .iter()
             .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
             .collect();
-        let (in_table_key, sql_key, _) = config.update_params().params().fetch_key();
+        let (in_table_key, sql_key, _) = config.update_params().params().fetch_key_specification();
         self.update_params.lock().unwrap().push((
             config.select_sql(&in_table_key, &sql_key),
             config.update_sql().to_string(),

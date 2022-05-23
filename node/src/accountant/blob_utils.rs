@@ -11,8 +11,8 @@ use rusqlite::types::ToSqlOutput;
 use rusqlite::ErrorCode::ConstraintViolation;
 use rusqlite::{Error, Row, Statement, ToSql, Transaction};
 use std::any::Any;
-use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
+use std::iter::once;
 use std::ops::Neg;
 
 pub trait InsertUpdateCore {
@@ -30,7 +30,7 @@ pub trait InsertUpdateCore {
 
 pub trait FetchValue<'a> {
     fn fetch_balance_change(&'a self) -> i128;
-    fn fetch_key(&'a self) -> (String, String, Box<dyn ExtendedParamsMarker>);
+    fn fetch_key_specification(&'a self) -> (String, String, usize);
 }
 
 type ExtendedParamsVec<'a> = &'a Vec<(&'a str, &'a dyn ExtendedParamsMarker)>;
@@ -39,7 +39,7 @@ pub trait ExtendedParamsMarker: ToSql + Display {
     fn as_any(&self) -> &dyn Any {
         intentionally_blank!()
     }
-    fn get_key(&self) -> Option<(String, Box<dyn ExtendedParamsMarker>)> {
+    fn key_name_opt(&self) -> Option<String> {
         None
     }
 }
@@ -54,11 +54,11 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
     ) -> Result<(), InsertUpdateError> {
         let params = config.update_params();
         let update_params = params.params();
-        let ((in_table_key_name, sql_key_name, key_value), balance_change) =
+        let ((in_table_key_name, sql_key_name, key_idx), balance_change) =
             Self::fetch_fundamentals(update_params);
         let present_state_query = config.select_sql(&in_table_key_name, &sql_key_name);
         let mut statement = Self::prepare_statement(form_of_conn, present_state_query.as_str());
-        match statement.query_row(&[(&*sql_key_name, &key_value as &dyn ToSql)], |row| {
+        match statement.query_row(&[(&*sql_key_name, params.params[key_idx].1)], |row| {
             let balance_result: rusqlite::Result<i128> = row.get(0);
             match balance_result {
                 Ok(balance) => {
@@ -78,7 +78,7 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
                 "Updating balance for {} of {} Wei to {}; failing on: '{}'",
                 config.table(),
                 balance_change,
-                key_value,
+                params.params[key_idx].1,
                 e
             ))),
         }
@@ -110,10 +110,10 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
             }
             Err(e) => {
                 let params = config.params.params();
-                let ((_, _, key_value), amount) = Self::fetch_fundamentals(params);
+                let ((_, _, key_idx), amount) = Self::fetch_fundamentals(params);
                 Err(InsertUpdateError(format!(
                     "Updating balance after invalid insertion for {} of {} Wei to {}; failing on: '{}'",
-                    config.table, amount, key_value, e
+                    config.table, amount, params[key_idx].1, e
                 )))
             }
         }
@@ -121,10 +121,11 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
 }
 
 impl InsertUpdateCoreReal {
-    fn fetch_fundamentals(
-        params: ExtendedParamsVec<'_>,
-    ) -> ((String, String, Box<dyn ExtendedParamsMarker>), i128) {
-        (params.fetch_key(), params.fetch_balance_change())
+    fn fetch_fundamentals(params: ExtendedParamsVec<'_>) -> ((String, String, usize), i128) {
+        (
+            params.fetch_key_specification(),
+            params.fetch_balance_change(),
+        )
     }
 
     fn prepare_statement<'a>(
@@ -161,9 +162,9 @@ impl ExtendedParamsMarker for BalanceChange {
         self
     }
 }
-impl ExtendedParamsMarker for ParamKeyHolder {
-    fn get_key(&self) -> Option<(String, Box<dyn ExtendedParamsMarker>)> {
-        self.key_name_and_full_value.take()
+impl ExtendedParamsMarker for ParamKeyHolder<'_> {
+    fn key_name_opt(&self) -> Option<String> {
+        Some(self.key_param.0.to_string())
     }
 }
 
@@ -202,25 +203,22 @@ impl<'a> FetchValue<'a> for ExtendedParamsVec<'a> {
         }
     }
 
-    fn fetch_key(&'a self) -> (String, String, Box<dyn ExtendedParamsMarker>) {
-        match self.iter().fold(
+    fn fetch_key_specification(&'a self) -> (String, String, usize) {
+        match self.iter().enumerate().fold(
             None,
-            |acc: Option<(String, String, Box<dyn ExtendedParamsMarker>)>,
-             (param_name, key_candidate)| {
-                match acc {
-                    Some(x) => {
-                        if key_candidate.get_key().is_some() {
-                            panic!("only one key parameter is allowed")
-                        };
-                        Some(x)
-                    }
-                    None => match key_candidate.get_key() {
-                        Some((in_table_param_name, value)) => {
-                            Some((in_table_param_name, param_name.to_string(), value))
-                        }
-                        None => None,
-                    },
+            |acc: Option<(String, String, usize)>, (idx, (param_name, key_candidate))| match acc {
+                Some(x) => {
+                    if key_candidate.key_name_opt().is_some() {
+                        panic!("only one key parameter is allowed")
+                    };
+                    Some(x)
                 }
+                None => match key_candidate.key_name_opt() {
+                    Some(in_table_param_name) => {
+                        Some((in_table_param_name, param_name.to_string(), idx))
+                    }
+                    None => None,
+                },
             },
         ) {
             Some(x) => x,
@@ -239,16 +237,13 @@ pub trait UpdateConfiguration<'a> {
     fn finalize_update_params<'b>(
         &'a self,
         updated_balance: &'b i128,
-        mut params_to_update: Vec<(&'b str, &'b dyn ToSql)>,
+        params_to_update: Vec<(&'b str, &'b dyn ToSql)>,
     ) -> Vec<(&'b str, &'b dyn ToSql)> {
-        params_to_update.remove(
-            params_to_update
-                .iter()
-                .position(|(name, _)| *name == ":balance")
-                .expectv(":balance"),
-        );
-        params_to_update.insert(0, (":updated_balance", updated_balance));
         params_to_update
+            .into_iter()
+            .filter(|(name, _)| *name != ":balance")
+            .chain(once((":updated_balance", updated_balance as &dyn ToSql)))
+            .collect()
     }
 }
 
@@ -321,38 +316,27 @@ impl Display for BalanceChange {
     }
 }
 
-pub struct ParamKeyHolder {
-    key_name_and_full_value: RefCell<Option<(String, Box<dyn ExtendedParamsMarker>)>>,
+pub struct ParamKeyHolder<'a> {
+    key_param: (&'a str, &'a dyn ExtendedParamsMarker),
 }
 
-impl ParamKeyHolder {
-    pub fn new(inner_value: Box<dyn ExtendedParamsMarker>, key_parameter_name: &str) -> Self {
+impl<'a> ParamKeyHolder<'a> {
+    pub fn new(inner_value: &'a dyn ExtendedParamsMarker, key_parameter_name: &'a str) -> Self {
         Self {
-            key_name_and_full_value: RefCell::new(Some((
-                key_parameter_name.to_string(),
-                inner_value,
-            ))),
+            key_param: (key_parameter_name, inner_value),
         }
     }
 }
 
-impl ToSql for ParamKeyHolder {
+impl ToSql for ParamKeyHolder<'_> {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        self.key_name_and_full_value.borrow().as_ref().expectv("key param").1.to_sql()
+        self.key_param.1.to_sql()
     }
 }
 
-impl Display for ParamKeyHolder {
+impl Display for ParamKeyHolder<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.key_name_and_full_value
-                .borrow_mut()
-                .as_ref()
-                .expectv("inner ExtendedParamsMarker")
-                .1
-        ) //TODO do we really need this?
+        write!(f, "{}", self.key_param.1) //TODO do we really need this?
     }
 }
 
@@ -397,9 +381,8 @@ mod tests {
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::types::{ToSqlOutput, Value};
+    use rusqlite::types::ToSqlOutput;
     use rusqlite::{named_params, params, Connection, ToSql};
-    use std::ptr::addr_of;
 
     fn convert_params_to_debuggable_values<'a>(
         standard_params: Vec<(&'a str, &'a dyn ToSql)>,
@@ -418,7 +401,7 @@ mod tests {
         let subject = UpdateConfig {
             update_sql: "blah",
             params: SQLExtendedParams::new(vec![
-                (":something", &55_i64),
+                (":something", &152_i64),
                 (":balance", &balance_change),
                 (":something_else", &"foooo"),
             ]),
@@ -480,35 +463,35 @@ mod tests {
 
     #[test]
     fn fetch_key_works() {
-        let wallet: Box<dyn ExtendedParamsMarker> = Box::new(make_wallet("blah"));
-        let raw_address = addr_of!(*wallet);
-        let key_holder = ParamKeyHolder::new(wallet, "wallet");
+        let wallet = make_wallet("blah");
+        let key_holder = ParamKeyHolder::new(&wallet, "wallet");
         let params: ExtendedParamsVec = &vec![
             (":something", &"yo-yo"),
             (":wonderful_wallet", &key_holder),
             (":something_else", &55_i64),
         ];
 
-        let result = params.fetch_key();
+        let result = params.fetch_key_specification();
 
-        let (in_table_name, sql_param_name, value) = result;
+        let (in_table_name, sql_param_name, idx) = result;
         assert_eq!(in_table_name, "wallet".to_string());
         assert_eq!(sql_param_name, ":wonderful_wallet".to_string());
-        assert_eq!(addr_of!(*value), raw_address)
+        assert_eq!(idx, 1)
     }
 
     #[test]
     #[should_panic(expected = "only one key parameter is allowed")]
     fn we_support_only_one_key_a_time_now() {
-        let key_holder_1 = ParamKeyHolder::new(Box::new(make_wallet("blah")), "param_name");
-        let key_holder_2 = ParamKeyHolder::new(Box::new(66_i64), "param_name_2");
+        let wallet = make_wallet("blah");
+        let key_holder_1 = ParamKeyHolder::new(&wallet, "param_name");
+        let key_holder_2 = ParamKeyHolder::new(&66_i64, "param_name_2");
         let params: ExtendedParamsVec = &vec![
             (":something", &"yo-yo"),
             (":wonderful_wallet", &key_holder_1),
             (":something_else", &key_holder_2),
         ];
 
-        let _ = params.fetch_key();
+        let _ = params.fetch_key_specification();
     }
 
     #[test]
@@ -521,7 +504,7 @@ mod tests {
             (":something_else", &699_i64),
         ];
 
-        let _ = subject.fetch_key();
+        let _ = subject.fetch_key_specification();
     }
 
     #[test]
@@ -589,49 +572,46 @@ mod tests {
     #[test]
     fn display_for_param_key_holder_works() {
         let wallet = make_wallet("booga");
-        let key_holder_with_wallet =
-            ParamKeyHolder::new(Box::new(wallet.clone()), "wallet_address");
+        let key_holder_with_wallet = ParamKeyHolder::new(&wallet, "wallet_address");
         let rowid = 56_i64;
-        let key_holder_with_rowid = ParamKeyHolder::new(Box::new(rowid), "pending_payable_rowid");
+        let key_holder_with_rowid = ParamKeyHolder::new(&rowid, "pending_payable_rowid");
 
         assert_eq!(key_holder_with_wallet.to_string(), wallet.to_string());
         assert_eq!(key_holder_with_rowid.to_string(), rowid.to_string())
     }
 
     #[test]
-    fn to_sql_for_param_key_holder_works()
-    {
+    fn to_sql_for_param_key_holder_works() {
         let value_1 = make_wallet("boooga");
         let value_2 = 235_i64;
-        let key_holder_1 = ParamKeyHolder::new(Box::new(value_1.clone()), "random_wallet");
-        let key_holder_2 = ParamKeyHolder::new(Box::new(value_2),"random_parameter");
+        let key_holder_1 = ParamKeyHolder::new(&value_1, "random_wallet");
+        let key_holder_2 = ParamKeyHolder::new(&value_2, "random_parameter");
 
         let result_1 = key_holder_1.to_sql();
         let result_2 = key_holder_2.to_sql();
 
-        assert_eq!(result_1,value_1.to_sql());
-        assert_eq!(result_2,value_2.to_sql())
+        assert_eq!(result_1, value_1.to_sql());
+        assert_eq!(result_2, value_2.to_sql())
     }
 
     #[test]
     fn get_key_for_non_key_params_is_always_none() {
-        assert_eq!("blah".get_key().is_none(), true);
-        assert_eq!(make_wallet("some wallet").get_key().is_none(), true);
-        assert_eq!(BalanceChange::new_addition(555).get_key().is_none(), true);
-        assert_eq!(56_i64.get_key().is_none(), true)
+        assert_eq!("blah".key_name_opt().is_none(), true);
+        assert_eq!(make_wallet("some wallet").key_name_opt().is_none(), true);
+        assert_eq!(
+            BalanceChange::new_addition(555).key_name_opt().is_none(),
+            true
+        );
+        assert_eq!(56_i64.key_name_opt().is_none(), true)
     }
 
     #[test]
     fn get_key_for_param_key_holder_is_something() {
         //notice that i64 alone returns None but inside this holder it is Some()...
-        let key_object = ParamKeyHolder::new(Box::new(8989_i64), "balance").get_key();
+        let key_object = ParamKeyHolder::new(&8989_i64, "balance").key_name_opt();
 
-        let (in_table_param_name, value) = key_object.unwrap();
-        assert_eq!(
-            (in_table_param_name, value.to_string()),
-            ("balance".to_string(), "8989".to_string())
-        );
-        //means that Some() was returned, I cannot assert directly because it is a trait object
+        let in_table_param_name = key_object.unwrap();
+        assert_eq!(in_table_param_name, "balance".to_string());
     }
 
     #[test]
@@ -653,6 +633,7 @@ mod tests {
     #[test]
     fn update_handles_error_for_insert_update_config() {
         let wallet_address = "a11122";
+        let wallet_as_key = ParamKeyHolder::new(&wallet_address, "wallet_address");
         let conn = Connection::open_in_memory().unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(conn);
         create_broken_payable(&wrapped_conn);
@@ -661,7 +642,7 @@ mod tests {
             insert_sql: "",
             update_sql: "",
             params: SQLExtendedParams::new(vec![
-                (":wallet", &wallet_address),
+                (":wallet", &wallet_as_key),
                 (":balance", &balance_change),
             ]),
             table: Table::Payable,
@@ -675,6 +656,7 @@ mod tests {
     #[test]
     fn update_handles_error_on_a_row_due_to_unfitting_data_types() {
         let wallet_address = "a11122";
+        let wallet_as_key = ParamKeyHolder::new(&wallet_address, "wallet_address");
         let path = ensure_node_home_directory_exists(
             "dao_shared_methods",
             "update_handles_error_on_a_row_due_to_unfitting_data_types",
@@ -688,7 +670,7 @@ mod tests {
         let last_received_time_stamp_sec = 123_i64;
         let update_config = UpdateConfig {
             update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
-            params: SQLExtendedParams::new(vec![(":wallet", &wallet_address), (":balance", &balance_change), (":last_received", &last_received_time_stamp_sec)]),
+            params: SQLExtendedParams::new(vec![(":wallet", &wallet_as_key), (":balance", &balance_change), (":last_received", &last_received_time_stamp_sec)]),
             table:Table::Payable,
         };
 
@@ -700,6 +682,7 @@ mod tests {
     #[test]
     fn update_handles_error_of_bad_sql_params() {
         let wallet_address = "a11122";
+        let wallet_as_key = ParamKeyHolder::new(&wallet_address, "wallet_address");
         let path = ensure_node_home_directory_exists(
             "dao_shared_methods",
             "update_handles_error_of_bad_sql_params",
@@ -714,13 +697,13 @@ mod tests {
         let last_received_time_stamp_sec = 123_i64;
         let update_config = UpdateConfig {
             update_sql: "update receivable set balance = ?, last_received_timestamp = ? where wallet_address = ?",
-            params: SQLExtendedParams::new( vec![(":woodstock", &wallet_address), (":hendrix", &last_received_time_stamp_sec), (":wallet", &wallet_address), (":balance", &balance_change)]),
+            params: SQLExtendedParams::new( vec![(":woodstock", &wallet_address), (":hendrix", &last_received_time_stamp_sec), (":wallet", &wallet_as_key), (":balance", &balance_change)]),
             table:Table::Payable,
         };
 
         let result = InsertUpdateCoreReal.update(Either::Left(conn_ref), &update_config);
 
-        assert_eq!(result, Err(InsertUpdateError("Updating balance for payable of 100 Wei to a11122; failing on: 'Invalid parameter name: :updated_balance'".to_string())));
+        assert_eq!(result, Err(InsertUpdateError("Updating balance for payable of 100 Wei to a11122; failing on: 'Invalid parameter name: :woodstock'".to_string())));
     }
 
     //TODO are upsert detailed tests missing???

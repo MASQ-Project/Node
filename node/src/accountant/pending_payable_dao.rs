@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::dao_utils::get_unsized_128;
+use crate::accountant::blob_utils::get_unsized_128;
 use crate::accountant::{checked_conversion, unsigned_to_signed};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;

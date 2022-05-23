@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::dao_utils::{
+use crate::accountant::blob_utils::{
     get_unsized_128, BalanceChange, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal,
     ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
@@ -108,7 +108,7 @@ impl PayableDao for PayableDaoReal {
             update_sql: "update payable set balance = :updated_balance where wallet_address = :wallet",
             params: SQLExtendedParams::new(
                 vec![
-                    (":wallet", &ParamKeyHolder::new(Box::new(wallet.clone()),"wallet_address")),
+                    (":wallet", &ParamKeyHolder::new(wallet,"wallet_address")),
                     (":balance", &BalanceChange::new_addition(amount))
                 ]),
             table: Table::Payable,
@@ -151,7 +151,7 @@ impl PayableDao for PayableDaoReal {
                 vec![
                     (":balance", &BalanceChange::new_subtraction(fingerprint.amount)),
                     (":last_paid", &to_time_t(fingerprint.timestamp)),
-                    (":rowid", &ParamKeyHolder::new(Box::new(checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"))),"pending_payable_rowid")),
+                    (":rowid", &ParamKeyHolder::new(&checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid")),"pending_payable_rowid")),
                 ]),
             table: Table::Payable,
         })?)
@@ -321,7 +321,7 @@ impl PayableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::dao_utils::{InsertUpdateError, Table};
+    use crate::accountant::blob_utils::{InsertUpdateError, Table};
     use crate::accountant::test_utils::{
         account_status, convert_to_all_string_values, make_pending_payable_fingerprint,
         InsertUpdateCoreMock,

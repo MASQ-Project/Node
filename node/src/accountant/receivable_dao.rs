@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::dao_utils::Table::Receivable;
-use crate::accountant::dao_utils::{
+use crate::accountant::blob_utils::Table::Receivable;
+use crate::accountant::blob_utils::{
     BalanceChange, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, ParamKeyHolder,
     SQLExtendedParams, UpdateConfig,
 };
@@ -99,7 +99,7 @@ impl ReceivableDao for ReceivableDaoReal {
             update_sql: "update receivable set balance = :updated_balance where wallet_address = :wallet",
             params: SQLExtendedParams::new(
                 vec![
-                    (":wallet", &ParamKeyHolder::new(Box::new(wallet.clone()),"wallet_address")),
+                    (":wallet", &ParamKeyHolder::new(wallet,"wallet_address")),
                     (":balance", &BalanceChange::new_addition(amount))
                 ]),
             table: Receivable,
@@ -343,7 +343,7 @@ impl ReceivableDaoReal {
                     update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
                     params: SQLExtendedParams::new(
                         vec![
-                            (":wallet", &ParamKeyHolder::new(Box::new(transaction.from.clone()),"wallet_address")),
+                            (":wallet", &ParamKeyHolder::new(&transaction.from,"wallet_address")),
                             //:balance is later recomputed into :updated_balance
                             (":balance", &BalanceChange::new_subtraction(transaction.wei_amount)),
                             (":last_received", &now_time_t()),
@@ -377,7 +377,7 @@ impl ReceivableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::dao_utils::{InsertUpdateCoreReal, InsertUpdateError, Table};
+    use crate::accountant::blob_utils::{InsertUpdateCoreReal, InsertUpdateError, Table};
     use crate::accountant::test_utils::{
         convert_to_all_string_values, make_receivable_account, InsertUpdateCoreMock,
     };
