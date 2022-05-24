@@ -288,7 +288,7 @@ impl WebSocketSupervisorReal {
         tokio::spawn(incoming_future);
     }
 
-    fn send_msg_carefully(
+    fn send_msg_safely(
         locked_inner: MutexGuard<WebSocketSupervisorInner>,
         inner_arc: &Arc<Mutex<WebSocketSupervisorInner>>,
         msg: NodeToUiMessage,
@@ -330,7 +330,7 @@ impl WebSocketSupervisorReal {
                     Critical(e.clone()),
                     message
                 );
-                Self::send_msg_carefully(
+                Self::send_msg_safely(
                     locked_inner,
                     inner_arc,
                     NodeToUiMessage {
@@ -354,7 +354,7 @@ impl WebSocketSupervisorReal {
                     message
                 );
                 match context_id_opt {
-                    None => Self::send_msg_carefully(
+                    None => Self::send_msg_safely(
                         locked_inner,
                         inner_arc,
                         NodeToUiMessage {
@@ -366,7 +366,7 @@ impl WebSocketSupervisorReal {
                             .tmb(0),
                         },
                     ),
-                    Some(context_id) => Self::send_msg_carefully(
+                    Some(context_id) => Self::send_msg_safely(
                         locked_inner,
                         inner_arc,
                         NodeToUiMessage {
@@ -457,7 +457,7 @@ impl WebSocketSupervisorReal {
             WebSocketError::IoError(e)
                 if e.kind() == ErrorKind::BrokenPipe || e.kind() == ErrorKind::ConnectionReset =>
             {
-                Self::handle_emergency_client_removal(client_id, inner_arc);
+                Self::emergency_client_removal(client_id, inner_arc);
                 warning!(
                     Logger::new("WebSocketSupervisor"),
                     "Client {} hit a fatal flush error: {:?}, dropping the client",
@@ -479,17 +479,14 @@ impl WebSocketSupervisorReal {
         inner_arc: &Arc<Mutex<WebSocketSupervisorInner>>,
         client_id: u64,
     ) {
-        Self::handle_emergency_client_removal(client_id, inner_arc);
+        Self::emergency_client_removal(client_id, inner_arc);
         error!(
             Logger::new("WebSocketSupervisor"),
             "Error sending to client {}: {:?}, dropping the client", client_id, error
         );
     }
 
-    fn handle_emergency_client_removal(
-        client_id: u64,
-        inner_arc: &Arc<Mutex<WebSocketSupervisorInner>>,
-    ) {
+    fn emergency_client_removal(client_id: u64, inner_arc: &Arc<Mutex<WebSocketSupervisorInner>>) {
         let mut locked_inner = inner_arc.lock().expect("WebSocketSupervisor is poisoned");
         locked_inner
             .client_by_id
@@ -616,7 +613,9 @@ mod tests {
     use std::str::FromStr;
     use std::thread;
     use std::time::Duration;
+    use tokio::runtime::Runtime;
     use websocket::client::sync::Client;
+    use websocket::r#async::TcpStream as TcpStreamAsync;
     use websocket::stream::sync::TcpStream;
     use websocket::ClientBuilder;
     use websocket::Message;
@@ -788,45 +787,81 @@ mod tests {
     }
 
     #[test]
-    fn data_attributed_to_a_newly_connected_client_is_proper() {
-        init_test_logging();
-        let port = find_free_port();
-        let (tx, rx) = bounded(1);
-        let (ui_gateway, _, _) = make_recorder();
-        thread::spawn(move || {
-            let system = System::new("data_attributed_to_a_newly_connected_client_is_proper");
-            let ui_message_sub = subs(ui_gateway);
-            let subject = lazy(move || {
-                let subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
-                tx.send(Arc::clone(&subject.inner)).unwrap();
+    fn data_for_a_newly_connected_client_is_set_properly() {
+        fn prepare_conn(
+            upgradable: WsUpgrade<TcpStreamAsync, BytesMut>,
+            inner_arc: Arc<Mutex<WebSocketSupervisorInner>>,
+            socket_addr: SocketAddr,
+            logger: Logger,
+        ) -> impl Future<Item = (), Error = WebSocketError> {
+            upgradable.accept().and_then(move |(client, _)| {
+                let logger = logger;
+                //this is the function being under assertions in this test
+                //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                WebSocketSupervisorReal::handle_connection(
+                    client,
+                    &inner_arc,
+                    &logger,
+                    socket_addr,
+                );
+                //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
                 Ok(())
-            });
-            actix::spawn(subject);
-            system.run();
+            })
+        }
+        let port = find_free_port();
+        let logger = Logger::new("test_logger");
+        let ws_server = Server::bind(format!("127.0.0.1:{}", port), &Handle::default()).unwrap();
+        let upgrade = WebSocketSupervisorReal::remove_failures(ws_server.incoming(), &logger);
+        //thread causing an initiation of a new connection to the server
+        let join_handle = thread::spawn(move || {
+            ClientBuilder::new(format!("ws://127.0.0.1:{}", port).as_str())
+                .unwrap()
+                .connect_insecure()
         });
-        wait_for_server(port);
-        let mail = rx.recv().unwrap();
+        let future_result = upgrade
+            //converting error type of the stream to something simple
+            .map_err(|_| ())
+            .for_each(move |(upgrade, _)| {
+                let inner_arc = Arc::new(Mutex::new(make_ordinary_inner()));
+                let socket_addr = SocketAddr::from_str("1.2.3.4:1234").unwrap();
+                let future = prepare_conn(upgrade, inner_arc.clone(), socket_addr, logger.clone())
+                    //making sure we won't make assertions earlier than prepare_conn has completed
+                    .then(|_| {
+                        let inner_accessible = inner_arc.lock().unwrap();
+                        assert_eq!(inner_accessible.next_client_id, 1);
+                        assert_eq!(
+                            inner_accessible.socket_addr_by_client_id.get(&0).unwrap(),
+                            &socket_addr
+                        );
+                        assert_eq!(
+                            inner_accessible
+                                .client_id_by_socket_addr
+                                .get(&socket_addr)
+                                .unwrap(),
+                            &0
+                        );
+                        assert!(inner_accessible.client_by_id.get(&0).is_some());
+                        ok::<(), ()>(())
+                    });
+                match future.wait() {
+                    //taking advantage of a halt of the stream's iteration by an error; though paradoxical,
+                    //successful test ends with Err(())
+                    Ok(_) => Err(()),
+                    _ => unreachable!("test failed for an unexpected reason"),
+                }
+            });
+        let mut runtime = Runtime::new().unwrap();
 
-        let client = make_client(port, "MASQNode-UIv2").unwrap();
+        runtime
+            .block_on(
+                future_result.then::<_, Result<(), ()>>(|result| match result {
+                    Ok(_) => unreachable!("test failed for an unexpected reason"),
+                    _ => Ok(()),
+                }),
+            )
+            .unwrap();
 
-        let socket_addr = client.local_addr().unwrap();
-        let websocket_supervisor_inner = mail.lock().unwrap();
-        assert_eq!(websocket_supervisor_inner.next_client_id, 1);
-        assert_eq!(
-            websocket_supervisor_inner
-                .socket_addr_by_client_id
-                .get(&0)
-                .unwrap(),
-            &socket_addr
-        );
-        assert_eq!(
-            websocket_supervisor_inner
-                .client_id_by_socket_addr
-                .get(&socket_addr)
-                .unwrap(),
-            &0
-        );
-        assert!(websocket_supervisor_inner.client_by_id.get(&0).is_some())
+        join_handle.join().unwrap().unwrap();
     }
 
     #[test]

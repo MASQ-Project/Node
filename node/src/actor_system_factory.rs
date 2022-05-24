@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::accountant::Accountant;
-use super::bootstrapper;
 use super::bootstrapper::BootstrapperConfig;
 use super::dispatcher::Dispatcher;
 use super::hopper::Hopper;
@@ -13,6 +12,7 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
+use crate::bootstrapper::CryptDEPair;
 use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
@@ -43,17 +43,18 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::log_broadcast_substitution_in_tests::prepare_log_recipient;
 #[cfg(not(feature = "log_recipient_test"))]
 use masq_lib::logger::prepare_log_recipient;
+use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 
-pub trait ActorSystemFactory: Send {
+pub trait ActorSystemFactory {
     fn make_and_start_actors(
         &self,
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
-        persist_config: &dyn PersistentConfiguration,
+        persist_config: Box<dyn PersistentConfiguration>,
     ) -> StreamHandlerPoolSubs;
 }
 
@@ -66,13 +67,14 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         &self,
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
-        persist_config: &dyn PersistentConfiguration,
+        persist_config: Box<dyn PersistentConfiguration>,
     ) -> StreamHandlerPoolSubs {
+        self.t.validate_database_chain(
+            persist_config.as_ref(),
+            config.blockchain_bridge_config.chain,
+        );
         self.t
-            .validate_database_chain(persist_config, config.blockchain_bridge_config.chain);
-        let (main_cryptde, alias_cryptde) = self.t.cryptdes();
-        self.t
-            .prepare_initial_messages(main_cryptde, alias_cryptde, config, actor_factory)
+            .prepare_initial_messages(self.t.cryptdes(), config, persist_config, actor_factory)
     }
 }
 
@@ -82,15 +84,15 @@ impl ActorSystemFactoryReal {
     }
 }
 
-pub trait ActorSystemFactoryTools: Send {
+pub trait ActorSystemFactoryTools {
     fn prepare_initial_messages(
         &self,
-        main_cryptde: &'static dyn CryptDE,
-        alias_cryptde: &'static dyn CryptDE,
+        cryptdes: CryptDEPair,
         config: BootstrapperConfig,
+        persistent_config: Box<dyn PersistentConfiguration>,
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs;
-    fn cryptdes(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE);
+    fn cryptdes(&self) -> CryptDEPair;
     fn validate_database_chain(
         &self,
         persistent_config: &dyn PersistentConfiguration,
@@ -106,20 +108,18 @@ pub struct ActorSystemFactoryToolsReal {
 impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
     fn prepare_initial_messages(
         &self,
-        main_cryptde: &'static dyn CryptDE,
-        alias_cryptde: &'static dyn CryptDE,
+        cryptdes: CryptDEPair,
         config: BootstrapperConfig,
+        persistent_config: Box<dyn PersistentConfiguration>,
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs {
         let db_initializer = DbInitializerReal::default();
-        // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
-        let proxy_server_subs =
-            actor_factory.make_and_start_proxy_server(main_cryptde, alias_cryptde, &config);
+        let proxy_server_subs = actor_factory.make_and_start_proxy_server(cryptdes, &config);
         let proxy_client_subs_opt = if !config.neighborhood_config.mode.is_consume_only() {
             Some(
                 actor_factory.make_and_start_proxy_client(ProxyClientConfig {
-                    cryptde: main_cryptde,
+                    cryptde: cryptdes.main,
                     dns_servers: config.dns_servers.clone(),
                     exit_service_rate: config
                         .neighborhood_config
@@ -134,8 +134,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
             None
         };
         let hopper_subs = actor_factory.make_and_start_hopper(HopperConfig {
-            main_cryptde,
-            alias_cryptde,
+            cryptdes,
             per_routing_service: config
                 .neighborhood_config
                 .mode
@@ -150,7 +149,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
             crashable: is_crashable(&config),
         });
         let blockchain_bridge_subs = actor_factory.make_and_start_blockchain_bridge(&config);
-        let neighborhood_subs = actor_factory.make_and_start_neighborhood(main_cryptde, &config);
+        let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptdes.main, &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
             &config,
             &config.data_directory.clone(),
@@ -207,6 +206,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
 
         self.start_automap(
             &config,
+            persistent_config,
             vec![
                 peer_actors.neighborhood.new_public_ip.clone(),
                 peer_actors.dispatcher.new_ip_sub.clone(),
@@ -219,11 +219,8 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         stream_handler_pool_subs
     }
 
-    fn cryptdes(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
-        (
-            bootstrapper::main_cryptde_ref(),
-            bootstrapper::alias_cryptde_ref(),
-        )
+    fn cryptdes(&self) -> CryptDEPair {
+        CryptDEPair::default()
     }
 
     fn validate_database_chain(
@@ -235,7 +232,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         let demanded = chain.rec().literal_identifier.to_string();
         if demanded != from_db {
             panic!(
-                "Database with the wrong chain name detected; expected: {}, was: {}",
+                "Database with a wrong chain name detected; expected: {}, was: {}",
                 demanded, from_db
             )
         }
@@ -270,9 +267,35 @@ impl ActorSystemFactoryToolsReal {
         exit_process(1, &format!("Automap failure: {}{:?}", prefix, error));
     }
 
+    fn maybe_save_usual_protocol(
+        automap_control: &dyn AutomapControl,
+        persistent_config: &mut dyn PersistentConfiguration,
+        b_config_entry_opt: Option<AutomapProtocol>,
+    ) {
+        match (b_config_entry_opt, automap_control.get_mapping_protocol()) {
+            (Some(_), None) => {
+                unreachable!("get_public_ip would've returned AllProtocolsFailed first")
+            }
+            (old_protocol, new_protocol) => {
+                if old_protocol != new_protocol {
+                    debug!(
+                        Logger::new("ActorSystemFactory"),
+                        "Saving a new mapping protocol '{:?}'; used to be '{:?}'",
+                        new_protocol,
+                        old_protocol
+                    );
+                    persistent_config
+                        .set_mapping_protocol(new_protocol)
+                        .expect("write of mapping protocol failed")
+                }
+            }
+        }
+    }
+
     fn start_automap(
         &self,
         config: &BootstrapperConfig,
+        mut persistent_config: Box<dyn PersistentConfiguration>,
         new_ip_recipients: Vec<Recipient<NewPublicIp>>,
     ) {
         if let NeighborhoodMode::Standard(node_addr, _, _) = &config.neighborhood_config.mode {
@@ -299,6 +322,11 @@ impl ActorSystemFactoryToolsReal {
                     return; // never happens; handle_automap_error doesn't return.
                 }
             };
+            Self::maybe_save_usual_protocol(
+                automap_control.as_ref(),
+                persistent_config.as_mut(),
+                config.mapping_protocol_opt,
+            );
             Self::notify_of_public_ip_change(new_ip_recipients.as_slice(), public_ip);
             node_addr.ports().iter().for_each(|port| {
                 if let Err(e) = automap_control.add_mapping(*port) {
@@ -312,15 +340,14 @@ impl ActorSystemFactoryToolsReal {
     }
 }
 
-pub trait ActorFactory: Send {
+pub trait ActorFactory {
     fn make_and_start_dispatcher(
         &self,
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>);
     fn make_and_start_proxy_server(
         &self,
-        main_cryptde: &'static dyn CryptDE,
-        alias_cryptde: &'static dyn CryptDE,
+        cryptdes: CryptDEPair,
         config: &BootstrapperConfig,
     ) -> ProxyServerSubs;
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs;
@@ -367,8 +394,7 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_proxy_server(
         &self,
-        main_cryptde: &'static dyn CryptDE,
-        alias_cryptde: &'static dyn CryptDE,
+        cryptdes: CryptDEPair,
         config: &BootstrapperConfig,
     ) -> ProxyServerSubs {
         let is_decentralized = config.neighborhood_config.mode.is_decentralized();
@@ -381,8 +407,8 @@ impl ActorFactory for ActorFactoryReal {
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<ProxyServer> = arbiter.start(move |_| {
             ProxyServer::new(
-                main_cryptde,
-                alias_cryptde,
+                cryptdes.main,
+                cryptdes.alias,
                 is_decentralized,
                 consuming_wallet_balance,
                 crashable,
@@ -514,7 +540,7 @@ fn is_crashable(config: &BootstrapperConfig) -> bool {
     config.crash_point == CrashPoint::Message
 }
 
-pub trait AutomapControlFactory: Send {
+pub trait AutomapControlFactory {
     fn make(
         &self,
         usual_protocol_opt: Option<AutomapProtocol>,
@@ -591,7 +617,6 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
@@ -602,12 +627,18 @@ mod tests {
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::{
-        make_populated_accountant_config_with_defaults, SystemKillerActor,
+        make_populated_accountant_config_with_defaults, ArbitraryIdStamp, SystemKillerActor,
     };
     use crate::test_utils::{alias_cryptde, rate_pack};
+    use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
+    #[cfg(all(test, not(feature = "no_test_share")))]
+    use automap_lib::mocks::{
+        parameterizable_automap_control, TransactorMock, PUBLIC_IP, ROUTER_IP,
+    };
+    use crossbeam_channel::unbounded;
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
@@ -617,6 +648,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::running_test;
+    use masq_lib::utils::AutomapProtocol::Igdp;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::convert::TryFrom;
@@ -650,32 +682,34 @@ mod tests {
                     Box<dyn CryptDE>,
                     BootstrapperConfig,
                     Box<dyn ActorFactory>,
+                    Box<dyn PersistentConfiguration>,
                 )>,
             >,
         >,
         prepare_initial_messages_results: RefCell<Vec<StreamHandlerPoolSubs>>,
-        cryptdes_results: RefCell<Vec<(&'static dyn CryptDE, &'static dyn CryptDE)>>, //first main, second alias
-        validate_database_chain_params: Arc<Mutex<Vec<Chain>>>,
+        cryptdes_results: RefCell<Vec<CryptDEPair>>,
+        validate_database_chain_params: Arc<Mutex<Vec<(ArbitraryIdStamp, Chain)>>>,
     }
 
     impl ActorSystemFactoryTools for ActorSystemFactoryToolsMock {
         fn prepare_initial_messages(
             &self,
-            main_cryptde: &'static dyn CryptDE,
-            alias_cryptde: &'static dyn CryptDE,
+            cryptdes: CryptDEPair,
             config: BootstrapperConfig,
+            persistent_config: Box<dyn PersistentConfiguration>,
             actor_factory: Box<dyn ActorFactory>,
         ) -> StreamHandlerPoolSubs {
             self.prepare_initial_messages_params.lock().unwrap().push((
-                Box::new(<&CryptDENull>::from(main_cryptde).clone()),
-                Box::new(<&CryptDENull>::from(alias_cryptde).clone()),
+                Box::new(<&CryptDENull>::from(cryptdes.main).clone()),
+                Box::new(<&CryptDENull>::from(cryptdes.alias).clone()),
                 config,
                 actor_factory,
+                persistent_config,
             ));
             self.prepare_initial_messages_results.borrow_mut().remove(0)
         }
 
-        fn cryptdes(&self) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
+        fn cryptdes(&self) -> CryptDEPair {
             self.cryptdes_results.borrow_mut().remove(0)
         }
 
@@ -687,20 +721,20 @@ mod tests {
             self.validate_database_chain_params
                 .lock()
                 .unwrap()
-                .push(chain);
-            //nonstandard...
-            //for an outer assertion, proving that we're using the expected, pasted-in object
-            persistent_config.chain_name();
+                .push((persistent_config.arbitrary_id_stamp(), chain));
         }
     }
 
     impl ActorSystemFactoryToolsMock {
-        pub fn cryptdes_result(self, result: (&'static dyn CryptDE, &'static dyn CryptDE)) -> Self {
+        pub fn cryptdes_result(self, result: CryptDEPair) -> Self {
             self.cryptdes_results.borrow_mut().push(result);
             self
         }
 
-        pub fn validate_database_chain_params(mut self, params: &Arc<Mutex<Vec<Chain>>>) -> Self {
+        pub fn validate_database_chain_params(
+            mut self,
+            params: &Arc<Mutex<Vec<(ArbitraryIdStamp, Chain)>>>,
+        ) -> Self {
             self.validate_database_chain_params = params.clone();
             self
         }
@@ -714,6 +748,7 @@ mod tests {
                         Box<dyn CryptDE>,
                         BootstrapperConfig,
                         Box<dyn ActorFactory>,
+                        Box<dyn PersistentConfiguration>,
                     )>,
                 >,
             >,
@@ -780,15 +815,14 @@ mod tests {
 
         fn make_and_start_proxy_server(
             &self,
-            main_cryptde: &'a dyn CryptDE,
-            alias_cryptde: &'a dyn CryptDE,
+            cryptdes: CryptDEPair,
             config: &BootstrapperConfig,
         ) -> ProxyServerSubs {
             self.parameters
                 .proxy_server_params
                 .lock()
                 .unwrap()
-                .get_or_insert((main_cryptde, alias_cryptde, config.clone()));
+                .get_or_insert((cryptdes, config.clone()));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
             make_proxy_server_subs_from(&addr)
         }
@@ -902,8 +936,7 @@ mod tests {
     struct Parameters<'a> {
         dispatcher_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         proxy_client_params: Arc<Mutex<Option<ProxyClientConfig>>>,
-        proxy_server_params:
-            Arc<Mutex<Option<(&'a dyn CryptDE, &'a dyn CryptDE, BootstrapperConfig)>>>,
+        proxy_server_params: Arc<Mutex<Option<(CryptDEPair, BootstrapperConfig)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, BootstrapperConfig)>>>,
         accountant_params: Arc<Mutex<Option<(BootstrapperConfig, PathBuf)>>>,
@@ -1028,17 +1061,16 @@ mod tests {
         );
         let mut tools = make_subject_with_null_setter();
         tools.automap_control_factory = Box::new(
-            AutomapControlFactoryMock::new().make_result(
+            AutomapControlFactoryMock::new().make_result(Box::new(
                 AutomapControlMock::new()
                     .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
                     .add_mapping_result(Ok(())),
-            ),
+            )),
         );
         let subject = ActorSystemFactoryReal::new(Box::new(tools));
         let system = System::new("test");
 
-        subject.make_and_start_actors(config, Box::new(actor_factory), &persistent_config);
-
+        subject.make_and_start_actors(config, Box::new(actor_factory), Box::new(persistent_config));
         System::current().stop();
         system.run();
         thread::sleep(Duration::from_millis(100));
@@ -1081,7 +1113,7 @@ mod tests {
             node_descriptor: NodeDescriptor::try_from ((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
-            mapping_protocol_opt: None,
+            mapping_protocol_opt: Some(AutomapProtocol::Igdp),
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
@@ -1094,19 +1126,20 @@ mod tests {
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
         subject.automap_control_factory = Box::new(
-            AutomapControlFactoryMock::new().make_result(
+            AutomapControlFactoryMock::new().make_result(Box::new(
                 AutomapControlMock::new()
                     .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+                    .get_mapping_protocol_result(Some(AutomapProtocol::Igdp))
                     .add_mapping_params(&add_mapping_params_arc)
                     .add_mapping_result(Ok(()))
                     .add_mapping_result(Ok(())),
-            ),
+            )),
         );
 
         let _ = subject.prepare_initial_messages(
-            main_cryptde(),
-            alias_cryptde(),
+            make_cryptde_pair(),
             config.clone(),
+            Box::new(PersistentConfigurationMock::new()),
             Box::new(actor_factory),
         );
 
@@ -1132,7 +1165,7 @@ mod tests {
         );
         check_start_message(&recordings.neighborhood, 2);
         let hopper_config = Parameters::get(parameters.hopper_params);
-        check_cryptde(hopper_config.main_cryptde);
+        check_cryptde(hopper_config.cryptdes.main);
         assert_eq!(hopper_config.per_routing_service, 102);
         assert_eq!(hopper_config.per_routing_byte, 101);
         let proxy_client_config = Parameters::get(parameters.proxy_client_params);
@@ -1140,13 +1173,13 @@ mod tests {
         assert_eq!(proxy_client_config.exit_service_rate, 104);
         assert_eq!(proxy_client_config.exit_byte_rate, 103);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
-        let (actual_main_cryptde, actual_alias_cryptde, bootstrapper_config) =
+        let (actual_cryptde_pair, bootstrapper_config) =
             Parameters::get(parameters.proxy_server_params);
-        check_cryptde(actual_main_cryptde);
-        check_cryptde(actual_alias_cryptde);
+        check_cryptde(actual_cryptde_pair.main);
+        check_cryptde(actual_cryptde_pair.alias);
         assert_ne!(
-            actual_main_cryptde.public_key(),
-            actual_alias_cryptde.public_key()
+            actual_cryptde_pair.main.public_key(),
+            actual_cryptde_pair.alias.public_key()
         );
         assert_eq!(
             bootstrapper_config
@@ -1206,12 +1239,8 @@ mod tests {
         let subject = ActorSystemFactoryToolsReal::new();
         let state_before = INITIALIZATION_COUNTER.lock().unwrap().0;
 
-        let _ = subject.prepare_initial_messages(
-            main_cryptde(),
-            alias_cryptde(),
-            config,
-            Box::new(actor_factory),
-        );
+        let _ =
+            subject.prepare_initial_messages(make_cryptde_pair(), config, Box::new(actor_factory));
 
         let state_after = INITIALIZATION_COUNTER.lock().unwrap().0;
         assert_eq!(state_after, state_before + 1)
@@ -1225,6 +1254,7 @@ mod tests {
         running_test();
         let actor_factory = ActorFactoryMock::new();
         let mut config = BootstrapperConfig::default();
+        config.mapping_protocol_opt = Some(AutomapProtocol::Pcp);
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
                 NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234]),
@@ -1237,17 +1267,18 @@ mod tests {
         subject.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new()
                 .make_params(&make_params_arc)
-                .make_result(
+                .make_result(Box::new(
                     AutomapControlMock::new()
                         .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+                        .get_mapping_protocol_result(Some(AutomapProtocol::Pcp))
                         .add_mapping_result(Ok(())),
-                ),
+                )),
         );
 
         let _ = subject.prepare_initial_messages(
-            main_cryptde(),
-            alias_cryptde(),
+            make_cryptde_pair(),
             config.clone(),
+            Box::new(PersistentConfigurationMock::new()),
             Box::new(actor_factory),
         );
 
@@ -1258,6 +1289,99 @@ mod tests {
         let system = System::new("MASQNode");
         System::current().stop();
         system.run();
+    }
+
+    #[test]
+    fn discovered_automap_protocol_is_written_into_the_db() {
+        let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
+        let (tx, _rx) = unbounded();
+        let mut config = BootstrapperConfig::default();
+        config.neighborhood_config.mode = NeighborhoodMode::Standard(
+            NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234]),
+            vec![],
+            DEFAULT_RATE_PACK,
+        );
+        let persistent_config = PersistentConfigurationMock::default()
+            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+            .set_mapping_protocol_result(Ok(()));
+        let (recorder, _, _) = make_recorder();
+        let new_ip_recipient = recorder.start().recipient();
+        let pcp_mock = TransactorMock::new(AutomapProtocol::Pcp).find_routers_result(Ok(vec![]));
+        let pmp_mock = TransactorMock::new(AutomapProtocol::Pmp)
+            .find_routers_result(Ok(vec![*ROUTER_IP]))
+            .start_housekeeping_thread_result(Ok(tx))
+            .stop_housekeeping_thread_result(Ok(Box::new(|_| ())))
+            .get_public_ip_result(Ok(*PUBLIC_IP))
+            .add_mapping_result(Ok(1000));
+        let igdp_mock = TransactorMock::new(AutomapProtocol::Igdp).find_routers_result(Ok(vec![]));
+        let change_handler = Box::new(|_| ());
+        let automap_control: Box<dyn AutomapControl> = Box::new(parameterizable_automap_control(
+            change_handler,
+            None,
+            vec![pcp_mock, pmp_mock, igdp_mock],
+        ));
+        let automap_control_factory =
+            Box::new(AutomapControlFactoryMock::default().make_result(automap_control));
+        let mut subject = ActorSystemFactoryToolsReal::new();
+        subject.automap_control_factory = automap_control_factory;
+
+        subject.start_automap(&config, Box::new(persistent_config), vec![new_ip_recipient]);
+
+        let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_mapping_protocol_params,
+            vec![Some(AutomapProtocol::Pmp)]
+        )
+    }
+
+    #[test]
+    fn automap_protocol_is_not_saved_if_indifferent_from_last_time() {
+        let config_entry = Some(AutomapProtocol::Igdp);
+        let automap_control =
+            AutomapControlMock::default().get_mapping_protocol_result(Some(AutomapProtocol::Igdp));
+
+        ActorSystemFactoryToolsReal::maybe_save_usual_protocol(
+            &automap_control,
+            &mut PersistentConfigurationMock::new(),
+            config_entry,
+        );
+
+        //result for set_mapping_protocol not provided so it hasn't been required if no panic
+    }
+
+    #[test]
+    fn automap_protocol_is_saved_if_both_values_populated_but_different() {
+        let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+            .set_mapping_protocol_result(Ok(()));
+        let config_entry = Some(AutomapProtocol::Pmp);
+        let automap_control =
+            AutomapControlMock::default().get_mapping_protocol_result(Some(AutomapProtocol::Igdp));
+
+        ActorSystemFactoryToolsReal::maybe_save_usual_protocol(
+            &automap_control,
+            &mut persistent_config,
+            config_entry,
+        );
+
+        let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
+        assert_eq!(*set_mapping_protocol_params, vec![Some(Igdp)])
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "entered unreachable code: get_public_ip would've returned AllProtocolsFailed first"
+    )]
+    fn automap_usual_protocol_beginning_with_some_and_then_none_is_not_possible() {
+        let config_entry = Some(AutomapProtocol::Pmp);
+        let automap_control = AutomapControlMock::default().get_mapping_protocol_result(None);
+
+        ActorSystemFactoryToolsReal::maybe_save_usual_protocol(
+            &automap_control,
+            &mut PersistentConfigurationMock::default(),
+            config_entry,
+        );
     }
 
     #[test]
@@ -1296,9 +1420,9 @@ mod tests {
         subject.automap_control_factory = Box::new(AutomapControlFactoryMock::new());
 
         let _ = subject.prepare_initial_messages(
-            main_cryptde(),
-            alias_cryptde(),
+            make_cryptde_pair(),
             config.clone(),
+            Box::new(PersistentConfigurationMock::new()),
             Box::new(actor_factory),
         );
 
@@ -1318,7 +1442,7 @@ mod tests {
     #[test]
     fn start_automap_aborts_if_neighborhood_mode_is_standard_and_public_ip_is_supplied() {
         let mut subject = ActorSystemFactoryToolsReal::new();
-        let automap_control = AutomapControlMock::new();
+        let automap_control = Box::new(AutomapControlMock::new());
         subject.automap_control_factory =
             Box::new(AutomapControlFactoryMock::new().make_result(automap_control));
         let mut config = BootstrapperConfig::default();
@@ -1330,7 +1454,11 @@ mod tests {
         let (recorder, _, _) = make_recorder();
         let new_ip_recipient = recorder.start().recipient();
 
-        subject.start_automap(&config, vec![new_ip_recipient]);
+        subject.start_automap(
+            &config,
+            Box::new(PersistentConfigurationMock::new()),
+            vec![new_ip_recipient],
+        );
 
         // no not-enough-results-provided error: test passes
     }
@@ -1341,9 +1469,14 @@ mod tests {
         running_test();
         let mut subject = ActorSystemFactoryToolsReal::new();
         let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let automap_control = AutomapControlMock::new()
-            .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
-            .add_mapping_result(Ok(()));
+        let persistent_configuration =
+            PersistentConfigurationMock::new().set_mapping_protocol_result(Ok(()));
+        let automap_control = Box::new(
+            AutomapControlMock::new()
+                .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+                .get_mapping_protocol_result(Some(AutomapProtocol::Pmp))
+                .add_mapping_result(Ok(())),
+        );
         subject.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new()
                 .make_params(&make_params_arc)
@@ -1357,7 +1490,7 @@ mod tests {
             DEFAULT_RATE_PACK,
         );
 
-        subject.start_automap(&config, vec![]);
+        subject.start_automap(&config, Box::new(persistent_configuration), vec![]);
 
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(make_params[0].0, None);
@@ -1375,8 +1508,10 @@ mod tests {
     fn start_automap_change_handler_handles_get_public_ip_errors_properly() {
         running_test();
         let mut subject = ActorSystemFactoryToolsReal::new();
-        let automap_control = AutomapControlMock::new()
-            .get_public_ip_result(Err(AutomapError::AllProtocolsFailed(vec![])));
+        let automap_control = Box::new(
+            AutomapControlMock::new()
+                .get_public_ip_result(Err(AutomapError::AllProtocolsFailed(vec![]))),
+        );
         subject.automap_control_factory =
             Box::new(AutomapControlFactoryMock::new().make_result(automap_control));
         let mut config = BootstrapperConfig::default();
@@ -1387,7 +1522,11 @@ mod tests {
             DEFAULT_RATE_PACK,
         );
 
-        subject.start_automap(&config, vec![]);
+        subject.start_automap(
+            &config,
+            Box::new(PersistentConfigurationMock::new()),
+            vec![],
+        );
 
         let system = System::new("test");
         System::current().stop();
@@ -1401,9 +1540,14 @@ mod tests {
     fn start_automap_change_handler_handles_initial_mapping_error_properly() {
         running_test();
         let mut subject = ActorSystemFactoryToolsReal::new();
-        let automap_control = AutomapControlMock::new()
-            .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
-            .add_mapping_result(Err(AutomapError::AllProtocolsFailed(vec![])));
+        let persistent_config =
+            PersistentConfigurationMock::new().set_mapping_protocol_result(Ok(()));
+        let automap_control = Box::new(
+            AutomapControlMock::new()
+                .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+                .get_mapping_protocol_result(Some(AutomapProtocol::Pcp))
+                .add_mapping_result(Err(AutomapError::AllProtocolsFailed(vec![]))),
+        );
         subject.automap_control_factory =
             Box::new(AutomapControlFactoryMock::new().make_result(automap_control));
         let mut config = BootstrapperConfig::default();
@@ -1414,7 +1558,7 @@ mod tests {
             DEFAULT_RATE_PACK,
         );
 
-        subject.start_automap(&config, vec![]);
+        subject.start_automap(&config, Box::new(persistent_config), vec![]);
 
         let system = System::new("test");
         System::current().stop();
@@ -1461,15 +1605,15 @@ mod tests {
         let system = System::new("MASQNode");
 
         let _ = subject.prepare_initial_messages(
-            main_cryptde(),
-            alias_cryptde(),
+            make_cryptde_pair(),
             config.clone(),
+            Box::new(PersistentConfigurationMock::new()),
             Box::new(actor_factory),
         );
 
         System::current().stop();
         system.run();
-        let (_, _, bootstrapper_config) = Parameters::get(parameters.proxy_server_params);
+        let (_, bootstrapper_config) = Parameters::get(parameters.proxy_server_params);
         assert_eq!(bootstrapper_config.consuming_wallet_opt, None);
     }
 
@@ -1478,11 +1622,8 @@ mod tests {
         let closure = || {
             let mut bootstrapper_config = BootstrapperConfig::default();
             bootstrapper_config.crash_point = CrashPoint::Message;
-            let subscribers = ActorFactoryReal {}.make_and_start_proxy_server(
-                main_cryptde(),
-                alias_cryptde(),
-                &bootstrapper_config,
-            );
+            let subscribers = ActorFactoryReal {}
+                .make_and_start_proxy_server(make_cryptde_pair(), &bootstrapper_config);
             subscribers.node_from_ui
         };
 
@@ -1512,8 +1653,7 @@ mod tests {
     fn hopper_drags_down_the_whole_system_due_to_local_panic() {
         let closure = || {
             let hopper_config = HopperConfig {
-                main_cryptde: main_cryptde(),
-                alias_cryptde: alias_cryptde(),
+                cryptdes: make_cryptde_pair(),
                 per_routing_service: 100,
                 per_routing_byte: 50,
                 is_decentralized: false,
@@ -1652,7 +1792,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Database with the wrong chain name detected; expected: eth-ropsten, was: eth-mainnet"
+        expected = "Database with a wrong chain name detected; expected: eth-ropsten, was: eth-mainnet"
     )]
     fn make_and_start_actors_does_not_tolerate_differences_in_setup_chain_and_database_chain() {
         let mut bootstrapper_config = BootstrapperConfig::new();
@@ -1668,15 +1808,14 @@ mod tests {
         let _ = subject.make_and_start_actors(
             bootstrapper_config,
             Box::new(ActorFactoryReal {}),
-            &persistent_config,
+            Box::new(persistent_config),
         );
     }
 
     #[test]
     fn make_and_start_actors_happy_path() {
-        let database_chain_assertion_params_arc = Arc::new(Mutex::new(vec![]));
+        let validate_database_chain_params_arc = Arc::new(Mutex::new(vec![]));
         let prepare_initial_messages_params_arc = Arc::new(Mutex::new(vec![]));
-        let chain_name_params_arc = Arc::new(Mutex::new(vec![]));
         let (recorder, _, recording_arc) = make_recorder();
         let stream_holder_pool_subs = make_stream_handler_pool_subs_from(Some(recorder));
         let mut bootstrapper_config = BootstrapperConfig::new();
@@ -1689,27 +1828,30 @@ mod tests {
         let alias_cryptde = alias_cryptde();
         let alias_cryptde_public_key_before = public_key_for_dyn_cryptde_being_null(alias_cryptde);
         let actor_factory = Box::new(ActorFactoryReal {}) as Box<dyn ActorFactory>;
-        let actor_factory_raw_address = addr_of!(*actor_factory);
-        let persistent_config = PersistentConfigurationMock::default()
-            .chain_name_params(&chain_name_params_arc)
-            .chain_name_result(
-                "believe or not, supplied for nothing but prevention of panicking".to_string(),
-            );
+        let actor_factory_before_raw_address = addr_of!(*actor_factory);
+        let persistent_config_id = ArbitraryIdStamp::new();
+        let persistent_config = Box::new(
+            PersistentConfigurationMock::default().set_arbitrary_id_stamp(persistent_config_id),
+        );
+        let persistent_config_before_raw = addr_of!(*persistent_config);
         let tools = ActorSystemFactoryToolsMock::default()
-            .cryptdes_result((main_cryptde, alias_cryptde))
-            .validate_database_chain_params(&database_chain_assertion_params_arc)
+            .cryptdes_result(CryptDEPair {
+                main: main_cryptde,
+                alias: alias_cryptde,
+            })
+            .validate_database_chain_params(&validate_database_chain_params_arc)
             .prepare_initial_messages_params(&prepare_initial_messages_params_arc)
             .prepare_initial_messages_result(stream_holder_pool_subs);
         let subject = ActorSystemFactoryReal::new(Box::new(tools));
 
-        let result = subject.make_and_start_actors(
-            bootstrapper_config,
-            Box::new(ActorFactoryReal {}),
-            &persistent_config,
-        );
+        let result =
+            subject.make_and_start_actors(bootstrapper_config, actor_factory, persistent_config);
 
-        let database_chain_assertion_params = database_chain_assertion_params_arc.lock().unwrap();
-        assert_eq!(*database_chain_assertion_params, vec![Chain::PolyMainnet]);
+        let mut validate_database_chain_params = validate_database_chain_params_arc.lock().unwrap();
+        let (persistent_config_id_captured, chain) = validate_database_chain_params.remove(0);
+        assert!(validate_database_chain_params.is_empty());
+        assert_eq!(persistent_config_id_captured, persistent_config_id);
+        assert_eq!(chain, Chain::PolyMainnet);
         let mut prepare_initial_messages_params =
             prepare_initial_messages_params_arc.lock().unwrap();
         let (
@@ -1717,6 +1859,7 @@ mod tests {
             alias_cryptde_after,
             bootstrapper_config_after,
             actor_factory_after,
+            persistent_config_after,
         ) = prepare_initial_messages_params.remove(0);
         assert!(prepare_initial_messages_params.is_empty());
         let main_cryptde_public_key_after =
@@ -1739,7 +1882,14 @@ mod tests {
             bootstrapper_config_after.db_password_opt,
             Some("chameleon".to_string())
         );
-        assert_eq!(addr_of!(*actor_factory_after), actor_factory_raw_address);
+        assert_eq!(
+            addr_of!(*actor_factory_after),
+            actor_factory_before_raw_address
+        );
+        assert_eq!(
+            addr_of!(*persistent_config_after),
+            persistent_config_before_raw
+        );
         let system = System::new("make_and_start_actors_happy_path");
         let msg_of_irrelevant_choice = NodeFromUiMessage {
             client_id: 5,
@@ -1754,8 +1904,6 @@ mod tests {
         let recording = recording_arc.lock().unwrap();
         let msg = recording.get_record::<NodeFromUiMessage>(0);
         assert_eq!(msg, &msg_of_irrelevant_choice);
-        let chain_name_params = chain_name_params_arc.lock().unwrap();
-        assert_eq!(*chain_name_params, vec![()])
     }
 
     fn public_key_for_dyn_cryptde_being_null(cryptde: &dyn CryptDE) -> &PublicKey {

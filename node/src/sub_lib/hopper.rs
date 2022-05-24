@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::bootstrapper::CryptDEPair;
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
@@ -122,8 +123,7 @@ impl<T> ExpiredCoresPackage<T> {
 
 #[derive(Clone)]
 pub struct HopperConfig {
-    pub main_cryptde: &'static dyn CryptDE,
-    pub alias_cryptde: &'static dyn CryptDE,
+    pub cryptdes: CryptDEPair,
     pub per_routing_service: u64,
     pub per_routing_byte: u64,
     pub is_decentralized: bool,
