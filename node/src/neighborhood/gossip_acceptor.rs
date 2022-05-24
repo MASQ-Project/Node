@@ -626,7 +626,17 @@ impl GossipHandler for IntroductionHandler {
             let (introducer, introducee) = Self::identify_players(agrs, gossip_source)
                 .expect("Introduction not properly qualified");
             let introducer_key = introducer.inner.public_key.clone();
-            match self.update_database(database, cryptde, introducer.clone()) {
+            let introducer_ip_addr = introducer
+                .node_addr_opt
+                .as_ref()
+                .expect("IP Address not found for the Node Addr.")
+                .ip_addr();
+            let introducee_ip_addr = introducee
+                .node_addr_opt
+                .as_ref()
+                .expect("IP Address not found for the Node Addr.")
+                .ip_addr();
+            match self.update_database(database, cryptde, introducer) {
                 Ok(_) => (),
                 Err(e) => {
                     return GossipAcceptanceResult::Ban(format!(
@@ -636,10 +646,8 @@ impl GossipHandler for IntroductionHandler {
                 }
             }
             let connection_progess_message = ConnectionProgressMessage {
-                peer_addr: introducer.node_addr_opt.unwrap().ip_addr(),
-                event: ConnectionProgressEvent::IntroductionGossipReceived(
-                    introducee.node_addr_opt.as_ref().unwrap().ip_addr(),
-                ),
+                peer_addr: introducer_ip_addr,
+                event: ConnectionProgressEvent::IntroductionGossipReceived(introducee_ip_addr),
             };
             cpm_recipient
                 .try_send(connection_progess_message)
@@ -934,7 +942,7 @@ impl GossipHandler for StandardGossipHandler {
                     GossipAcceptanceResult::Ignored
                 }
                 (false, true) => {
-                    // Received Reply for Acceptance of Debut Gossip
+                    // Received Reply for Acceptance of Debut Gossip (false, true)
                     let cpm = ConnectionProgressMessage {
                         peer_addr: gossip_source.ip(),
                         event: ConnectionProgressEvent::StandardGossipReceived,
@@ -2222,12 +2230,11 @@ mod tests {
 
     #[test]
     fn no_cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_cannot_be_created() {
-        // (false, false)
+        // Received gossip from a malefactor banned node - (false, false)
         let cryptde = main_cryptde();
-        let root_node = make_node_record(1111, true); // This is us
+        let root_node = make_node_record(1111, true);
         let mut root_db = db_from_node(&root_node);
-        // This node must not be neighbors with the root node.
-        let src_node = make_node_record(2222, true); // Full Neighbor
+        let src_node = make_node_record(2222, true);
         let src_node_socket_addr = SocketAddr::try_from(src_node.node_addr_opt().unwrap()).unwrap();
         let src_db = db_from_node(&src_node);
         let gossip = GossipBuilder::new(&src_db)
@@ -2255,11 +2262,11 @@ mod tests {
 
     #[test]
     fn cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_is_created() {
-        // (false, true)
+        // Received Reply for Acceptance of Debut Gossip - (false, true)
         let cryptde = main_cryptde();
-        let root_node = make_node_record(1111, true); // This is us
+        let root_node = make_node_record(1111, true);
         let mut root_db = db_from_node(&root_node);
-        let src_node = make_node_record(2222, true); // Full Neighbor
+        let src_node = make_node_record(2222, true);
         let src_node_socket_addr = SocketAddr::try_from(src_node.node_addr_opt().unwrap()).unwrap();
         let mut src_db = db_from_node(&src_node);
         root_db.add_node(src_node.clone()).unwrap();
@@ -2301,11 +2308,11 @@ mod tests {
 
     #[test]
     fn cpm_is_not_sent_in_case_full_neighborship_exists_and_is_destroyed() {
-        // (true, false)
+        // Somebody banned us. (true, false)
         let cryptde = main_cryptde();
-        let root_node = make_node_record(1111, true); // This is us
+        let root_node = make_node_record(1111, true);
         let mut root_db = db_from_node(&root_node);
-        let src_node = make_node_record(2222, true); // Full Neighbor
+        let src_node = make_node_record(2222, true);
         let src_node_socket_addr = SocketAddr::try_from(src_node.node_addr_opt().unwrap()).unwrap();
         let mut src_db = db_from_node(&src_node);
         root_db.add_node(src_node.clone()).unwrap();
@@ -2338,11 +2345,11 @@ mod tests {
 
     #[test]
     fn cpm_is_not_sent_in_case_full_neighborship_exists_and_continues() {
-        // (true, true)
+        // Standard Gossips received after Neighborship is established (true, true)
         let cryptde = main_cryptde();
-        let root_node = make_node_record(1111, true); // This is us
+        let root_node = make_node_record(1111, true);
         let mut root_db = db_from_node(&root_node);
-        let src_node = make_node_record(2222, true); // Full Neighbor
+        let src_node = make_node_record(2222, true);
         let src_node_socket_addr = SocketAddr::try_from(src_node.node_addr_opt().unwrap()).unwrap();
         let mut src_db = db_from_node(&src_node);
         root_db.add_node(src_node.clone()).unwrap();
@@ -2952,12 +2959,6 @@ mod tests {
         )
     }
 
-    // 1. TCP ConnectionEstablished
-    // 2. Send the AskDebutMessage
-    // 3. Waiting Period [Introduction Gossip, Pass Gossip, Standard Gossip] - Update stage on the basis of gossip
-    // 4. Receive AskDebutMessage {handle whether gossip was received or not.}
-    // 5. Update the stage to Failed in case not received
-
     #[test]
     fn pass_handler_is_constructed_properly() {
         let pass_handler = PassHandler::new();
@@ -2973,7 +2974,6 @@ mod tests {
     #[test]
     fn pass_is_properly_handled() {
         // This test makes sure GossipAcceptor works correctly
-        // TODO: Make sure we test that PassHandler is called and not the others
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let (gossip, pass_target, gossip_source) = make_pass(2345);
@@ -3094,10 +3094,11 @@ mod tests {
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
-        subject.previous_pass_targets.borrow_mut().insert(
-            pass_target_ip_addr,
-            SystemTime::now().sub(PASS_GOSSIP_EXPIRED_TIME.add(Duration::from_secs(1))),
-        );
+        let expired_time = PASS_GOSSIP_EXPIRED_TIME.add(Duration::from_secs(1));
+        subject
+            .previous_pass_targets
+            .borrow_mut()
+            .insert(pass_target_ip_addr, SystemTime::now().sub(expired_time));
         let system = System::new("handles_pass_target_that_has_expired");
         let initial_timestamp = SystemTime::now();
 
@@ -3118,9 +3119,7 @@ mod tests {
             ),
         }
         System::current().stop();
-        // System ran successfully
         assert_eq!(system.run(), 0);
-        // Received a CPM with a new Pass Gossip
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
         assert_eq!(
@@ -3130,7 +3129,6 @@ mod tests {
                 event: ConnectionProgressEvent::PassGossipReceived(pass_target_ip_addr)
             }
         );
-        // Timestamp was updated
         let previous_pass_targets = subject.previous_pass_targets.borrow();
         let timestamp = previous_pass_targets.get(&pass_target_ip_addr).unwrap();
         assert!(initial_timestamp <= *timestamp && *timestamp <= final_timestamp);
@@ -3357,7 +3355,7 @@ mod tests {
             src_root.node_addr_opt().unwrap().into(),
         );
 
-        assert_eq!(GossipAcceptanceResult::Ignored, result);
+        assert_eq!(result, GossipAcceptanceResult::Ignored);
         assert_eq!(
             original_dest_db
                 .node_by_key(dest_root.public_key())
