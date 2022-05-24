@@ -1374,8 +1374,8 @@ mod tests {
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{
-        db_from_node, make_global_cryptde_node_record, make_node_record, make_node_record_f,
-        make_node_to_ui_recipient, neighborhood_from_nodes,
+        db_from_node, make_global_cryptde_node_record, make_node_descriptor_from_ip,
+        make_node_record, make_node_record_f, make_node_to_ui_recipient, neighborhood_from_nodes,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::rate_pack;
@@ -1637,34 +1637,13 @@ mod tests {
     #[test]
     pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_established() {
         init_test_logging();
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_addr = NodeAddr::new(&node_ip_addr, &[5678]);
-        let node_ip_addr_clone = node_ip_addr.clone();
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
-        let public_key = PublicKey::new(&b"booga"[..]);
-        let notify_later_ask_about_gossip_params_arc = Arc::new(Mutex::new(vec![]));
-        let node_descriptor =
-            NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
-        let node_descriptor_clone = node_descriptor.clone();
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        this_node_addr,
-                        vec![node_descriptor.clone()],
-                        rate_pack(100),
-                    ),
-                },
-                earning_wallet.clone(),
-                None,
-                "neighborhood_handles_connection_progress_message_with_tcp_connection_established",
-            ),
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let mut subject = make_neighborhood(
+            &node_descriptor,
+            "neighborhood_handles_connection_progress_message_with_tcp_connection_established",
         );
-        let (recipient, _) = make_node_to_ui_recipient();
-        subject.node_to_ui_recipient_opt = Some(recipient);
+        let notify_later_ask_about_gossip_params_arc = Arc::new(Mutex::new(vec![]));
         subject.tools.notify_later_ask_about_gossip = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_ask_about_gossip_params_arc),
@@ -1673,25 +1652,25 @@ mod tests {
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let beginning_connection_progress = ConnectionProgress {
-            initial_node_descriptor: node_descriptor_clone,
-            current_peer_addr: node_ip_addr_clone,
+            initial_node_descriptor: node_descriptor.clone(),
+            current_peer_addr: node_ip_addr,
             connection_stage: ConnectionStage::TcpConnectionEstablished,
         };
         let beginning_connection_progress_clone = beginning_connection_progress.clone();
         let system = System::new("testing");
+        let connection_progress_message = ConnectionProgressMessage {
+            peer_addr: node_ip_addr,
+            event: ConnectionProgressEvent::TcpConnectionSuccessful,
+        };
+
+        cpm_recipient.try_send(connection_progress_message).unwrap();
+
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
                 vec![beginning_connection_progress_clone]
             );
         });
-        let connection_progress_message = ConnectionProgressMessage {
-            peer_addr: node_addr.ip_addr(),
-            event: ConnectionProgressEvent::TcpConnectionSuccessful,
-        };
-
-        cpm_recipient.try_send(connection_progress_message).unwrap();
-
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
@@ -1711,43 +1690,20 @@ mod tests {
     #[test]
     fn ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received() {
         init_test_logging();
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
-        let initial_desc_public_key = PublicKey::new(&b"booga"[..]);
-        let initial_desc_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let initial_desc_node_addr = NodeAddr::new(&initial_desc_ip_addr, &[5678]);
-        let initial_node_descriptor = NodeDescriptor::from((
-            &initial_desc_public_key,
-            &initial_desc_node_addr,
-            Chain::EthRopsten,
-            cryptde,
-        ));
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        this_node_addr,
-                        vec![initial_node_descriptor.clone()],
-                        rate_pack(100),
-                    ),
-                },
-                earning_wallet.clone(),
-                None,
-                "ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received",
-            ),
+        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let mut subject = make_neighborhood(
+            &node_descriptor,
+            "ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received",
         );
-        let (recipient, _) = make_node_to_ui_recipient();
-        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
-            initial_desc_ip_addr,
+            node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
             subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let beginning_connection_progress = ConnectionProgress {
-            initial_node_descriptor: initial_node_descriptor.clone(),
-            current_peer_addr: initial_desc_ip_addr,
+            initial_node_descriptor: node_descriptor.clone(),
+            current_peer_addr: node_ip_addr,
             connection_stage: ConnectionStage::TcpConnectionEstablished,
         };
         let addr = subject.start();
@@ -1756,19 +1712,19 @@ mod tests {
             prev_connection_progress: beginning_connection_progress.clone(),
         };
         let system = System::new("testing");
+
+        recipient.try_send(aadgrm).unwrap();
+
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
                 vec![ConnectionProgress {
-                    initial_node_descriptor: initial_node_descriptor.clone(),
-                    current_peer_addr: initial_desc_ip_addr,
+                    initial_node_descriptor: node_descriptor,
+                    current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::Failed(NoGossipResponseReceived),
                 }]
             );
         });
-
-        recipient.try_send(aadgrm).unwrap();
-
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
@@ -1777,34 +1733,22 @@ mod tests {
     #[test]
     pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_failed() {
         init_test_logging();
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_addr = NodeAddr::new(&node_ip_addr, &[5678]);
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
-        let public_key = PublicKey::new(&b"booga"[..]);
-        let node_descriptor =
-            NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        this_node_addr,
-                        vec![node_descriptor.clone()],
-                        rate_pack(100),
-                    ),
-                },
-                earning_wallet.clone(),
-                None,
-                "neighborhood_handles_connection_progress_message_with_tcp_connection_established",
-            ),
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let subject = make_neighborhood(
+            &node_descriptor,
+            "neighborhood_handles_connection_progress_message_with_tcp_connection_failed",
         );
-        let (recipient, _) = make_node_to_ui_recipient();
-        subject.node_to_ui_recipient_opt = Some(recipient);
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
+        let connection_progress_message = ConnectionProgressMessage {
+            peer_addr: node_ip_addr,
+            event: ConnectionProgressEvent::TcpConnectionFailed,
+        };
+
+        cpm_recipient.try_send(connection_progress_message).unwrap();
+
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
@@ -1815,13 +1759,6 @@ mod tests {
                 }]
             );
         });
-        let connection_progress_message = ConnectionProgressMessage {
-            peer_addr: node_ip_addr,
-            event: ConnectionProgressEvent::TcpConnectionFailed,
-        };
-
-        cpm_recipient.try_send(connection_progress_message).unwrap();
-
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
@@ -1830,31 +1767,12 @@ mod tests {
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_pass_gossip_received() {
         init_test_logging();
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_addr = NodeAddr::new(&node_ip_addr, &[5678]);
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
-        let public_key = PublicKey::new(&b"booga"[..]);
-        let node_descriptor =
-            NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        this_node_addr,
-                        vec![node_descriptor.clone()],
-                        rate_pack(100),
-                    ),
-                },
-                earning_wallet.clone(),
-                None,
-                "neighborhood_handles_a_connection_progress_message_with_pass_gossip_received",
-            ),
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let mut subject = make_neighborhood(
+            &node_descriptor,
+            "neighborhood_handles_a_connection_progress_message_with_pass_gossip_received",
         );
-        let (recipient, _) = make_node_to_ui_recipient();
-        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -1864,6 +1782,13 @@ mod tests {
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
         let new_pass_target = IpAddr::from_str("10.20.30.40").unwrap();
+        let connection_progress_message = ConnectionProgressMessage {
+            peer_addr: node_ip_addr,
+            event: ConnectionProgressEvent::PassGossipReceived(new_pass_target),
+        };
+
+        cpm_recipient.try_send(connection_progress_message).unwrap();
+
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
@@ -1874,13 +1799,6 @@ mod tests {
                 }]
             );
         });
-        let connection_progress_message = ConnectionProgressMessage {
-            peer_addr: node_ip_addr,
-            event: ConnectionProgressEvent::PassGossipReceived(new_pass_target),
-        };
-
-        cpm_recipient.try_send(connection_progress_message).unwrap();
-
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
@@ -1889,31 +1807,12 @@ mod tests {
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_dead_end_found() {
         init_test_logging();
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_addr = NodeAddr::new(&node_ip_addr, &[5678]);
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
-        let public_key = PublicKey::new(&b"booga"[..]);
-        let node_descriptor =
-            NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        this_node_addr,
-                        vec![node_descriptor.clone()],
-                        rate_pack(100),
-                    ),
-                },
-                earning_wallet.clone(),
-                None,
-                "neighborhood_handles_a_connection_progress_message_with_pass_gossip_received",
-            ),
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let mut subject = make_neighborhood(
+            &node_descriptor,
+            "neighborhood_handles_a_connection_progress_message_with_dead_end_found",
         );
-        let (recipient, _) = make_node_to_ui_recipient();
-        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -1922,7 +1821,13 @@ mod tests {
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
-        // let new_pass_target = IpAddr::from_str("10.20.30.40").unwrap();
+        let connection_progress_message = ConnectionProgressMessage {
+            peer_addr: node_ip_addr,
+            event: ConnectionProgressEvent::DeadEndFound,
+        };
+
+        cpm_recipient.try_send(connection_progress_message).unwrap();
+
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
@@ -1933,13 +1838,6 @@ mod tests {
                 }]
             );
         });
-        let connection_progress_message = ConnectionProgressMessage {
-            peer_addr: node_ip_addr,
-            event: ConnectionProgressEvent::DeadEndFound,
-        };
-
-        cpm_recipient.try_send(connection_progress_message).unwrap();
-
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
@@ -1948,31 +1846,12 @@ mod tests {
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received() {
         init_test_logging();
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_addr = NodeAddr::new(&node_ip_addr, &[5678]);
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
-        let public_key = PublicKey::new(&b"booga"[..]);
-        let node_descriptor =
-            NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        this_node_addr,
-                        vec![node_descriptor.clone()],
-                        rate_pack(100),
-                    ),
-                },
-                earning_wallet.clone(),
-                None,
-                "neighborhood_handles_a_connection_progress_message_with_standard_gossip_received",
-            ),
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let mut subject = make_neighborhood(
+            &node_descriptor,
+            "neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received",
         );
-        let (recipient, _) = make_node_to_ui_recipient();
-        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -1981,16 +1860,6 @@ mod tests {
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
-        let assertions = Box::new(move |actor: &mut Neighborhood| {
-            assert_eq!(
-                actor.overall_connection_status.progress,
-                vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
-                    current_peer_addr: node_ip_addr,
-                    connection_stage: ConnectionStage::NeighborshipEstablished
-                }]
-            );
-        });
         let new_node = IpAddr::from_str("10.20.30.40").unwrap();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
@@ -1999,47 +1868,6 @@ mod tests {
 
         cpm_recipient.try_send(connection_progress_message).unwrap();
 
-        addr.try_send(AssertionsMessage { assertions }).unwrap();
-        System::current().stop();
-        assert_eq!(system.run(), 0);
-    }
-
-    #[test]
-    fn neighborhood_handles_a_connection_progress_message_with_standard_gossip_received() {
-        init_test_logging();
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
-        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_addr = NodeAddr::new(&node_ip_addr, &[5678]);
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
-        let public_key = PublicKey::new(&b"booga"[..]);
-        let node_descriptor =
-            NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        this_node_addr,
-                        vec![node_descriptor.clone()],
-                        rate_pack(100),
-                    ),
-                },
-                earning_wallet.clone(),
-                None,
-                "neighborhood_handles_a_connection_progress_message_with_standard_gossip_received",
-            ),
-        );
-        let (recipient, _) = make_node_to_ui_recipient();
-        subject.node_to_ui_recipient_opt = Some(recipient);
-        subject.overall_connection_status.update_connection_stage(
-            node_ip_addr,
-            ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
-        );
-        let addr = subject.start();
-        let cpm_recipient = addr.clone().recipient();
-        let system = System::new("testing");
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
@@ -2050,46 +1878,20 @@ mod tests {
                 }]
             );
         });
-        let connection_progress_message = ConnectionProgressMessage {
-            peer_addr: node_ip_addr,
-            event: ConnectionProgressEvent::StandardGossipReceived,
-        };
-
-        cpm_recipient.try_send(connection_progress_message).unwrap();
-
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
     }
 
     #[test]
-    fn neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received() {
+    fn neighborhood_handles_a_connection_progress_message_with_standard_gossip_received() {
         init_test_logging();
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_addr = NodeAddr::new(&node_ip_addr, &[5678]);
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[8765]);
-        let public_key = PublicKey::new(&b"booga"[..]);
-        let node_descriptor =
-            NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        this_node_addr,
-                        vec![node_descriptor.clone()],
-                        rate_pack(100),
-                    ),
-                },
-                earning_wallet.clone(),
-                None,
-                "neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received",
-            ),
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let mut subject = make_neighborhood(
+            &node_descriptor,
+            "neighborhood_handles_a_connection_progress_message_with_standard_gossip_received",
         );
-        let (recipient, _) = make_node_to_ui_recipient();
-        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -2098,6 +1900,52 @@ mod tests {
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
+        let connection_progress_message = ConnectionProgressMessage {
+            peer_addr: node_ip_addr,
+            event: ConnectionProgressEvent::StandardGossipReceived,
+        };
+
+        cpm_recipient.try_send(connection_progress_message).unwrap();
+
+        let assertions = Box::new(move |actor: &mut Neighborhood| {
+            assert_eq!(
+                actor.overall_connection_status.progress,
+                vec![ConnectionProgress {
+                    initial_node_descriptor: node_descriptor.clone(),
+                    current_peer_addr: node_ip_addr,
+                    connection_stage: ConnectionStage::NeighborshipEstablished
+                }]
+            );
+        });
+        addr.try_send(AssertionsMessage { assertions }).unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+    }
+
+    #[test]
+    fn neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received() {
+        init_test_logging();
+        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
+        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let mut subject = make_neighborhood(
+            &node_descriptor,
+            "neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received",
+        );
+        subject.overall_connection_status.update_connection_stage(
+            node_ip_addr,
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
+        );
+        let addr = subject.start();
+        let cpm_recipient = addr.clone().recipient();
+        let system = System::new("testing");
+        let connection_progress_message = ConnectionProgressMessage {
+            peer_addr: node_ip_addr,
+            event: ConnectionProgressEvent::NoGossipResponseReceived,
+        };
+
+        cpm_recipient.try_send(connection_progress_message).unwrap();
+
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
                 actor.overall_connection_status.progress,
@@ -2108,13 +1956,6 @@ mod tests {
                 }]
             );
         });
-        let connection_progress_message = ConnectionProgressMessage {
-            peer_addr: node_ip_addr,
-            event: ConnectionProgressEvent::NoGossipResponseReceived,
-        };
-
-        cpm_recipient.try_send(connection_progress_message).unwrap();
-
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
@@ -5013,6 +4854,26 @@ mod tests {
         config.consuming_wallet_opt = consuming_wallet_opt;
         config.data_directory = home_dir;
         config
+    }
+
+    fn make_neighborhood(node_descriptor: &NodeDescriptor, test_name: &str) -> Neighborhood {
+        let this_node_addr = NodeAddr::new(&IpAddr::from_str("111.111.111.111").unwrap(), &[8765]);
+        let initial_node_descriptors = vec![node_descriptor.clone()];
+        let neighborhood_config = NeighborhoodConfig {
+            mode: NeighborhoodMode::Standard(
+                this_node_addr,
+                initial_node_descriptors,
+                rate_pack(100),
+            ),
+        };
+        let bootstrap_config =
+            bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, test_name);
+
+        let mut neighborhood = Neighborhood::new(main_cryptde(), &bootstrap_config);
+
+        let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
+        neighborhood.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
+        neighborhood
     }
 
     pub struct NeighborhoodDatabaseMessage {}
