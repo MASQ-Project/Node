@@ -14,7 +14,6 @@ use node_lib::sub_lib::cryptde::{CryptData, PlainData};
 use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
-use std::path::Path;
 use std::time::{Duration, Instant};
 use std::{io, thread};
 
