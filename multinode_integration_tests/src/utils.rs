@@ -14,6 +14,7 @@ use node_lib::sub_lib::cryptde::{CryptData, PlainData};
 use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
+use std::path::Path;
 use std::time::{Duration, Instant};
 use std::{io, thread};
 
@@ -61,15 +62,25 @@ pub fn wait_for_chunk(stream: &mut TcpStream, timeout: &Duration) -> Result<Vec<
 
 pub fn database_conn(node: &MASQRealNode) -> Box<dyn ConnectionWrapper> {
     let db_initializer = DbInitializerReal::default();
+    let path = std::path::PathBuf::from(MASQRealNode::node_home_dir(
+        &MASQNodeUtils::find_project_root(),
+        &node.name().to_string(),
+    ));
+    let dir_metadata = std::fs::metadata(path.clone()).unwrap();
+    eprintln!(
+        "Readonly for database directory {:?}: {:?}",
+        path,
+        dir_metadata.permissions().readonly()
+    );
+    let file_path = path.join("node-data.db");
+    let file_metadata = std::fs::metadata(file_path.clone()).unwrap();
+    eprintln!(
+        "Readonly for database file {:?}: {:?}",
+        file_path,
+        file_metadata.permissions().readonly()
+    );
     db_initializer
-        .initialize(
-            &std::path::PathBuf::from(MASQRealNode::node_home_dir(
-                &MASQNodeUtils::find_project_root(),
-                &node.name().to_string(),
-            )),
-            true,
-            MigratorConfig::panic_on_migration(),
-        )
+        .initialize(&path, true, MigratorConfig::migration_suppressed())
         .unwrap()
 }
 
