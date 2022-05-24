@@ -858,7 +858,7 @@ mod tests {
                 })
                 .unwrap();
 
-            sub_tx.send(subject_subs).expect("Neighborhood Unbound");
+            sub_tx.send(subject_subs).unwrap();
             system.run();
         });
 

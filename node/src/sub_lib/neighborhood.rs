@@ -34,6 +34,8 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
+const ASK_ABOUT_GOSSIP_INTERVAL: Duration = Duration::from_secs(10);
+
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 1,
     routing_service_rate: 10,
@@ -529,7 +531,6 @@ impl fmt::Display for GossipFailure_0v1 {
 pub struct NeighborhoodTools {
     pub notify_later_ask_about_gossip:
         Box<dyn NotifyLaterHandle<AskAboutDebutGossipMessage, Neighborhood>>,
-    // TODO: Should we change the above field to constant
     pub ask_about_gossip_interval: Duration,
 }
 
@@ -537,7 +538,7 @@ impl Default for NeighborhoodTools {
     fn default() -> Self {
         Self {
             notify_later_ask_about_gossip: Box::new(NotifyLaterHandleReal::new()),
-            ask_about_gossip_interval: Duration::from_secs(10),
+            ask_about_gossip_interval: ASK_ABOUT_GOSSIP_INTERVAL,
         }
     }
 }
@@ -575,10 +576,7 @@ mod tests {
                 exit_service_rate: 0,
             }
         );
-        assert_eq!(
-            NeighborhoodTools::default().ask_about_gossip_interval,
-            Duration::from_secs(10)
-        );
+        assert_eq!(ASK_ABOUT_GOSSIP_INTERVAL, Duration::from_secs(10));
     }
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
