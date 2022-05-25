@@ -124,7 +124,7 @@ fn debtors_are_credited_once_but_not_twice() {
         let receivable_dao = receivable_dao(&node);
         let receivable_accounts = receivable_dao.receivables();
         assert_eq!(receivable_accounts.len(), 1);
-        assert_eq!(receivable_accounts[0].balance, 1000000); // this will probably fail
+        assert_eq!(receivable_accounts[0].balance, 1000000);
     }
     {
         // Use the config DAO to verify that the start block has been advanced to 2001

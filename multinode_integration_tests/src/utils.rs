@@ -65,23 +65,45 @@ pub fn database_conn(node: &MASQRealNode) -> Box<dyn ConnectionWrapper> {
         &MASQNodeUtils::find_project_root(),
         &node.name().to_string(),
     ));
+
+    // *** INSTRUMENTATION ***
     let dir_metadata = std::fs::metadata(path.clone()).unwrap();
-    if dir_metadata.permissions().readonly() {
-        eprintln!("Trying to set write permissions on path: {:?}", path);
+    let dir_readonly = dir_metadata.permissions().readonly();
+    eprintln!(
+        "Database directory {:?} is readonly? {}",
+        path, dir_readonly
+    );
+    if dir_readonly {
         dir_metadata.permissions().set_readonly(false);
         let dir_metadata = std::fs::metadata(path.clone()).unwrap();
-        eprintln!("Succeeded: {}", !dir_metadata.permissions().readonly());
+        eprintln!(
+            "Set to read/write? {}",
+            !dir_metadata.permissions().readonly()
+        );
     }
     let file_path = path.join("node-data.db");
     let file_metadata = std::fs::metadata(file_path.clone()).unwrap();
-    if file_metadata.permissions().readonly() {
-        eprintln!("Trying to set write permissions on node-data.db");
+    let file_readonly = file_metadata.permissions().readonly();
+    eprintln!(
+        "Database file {:?} is readonly? {}",
+        file_path, file_readonly
+    );
+    if file_readonly {
         file_metadata.permissions().set_readonly(false);
         let file_metadata = std::fs::metadata(file_path).unwrap();
-        eprintln!("Succeeded: {}", !file_metadata.permissions().readonly());
+        eprintln!(
+            "Set to read/write? {}",
+            !file_metadata.permissions().readonly()
+        );
     }
+    // *** INSTRUMENTATION ***
+
     db_initializer
-        .initialize(&path, true, MigratorConfig::migration_suppressed())
+        .initialize(
+            &path,
+            true,
+            MigratorConfig::migration_suppressed_with_error(),
+        )
         .unwrap()
 }
 
