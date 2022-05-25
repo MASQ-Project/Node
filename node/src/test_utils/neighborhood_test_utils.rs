@@ -12,9 +12,9 @@ use crate::sub_lib::neighborhood::{
 };
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::recorder::{make_recorder, Recording};
+use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
 use crate::test_utils::*;
-use actix::{Actor, Recipient};
+use actix::{Actor, Handler, Message, Recipient};
 use ethereum_types::H160;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -279,21 +279,25 @@ impl From<&NodeRecord> for AccessibleGossipRecord {
         }
     }
 }
-
-pub fn make_cpm_recipient() -> (Recipient<ConnectionProgressMessage>, Arc<Mutex<Recording>>) {
+pub fn make_recipient_and_recording_arc<M: 'static>() -> (Recipient<M>, Arc<Mutex<Recording>>)
+where
+    M: Message + Send,
+    <M as Message>::Result: Send,
+    Recorder: Handler<M>,
+{
     let (recorder, _, recording_arc) = make_recorder();
     let addr = recorder.start();
-    let recipient = addr.recipient();
+    let recipient = addr.recipient::<M>();
 
     (recipient, recording_arc)
 }
 
-pub fn make_node_to_ui_recipient() -> (Recipient<NodeToUiMessage>, Arc<Mutex<Recording>>) {
-    let (recorder, _, recording_arc) = make_recorder();
-    let addr = recorder.start();
-    let recipient = addr.recipient();
+pub fn make_cpm_recipient() -> (Recipient<ConnectionProgressMessage>, Arc<Mutex<Recording>>) {
+    make_recipient_and_recording_arc()
+}
 
-    (recipient, recording_arc)
+pub fn make_node_to_ui_recipient() -> (Recipient<NodeToUiMessage>, Arc<Mutex<Recording>>) {
+    make_recipient_and_recording_arc()
 }
 
 pub fn make_node_descriptor_from_ip(ip_addr: IpAddr) -> NodeDescriptor {
