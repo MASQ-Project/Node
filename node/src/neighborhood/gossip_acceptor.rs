@@ -936,28 +936,17 @@ impl GossipHandler for StandardGossipHandler {
         // Otherwise, return ::Accepted.
         if db_changed {
             trace!(self.logger, "Current database: {}", database.to_dot_graph());
-            match (initial_neighborship_status, final_neighborship_status) {
-                (false, false) => {
-                    // Received gossip from a malefactor banned node (false, false)
-                    GossipAcceptanceResult::Ignored
-                }
-                (false, true) => {
-                    // Received Reply for Acceptance of Debut Gossip (false, true)
-                    let cpm = ConnectionProgressMessage {
-                        peer_addr: gossip_source.ip(),
-                        event: ConnectionProgressEvent::StandardGossipReceived,
-                    };
-                    cpm_recipient
-                        .try_send(cpm)
-                        .unwrap_or_else(|e| panic!("Neighborhood is dead: {}", e));
-                    GossipAcceptanceResult::Accepted
-                }
-                _ => {
-                    // Somebody banned us. (true, false)
-                    // Standard Gossips received after Neighborship is established (true, true)
-                    GossipAcceptanceResult::Accepted
-                }
+            if (initial_neighborship_status, final_neighborship_status) == (false, true) {
+                // Received Reply for Acceptance of Debut Gossip (false, true)
+                let cpm = ConnectionProgressMessage {
+                    peer_addr: gossip_source.ip(),
+                    event: ConnectionProgressEvent::StandardGossipReceived,
+                };
+                cpm_recipient
+                    .try_send(cpm)
+                    .unwrap_or_else(|e| panic!("Neighborhood is dead: {}", e));
             }
+            GossipAcceptanceResult::Accepted
         } else {
             debug!(
                 self.logger,
@@ -986,6 +975,7 @@ impl StandardGossipHandler {
             .collect::<HashSet<PublicKey>>();
         agrs.iter()
             .filter(|agr| !all_keys.contains(&agr.inner.public_key))
+            // TODO: A node that tells us the IP Address of the node that isn't in our database should be malefactor banned
             .filter(|agr| match &agr.node_addr_opt {
                 None => true,
                 Some(node_addr) => {
@@ -2230,7 +2220,7 @@ mod tests {
 
     #[test]
     fn no_cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_cannot_be_created() {
-        // Received gossip from a malefactor banned node - (false, false)
+        // Received gossip from a node we couldn't make a neighbor {Degree too high or malefactor banned node} (false, false)
         let cryptde = main_cryptde();
         let root_node = make_node_record(1111, true);
         let mut root_db = db_from_node(&root_node);
@@ -2257,7 +2247,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
-        assert_eq!(result, GossipAcceptanceResult::Ignored);
+        assert_eq!(result, GossipAcceptanceResult::Accepted);
     }
 
     #[test]
@@ -3228,15 +3218,16 @@ mod tests {
     }
 
     #[test]
-    fn standard_gossip_does_not_stimulate_introduction_response_for_gossip_source() {
+    fn initial_standard_gossip_does_not_produce_neighborship_if_destination_degree_is_already_full()
+    {
         let dest_node = make_node_record(1234, true);
         let dest_node_cryptde = CryptDENull::from(&dest_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&dest_node);
         let src_node = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_node);
         let third_node = make_node_record(3456, true);
-        let disconnected_node = make_node_record(4567, true);
-        // These are only half neighbors. Will they be ignored in degree calculation?
+        let disconnected_node = make_node_record(4567, true); // Why does this have an Ip Address?
+                                                              // These are only half neighbors. Will they be ignored in degree calculation?
         for idx in 0..MAX_DEGREE {
             let failed_node_key = &dest_db
                 .add_node(make_node_record(4000 + idx as u16, true))
@@ -3250,7 +3241,6 @@ mod tests {
         dest_db.add_arbitrary_full_neighbor(dest_node.public_key(), third_node.public_key());
         src_db.add_arbitrary_full_neighbor(dest_node.public_key(), third_node.public_key());
         src_db.add_arbitrary_full_neighbor(src_node.public_key(), third_node.public_key());
-        src_db.add_arbitrary_full_neighbor(src_node.public_key(), dest_node.public_key());
         src_db
             .node_by_key_mut(src_node.public_key())
             .unwrap()
@@ -3291,7 +3281,7 @@ mod tests {
             .unwrap();
         dest_node_mut.increment_version();
         dest_node_mut.resign();
-        assert_eq!(GossipAcceptanceResult::Accepted, result);
+        assert_eq!(result, GossipAcceptanceResult::Accepted);
         assert_eq!(
             expected_dest_db
                 .node_by_key(third_node.public_key())
