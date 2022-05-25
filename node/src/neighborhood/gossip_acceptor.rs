@@ -550,7 +550,7 @@ impl GossipHandler for PassHandler {
                     .expect("Failed to calculate duration for pass target timestamp.");
                 *timestamp = SystemTime::now();
                 if duration_since <= PASS_GOSSIP_EXPIRED_TIME {
-                    send_cpm(ConnectionProgressEvent::DeadEndFound);
+                    send_cpm(ConnectionProgressEvent::PassLoopFound);
                     GossipAcceptanceResult::Ignored
                 } else {
                     send_cpm(ConnectionProgressEvent::PassGossipReceived(
@@ -3076,7 +3076,7 @@ mod tests {
             received_message,
             &ConnectionProgressMessage {
                 peer_addr: gossip_source.ip(),
-                event: ConnectionProgressEvent::DeadEndFound
+                event: ConnectionProgressEvent::PassLoopFound
             }
         );
         let previous_pass_targets = subject.previous_pass_targets.borrow();

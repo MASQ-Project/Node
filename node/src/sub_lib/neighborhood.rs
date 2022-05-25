@@ -483,7 +483,7 @@ pub enum ConnectionProgressEvent {
     TcpConnectionSuccessful,
     TcpConnectionFailed,
     NoGossipResponseReceived,
-    DeadEndFound,
+    PassLoopFound,
     StandardGossipReceived,
     IntroductionGossipReceived(IpAddr),
     PassGossipReceived(IpAddr),

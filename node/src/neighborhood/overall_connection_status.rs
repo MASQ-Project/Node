@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
-    DeadEndFound, NoGossipResponseReceived, TcpConnectionFailed,
+    NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
 };
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
 use actix::Recipient;
@@ -13,7 +13,7 @@ use std::net::IpAddr;
 pub enum ConnectionStageErrors {
     TcpConnectionFailed,
     NoGossipResponseReceived,
-    DeadEndFound,
+    PassLoopFound,
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -205,8 +205,8 @@ impl OverallConnectionStatus {
             ConnectionProgressEvent::PassGossipReceived(new_pass_target) => {
                 connection_progress_to_modify.handle_pass_gossip(new_pass_target);
             }
-            ConnectionProgressEvent::DeadEndFound => {
-                connection_progress_to_modify.update_stage(ConnectionStage::Failed(DeadEndFound));
+            ConnectionProgressEvent::PassLoopFound => {
+                connection_progress_to_modify.update_stage(ConnectionStage::Failed(PassLoopFound));
             }
             ConnectionProgressEvent::NoGossipResponseReceived => {
                 connection_progress_to_modify
@@ -270,7 +270,7 @@ impl OverallConnectionStatus {
 mod tests {
     use super::*;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
-        DeadEndFound, TcpConnectionFailed,
+        PassLoopFound, TcpConnectionFailed,
     };
     use crate::neighborhood::PublicKey;
     use crate::sub_lib::node_addr::NodeAddr;
@@ -631,7 +631,7 @@ mod tests {
 
         subject.update_connection_stage(
             node_ip_addr,
-            ConnectionProgressEvent::DeadEndFound,
+            ConnectionProgressEvent::PassLoopFound,
             &recipient,
         );
 
@@ -643,7 +643,7 @@ mod tests {
                 progress: vec![ConnectionProgress {
                     initial_node_descriptor: node_descriptor.clone(),
                     current_peer_addr: node_ip_addr,
-                    connection_stage: ConnectionStage::Failed(DeadEndFound)
+                    connection_stage: ConnectionStage::Failed(PassLoopFound)
                 }],
             }
         )

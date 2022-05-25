@@ -1391,7 +1391,7 @@ mod tests {
 
     use super::*;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
-        DeadEndFound, NoGossipResponseReceived, TcpConnectionFailed,
+        NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
     };
     use crate::neighborhood::overall_connection_status::{ConnectionProgress, ConnectionStage};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -1805,13 +1805,13 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_handles_a_connection_progress_message_with_dead_end_found() {
+    fn neighborhood_handles_a_connection_progress_message_with_pass_loop_found() {
         init_test_logging();
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let mut subject = make_neighborhood(
             &node_descriptor,
-            "neighborhood_handles_a_connection_progress_message_with_dead_end_found",
+            "neighborhood_handles_a_connection_progress_message_with_pass_loop_found",
         );
         subject.overall_connection_status.update_connection_stage(
             node_ip_addr,
@@ -1823,7 +1823,7 @@ mod tests {
         let system = System::new("testing");
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
-            event: ConnectionProgressEvent::DeadEndFound,
+            event: ConnectionProgressEvent::PassLoopFound,
         };
 
         cpm_recipient.try_send(connection_progress_message).unwrap();
@@ -1834,7 +1834,7 @@ mod tests {
                 vec![ConnectionProgress {
                     initial_node_descriptor: node_descriptor.clone(),
                     current_peer_addr: node_ip_addr,
-                    connection_stage: ConnectionStage::Failed(DeadEndFound)
+                    connection_stage: ConnectionStage::Failed(PassLoopFound)
                 }]
             );
         });
