@@ -60,7 +60,7 @@ use tokio::prelude::Stream;
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 
-pub fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
+fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         MAIN_CRYPTDE_BOX_OPT
             .as_ref()
@@ -69,12 +69,36 @@ pub fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     }
 }
 
-pub fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
+fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         ALIAS_CRYPTDE_BOX_OPT
             .as_ref()
             .expect("Internal error: Alias CryptDE uninitialized")
             .as_ref()
+    }
+}
+
+impl Clone for CryptDEPair {
+    fn clone(&self) -> Self {
+        Self {
+            main: self.main,
+            alias: self.alias,
+        }
+    }
+}
+
+#[derive(Copy)]
+pub struct CryptDEPair {
+    pub main: &'static dyn CryptDE,
+    pub alias: &'static dyn CryptDE,
+}
+
+impl Default for CryptDEPair {
+    fn default() -> Self {
+        CryptDEPair {
+            main: main_cryptde_ref(),
+            alias: alias_cryptde_ref(),
+        }
     }
 }
 
@@ -457,13 +481,13 @@ impl ConfiguredByPrivilege for Bootstrapper {
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
         let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
-        let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
+        let cryptdes = Bootstrapper::initialize_cryptdes(
             &main_cryptde_null_opt,
             &alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
         let node_descriptor = Bootstrapper::make_local_descriptor(
-            cryptde_ref,
+            cryptdes.main,
             self.config.neighborhood_config.mode.node_addr_opt(),
             self.config.blockchain_bridge_config.chain,
         );
@@ -474,7 +498,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         match &self.config.neighborhood_config.mode {
             NeighborhoodMode::Standard(node_addr, _, _)
                 if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) => {} // node_addr still coming
-            _ => Bootstrapper::report_local_descriptor(cryptde_ref, &self.config.node_descriptor), // here or not coming
+            _ => Bootstrapper::report_local_descriptor(cryptdes.main, &self.config.node_descriptor), // here or not coming
         }
         let stream_handler_pool_subs = self.actor_system_factory.make_and_start_actors(
             self.config.clone(),
@@ -483,8 +507,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
                 &self.config.data_directory,
                 false,
                 MigratorConfig::panic_on_migration(),
-            )
-            .as_ref(),
+            ),
         );
 
         self.listener_handlers
@@ -509,10 +532,10 @@ impl Bootstrapper {
     }
 
     #[cfg(test)] // The real ones are private, but ActorSystemFactory needs to use them for testing
-    pub fn pub_initialize_cryptdes_for_testing<'a, 'b>(
+    pub fn pub_initialize_cryptdes_for_testing(
         main_cryptde_null_opt: &Option<&dyn CryptDE>,
         alias_cryptde_null_opt: &Option<&dyn CryptDE>,
-    ) -> (&'a dyn CryptDE, &'b dyn CryptDE) {
+    ) -> CryptDEPair {
         Self::initialize_cryptdes(
             main_cryptde_null_opt,
             alias_cryptde_null_opt,
@@ -520,11 +543,11 @@ impl Bootstrapper {
         )
     }
 
-    fn initialize_cryptdes<'a, 'b>(
+    fn initialize_cryptdes(
         main_cryptde_null_opt: &Option<&dyn CryptDE>,
         alias_cryptde_null_opt: &Option<&dyn CryptDE>,
         chain: Chain,
-    ) -> (&'a dyn CryptDE, &'b dyn CryptDE) {
+    ) -> CryptDEPair {
         unsafe {
             Self::initialize_single_cryptde(main_cryptde_null_opt, &mut MAIN_CRYPTDE_BOX_OPT, chain)
         };
@@ -535,7 +558,7 @@ impl Bootstrapper {
                 chain,
             )
         }
-        (main_cryptde_ref(), alias_cryptde_ref())
+        CryptDEPair::default()
     }
 
     fn initialize_single_cryptde(
@@ -726,12 +749,12 @@ mod tests {
     use std::io::ErrorKind;
     use std::marker::Sync;
     use std::net::{IpAddr, SocketAddr};
-    use std::ops::DerefMut;
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio;
+    use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
 
@@ -766,6 +789,12 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct PollingSetting {
+        counter: usize,
+        how_many_attempts_wanted_opt: Option<usize>, //None for infinite
+    }
+
     struct ListenerHandlerNull {
         log: Arc<Mutex<TestLog>>,
         bind_port_and_discriminator_factories_result: Option<io::Result<()>>,
@@ -773,6 +802,8 @@ mod tests {
         add_stream_sub: Option<Recipient<AddStreamMsg>>,
         add_stream_msgs: Arc<Mutex<Vec<AddStreamMsg>>>,
         _listen_results: Vec<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
+        //to be able to eliminate hanging and the need of a background thread in the test
+        polling_setting: PollingSetting,
     }
 
     impl ListenerHandler for ListenerHandlerNull {
@@ -813,6 +844,12 @@ mod tests {
                     .try_send(add_stream_msg)
                     .expect("StreamHandlerPool is dead");
             }
+            if let Some(desired_number) = self.polling_setting.how_many_attempts_wanted_opt {
+                self.polling_setting.counter += 1;
+                if self.polling_setting.counter == desired_number {
+                    return Ok(Async::Ready(())); //breaking the infinite looping
+                }
+            }
             Ok(Async::NotReady)
         }
     }
@@ -832,11 +869,18 @@ mod tests {
                 add_stream_sub: None,
                 add_stream_msgs: Arc::new(Mutex::new(add_stream_msgs)),
                 _listen_results: vec![],
+                polling_setting: PollingSetting::default(),
             }
         }
 
         fn bind_port_result(mut self, result: io::Result<()>) -> ListenerHandlerNull {
             self.bind_port_and_discriminator_factories_result = Some(result);
+            self
+        }
+
+        fn stop_polling_after_prepared_messages_exhausted(mut self) -> ListenerHandlerNull {
+            self.polling_setting.how_many_attempts_wanted_opt =
+                Some(self.add_stream_msgs.lock().unwrap().len());
             self
         }
     }
@@ -1379,7 +1423,8 @@ mod tests {
         ];
         let mut holder = FakeStreamHolder::new();
         let actor_system_factory = ActorSystemFactoryActiveMock::new();
-        let dns_servers_arc = actor_system_factory.dnss.clone();
+        let make_and_start_actor_params_arc =
+            actor_system_factory.make_and_start_actors_params.clone();
         let mut subject = BootstrapperBuilder::new()
             .actor_system_factory(Box::new(actor_system_factory))
             .add_listener_handler(Box::new(
@@ -1399,10 +1444,12 @@ mod tests {
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .unwrap();
 
-        let dns_servers_guard = dns_servers_arc.lock().unwrap();
+        let mut make_and_start_actor_params = make_and_start_actor_params_arc.lock().unwrap();
+        let (bootstrapper_config, _, _) = make_and_start_actor_params.remove(0);
+        assert!(make_and_start_actor_params.is_empty());
         assert_eq!(
-            dns_servers_guard.as_ref().unwrap(),
-            &vec![
+            bootstrapper_config.dns_servers,
+            vec![
                 SocketAddr::from_str("1.2.3.4:53").unwrap(),
                 SocketAddr::from_str("2.3.4.5:53").unwrap()
             ]
@@ -1431,12 +1478,12 @@ mod tests {
     #[test]
     fn initialize_cryptde_without_cryptde_null_uses_cryptde_real() {
         let _lock = INITIALIZATION.lock();
-        let (cryptde_init, _) = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+        let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
 
-        assert_eq!(main_cryptde_ref().public_key(), cryptde_init.public_key());
+        assert_eq!(main_cryptde_ref().public_key(), cryptdes.main.public_key());
         // Brittle assertion: this may not be true forever
         let cryptde_null = main_cryptde();
-        assert!(cryptde_init.public_key().len() > cryptde_null.public_key().len());
+        assert!(cryptdes.main.public_key().len() > cryptde_null.public_key().len());
     }
 
     #[test]
@@ -1445,11 +1492,11 @@ mod tests {
         let cryptde_null = main_cryptde().clone();
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
-        let (cryptde, _) =
+        let cryptdes =
             Bootstrapper::initialize_cryptdes(&Some(cryptde_null), &None, TEST_DEFAULT_CHAIN);
 
-        assert_eq!(cryptde.public_key(), &cryptde_null_public_key);
-        assert_eq!(main_cryptde_ref().public_key(), cryptde.public_key());
+        assert_eq!(cryptdes.main.public_key(), &cryptde_null_public_key);
+        assert_eq!(main_cryptde_ref().public_key(), cryptdes.main.public_key());
     }
 
     #[test]
@@ -1461,16 +1508,15 @@ mod tests {
             &[3456u16, 4567u16],
         );
         let cryptde_ref = {
-            let (cryptde_ref, _) =
-                Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+            let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
             let descriptor = Bootstrapper::make_local_descriptor(
-                cryptde_ref,
+                cryptdes.main,
                 Some(node_addr),
                 TEST_DEFAULT_CHAIN,
             );
-            Bootstrapper::report_local_descriptor(cryptde_ref, &descriptor);
+            Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
 
-            cryptde_ref
+            cryptdes.main
         };
         let expected_descriptor = format!(
             "masq://eth-ropsten:{}@2.3.4.5:3456/4567",
@@ -1504,18 +1550,19 @@ mod tests {
     fn initialize_cryptdes_and_report_local_descriptor_without_ip_address() {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
-        let (main_cryptde_ref, alias_cryptde_ref) = {
-            let (main_cryptde_ref, alias_cryptde_ref) =
-                Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+        let cryptdes = {
+            let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
             let descriptor =
-                Bootstrapper::make_local_descriptor(main_cryptde_ref, None, TEST_DEFAULT_CHAIN);
-            Bootstrapper::report_local_descriptor(main_cryptde_ref, &descriptor);
+                Bootstrapper::make_local_descriptor(cryptdes.main, None, TEST_DEFAULT_CHAIN);
+            Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
 
-            (main_cryptde_ref, alias_cryptde_ref)
+            cryptdes
         };
         let expected_descriptor = format!(
             "masq://eth-ropsten:{}@:",
-            main_cryptde_ref.public_key_to_descriptor_fragment(main_cryptde_ref.public_key())
+            cryptdes
+                .main
+                .public_key_to_descriptor_fragment(cryptdes.main.public_key())
         );
         TestLogHandler::new().exists_log_containing(
             format!(
@@ -1541,8 +1588,8 @@ mod tests {
             ));
             assert_eq!(decrypted_data, expected_data)
         };
-        assert_round_trip(main_cryptde_ref);
-        assert_round_trip(alias_cryptde_ref);
+        assert_round_trip(cryptdes.main);
+        assert_round_trip(cryptdes.alias);
     }
 
     #[test]
@@ -1677,10 +1724,12 @@ mod tests {
             origin_port: Some(443),
             port_configuration: PortConfiguration::new(vec![], false),
         };
-        let one_listener_handler =
-            ListenerHandlerNull::new(vec![first_message, second_message]).bind_port_result(Ok(()));
-        let another_listener_handler =
-            ListenerHandlerNull::new(vec![third_message]).bind_port_result(Ok(()));
+        let one_listener_handler = ListenerHandlerNull::new(vec![first_message, second_message])
+            .bind_port_result(Ok(()))
+            .stop_polling_after_prepared_messages_exhausted();
+        let another_listener_handler = ListenerHandlerNull::new(vec![third_message])
+            .bind_port_result(Ok(()))
+            .stop_polling_after_prepared_messages_exhausted();
         let mut actor_system_factory = ActorSystemFactoryActiveMock::new();
         let awaiter = actor_system_factory
             .stream_handler_pool_cluster
@@ -1710,9 +1759,7 @@ mod tests {
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .unwrap();
 
-        thread::spawn(|| {
-            tokio::run(subject);
-        });
+        CurrentThread::new().block_on(subject).unwrap();
 
         let number_of_expected_messages = 3;
         awaiter.await_message_count(number_of_expected_messages);
@@ -2068,19 +2115,26 @@ mod tests {
 
     struct ActorSystemFactoryActiveMock {
         stream_handler_pool_cluster: StreamHandlerPoolCluster,
-        dnss: Arc<Mutex<Option<Vec<SocketAddr>>>>,
+        make_and_start_actors_params: Arc<
+            Mutex<
+                Vec<(
+                    BootstrapperConfig,
+                    Box<dyn ActorFactory>,
+                    Box<dyn PersistentConfiguration>,
+                )>,
+            >,
+        >,
     }
 
     impl ActorSystemFactory for ActorSystemFactoryActiveMock {
         fn make_and_start_actors(
             &self,
             config: BootstrapperConfig,
-            _actor_factory: Box<dyn ActorFactory>,
-            _persist_config: &dyn PersistentConfiguration,
+            actor_factory: Box<dyn ActorFactory>,
+            persist_config: Box<dyn PersistentConfiguration>,
         ) -> StreamHandlerPoolSubs {
-            let mut parameter_guard = self.dnss.lock().unwrap();
-            let parameter_ref = parameter_guard.deref_mut();
-            *parameter_ref = Some(config.dns_servers);
+            let mut parameter_guard = self.make_and_start_actors_params.lock().unwrap();
+            parameter_guard.push((config.clone(), actor_factory, persist_config));
 
             self.stream_handler_pool_cluster.subs.clone()
         }
@@ -2107,7 +2161,7 @@ mod tests {
             let stream_handler_pool_cluster = rx.recv().unwrap();
             ActorSystemFactoryActiveMock {
                 stream_handler_pool_cluster,
-                dnss: Arc::new(Mutex::new(None)),
+                make_and_start_actors_params: Arc::new(Mutex::new(vec![])),
             }
         }
     }
