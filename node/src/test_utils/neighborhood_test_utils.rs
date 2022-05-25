@@ -300,6 +300,6 @@ pub fn make_node_descriptor_from_ip(ip_addr: IpAddr) -> NodeDescriptor {
     NodeDescriptor {
         blockchain: Chain::EthRopsten,
         encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-        node_addr_opt: Some(NodeAddr::new(&ip_addr, &vec![1, 2, 3])),
+        node_addr_opt: Some(NodeAddr::new(&ip_addr, &[1, 2, 3])),
     }
 }

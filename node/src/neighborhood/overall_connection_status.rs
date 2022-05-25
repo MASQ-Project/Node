@@ -91,9 +91,9 @@ impl ConnectionProgress {
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 enum OverallConnectionStage {
-    NotConnected = 0,        // Not connected to any neighbor.
-    ConnectedToNeighbor = 1, // Neighborship established. Same as No 3 hops route found.
-    ThreeHopsRouteFound = 2, // check_connectedness() returned true, data can now be relayed.
+    NotConnected = 0,
+    ConnectedToNeighbor = 1, // When an Introduction or Standard Gossip (acceptance) is received
+    ThreeHopsRouteFound = 2, // Data can be relayed once this stage is reached
 }
 
 impl From<OverallConnectionStage> for UiConnectionChangeStage {
@@ -114,11 +114,11 @@ impl From<OverallConnectionStage> for UiConnectionChangeStage {
 
 #[derive(PartialEq, Debug)]
 pub struct OverallConnectionStatus {
-    // Becomes true iff three hops route was found.
+    // The check_connectedness() updates the boolean when three hops route is found
     can_make_routes: bool,
-    // Stores one of the three stages of enum OverallConnectionStage.
+    // Transition depends on the ConnectionProgressMessage & check_connectedness(), they may not be in sync
     stage: OverallConnectionStage,
-    // Corresponds to progress with node descriptors entered by the user
+    // Corresponds to the initial_node_descriptors, that are entered by the user using --neighbors
     pub progress: Vec<ConnectionProgress>,
 }
 
@@ -149,7 +149,7 @@ impl OverallConnectionStatus {
             .find(|connection_progress| connection_progress.current_peer_addr == peer_addr)
             .unwrap_or_else(|| {
                 panic!(
-                    "Unable to find the node in connections with IP Address: {}",
+                    "Unable to find the Node in connections with IP Address: {}",
                     peer_addr
                 )
             });
@@ -169,7 +169,7 @@ impl OverallConnectionStatus {
             })
             .unwrap_or_else(|| {
                 panic!(
-                    "Unable to find the node in connections with Node Descriptor: {:?}",
+                    "Unable to find the Node in connections with Node Descriptor: {:?}",
                     initial_node_descriptor
                 )
             });
@@ -185,32 +185,32 @@ impl OverallConnectionStatus {
     ) {
         let connection_progress_to_modify = self.get_connection_progress_by_ip(peer_addr);
 
+        let mut modify_connection_progress =
+            |stage: ConnectionStage| connection_progress_to_modify.update_stage(stage);
+
         match event {
-            ConnectionProgressEvent::TcpConnectionSuccessful => connection_progress_to_modify
-                .update_stage(ConnectionStage::TcpConnectionEstablished),
-
-            ConnectionProgressEvent::TcpConnectionFailed => connection_progress_to_modify
-                .update_stage(ConnectionStage::Failed(TcpConnectionFailed)),
-
+            ConnectionProgressEvent::TcpConnectionSuccessful => {
+                modify_connection_progress(ConnectionStage::TcpConnectionEstablished)
+            }
+            ConnectionProgressEvent::TcpConnectionFailed => {
+                modify_connection_progress(ConnectionStage::Failed(TcpConnectionFailed))
+            }
             ConnectionProgressEvent::IntroductionGossipReceived(_new_node) => {
-                connection_progress_to_modify
-                    .update_stage(ConnectionStage::NeighborshipEstablished);
+                modify_connection_progress(ConnectionStage::NeighborshipEstablished);
                 self.update_stage_of_overall_connection_status(node_to_ui_recipient);
             }
             ConnectionProgressEvent::StandardGossipReceived => {
-                connection_progress_to_modify
-                    .update_stage(ConnectionStage::NeighborshipEstablished);
+                modify_connection_progress(ConnectionStage::NeighborshipEstablished);
                 self.update_stage_of_overall_connection_status(node_to_ui_recipient);
             }
             ConnectionProgressEvent::PassGossipReceived(new_pass_target) => {
                 connection_progress_to_modify.handle_pass_gossip(new_pass_target);
             }
             ConnectionProgressEvent::PassLoopFound => {
-                connection_progress_to_modify.update_stage(ConnectionStage::Failed(PassLoopFound));
+                modify_connection_progress(ConnectionStage::Failed(PassLoopFound));
             }
             ConnectionProgressEvent::NoGossipResponseReceived => {
-                connection_progress_to_modify
-                    .update_stage(ConnectionStage::Failed(NoGossipResponseReceived));
+                modify_connection_progress(ConnectionStage::Failed(NoGossipResponseReceived));
             }
         }
     }
@@ -273,15 +273,15 @@ mod tests {
         PassLoopFound, TcpConnectionFailed,
     };
     use crate::neighborhood::PublicKey;
-    use crate::sub_lib::node_addr::NodeAddr;
-    use crate::test_utils::recorder::{make_recorder, Recording};
-    use actix::{Actor, System};
+    use crate::test_utils::neighborhood_test_utils::{
+        make_node_descriptor_from_ip, make_node_to_ui_recipient,
+    };
+    use actix::System;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
     use masq_lib::ui_gateway::MessageTarget;
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::IpAddr;
     use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
 
     #[test]
     #[should_panic(
@@ -382,13 +382,9 @@ mod tests {
     fn can_receive_mut_ref_of_connection_progress_from_peer_addr() {
         let peer_1_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let peer_2_ip = IpAddr::from_str("5.6.7.8").unwrap();
-        let peer_3_ip = IpAddr::from_str("9.0.1.2").unwrap();
-
         let desc_1 = make_node_descriptor_from_ip(peer_1_ip);
         let desc_2 = make_node_descriptor_from_ip(peer_2_ip);
-        let desc_3 = make_node_descriptor_from_ip(peer_3_ip);
-
-        let initial_node_descriptors = vec![desc_1.clone(), desc_2.clone(), desc_3.clone()];
+        let initial_node_descriptors = vec![desc_1.clone(), desc_2.clone()];
 
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
@@ -400,19 +396,13 @@ mod tests {
             subject.get_connection_progress_by_ip(peer_2_ip),
             &mut ConnectionProgress::new(&desc_2)
         );
-        assert_eq!(
-            subject.get_connection_progress_by_ip(peer_3_ip),
-            &mut ConnectionProgress::new(&desc_3)
-        );
     }
 
     #[test]
     fn can_receive_connection_progress_from_initial_node_desc() {
         let desc_1 = make_node_descriptor_from_ip(IpAddr::from_str("1.2.3.4").unwrap());
         let desc_2 = make_node_descriptor_from_ip(IpAddr::from_str("5.6.7.8").unwrap());
-        let desc_3 = make_node_descriptor_from_ip(IpAddr::from_str("9.0.1.2").unwrap());
-
-        let initial_node_descriptors = vec![desc_1.clone(), desc_2.clone(), desc_3.clone()];
+        let initial_node_descriptors = vec![desc_1.clone(), desc_2.clone()];
 
         let subject = OverallConnectionStatus::new(initial_node_descriptors);
 
@@ -423,10 +413,6 @@ mod tests {
         assert_eq!(
             subject.get_connection_progress_by_desc(&desc_2),
             &ConnectionProgress::new(&desc_2)
-        );
-        assert_eq!(
-            subject.get_connection_progress_by_desc(&desc_1),
-            &ConnectionProgress::new(&desc_1)
         );
     }
 
@@ -468,7 +454,7 @@ mod tests {
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         subject.update_connection_stage(
-            node_descriptor.node_addr_opt.as_ref().unwrap().ip_addr(),
+            node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
             &recipient,
         );
@@ -479,7 +465,7 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
+                    initial_node_descriptor: node_descriptor,
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::TcpConnectionEstablished
                 }],
@@ -496,7 +482,7 @@ mod tests {
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         subject.update_connection_stage(
-            node_ip_addr.clone(),
+            node_ip_addr,
             ConnectionProgressEvent::TcpConnectionFailed,
             &recipient,
         );
@@ -507,7 +493,7 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
+                    initial_node_descriptor: node_descriptor,
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::Failed(TcpConnectionFailed)
                 }],
@@ -521,7 +507,7 @@ mod tests {
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
-        let new_node_ip_addr: IpAddr = Ipv4Addr::new(5, 6, 7, 8).into();
+        let new_node_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
         let (recipient, _) = make_node_to_ui_recipient();
         subject.update_connection_stage(
             node_ip_addr,
@@ -541,7 +527,7 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::ConnectedToNeighbor,
                 progress: vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
+                    initial_node_descriptor: node_descriptor,
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::NeighborshipEstablished
                 }],
@@ -574,7 +560,7 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::ConnectedToNeighbor,
                 progress: vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
+                    initial_node_descriptor: node_descriptor,
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::NeighborshipEstablished
                 }],
@@ -588,7 +574,7 @@ mod tests {
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let initial_node_descriptors = vec![node_descriptor.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
-        let new_node_ip_addr: IpAddr = Ipv4Addr::new(5, 6, 7, 8).into();
+        let new_node_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
         let (recipient, _) = make_node_to_ui_recipient();
         subject.update_connection_stage(
             node_ip_addr,
@@ -608,7 +594,7 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
+                    initial_node_descriptor: node_descriptor,
                     current_peer_addr: new_node_ip_addr,
                     connection_stage: ConnectionStage::StageZero
                 }],
@@ -641,7 +627,7 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
+                    initial_node_descriptor: node_descriptor,
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::Failed(PassLoopFound)
                 }],
@@ -674,7 +660,7 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
+                    initial_node_descriptor: node_descriptor,
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::Failed(NoGossipResponseReceived)
                 }],
@@ -683,12 +669,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Unable to find the node in connections with IP Address: 5.6.7.8")]
+    #[should_panic(expected = "Unable to find the Node in connections with IP Address: 5.6.7.8")]
     fn panics_at_updating_the_connection_stage_if_a_node_is_not_a_part_of_connections() {
         let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
-        let initial_node_descriptors = vec![node_descriptor.clone()];
-        let non_existing_node_s_ip_addr: IpAddr = Ipv4Addr::new(5, 6, 7, 8).into();
+        let initial_node_descriptors = vec![node_descriptor];
+        let non_existing_node_s_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
         let (recipient, _) = make_node_to_ui_recipient();
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
@@ -722,7 +708,7 @@ mod tests {
         let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
         let new_node_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
-        let initial_node_descriptors = vec![node_descriptor.clone()];
+        let initial_node_descriptors = vec![node_descriptor];
         let (recipient, _) = make_node_to_ui_recipient();
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
@@ -734,7 +720,7 @@ mod tests {
     }
 
     #[test]
-    fn getter_fn_exists_for_boolean_can_make_routes() {
+    fn we_can_ask_about_can_make_routes() {
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
         let subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
@@ -745,18 +731,24 @@ mod tests {
     }
 
     #[test]
-    fn converts_overall_connection_stage_into_ui_connection_change_stage() {
+    fn converts_connected_to_neighbor_stage_into_ui_connection_change_stage() {
         let connected_to_neighbor = OverallConnectionStage::ConnectedToNeighbor;
-        let three_hops_route_found = OverallConnectionStage::ThreeHopsRouteFound;
 
         let connected_to_neighbor_converted: UiConnectionChangeStage = connected_to_neighbor.into();
-        let three_hops_route_found_converted: UiConnectionChangeStage =
-            three_hops_route_found.into();
 
         assert_eq!(
             connected_to_neighbor_converted,
             UiConnectionChangeStage::ConnectedToNeighbor
         );
+    }
+
+    #[test]
+    fn converts_three_hops_route_found_stage_into_ui_connection_change_stage() {
+        let three_hops_route_found = OverallConnectionStage::ThreeHopsRouteFound;
+
+        let three_hops_route_found_converted: UiConnectionChangeStage =
+            three_hops_route_found.into();
+
         assert_eq!(
             three_hops_route_found_converted,
             UiConnectionChangeStage::ThreeHopsRouteFound
@@ -941,20 +933,5 @@ mod tests {
         assert_eq!(system.run(), 0);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
-    }
-
-    fn make_node_descriptor_from_ip(ip_addr: IpAddr) -> NodeDescriptor {
-        NodeDescriptor {
-            blockchain: Chain::EthRopsten,
-            encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: Some(NodeAddr::new(&ip_addr, &vec![1, 2, 3])),
-        }
-    }
-
-    fn make_node_to_ui_recipient() -> (Recipient<NodeToUiMessage>, Arc<Mutex<Recording>>) {
-        let (ui_gateway, _, recording_arc) = make_recorder();
-        let addr = ui_gateway.start();
-        let recipient = addr.recipient::<NodeToUiMessage>();
-        (recipient, recording_arc)
     }
 }
