@@ -3038,7 +3038,7 @@ mod tests {
         };
         let system = System::new("test");
         let addr: Addr<Neighborhood> = subject.start();
-        let sub = addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>();
+        let sub = addr.recipient::<ExpiredCoresPackage<Gossip_0v1>>();
 
         sub.try_send(cores_package).unwrap();
 
@@ -3233,7 +3233,6 @@ mod tests {
         let neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
         let replacement_database = subject.neighborhood_database.clone();
-        // TODO: Make sure we modify this test and didn't write a different one testing the same thing
         subject.gossip_acceptor_opt = Some(Box::new(DatabaseReplacementGossipAcceptor {
             replacement_database,
         }));
@@ -3923,7 +3922,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
-        let sub = addr.clone().recipient::<StartMessage>();
+        let sub = addr.recipient::<StartMessage>();
 
         sub.try_send(StartMessage {}).unwrap();
 
@@ -4711,7 +4710,6 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new();
         subject.persistent_config_opt = Some(Box::new(persistent_config));
         assert!(subject.gossip_acceptor_opt.is_none());
-        assert!(subject.gossip_producer_opt.is_none());
         subject
     }
 
