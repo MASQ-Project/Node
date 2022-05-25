@@ -66,18 +66,13 @@ pub fn database_conn(node: &MASQRealNode) -> Box<dyn ConnectionWrapper> {
         &node.name().to_string(),
     ));
     let dir_metadata = std::fs::metadata(path.clone()).unwrap();
-    eprintln!(
-        "Readonly for database directory {:?}: {:?}",
-        path,
-        dir_metadata.permissions().readonly()
-    );
-    let file_path = path.join("node-data.db");
-    let file_metadata = std::fs::metadata(file_path.clone()).unwrap();
-    eprintln!(
-        "Readonly for database file {:?}: {:?}",
-        file_path,
-        file_metadata.permissions().readonly()
-    );
+    if dir_metadata.permissions().readonly() {
+        dir_metadata.permissions().set_readonly(false);
+    }
+    let file_metadata = std::fs::metadata(path.join("node-data.db")).unwrap();
+    if file_metadata.permissions().readonly() {
+        file_metadata.permissions().set_readonly(false);
+    }
     db_initializer
         .initialize(&path, true, MigratorConfig::migration_suppressed())
         .unwrap()
