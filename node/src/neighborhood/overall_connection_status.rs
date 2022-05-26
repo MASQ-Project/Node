@@ -60,6 +60,7 @@ impl ConnectionProgress {
     }
 
     pub fn update_stage(&mut self, connection_stage: ConnectionStage) {
+        // TODO: We may prefer to use an enum with variants "Up, Down, StageZero, Failure", for transitions instead of checks
         let current_stage = usize::try_from(&self.connection_stage);
         let new_stage = usize::try_from(&connection_stage);
 
@@ -437,12 +438,9 @@ mod tests {
         let initial_node_descriptors = vec![node_desc_1.clone(), node_desc_2.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
-        let removed_desc_1 = subject.remove(0);
-        let removed_desc_2 = subject.remove(0);
+        let removed_desc = subject.remove(1);
 
-        assert_eq!(removed_desc_1, node_desc_1);
-        assert_eq!(removed_desc_2, node_desc_2);
-        assert_eq!(subject, OverallConnectionStatus::new(vec![]));
+        assert_eq!(removed_desc, node_desc_2);
     }
 
     #[test]
@@ -933,5 +931,42 @@ mod tests {
         assert_eq!(system.run(), 0);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
+    }
+
+    #[test]
+    fn progress_done_by_one_connection_progress_can_not_be_overridden_by_other_in_overall_connection_progress(
+    ) {
+        let ip_addr_1 = IpAddr::from_str("1.2.3.4").unwrap();
+        let ip_addr_2 = IpAddr::from_str("5.6.7.8").unwrap();
+        let mut subject = OverallConnectionStatus::new(vec![
+            make_node_descriptor_from_ip(ip_addr_1),
+            make_node_descriptor_from_ip(ip_addr_2),
+        ]);
+        let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
+        subject.update_connection_stage(
+            ip_addr_1,
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+            &node_to_ui_recipient,
+        );
+        subject.update_connection_stage(
+            ip_addr_1,
+            ConnectionProgressEvent::IntroductionGossipReceived(
+                IpAddr::from_str("10.20.30.40").unwrap(),
+            ),
+            &node_to_ui_recipient,
+        );
+        subject.update_connection_stage(
+            ip_addr_2,
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+            &node_to_ui_recipient,
+        );
+
+        subject.update_connection_stage(
+            ip_addr_2,
+            ConnectionProgressEvent::PassGossipReceived(IpAddr::from_str("50.60.70.80").unwrap()),
+            &node_to_ui_recipient,
+        );
+
+        assert_eq!(subject.stage, OverallConnectionStage::ConnectedToNeighbor);
     }
 }
