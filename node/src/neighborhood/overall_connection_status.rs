@@ -804,33 +804,76 @@ mod tests {
     #[test]
     fn updates_the_stage_to_three_hops_route_found_in_case_introduction_gossip_is_received_and_flag_is_true(
     ) {
-        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
-        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
-        let new_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
-        let (recipient, recording_arc) = make_node_to_ui_recipient();
-        let system = System::new("test");
-        subject.update_connection_stage(
-            ip_addr,
-            ConnectionProgressEvent::TcpConnectionSuccessful,
-            &recipient,
+        let event = ConnectionProgressEvent::IntroductionGossipReceived(
+            IpAddr::from_str("1.2.3.4").unwrap(),
         );
-        subject.update_can_make_routes(true);
+        let can_make_routes = true;
 
-        subject.update_connection_stage(
-            ip_addr,
-            ConnectionProgressEvent::IntroductionGossipReceived(new_ip_addr),
-            &recipient,
-        );
+        let (stage, message) =
+            result_when_neighborship_is_established_and_can_make_routes_is_updated(
+                event,
+                can_make_routes,
+                "updates_the_stage_to_three_hops_route_found_in_case_introduction_gossip_is_received_and_flag_is_true"
+            );
 
-        System::current().stop();
-        assert_eq!(system.run(), 0);
-        let recording = recording_arc.lock().unwrap();
-        let message: &NodeToUiMessage = recording.get_record(0);
-        assert_eq!(subject.stage, OverallConnectionStage::ThreeHopsRouteFound);
+        assert_eq!(stage, OverallConnectionStage::ThreeHopsRouteFound);
         assert_eq!(
             message,
-            &NodeToUiMessage {
+            NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiConnectionChangeBroadcast {
+                    stage: UiConnectionChangeStage::ThreeHopsRouteFound
+                }
+                .tmb(0)
+            }
+        );
+    }
+
+    #[test]
+    fn updates_the_stage_to_connected_to_neighbor_in_case_introduction_gossip_is_received_and_flag_is_false(
+    ) {
+        let event = ConnectionProgressEvent::IntroductionGossipReceived(
+            IpAddr::from_str("1.2.3.4").unwrap(),
+        );
+        let can_make_routes = false;
+
+        let (stage, message) =
+            result_when_neighborship_is_established_and_can_make_routes_is_updated(
+                event,
+                can_make_routes,
+                "updates_the_stage_to_connected_to_neighbor_in_case_introduction_gossip_is_received_and_flag_is_false"
+            );
+
+        assert_eq!(stage, OverallConnectionStage::ConnectedToNeighbor);
+        assert_eq!(
+            message,
+            NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiConnectionChangeBroadcast {
+                    stage: UiConnectionChangeStage::ConnectedToNeighbor
+                }
+                .tmb(0)
+            }
+        );
+    }
+
+    #[test]
+    fn updates_the_stage_to_three_hops_route_found_in_case_standard_gossip_is_received_and_flag_is_true(
+    ) {
+        let event = ConnectionProgressEvent::StandardGossipReceived;
+        let can_make_routes = true;
+
+        let (stage, message) =
+            result_when_neighborship_is_established_and_can_make_routes_is_updated(
+                event,
+                can_make_routes,
+                "updates_the_stage_to_three_hops_route_found_in_case_standard_gossip_is_received_and_flag_is_true"
+            );
+
+        assert_eq!(stage, OverallConnectionStage::ThreeHopsRouteFound);
+        assert_eq!(
+            message,
+            NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
                     stage: UiConnectionChangeStage::ThreeHopsRouteFound
@@ -843,32 +886,20 @@ mod tests {
     #[test]
     fn updates_the_stage_to_connected_to_neighbor_in_case_standard_gossip_is_received_and_flag_is_false(
     ) {
-        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
-        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
-        let (recipient, recording_arc) = make_node_to_ui_recipient();
-        let system = System::new("test");
-        subject.update_connection_stage(
-            ip_addr,
-            ConnectionProgressEvent::TcpConnectionSuccessful,
-            &recipient,
-        );
-        subject.update_can_make_routes(false);
+        let event = ConnectionProgressEvent::StandardGossipReceived;
+        let can_make_routes = false;
 
-        subject.update_connection_stage(
-            ip_addr,
-            ConnectionProgressEvent::StandardGossipReceived,
-            &recipient,
-        );
+        let (stage, message) =
+            result_when_neighborship_is_established_and_can_make_routes_is_updated(
+                event,
+                can_make_routes,
+                "updates_the_stage_to_connected_to_neighbor_in_case_standard_gossip_is_received_and_flag_is_false"
+            );
 
-        System::current().stop();
-        assert_eq!(system.run(), 0);
-        let recording = recording_arc.lock().unwrap();
-        let message: &NodeToUiMessage = recording.get_record(0);
-        assert_eq!(subject.stage, OverallConnectionStage::ConnectedToNeighbor);
+        assert_eq!(stage, OverallConnectionStage::ConnectedToNeighbor);
         assert_eq!(
             message,
-            &NodeToUiMessage {
+            NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
                     stage: UiConnectionChangeStage::ConnectedToNeighbor
@@ -968,5 +999,47 @@ mod tests {
         );
 
         assert_eq!(subject.stage, OverallConnectionStage::ConnectedToNeighbor);
+    }
+
+    fn result_when_neighborship_is_established_and_can_make_routes_is_updated(
+        event: ConnectionProgressEvent,
+        can_make_routes: bool,
+        test_name: &str,
+    ) -> (OverallConnectionStage, NodeToUiMessage) {
+        let peer_addr = IpAddr::from_str("99.11.99.11").unwrap();
+        let mut subject =
+            OverallConnectionStatus::new(vec![make_node_descriptor_from_ip(peer_addr)]);
+        let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
+        subject.update_connection_stage(
+            peer_addr,
+            ConnectionProgressEvent::TcpConnectionSuccessful,
+            &node_to_ui_recipient,
+        );
+        let system = System::new(test_name);
+
+        subject.update_can_make_routes(can_make_routes);
+        match event {
+            ConnectionProgressEvent::StandardGossipReceived => {
+                subject.update_connection_stage(peer_addr, event, &node_to_ui_recipient);
+            }
+            ConnectionProgressEvent::IntroductionGossipReceived(_) => {
+                subject.update_connection_stage(peer_addr, event, &node_to_ui_recipient);
+            }
+            _ => panic!(
+                "Can't update to event {:?} because it doesn't leads to Neighborship Established",
+                event
+            ),
+        }
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        let stage = subject.stage;
+        let message = node_to_ui_recording_arc
+            .lock()
+            .unwrap()
+            .get_record::<NodeToUiMessage>(0)
+            .clone();
+
+        (stage, message)
     }
 }
