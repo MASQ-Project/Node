@@ -22,7 +22,7 @@ use std::path::Path;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: usize = 6;
+pub const CURRENT_SCHEMA_VERSION: usize = 7;
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -280,11 +280,12 @@ impl DbInitializerReal {
     }
 
     fn create_pending_payable_table(&self, conn: &Connection) {
+        //TODO the rowid argument could be left out?
         conn.execute(
             "create table if not exists pending_payable (
                     rowid integer primary key,
                     transaction_hash text not null,
-                    amount integer not null,
+                    amount blob not null,
                     payable_timestamp integer not null,
                     attempt integer not null,
                     process_error text null
@@ -303,7 +304,7 @@ impl DbInitializerReal {
         conn.execute(
             "create table if not exists payable (
                     wallet_address text primary key,
-                    balance integer not null,
+                    balance blob not null,
                     last_paid_timestamp integer not null,
                     pending_payable_rowid integer null
             )",
@@ -316,7 +317,7 @@ impl DbInitializerReal {
         conn.execute(
             "create table if not exists receivable (
                     wallet_address text primary key,
-                    balance integer not null,
+                    balance blob not null,
                     last_received_timestamp integer not null
             )",
             [],
@@ -611,8 +612,8 @@ mod tests {
     use super::*;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
     use crate::test_utils::database_utils::{
-        assert_create_table_statement_contains_all_important_parts,
-        assert_index_statement_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
+        assert_create_table_stm_contains_all_parts,
+        assert_index_stm_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
         bring_db_0_back_to_life_and_return_connection, retrieve_config_row, DbMigratorMock,
     };
     use itertools::Itertools;
@@ -692,16 +693,12 @@ mod tests {
             .prepare("select name, value, encrypted from config")
             .unwrap();
         let _ = stmt.query_map([], |_| Ok(42)).unwrap();
-        let expected_key_words = [
-            ["name", "text", "primary", "key"].as_slice(),
-            ["value", "text"].as_slice(),
-            ["encrypted", "integer", "not", "null"].as_slice(),
+        let expected_key_words: &[&[&str]] = &[
+            &["name", "text", "primary", "key"],
+            &["value", "text"],
+            &["encrypted", "integer", "not", "null"],
         ];
-        assert_create_table_statement_contains_all_important_parts(
-            conn.as_ref(),
-            "config",
-            expected_key_words.as_slice(),
-        );
+        assert_create_table_stm_contains_all_parts(conn.as_ref(), "config", expected_key_words);
         assert_no_index_exists_for_table(conn.as_ref(), "config")
     }
 
@@ -720,24 +717,24 @@ mod tests {
         let mut stmt = conn.prepare("select rowid, transaction_hash, amount, payable_timestamp, attempt, process_error from pending_payable").unwrap();
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
-        let expected_key_words = [
-            ["rowid", "integer", "primary", "key"].as_slice(),
-            ["transaction_hash", "text", "not", "null"].as_slice(),
-            ["amount", "integer", "not", "null"].as_slice(),
-            ["payable_timestamp", "integer", "not", "null"].as_slice(),
-            ["attempt", "integer", "not", "null"].as_slice(),
-            ["process_error", "text", "null"].as_slice(),
+        let expected_key_words: &[&[&str]] = &[
+            &["rowid", "integer", "primary", "key"],
+            &["transaction_hash", "text", "not", "null"],
+            &["amount", "integer", "not", "null"],
+            &["payable_timestamp", "integer", "not", "null"],
+            &["attempt", "integer", "not", "null"],
+            &["process_error", "text", "null"],
         ];
-        assert_create_table_statement_contains_all_important_parts(
+        assert_create_table_stm_contains_all_parts(
             conn.as_ref(),
             "pending_payable",
-            expected_key_words.as_slice(),
+            expected_key_words,
         );
-        let expected_key_words = [["transaction_hash"].as_slice()];
-        assert_index_statement_is_coupled_with_right_parameter(
+        let expected_key_words: &[&[&str]] = &[&["transaction_hash"]];
+        assert_index_stm_is_coupled_with_right_parameter(
             conn.as_ref(),
             "pending_payable_hash_idx",
-            expected_key_words.as_slice(),
+            expected_key_words,
         )
     }
 
@@ -756,17 +753,13 @@ mod tests {
         let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payable_rowid from payable").unwrap ();
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
-        let expected_key_words = [
-            ["wallet_address", "text", "primary", "key"].as_slice(),
-            ["balance", "integer", "not", "null"].as_slice(),
-            ["last_paid_timestamp", "integer", "not", "null"].as_slice(),
-            ["pending_payable_rowid", "integer", "null"].as_slice(),
+        let expected_key_words: &[&[&str]] = &[
+            &["wallet_address", "text", "primary", "key"],
+            &["balance", "integer", "not", "null"],
+            &["last_paid_timestamp", "integer", "not", "null"],
+            &["pending_payable_rowid", "integer", "null"],
         ];
-        assert_create_table_statement_contains_all_important_parts(
-            conn.as_ref(),
-            "payable",
-            expected_key_words.as_slice(),
-        );
+        assert_create_table_stm_contains_all_parts(conn.as_ref(), "payable", expected_key_words);
         assert_no_index_exists_for_table(conn.as_ref(), "payable")
     }
 
@@ -787,16 +780,12 @@ mod tests {
             .unwrap();
         let mut receivable_contents = stmt.query_map([], |_| Ok(())).unwrap();
         assert!(receivable_contents.next().is_none());
-        let expected_key_words = [
-            ["wallet_address", "text", "primary", "key"].as_slice(),
-            ["balance", "integer", "not", "null"].as_slice(),
-            ["last_received_timestamp", "integer", "not", "null"].as_slice(),
+        let expected_key_words: &[&[&str]] = &[
+            &["wallet_address", "text", "primary", "key"],
+            &["balance", "integer", "not", "null"],
+            &["last_received_timestamp", "integer", "not", "null"],
         ];
-        assert_create_table_statement_contains_all_important_parts(
-            conn.as_ref(),
-            "receivable",
-            expected_key_words.as_slice(),
-        );
+        assert_create_table_stm_contains_all_parts(conn.as_ref(), "receivable", expected_key_words);
         assert_no_index_exists_for_table(conn.as_ref(), "receivable")
     }
 
@@ -816,12 +805,8 @@ mod tests {
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
         let mut banned_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(banned_contents.next().is_none());
-        let expected_key_words = [["wallet_address", "text", "primary", "key"].as_slice()];
-        assert_create_table_statement_contains_all_important_parts(
-            conn.as_ref(),
-            "banned",
-            expected_key_words.as_slice(),
-        );
+        let expected_key_words: &[&[&str]] = &[&["wallet_address", "text", "primary", "key"]];
+        assert_create_table_stm_contains_all_parts(conn.as_ref(), "banned", expected_key_words);
         assert_no_index_exists_for_table(conn.as_ref(), "banned")
     }
 

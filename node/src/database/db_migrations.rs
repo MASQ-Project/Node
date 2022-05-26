@@ -470,6 +470,65 @@ impl Migrate_5_to_6 {
     }
 }
 
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+struct Migrate_6_to_7;
+
+impl DatabaseMigration for Migrate_6_to_7 {
+    fn migrate<'a>(
+        &self,
+        declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
+    ) -> rusqlite::Result<()> {
+        let mut statements = Vec::new();
+        Migrate_6_to_7::retype_table("payable",
+                                     "wallet_address text primary key,
+                                     balance blob not null,
+                                     last_paid_timestamp integer not null,
+                                     pending_payable_rowid integer null",
+                                     "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) \
+         select wallet_address, cast(balance as blob), last_paid_timestamp, pending_payable_rowid from _payable_old", &mut statements
+        );
+        Migrate_6_to_7::retype_table("receivable",
+                                     "wallet_address text primary key,
+                                     balance blob not null,
+                                     last_received_timestamp integer not null",
+                                     "insert into receivable (wallet_address, balance, last_received_timestamp) \
+         select wallet_address, cast(balance as blob), last_received_timestamp from _receivable_old", &mut statements
+        );
+        Migrate_6_to_7::retype_table("pending_payable",
+                    "rowid integer primary key,
+                                     transaction_hash text not null,
+                                     amount blob not null,
+                                     payable_timestamp integer not null,
+                                     attempt integer not null,
+                                     process_error text null",
+                                     "insert into pending_payable (rowid, transaction_hash, amount, payable_timestamp, attempt, process_error) \
+         select rowid, transaction_hash, cast(amount as blob), payable_timestamp, attempt, process_error from _pending_payable_old", &mut statements
+        );
+
+        declaration_utils
+            .execute_upon_transaction(&statements.iter().map(|blah| blah.as_str()).collect_vec())
+    }
+
+    fn old_version(&self) -> usize {
+        6
+    }
+}
+
+impl Migrate_6_to_7 {
+    fn retype_table<'a>(
+        table: &str,
+        table_creation_lines: &str,
+        insert_statement: &'a str,
+        statements_so_far: &mut Vec<String>,
+    ) {
+        statements_so_far.push(format!("alter table {0} rename to _{0}_old", table));
+        statements_so_far.push(format!("create table {} ({})", table, table_creation_lines));
+        statements_so_far.push(insert_statement.to_string());
+        statements_so_far.push(format!("drop table _{0}_old", table));
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 impl DbMigratorReal {
@@ -488,6 +547,7 @@ impl DbMigratorReal {
             &Migrate_3_to_4,
             &Migrate_4_to_5,
             &Migrate_5_to_6,
+            &Migrate_6_to_7,
         ]
     }
 
@@ -720,11 +780,13 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::database_utils::retrieve_config_row;
     use crate::test_utils::database_utils::{
-        assert_create_table_statement_contains_all_important_parts,
-        assert_index_statement_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
-        bring_db_0_back_to_life_and_return_connection,
+        assert_create_table_stm_contains_all_parts,
+        assert_index_stm_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
+        assert_table_does_not_exist, bring_db_0_back_to_life_and_return_connection,
+    };
+    use crate::test_utils::database_utils::{
+        assert_create_table_stm_contains_some_parts, retrieve_config_row,
     };
     use crate::test_utils::make_wallet;
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
@@ -894,6 +956,9 @@ mod tests {
             db_password_opt: None,
         }
     }
+
+    //TODO you could write a procedural macro for this place to check at runtime that the last item in the list_of_migration fits to CURRENT_SCHEMA_VERSION;
+    // it would make life easier for future developers writing a migration - it's not apparent that DBMigrator runs only migrations up to the version given by the CURRENT_SCHEMA_VERSION
 
     #[test]
     fn panic_on_migration_properly_set() {
@@ -1905,58 +1970,43 @@ mod tests {
     }
 
     fn assert_on_schema_5_was_adopted(conn_schema5: &dyn ConnectionWrapper) {
-        let expected_key_words = [
-            ["rowid", "integer", "primary", "key"].as_slice(),
-            ["transaction_hash", "text", "not", "null"].as_slice(),
-            ["amount", "integer", "not", "null"].as_slice(),
-            ["payable_timestamp", "integer", "not", "null"].as_slice(),
-            ["attempt", "integer", "not", "null"].as_slice(),
-            ["process_error", "text", "null"].as_slice(),
+        let expected_key_words: &[&[&str]] = &[
+            &["rowid", "integer", "primary", "key"],
+            &["transaction_hash", "text", "not", "null"],
+            &["amount", "integer", "not", "null"],
+            &["payable_timestamp", "integer", "not", "null"],
+            &["attempt", "integer", "not", "null"],
+            &["process_error", "text", "null"],
         ];
-        assert_create_table_statement_contains_all_important_parts(
+        assert_create_table_stm_contains_all_parts(
             conn_schema5,
             "pending_payable",
-            expected_key_words.as_slice(),
+            expected_key_words,
         );
-        let expected_key_words = [["transaction_hash"].as_slice()];
-        assert_index_statement_is_coupled_with_right_parameter(
+        let expected_key_words: &[&[&str]] = &[&["transaction_hash"]];
+        assert_index_stm_is_coupled_with_right_parameter(
             conn_schema5,
             "pending_payable_hash_idx",
-            expected_key_words.as_slice(),
+            expected_key_words,
         );
-        let expected_key_words = [
-            ["wallet_address", "text", "primary", "key"].as_slice(),
-            ["balance", "integer", "not", "null"].as_slice(),
-            ["last_paid_timestamp", "integer", "not", "null"].as_slice(),
-            ["pending_payable_rowid", "integer", "null"].as_slice(),
+        let expected_key_words: &[&[&str]] = &[
+            &["wallet_address", "text", "primary", "key"],
+            &["balance", "integer", "not", "null"],
+            &["last_paid_timestamp", "integer", "not", "null"],
+            &["pending_payable_rowid", "integer", "null"],
         ];
-        assert_create_table_statement_contains_all_important_parts(
-            conn_schema5,
-            "payable",
-            expected_key_words.as_slice(),
-        );
-        let expected_key_words = [
-            ["name", "text", "primary", "key"].as_slice(),
-            ["value", "text"].as_slice(),
-            ["encrypted", "integer", "not", "null"].as_slice(),
+        assert_create_table_stm_contains_all_parts(conn_schema5, "payable", expected_key_words);
+        let expected_key_words: &[&[&str]] = &[
+            &["name", "text", "primary", "key"],
+            &["value", "text"],
+            &["encrypted", "integer", "not", "null"],
         ];
-        assert_create_table_statement_contains_all_important_parts(
-            conn_schema5,
-            "config",
-            expected_key_words.as_slice(),
-        );
+        assert_create_table_stm_contains_all_parts(conn_schema5, "config", expected_key_words);
         assert_no_index_exists_for_table(conn_schema5, "config");
         assert_no_index_exists_for_table(conn_schema5, "payable");
         assert_no_index_exists_for_table(conn_schema5, "receivable");
         assert_no_index_exists_for_table(conn_schema5, "banned");
-        let error_stm = conn_schema5
-            .prepare("select * from _config_old")
-            .unwrap_err();
-        let error_msg = match error_stm {
-            rusqlite::Error::SqliteFailure(_, Some(msg)) => msg,
-            x => panic!("we expected SqliteFailure but we got: {:?}", x),
-        };
-        assert_eq!(error_msg, "no such table: _config_old".to_string())
+        assert_table_does_not_exist(conn_schema5, "_config_old")
     }
 
     fn fetch_all_from_config_table(
@@ -1997,7 +2047,7 @@ mod tests {
             subject
                 .initialize_to_version(
                     &dir_path,
-                    6,
+                    5,
                     true,
                     MigratorConfig::create_or_migrate(make_external_migration_parameters()),
                 )
@@ -2007,12 +2057,8 @@ mod tests {
         let result = subject.initialize_to_version(
             &dir_path,
             6,
-            true,
-            MigratorConfig::create_or_migrate(ExternalData::new(
-                DEFAULT_CHAIN,
-                NeighborhoodModeLight::ConsumeOnly,
-                None,
-            )),
+            false,
+            MigratorConfig::create_or_migrate(make_external_migration_parameters()),
         );
 
         let connection = result.unwrap();
@@ -2030,5 +2076,80 @@ mod tests {
             retrieve_config_row(connection.as_ref(), "scan_intervals");
         assert_eq!(scan_intervals, Some(DEFAULT_SCAN_INTERVALS.to_string()));
         assert_eq!(encrypted, false);
+    }
+
+    #[test]
+    fn migration_from_6_to_7_works() {
+        init_test_logging();
+        let dir_path =
+            ensure_node_home_directory_exists("db_migrations", "migration_from_6_to_7_works");
+        let db_path = dir_path.join(DATABASE_FILE);
+        let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
+        let subject = DbInitializerReal::default();
+        let pre_db_conn = subject
+            .initialize_to_version(
+                &dir_path,
+                6,
+                true,
+                MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+            )
+            .unwrap();
+        insert_value(&*pre_db_conn,"insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) \
+         values (\"blah1\",1234,11111,null)");
+        insert_value(
+            &*pre_db_conn,
+            "insert into receivable (wallet_address, balance, last_received_timestamp) \
+             values (\"blah2\",5678,22222)",
+        );
+        insert_value(&*pre_db_conn,"insert into pending_payable (transaction_hash, amount, payable_timestamp,attempt, process_error) \
+         values (\"a2bc56\",9123,33333,1,null)");
+
+        let conn = subject
+            .initialize_to_version(
+                &dir_path,
+                7,
+                false,
+                MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+            )
+            .unwrap();
+
+        let critical_lines: &[(&str, &[&[&str]])] = &[
+            ("payable", &[&["balance", "blob", "not", "null"]]),
+            ("receivable", &[&["balance", "blob", "not", "null"]]),
+            ("pending_payable", &[&["amount", "blob", "not", "null"]]),
+        ];
+        critical_lines
+            .iter()
+            .for_each(|(table_name, expected_sql_chopped)| {
+                assert_create_table_stm_contains_some_parts(
+                    &*conn,
+                    table_name,
+                    expected_sql_chopped,
+                );
+                assert_table_does_not_exist(&*conn, &format!("_{}_old", table_name))
+            });
+        assert_number_still_there(&*conn, "select balance from payable", 1111);
+        assert_number_still_there(&*conn, "select balance from receivable", 2222);
+        assert_number_still_there(&*conn, "select amount from pending_payable", 3333);
+    }
+
+    fn insert_value(conn: &dyn ConnectionWrapper, insert_stm: &str) {
+        let mut statement = conn.prepare(insert_stm).unwrap();
+        statement.execute([]).unwrap();
+    }
+
+    fn assert_number_still_there(
+        conn: &dyn ConnectionWrapper,
+        select_stm: &str,
+        expected_number: i128,
+    ) {
+        let mut statement = conn.prepare(select_stm).unwrap();
+        match statement.query_row([], |row| {
+            let num: rusqlite::Result<i128> = row.get(0);
+            num
+        }) {
+            Ok(num) => assert_eq!(num, expected_number),
+            Err(e) => panic!("we expected Ok but got: {}", e),
+        }
     }
 }
