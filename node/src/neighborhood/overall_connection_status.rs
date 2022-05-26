@@ -285,7 +285,7 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
     use masq_lib::ui_gateway::MessageTarget;
-    use std::net::IpAddr;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
     #[test]
@@ -296,7 +296,7 @@ mod tests {
         let descriptor_with_no_ip_address = NodeDescriptor {
             blockchain: Chain::EthRopsten,
             encryption_public_key: PublicKey::from(vec![0, 0, 0]),
-            node_addr_opt: None, // NodeAddr consists of IP Address and Ports
+            node_addr_opt: None,
         };
         let _connection_progress = ConnectionProgress::new(descriptor_with_no_ip_address);
     }
@@ -451,9 +451,8 @@ mod tests {
     fn updates_the_connection_stage_to_tcp_connection_established() {
         let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
-        let initial_node_descriptors = vec![node_descriptor.clone()];
         let (recipient, _) = make_node_to_ui_recipient();
-        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
 
         subject.update_connection_stage(
             node_ip_addr,
@@ -1005,12 +1004,27 @@ mod tests {
         assert_eq!(subject.stage, OverallConnectionStage::ConnectedToNeighbor);
     }
 
+    fn make_ip(nonce: u8) -> IpAddr {
+        let ip_addr: IpAddr = Ipv4Addr::new(1, 1, 1, nonce).into();
+
+        ip_addr
+    }
+
+    fn make_ocs_from_ip_addr(ip_address: Vec<IpAddr>) -> OverallConnectionStatus {
+        let descriptors = ip_address
+            .into_iter()
+            .map(make_node_descriptor_from_ip)
+            .collect();
+
+        OverallConnectionStatus::new(descriptors)
+    }
+
     fn result_when_neighborship_is_established_and_can_make_routes_is_updated(
         event: ConnectionProgressEvent,
         can_make_routes: bool,
         test_name: &str,
     ) -> (OverallConnectionStage, NodeToUiMessage) {
-        let peer_addr = IpAddr::from_str("99.11.99.11").unwrap();
+        let peer_addr = make_ip(u8::MAX);
         let mut subject =
             OverallConnectionStatus::new(vec![make_node_descriptor_from_ip(peer_addr)]);
         let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
@@ -1023,10 +1037,8 @@ mod tests {
 
         subject.update_can_make_routes(can_make_routes);
         match event {
-            ConnectionProgressEvent::StandardGossipReceived => {
-                subject.update_connection_stage(peer_addr, event, &node_to_ui_recipient);
-            }
-            ConnectionProgressEvent::IntroductionGossipReceived(_) => {
+            ConnectionProgressEvent::StandardGossipReceived
+            | ConnectionProgressEvent::IntroductionGossipReceived(_) => {
                 subject.update_connection_stage(peer_addr, event, &node_to_ui_recipient);
             }
             _ => panic!(
