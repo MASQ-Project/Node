@@ -45,16 +45,20 @@ pub struct ConnectionProgress {
 }
 
 impl ConnectionProgress {
-    pub fn new(node_descriptor: &NodeDescriptor) -> Self {
-        let node_addr = node_descriptor.node_addr_opt.as_ref().unwrap_or_else(|| {
-            panic!(
-                "Unable to receive node addr for the descriptor {:?}",
-                node_descriptor
-            )
-        });
+    pub fn new(node_descriptor: NodeDescriptor) -> Self {
+        let peer_addr = node_descriptor
+            .node_addr_opt
+            .as_ref()
+            .unwrap_or_else(|| {
+                panic!(
+                    "Unable to receive node addr for the descriptor {:?}",
+                    node_descriptor
+                )
+            })
+            .ip_addr();
         Self {
-            initial_node_descriptor: node_descriptor.clone(),
-            current_peer_addr: node_addr.ip_addr(),
+            initial_node_descriptor: node_descriptor,
+            current_peer_addr: peer_addr,
             connection_stage: ConnectionStage::StageZero,
         }
     }
@@ -126,7 +130,7 @@ pub struct OverallConnectionStatus {
 impl OverallConnectionStatus {
     pub fn new(initial_node_descriptors: Vec<NodeDescriptor>) -> Self {
         let progress = initial_node_descriptors
-            .iter()
+            .into_iter()
             .map(ConnectionProgress::new)
             .collect();
 
@@ -294,14 +298,14 @@ mod tests {
             encryption_public_key: PublicKey::from(vec![0, 0, 0]),
             node_addr_opt: None, // NodeAddr consists of IP Address and Ports
         };
-        let _connection_progress = ConnectionProgress::new(&descriptor_with_no_ip_address);
+        let _connection_progress = ConnectionProgress::new(descriptor_with_no_ip_address);
     }
 
     #[test]
     fn connection_progress_handles_pass_gossip_correctly() {
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
-        let mut subject = ConnectionProgress::new(&initial_node_descriptor);
+        let mut subject = ConnectionProgress::new(initial_node_descriptor.clone());
         let new_pass_target_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
         subject.update_stage(ConnectionStage::TcpConnectionEstablished);
 
@@ -323,7 +327,7 @@ mod tests {
     ) {
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
-        let mut subject = ConnectionProgress::new(&initial_node_descriptor);
+        let mut subject = ConnectionProgress::new(initial_node_descriptor);
         let new_pass_target_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
 
         subject.handle_pass_gossip(new_pass_target_ip_addr);
@@ -355,8 +359,8 @@ mod tests {
                 can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![
-                    ConnectionProgress::new(&node_desc_1),
-                    ConnectionProgress::new(&node_desc_2)
+                    ConnectionProgress::new(node_desc_1),
+                    ConnectionProgress::new(node_desc_2)
                 ],
             }
         );
@@ -391,11 +395,11 @@ mod tests {
 
         assert_eq!(
             subject.get_connection_progress_by_ip(peer_1_ip),
-            &mut ConnectionProgress::new(&desc_1)
+            &mut ConnectionProgress::new(desc_1)
         );
         assert_eq!(
             subject.get_connection_progress_by_ip(peer_2_ip),
-            &mut ConnectionProgress::new(&desc_2)
+            &mut ConnectionProgress::new(desc_2)
         );
     }
 
@@ -409,11 +413,11 @@ mod tests {
 
         assert_eq!(
             subject.get_connection_progress_by_desc(&desc_1),
-            &ConnectionProgress::new(&desc_1)
+            &ConnectionProgress::new(desc_1)
         );
         assert_eq!(
             subject.get_connection_progress_by_desc(&desc_2),
-            &ConnectionProgress::new(&desc_2)
+            &ConnectionProgress::new(desc_2)
         );
     }
 
