@@ -447,11 +447,17 @@ mod tests {
         assert_eq!(removed_desc, node_desc_2);
     }
 
+    fn make_node_and_reipient() -> (IpAddr, NodeDescriptor, Recipient<NodeToUiMessage>) {
+        let ip_addr = make_ip(u8::MAX - 1);
+        let node_descriptor = make_node_descriptor_from_ip(ip_addr);
+        let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
+
+        (ip_addr, node_descriptor, node_to_ui_recipient)
+    }
+
     #[test]
     fn updates_the_connection_stage_to_tcp_connection_established() {
-        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
-        let (recipient, _) = make_node_to_ui_recipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
 
         subject.update_connection_stage(
@@ -476,11 +482,8 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_failed_when_tcp_connection_fails() {
-        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
-        let initial_node_descriptors = vec![node_descriptor.clone()];
-        let (recipient, _) = make_node_to_ui_recipient();
-        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
 
         subject.update_connection_stage(
             node_ip_addr,
@@ -504,12 +507,8 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_neighborship_established() {
-        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
-        let initial_node_descriptors = vec![node_descriptor.clone()];
-        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
-        let new_node_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
-        let (recipient, _) = make_node_to_ui_recipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         subject.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -518,7 +517,7 @@ mod tests {
 
         subject.update_connection_stage(
             node_ip_addr,
-            ConnectionProgressEvent::IntroductionGossipReceived(new_node_ip_addr),
+            ConnectionProgressEvent::IntroductionGossipReceived(make_ip(1)),
             &recipient,
         );
 
@@ -538,11 +537,8 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_neighborship_established_when_standard_gossip_is_received() {
-        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
-        let initial_node_descriptors = vec![node_descriptor.clone()];
-        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
-        let (recipient, _) = make_node_to_ui_recipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         subject.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -571,12 +567,9 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_stage_zero_when_pass_gossip_is_received() {
-        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
-        let initial_node_descriptors = vec![node_descriptor.clone()];
-        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
-        let new_node_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
-        let (recipient, _) = make_node_to_ui_recipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
+        let pass_target = make_ip(1);
         subject.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -585,7 +578,7 @@ mod tests {
 
         subject.update_connection_stage(
             node_ip_addr,
-            ConnectionProgressEvent::PassGossipReceived(new_node_ip_addr),
+            ConnectionProgressEvent::PassGossipReceived(pass_target),
             &recipient,
         );
 
@@ -596,7 +589,7 @@ mod tests {
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
                     initial_node_descriptor: node_descriptor,
-                    current_peer_addr: new_node_ip_addr,
+                    current_peer_addr: pass_target,
                     connection_stage: ConnectionStage::StageZero
                 }],
             }
@@ -604,12 +597,9 @@ mod tests {
     }
 
     #[test]
-    fn updates_connection_stage_to_failed_when_dead_end_is_found() {
-        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
-        let initial_node_descriptors = vec![node_descriptor.clone()];
-        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
-        let (recipient, _) = make_node_to_ui_recipient();
+    fn updates_connection_stage_to_failed_when_pass_loop_is_found() {
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         subject.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -638,11 +628,8 @@ mod tests {
 
     #[test]
     fn updates_connection_stage_to_failed_when_no_gossip_response_is_received() {
-        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
-        let initial_node_descriptors = vec![node_descriptor.clone()];
-        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
-        let (recipient, _) = make_node_to_ui_recipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         subject.update_connection_stage(
             node_ip_addr,
             ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -670,14 +657,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Unable to find the Node in connections with IP Address: 5.6.7.8")]
+    #[should_panic(expected = "Unable to find the Node in connections with IP Address: 1.1.1.1")]
     fn panics_at_updating_the_connection_stage_if_a_node_is_not_a_part_of_connections() {
-        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
-        let initial_node_descriptors = vec![node_descriptor];
-        let non_existing_node_s_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
-        let (recipient, _) = make_node_to_ui_recipient();
-        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+        let (_node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
+        let non_existing_node_s_ip_addr = make_ip(1);
 
         subject.update_connection_stage(
             non_existing_node_s_ip_addr,
@@ -706,29 +690,14 @@ mod tests {
     #[test]
     #[should_panic(expected = "Can't update the stage from StageZero to NeighborshipEstablished")]
     fn can_t_establish_neighborhsip_without_having_a_tcp_connection() {
-        let node_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
-        let new_node_ip_addr = IpAddr::from_str("5.6.7.8").unwrap();
-        let initial_node_descriptors = vec![node_descriptor];
-        let (recipient, _) = make_node_to_ui_recipient();
-        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
 
         subject.update_connection_stage(
             node_ip_addr,
-            ConnectionProgressEvent::IntroductionGossipReceived(new_node_ip_addr),
+            ConnectionProgressEvent::IntroductionGossipReceived(make_ip(1)),
             &recipient,
         );
-    }
-
-    #[test]
-    fn we_can_ask_about_can_make_routes() {
-        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
-        let subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
-
-        let can_make_routes = subject.can_make_routes();
-
-        assert_eq!(can_make_routes, false);
     }
 
     #[test]
@@ -765,10 +734,19 @@ mod tests {
     }
 
     #[test]
+    fn we_can_ask_about_can_make_routes() {
+        let (_node_ip_addr, node_descriptor, _recipient) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
+
+        let can_make_routes = subject.can_make_routes();
+
+        assert_eq!(can_make_routes, false);
+    }
+
+    #[test]
     fn can_update_the_boolean_can_make_routes() {
-        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
-        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
+        let (_node_ip_addr, node_descriptor, _recipient) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
         let can_make_routes_initially = subject.can_make_routes();
 
         subject.update_can_make_routes(true);
@@ -780,10 +758,8 @@ mod tests {
 
     #[test]
     fn updates_from_not_connected_to_connected_to_neighbor_in_case_flag_is_false() {
-        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
-        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
-        let (recipient, _) = make_node_to_ui_recipient();
+        let (_node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
         subject.update_can_make_routes(false);
 
         subject.update_stage_of_overall_connection_status(&recipient);
@@ -793,10 +769,8 @@ mod tests {
 
     #[test]
     fn updates_from_not_connected_to_three_hops_route_found_in_case_flag_is_true() {
-        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
-        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
-        let (recipient, _) = make_node_to_ui_recipient();
+        let (_node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
         subject.update_can_make_routes(true);
 
         subject.update_stage_of_overall_connection_status(&recipient);
