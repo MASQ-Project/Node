@@ -526,14 +526,14 @@ impl DatabaseMigration for Migrate_6_to_7 {
             declaration_utils.as_ref(),
             "payable",
             "wallet_address text primary key,
-                                     balance blob not null,
-                                     last_paid_timestamp integer not null,
-                                     pending_payable_rowid integer null",
+                              balance blob not null,
+                              last_paid_timestamp integer not null,
+                              pending_payable_rowid integer null",
             |row: &Row| {
                 let wallet: Wallet = row.get(0).expect("db corrupted");
                 let balance: i64 = row.get(1).expect("db corrupted");
                 let last_paid_timestamp: i64 = row.get(2).expect("db corrupted");
-                let pending_payable_rowid: i64 = row.get(3).expect("db corrupted");
+                let pending_payable_rowid: Option<i64> = row.get(3).expect("db corrupted");
                 Ok(vec![
                     Box::new(wallet),
                     Box::new(balance),
@@ -547,8 +547,8 @@ impl DatabaseMigration for Migrate_6_to_7 {
             declaration_utils.as_ref(),
             "receivable",
             "wallet_address text primary key,
-                                     balance blob not null,
-                                     last_received_timestamp integer not null",
+                             balance blob not null,
+                             last_received_timestamp integer not null",
             |row: &Row| {
                 let wallet: Wallet = row.get(0).expect("db corrupted");
                 let balance: i64 = row.get(1).expect("db corrupted");
@@ -565,18 +565,18 @@ impl DatabaseMigration for Migrate_6_to_7 {
             declaration_utils.as_ref(),
             "pending_payable",
             "rowid integer primary key,
-                                     transaction_hash text not null,
-                                     amount blob not null,
-                                     payable_timestamp integer not null,
-                                     attempt integer not null,
-                                     process_error text null",
+                              transaction_hash text not null,
+                              amount blob not null,
+                              payable_timestamp integer not null,
+                              attempt integer not null,
+                              process_error text null",
             |row: &Row| {
                 let rowid: i64 = row.get(0).expect("db corrupted");
                 let transaction_hash: String = row.get(1).expect("db corrupted");
                 let amount: i64 = row.get(2).expect("db corrupted");
                 let payable_timestamp: i64 = row.get(3).expect("db corrupted");
                 let attempt: i64 = row.get(4).expect("db corrupted");
-                let process_error: String = row.get(5).expect("db corrupted");
+                let process_error: Option<String> = row.get(5).expect("db corrupted");
                 Ok(vec![
                     Box::new(rowid),
                     Box::new(transaction_hash),
@@ -590,12 +590,7 @@ impl DatabaseMigration for Migrate_6_to_7 {
         );
 
         declaration_utils
-            .execute_upon_transaction(
-                &statements
-                    .iter()
-                    .map(|boxed| boxed.as_ref())
-                    .collect_vec()
-            )
+            .execute_upon_transaction(&statements.iter().map(|boxed| boxed.as_ref()).collect_vec())
     }
 
     fn old_version(&self) -> usize {
@@ -629,7 +624,7 @@ impl Migrate_6_to_7 {
                     .collect::<String>()
             })
             .join(" ,");
-        let ( statement, critical_params_setting) = Self::compose_insert_statement(
+        let (statement, critical_params_setting) = Self::compose_insert_statement(
             utils,
             table,
             param_names_delimited_by_comma,
@@ -655,7 +650,7 @@ impl Migrate_6_to_7 {
         table: &str,
         param_names_for_select_stm: String,
         data_preparer: fn(row: &Row) -> rusqlite::Result<Vec<Box<dyn ToSql>>>,
-    ) -> (String,(Vec<Vec<Box<dyn ToSql>>>, usize)) {
+    ) -> (String, (Vec<Vec<Box<dyn ToSql>>>, usize)) {
         let transaction = utils.transaction();
         let mut statement = transaction
             .prepare(&format!(
@@ -687,11 +682,14 @@ impl Migrate_6_to_7 {
             });
             (&beginning[..beginning.len() - 1]).to_string()
         };
-        (insert_statement,(all_records_found, critical_param_position))
+        (
+            insert_statement,
+            (all_records_found, critical_param_position),
+        )
     }
 
     fn convert_critical_values_to_i128(
-        critical_params_setting: (Vec<Vec<Box<dyn ToSql>>>,usize)
+        critical_params_setting: (Vec<Vec<Box<dyn ToSql>>>, usize),
     ) -> Vec<Vec<Box<dyn ToSql>>> {
         let (mut collected_values, critical_value_position) = critical_params_setting;
         collected_values.iter_mut().for_each(|line| {
@@ -985,7 +983,6 @@ mod tests {
     use std::fs::create_dir_all;
     use std::iter::once;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
     use tiny_hderive::bip32::ExtendedPrivKey;
@@ -1558,9 +1555,6 @@ mod tests {
         .unwrap();
         let statement_1_simple =
             "INSERT INTO botanic_garden (name,count) VALUES ('sun_flowers', 100)";
-        let num = 4567_i64;
-        let word = "hello";
-        let stm = "update botanic_garden set name=?, count=?";
         let statement_2_good = StatementWithRusqliteParams {
             sql_stm: "select * from botanic_garden".to_string(),
             params: RefCell::new(Some({
@@ -2348,14 +2342,14 @@ mod tests {
             )
             .unwrap();
         insert_value(&*pre_db_conn,"insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) \
-         values (\"blah1\",1234,11111,null)");
+         values (\"0xD7d1b2cF58f6500c7CB22fCA42B8512d06813a03\",1234,11111,null)");
         insert_value(
             &*pre_db_conn,
             "insert into receivable (wallet_address, balance, last_received_timestamp) \
-             values (\"blah2\",5678,22222)",
+             values (\"0xD2d1b2eF58f6500c7ae22fCA42B8512d06813a03\",5678,22222)",
         );
         insert_value(&*pre_db_conn,"insert into pending_payable (transaction_hash, amount, payable_timestamp,attempt, process_error) \
-         values (\"a2bc56\",9123,33333,1,null)");
+         values (\"0x231d1b2cF58f6500c71122fCA42B8512d068v3b01\",9123,33333,1,null)");
 
         let conn = subject
             .initialize_to_version(
@@ -2398,13 +2392,10 @@ mod tests {
     ) {
         let mut statement = conn.prepare(select_stm).unwrap();
         match statement.query_row([], |row| {
-            let num: rusqlite::Result<Vec<u8>> = row.get(0);
+            let num: rusqlite::Result<i128> = row.get(0);
             num
         }) {
-            Ok(mut blob) => assert_eq!(
-                i128::from_str(&String::from_utf8_lossy(&blob)).unwrap(),
-                expected_number
-            ),
+            Ok(actual_number) => assert_eq!(actual_number, expected_number),
             Err(e) => panic!("we expected Ok but got: {:?}", e),
         }
     }
