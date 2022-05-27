@@ -1,15 +1,30 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+#![cfg(any(test, not(feature = "no_test_share")))]
+
 use crate::comm_layer::pcp_pmp_common::{
     FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory,
 };
-use crate::comm_layer::{AutomapError, LocalIpFinder};
+use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, Transactor};
+use crate::control_layer::automap_control::{
+    replace_transactor, AutomapControlReal, ChangeHandler,
+};
+use crossbeam_channel::Sender;
+use lazy_static::lazy_static;
+use masq_lib::utils::AutomapProtocol;
+use std::any::Any;
 use std::cell::RefCell;
 use std::io::ErrorKind;
 use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
+
+lazy_static! {
+    pub static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
+    pub static ref PUBLIC_IP: IpAddr = IpAddr::from_str("2.3.4.5").unwrap();
+}
 
 pub struct LocalIpFinderMock {
     find_results: RefCell<Vec<Result<IpAddr, AutomapError>>>,
@@ -22,6 +37,7 @@ impl LocalIpFinder for LocalIpFinderMock {
 }
 
 impl LocalIpFinderMock {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             find_results: RefCell::new(vec![]),
@@ -34,6 +50,7 @@ impl LocalIpFinderMock {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub struct UdpSocketWrapperMock {
     recv_from_params: Arc<Mutex<Vec<()>>>,
     recv_from_results: RefCell<Vec<(io::Result<(usize, SocketAddr)>, Vec<u8>)>>,
@@ -52,7 +69,7 @@ impl UdpSocketWrapper for UdpSocketWrapperMock {
                 if !set_read_timeout_params_locked.is_empty() {
                     let duration_opt = &set_read_timeout_params_locked[0];
                     match &duration_opt {
-                        Some(duration) => thread::sleep(duration.clone()),
+                        Some(duration) => thread::sleep(*duration),
                         None => (),
                     }
                 }
@@ -60,9 +77,7 @@ impl UdpSocketWrapper for UdpSocketWrapperMock {
             return Err(io::Error::from(ErrorKind::WouldBlock));
         }
         let (result, bytes) = self.recv_from_results.borrow_mut().remove(0);
-        for n in 0..bytes.len() {
-            buf[n] = bytes[n];
-        }
+        buf[..bytes.len()].clone_from_slice(&bytes[..]);
         result
     }
 
@@ -81,6 +96,7 @@ impl UdpSocketWrapper for UdpSocketWrapperMock {
 }
 
 impl UdpSocketWrapperMock {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             recv_from_params: Arc::new(Mutex::new(vec![])),
@@ -102,6 +118,7 @@ impl UdpSocketWrapperMock {
         self
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn send_to_params(mut self, params: &Arc<Mutex<Vec<(Vec<u8>, SocketAddr)>>>) -> Self {
         self.send_to_params = params.clone();
         self
@@ -136,6 +153,7 @@ impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryMock {
 }
 
 impl UdpSocketWrapperFactoryMock {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             make_params: Arc::new(Mutex::new(vec![])),
@@ -168,6 +186,7 @@ impl FreePortFactory for FreePortFactoryMock {
 }
 
 impl FreePortFactoryMock {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             make_results: RefCell::new(vec![]),
@@ -199,4 +218,226 @@ impl FindRoutersCommandMock {
             },
         }
     }
+}
+
+pub struct TransactorMock {
+    pub housekeeping_thread_started: bool,
+    protocol: AutomapProtocol,
+    find_routers_results: RefCell<Vec<Result<Vec<IpAddr>, AutomapError>>>,
+    get_public_ip_params: Arc<Mutex<Vec<IpAddr>>>,
+    get_public_ip_results: RefCell<Vec<Result<IpAddr, AutomapError>>>,
+    add_mapping_params: Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
+    add_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
+    add_permanent_mapping_params: Arc<Mutex<Vec<(IpAddr, u16)>>>,
+    add_permanent_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
+    delete_mapping_params: Arc<Mutex<Vec<(IpAddr, u16)>>>,
+    delete_mapping_results: RefCell<Vec<Result<(), AutomapError>>>,
+    start_housekeeping_thread_params: Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
+    start_housekeeping_thread_results:
+        RefCell<Vec<Result<Sender<HousekeepingThreadCommand>, AutomapError>>>,
+    stop_housekeeping_thread_params: Arc<Mutex<Vec<()>>>,
+    stop_housekeeping_thread_results: RefCell<Vec<Result<ChangeHandler, AutomapError>>>,
+}
+
+impl Transactor for TransactorMock {
+    fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
+        self.find_routers_results.borrow_mut().remove(0)
+    }
+
+    fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
+        if !self.housekeeping_thread_started {
+            panic!("Housekeeping thread must be started before get_public_ip()")
+        }
+        self.get_public_ip_params.lock().unwrap().push(router_ip);
+        self.get_public_ip_results.borrow_mut().remove(0)
+    }
+
+    fn add_mapping(
+        &self,
+        router_ip: IpAddr,
+        hole_port: u16,
+        lifetime: u32,
+    ) -> Result<u32, AutomapError> {
+        if !self.housekeeping_thread_started {
+            panic!("Housekeeping thread must be started before add_mapping()")
+        }
+        self.add_mapping_params
+            .lock()
+            .unwrap()
+            .push((router_ip, hole_port, lifetime));
+        self.add_mapping_results.borrow_mut().remove(0)
+    }
+
+    fn add_permanent_mapping(
+        &self,
+        router_ip: IpAddr,
+        hole_port: u16,
+    ) -> Result<u32, AutomapError> {
+        if !self.housekeeping_thread_started {
+            panic!("Housekeeping thread must be started before add_permanent_mapping()")
+        }
+        self.add_permanent_mapping_params
+            .lock()
+            .unwrap()
+            .push((router_ip, hole_port));
+        self.add_permanent_mapping_results.borrow_mut().remove(0)
+    }
+
+    fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
+        self.delete_mapping_params
+            .lock()
+            .unwrap()
+            .push((router_ip, hole_port));
+        self.delete_mapping_results.borrow_mut().remove(0)
+    }
+
+    fn protocol(&self) -> AutomapProtocol {
+        self.protocol
+    }
+
+    fn start_housekeeping_thread(
+        &mut self,
+        change_handler: ChangeHandler,
+        router_ip: IpAddr,
+    ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
+        self.start_housekeeping_thread_params
+            .lock()
+            .unwrap()
+            .push((change_handler, router_ip));
+        let result = self
+            .start_housekeeping_thread_results
+            .borrow_mut()
+            .remove(0);
+        self.housekeeping_thread_started = true;
+        result
+    }
+
+    fn stop_housekeeping_thread(&mut self) -> Result<ChangeHandler, AutomapError> {
+        self.stop_housekeeping_thread_params
+            .lock()
+            .unwrap()
+            .push(());
+        let result = self.stop_housekeeping_thread_results.borrow_mut().remove(0);
+        self.housekeeping_thread_started = false;
+        result
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl TransactorMock {
+    pub fn new(protocol: AutomapProtocol) -> Self {
+        Self {
+            housekeeping_thread_started: false,
+            protocol,
+            find_routers_results: RefCell::new(vec![]),
+            get_public_ip_params: Arc::new(Mutex::new(vec![])),
+            get_public_ip_results: RefCell::new(vec![]),
+            add_mapping_params: Arc::new(Mutex::new(vec![])),
+            add_mapping_results: RefCell::new(vec![]),
+            add_permanent_mapping_params: Arc::new(Mutex::new(vec![])),
+            add_permanent_mapping_results: RefCell::new(vec![]),
+            delete_mapping_params: Arc::new(Mutex::new(vec![])),
+            delete_mapping_results: RefCell::new(vec![]),
+            start_housekeeping_thread_params: Arc::new(Mutex::new(vec![])),
+            start_housekeeping_thread_results: RefCell::new(vec![]),
+            stop_housekeeping_thread_params: Arc::new(Mutex::new(vec![])),
+            stop_housekeeping_thread_results: RefCell::new(vec![]),
+        }
+    }
+
+    pub fn find_routers_result(self, result: Result<Vec<IpAddr>, AutomapError>) -> Self {
+        self.find_routers_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn get_public_ip_params(mut self, params: &Arc<Mutex<Vec<IpAddr>>>) -> Self {
+        self.get_public_ip_params = params.clone();
+        self
+    }
+
+    pub fn get_public_ip_result(self, result: Result<IpAddr, AutomapError>) -> Self {
+        self.get_public_ip_results.borrow_mut().push(result);
+        self
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn add_mapping_params(mut self, params: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>) -> Self {
+        self.add_mapping_params = params.clone();
+        self
+    }
+
+    pub fn add_mapping_result(self, result: Result<u32, AutomapError>) -> Self {
+        self.add_mapping_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn add_permanent_mapping_params(mut self, params: &Arc<Mutex<Vec<(IpAddr, u16)>>>) -> Self {
+        self.add_permanent_mapping_params = params.clone();
+        self
+    }
+
+    pub fn add_permanent_mapping_result(self, result: Result<u32, AutomapError>) -> Self {
+        self.add_permanent_mapping_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn delete_mapping_params(mut self, params: &Arc<Mutex<Vec<(IpAddr, u16)>>>) -> Self {
+        self.delete_mapping_params = params.clone();
+        self
+    }
+
+    pub fn delete_mapping_result(self, result: Result<(), AutomapError>) -> Self {
+        self.delete_mapping_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn start_housekeeping_thread_result(
+        self,
+        result: Result<Sender<HousekeepingThreadCommand>, AutomapError>,
+    ) -> Self {
+        self.start_housekeeping_thread_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn start_housekeeping_thread_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
+    ) -> Self {
+        self.start_housekeeping_thread_params = params.clone();
+        self
+    }
+
+    pub fn stop_housekeeping_thread_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.stop_housekeeping_thread_params = params.clone();
+        self
+    }
+
+    pub fn stop_housekeeping_thread_result(
+        self,
+        result: Result<ChangeHandler, AutomapError>,
+    ) -> Self {
+        self.stop_housekeeping_thread_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+}
+
+pub fn parameterizable_automap_control(
+    change_handler: ChangeHandler,
+    usual_protocol_opt: Option<AutomapProtocol>,
+    mock_transactors: Vec<TransactorMock>,
+) -> AutomapControlReal {
+    let subject = AutomapControlReal::new(usual_protocol_opt, change_handler);
+    mock_transactors
+        .into_iter()
+        .fold(subject, |mut subject_so_far, transactor| {
+            subject_so_far = replace_transactor(subject_so_far, Box::new(transactor));
+            subject_so_far
+        })
 }

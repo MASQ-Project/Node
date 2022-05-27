@@ -232,6 +232,10 @@ impl AutomapControlReal {
     ) -> Result<ProtocolInfo<T>, AutomapError> {
         let mut transactors_ref_mut = self.transactors.borrow_mut();
         if let Some(usual_protocol) = self.usual_protocol_opt {
+            debug!(
+                self.logger,
+                "Trying a predetermined protocol: {}", usual_protocol
+            );
             let transactor = transactors_ref_mut
                 .iter_mut()
                 .find(|t| t.protocol() == usual_protocol)
@@ -332,233 +336,30 @@ impl AutomapControlReal {
     }
 }
 
+#[cfg(any(test, not(feature = "no_test_share")))]
+pub fn replace_transactor(
+    subject: AutomapControlReal,
+    transactor: Box<dyn Transactor>,
+) -> AutomapControlReal {
+    let idx = AutomapControlReal::find_transactor_index(
+        subject.transactors.borrow_mut(),
+        transactor.protocol(),
+    );
+    subject.transactors.borrow_mut()[idx] = transactor;
+    subject
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::comm_layer::Transactor;
+    use crate::mocks::{TransactorMock, PUBLIC_IP, ROUTER_IP};
     use crossbeam_channel::{unbounded, TryRecvError};
-    use lazy_static::lazy_static;
-    use std::any::Any;
     use std::cell::RefCell;
     use std::net::IpAddr;
     use std::ptr::addr_of;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-
-    lazy_static! {
-        static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
-        static ref PUBLIC_IP: IpAddr = IpAddr::from_str("2.3.4.5").unwrap();
-    }
-
-    struct TransactorMock {
-        housekeeping_thread_started: bool,
-        protocol: AutomapProtocol,
-        find_routers_results: RefCell<Vec<Result<Vec<IpAddr>, AutomapError>>>,
-        get_public_ip_params: Arc<Mutex<Vec<IpAddr>>>,
-        get_public_ip_results: RefCell<Vec<Result<IpAddr, AutomapError>>>,
-        add_mapping_params: Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        add_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
-        add_permanent_mapping_params: Arc<Mutex<Vec<(IpAddr, u16)>>>,
-        add_permanent_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
-        delete_mapping_params: Arc<Mutex<Vec<(IpAddr, u16)>>>,
-        delete_mapping_results: RefCell<Vec<Result<(), AutomapError>>>,
-        start_housekeeping_thread_params: Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
-        start_housekeeping_thread_results:
-            RefCell<Vec<Result<Sender<HousekeepingThreadCommand>, AutomapError>>>,
-        stop_housekeeping_thread_params: Arc<Mutex<Vec<()>>>,
-        stop_housekeeping_thread_results: RefCell<Vec<Result<ChangeHandler, AutomapError>>>,
-    }
-
-    impl Transactor for TransactorMock {
-        fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
-            self.find_routers_results.borrow_mut().remove(0)
-        }
-
-        fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
-            if !self.housekeeping_thread_started {
-                panic!("Housekeeping thread must be started before get_public_ip()")
-            }
-            self.get_public_ip_params.lock().unwrap().push(router_ip);
-            self.get_public_ip_results.borrow_mut().remove(0)
-        }
-
-        fn add_mapping(
-            &self,
-            router_ip: IpAddr,
-            hole_port: u16,
-            lifetime: u32,
-        ) -> Result<u32, AutomapError> {
-            if !self.housekeeping_thread_started {
-                panic!("Housekeeping thread must be started before add_mapping()")
-            }
-            self.add_mapping_params
-                .lock()
-                .unwrap()
-                .push((router_ip, hole_port, lifetime));
-            self.add_mapping_results.borrow_mut().remove(0)
-        }
-
-        fn add_permanent_mapping(
-            &self,
-            router_ip: IpAddr,
-            hole_port: u16,
-        ) -> Result<u32, AutomapError> {
-            if !self.housekeeping_thread_started {
-                panic!("Housekeeping thread must be started before add_permanent_mapping()")
-            }
-            self.add_permanent_mapping_params
-                .lock()
-                .unwrap()
-                .push((router_ip, hole_port));
-            self.add_permanent_mapping_results.borrow_mut().remove(0)
-        }
-
-        fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
-            self.delete_mapping_params
-                .lock()
-                .unwrap()
-                .push((router_ip, hole_port));
-            self.delete_mapping_results.borrow_mut().remove(0)
-        }
-
-        fn protocol(&self) -> AutomapProtocol {
-            self.protocol
-        }
-
-        fn start_housekeeping_thread(
-            &mut self,
-            change_handler: ChangeHandler,
-            router_ip: IpAddr,
-        ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
-            self.start_housekeeping_thread_params
-                .lock()
-                .unwrap()
-                .push((change_handler, router_ip));
-            let result = self
-                .start_housekeeping_thread_results
-                .borrow_mut()
-                .remove(0);
-            self.housekeeping_thread_started = true;
-            result
-        }
-
-        fn stop_housekeeping_thread(&mut self) -> Result<ChangeHandler, AutomapError> {
-            self.stop_housekeeping_thread_params
-                .lock()
-                .unwrap()
-                .push(());
-            let result = self.stop_housekeeping_thread_results.borrow_mut().remove(0);
-            self.housekeeping_thread_started = false;
-            result
-        }
-
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-    }
-
-    impl TransactorMock {
-        pub fn new(protocol: AutomapProtocol) -> Self {
-            Self {
-                housekeeping_thread_started: false,
-                protocol,
-                find_routers_results: RefCell::new(vec![]),
-                get_public_ip_params: Arc::new(Mutex::new(vec![])),
-                get_public_ip_results: RefCell::new(vec![]),
-                add_mapping_params: Arc::new(Mutex::new(vec![])),
-                add_mapping_results: RefCell::new(vec![]),
-                add_permanent_mapping_params: Arc::new(Mutex::new(vec![])),
-                add_permanent_mapping_results: RefCell::new(vec![]),
-                delete_mapping_params: Arc::new(Mutex::new(vec![])),
-                delete_mapping_results: RefCell::new(vec![]),
-                start_housekeeping_thread_params: Arc::new(Mutex::new(vec![])),
-                start_housekeeping_thread_results: RefCell::new(vec![]),
-                stop_housekeeping_thread_params: Arc::new(Mutex::new(vec![])),
-                stop_housekeeping_thread_results: RefCell::new(vec![]),
-            }
-        }
-
-        pub fn find_routers_result(self, result: Result<Vec<IpAddr>, AutomapError>) -> Self {
-            self.find_routers_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn get_public_ip_params(mut self, params: &Arc<Mutex<Vec<IpAddr>>>) -> Self {
-            self.get_public_ip_params = params.clone();
-            self
-        }
-
-        pub fn get_public_ip_result(self, result: Result<IpAddr, AutomapError>) -> Self {
-            self.get_public_ip_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn add_mapping_params(mut self, params: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>) -> Self {
-            self.add_mapping_params = params.clone();
-            self
-        }
-
-        pub fn add_mapping_result(self, result: Result<u32, AutomapError>) -> Self {
-            self.add_mapping_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn add_permanent_mapping_params(
-            mut self,
-            params: &Arc<Mutex<Vec<(IpAddr, u16)>>>,
-        ) -> Self {
-            self.add_permanent_mapping_params = params.clone();
-            self
-        }
-
-        pub fn add_permanent_mapping_result(self, result: Result<u32, AutomapError>) -> Self {
-            self.add_permanent_mapping_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn delete_mapping_params(mut self, params: &Arc<Mutex<Vec<(IpAddr, u16)>>>) -> Self {
-            self.delete_mapping_params = params.clone();
-            self
-        }
-
-        pub fn delete_mapping_result(self, result: Result<(), AutomapError>) -> Self {
-            self.delete_mapping_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn start_housekeeping_thread_result(
-            self,
-            result: Result<Sender<HousekeepingThreadCommand>, AutomapError>,
-        ) -> Self {
-            self.start_housekeeping_thread_results
-                .borrow_mut()
-                .push(result);
-            self
-        }
-
-        pub fn start_housekeeping_thread_params(
-            mut self,
-            params: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
-        ) -> Self {
-            self.start_housekeeping_thread_params = params.clone();
-            self
-        }
-
-        pub fn stop_housekeeping_thread_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-            self.stop_housekeeping_thread_params = params.clone();
-            self
-        }
-
-        pub fn stop_housekeeping_thread_result(
-            self,
-            result: Result<ChangeHandler, AutomapError>,
-        ) -> Self {
-            self.stop_housekeeping_thread_results
-                .borrow_mut()
-                .push(result);
-            self
-        }
-    }
 
     fn choose_working_protocol_works_for_success(protocol: AutomapProtocol) {
         let mut subject = make_multirouter_specific_success_subject(
@@ -1583,18 +1384,6 @@ mod tests {
                 .collect(),
         );
         subject.transactors = modified_transactors;
-        subject
-    }
-
-    fn replace_transactor(
-        subject: AutomapControlReal,
-        transactor: Box<dyn Transactor>,
-    ) -> AutomapControlReal {
-        let idx = AutomapControlReal::find_transactor_index(
-            subject.transactors.borrow_mut(),
-            transactor.protocol(),
-        );
-        subject.transactors.borrow_mut()[idx] = transactor;
         subject
     }
 

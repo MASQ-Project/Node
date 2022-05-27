@@ -13,7 +13,7 @@ members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
 
 [dependencies]
 actix = "0.7.9"
-automap = { path = "../automap" }
+automap = { path = "../automap"}
 backtrace = "0.3.57"
 base64 = "0.13.0"
 bytes = "0.4.12"
