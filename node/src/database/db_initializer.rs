@@ -636,7 +636,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DATABASE_FILE, "node-data.db");
-        assert_eq!(CURRENT_SCHEMA_VERSION, 6);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 7);
     }
 
     #[test]
@@ -720,7 +720,7 @@ mod tests {
         let expected_key_words: &[&[&str]] = &[
             &["rowid", "integer", "primary", "key"],
             &["transaction_hash", "text", "not", "null"],
-            &["amount", "integer", "not", "null"],
+            &["amount", "blob", "not", "null"],
             &["payable_timestamp", "integer", "not", "null"],
             &["attempt", "integer", "not", "null"],
             &["process_error", "text", "null"],
@@ -755,7 +755,7 @@ mod tests {
         assert!(payable_contents.next().is_none());
         let expected_key_words: &[&[&str]] = &[
             &["wallet_address", "text", "primary", "key"],
-            &["balance", "integer", "not", "null"],
+            &["balance", "blob", "not", "null"],
             &["last_paid_timestamp", "integer", "not", "null"],
             &["pending_payable_rowid", "integer", "null"],
         ];
@@ -782,7 +782,7 @@ mod tests {
         assert!(receivable_contents.next().is_none());
         let expected_key_words: &[&[&str]] = &[
             &["wallet_address", "text", "primary", "key"],
-            &["balance", "integer", "not", "null"],
+            &["balance", "blob", "not", "null"],
             &["last_received_timestamp", "integer", "not", "null"],
         ];
         assert_create_table_stm_contains_all_parts(conn.as_ref(), "receivable", expected_key_words);

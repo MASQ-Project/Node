@@ -8,14 +8,18 @@ use crate::db_config::typed_config_layer::decode_bytes;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
-use rusqlite::{Error, Transaction};
-use std::fmt::Debug;
+use rusqlite::types::{ToSqlOutput, Value};
+use rusqlite::{params_from_iter, Error, Params, Row, ToSql, Transaction};
+use std::cell::RefCell;
+use std::fmt::{Debug, Display, Formatter};
+use std::iter::repeat;
 use tiny_hderive::bip32::ExtendedPrivKey;
 
 pub trait DbMigrator {
@@ -64,7 +68,10 @@ trait DatabaseMigration: Debug {
 trait MigDeclarationUtilities {
     fn db_password(&self) -> Option<String>;
     fn transaction(&self) -> &Transaction;
-    fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()>;
+    fn execute_upon_transaction<'a>(
+        &self,
+        sql_statements: &[&'a dyn StatementObject],
+    ) -> rusqlite::Result<()>;
     fn external_parameters(&self) -> &ExternalData;
     fn logger(&self) -> &Logger;
 }
@@ -176,11 +183,14 @@ impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
         self.root_transaction_ref
     }
 
-    fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()> {
+    fn execute_upon_transaction<'a>(
+        &self,
+        sql_statements: &[&dyn StatementObject],
+    ) -> rusqlite::Result<()> {
         let transaction = self.root_transaction_ref;
         sql_statements.iter().fold(Ok(()), |so_far, stm| {
             if so_far.is_ok() {
-                match transaction.execute(stm, []) {
+                match stm.execute(transaction) {
                     Ok(_) => Ok(()),
                     Err(e) if e == Error::ExecuteReturnedResults => Ok(()),
                     Err(e) => Err(e),
@@ -197,6 +207,41 @@ impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
 
     fn logger(&self) -> &Logger {
         self.logger
+    }
+}
+
+trait StatementObject: Display {
+    fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()>;
+}
+
+impl StatementObject for &str {
+    fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()> {
+        transaction.execute(self, []).map(|_| ())
+    }
+}
+
+impl StatementObject for String {
+    fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()> {
+        self.as_str().execute(transaction)
+    }
+}
+
+struct StatementWithRusqliteParams<P: Params> {
+    sql_stm: String,
+    params: RefCell<Option<P>>,
+}
+
+impl<P: Params> StatementObject for StatementWithRusqliteParams<P> {
+    fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()> {
+        transaction
+            .execute(&self.sql_stm, self.params.take().expectv("params"))
+            .map(|_| ())
+    }
+}
+
+impl<P: Params> Display for StatementWithRusqliteParams<P> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
     }
 }
 
@@ -224,7 +269,7 @@ impl DatabaseMigration for Migrate_0_to_1 {
         declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()> {
         declaration_utils.execute_upon_transaction(&[
-            "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)",
+            &"INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)",
         ])
     }
 
@@ -250,7 +295,7 @@ impl DatabaseMigration for Migrate_1_to_2 {
                 .rec()
                 .literal_identifier
         );
-        declaration_utils.execute_upon_transaction(&[statement.as_str()])
+        declaration_utils.execute_upon_transaction(&[&statement])
     }
 
     fn old_version(&self) -> usize {
@@ -273,7 +318,7 @@ impl DatabaseMigration for Migrate_2_to_3 {
             "INSERT INTO config (name, value, encrypted) VALUES ('neighborhood_mode', '{}', 0)",
             declaration_utils.external_parameters().neighborhood_mode
         );
-        declaration_utils.execute_upon_transaction(&[statement_1, statement_2.as_str()])
+        declaration_utils.execute_upon_transaction(&[&statement_1, &statement_2])
     }
 
     fn old_version(&self) -> usize {
@@ -346,9 +391,9 @@ impl DatabaseMigration for Migrate_3_to_4 {
             "null".to_string()
         };
         utils.execute_upon_transaction(&[
-            format! ("insert into config (name, value, encrypted) values ('consuming_wallet_private_key', {}, 1)",
-                     private_key_column).as_str(),
-            "delete from config where name in ('seed', 'consuming_wallet_derivation_path', 'consuming_wallet_public_key')",
+            &format! ("insert into config (name, value, encrypted) values ('consuming_wallet_private_key', {}, 1)",
+                     private_key_column),
+            &"delete from config where name in ('seed', 'consuming_wallet_derivation_path', 'consuming_wallet_public_key')",
         ])
     }
 
@@ -378,9 +423,10 @@ impl DatabaseMigration for Migrate_4_to_5 {
             .flatten()
             .collect();
         if !unresolved_pending_transactions.is_empty() {
-            warning!(declaration_utils.logger(),"Migration from 4 to 5: database belonging to the chain '{}'; \
-             we discovered possibly abandoned transactions that are said yet to be pending, these are: '{}'; \
-              continuing",declaration_utils.external_parameters().chain.rec().literal_identifier,unresolved_pending_transactions.join("', '") )
+            warning!(declaration_utils.logger(),
+                "Migration from 4 to 5: database belonging to the chain '{}'; \
+                we discovered possibly abandoned transactions that are said yet to be pending, these are: '{}'; continuing",
+                declaration_utils.external_parameters().chain.rec().literal_identifier,unresolved_pending_transactions.join("', '") )
         } else {
             debug!(
                 declaration_utils.logger(),
@@ -411,17 +457,17 @@ impl DatabaseMigration for Migrate_4_to_5 {
         let statement_10 = "insert into config (name, value, encrypted) select name, value, encrypted from _config_old";
         let statement_11 = "drop table _config_old";
         declaration_utils.execute_upon_transaction(&[
-            statement_1,
-            statement_2,
-            statement_3,
-            statement_4,
-            statement_5,
-            statement_6,
-            statement_7,
-            statement_8,
-            statement_9,
-            statement_10,
-            statement_11,
+            &statement_1,
+            &statement_2,
+            &statement_3,
+            &statement_4,
+            &statement_5,
+            &statement_6,
+            &statement_7,
+            &statement_8,
+            &statement_9,
+            &statement_10,
+            &statement_11,
         ])
     }
 
@@ -449,11 +495,7 @@ impl DatabaseMigration for Migrate_5_to_6 {
             "scan_intervals",
             &DEFAULT_SCAN_INTERVALS.to_string(),
         );
-        declaration_utils.execute_upon_transaction(&[
-            statement_1.as_str(),
-            statement_2.as_str(),
-            statement_3.as_str(),
-        ])
+        declaration_utils.execute_upon_transaction(&[&statement_1, &statement_2, &statement_3])
     }
 
     fn old_version(&self) -> usize {
@@ -480,34 +522,80 @@ impl DatabaseMigration for Migrate_6_to_7 {
         declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()> {
         let mut statements = Vec::new();
-        Migrate_6_to_7::retype_table("payable",
-                                     "wallet_address text primary key,
+        Migrate_6_to_7::retype_table(
+            declaration_utils.as_ref(),
+            "payable",
+            "wallet_address text primary key,
                                      balance blob not null,
                                      last_paid_timestamp integer not null,
                                      pending_payable_rowid integer null",
-                                     "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) \
-         select wallet_address, cast(balance as blob), last_paid_timestamp, pending_payable_rowid from _payable_old", &mut statements
+            |row: &Row| {
+                let wallet: Wallet = row.get(0).expect("db corrupted");
+                let balance: i64 = row.get(1).expect("db corrupted");
+                let last_paid_timestamp: i64 = row.get(2).expect("db corrupted");
+                let pending_payable_rowid: i64 = row.get(3).expect("db corrupted");
+                Ok(vec![
+                    Box::new(wallet),
+                    Box::new(balance),
+                    Box::new(last_paid_timestamp),
+                    Box::new(pending_payable_rowid),
+                ])
+            },
+            &mut statements,
         );
-        Migrate_6_to_7::retype_table("receivable",
-                                     "wallet_address text primary key,
+        Migrate_6_to_7::retype_table(
+            declaration_utils.as_ref(),
+            "receivable",
+            "wallet_address text primary key,
                                      balance blob not null,
                                      last_received_timestamp integer not null",
-                                     "insert into receivable (wallet_address, balance, last_received_timestamp) \
-         select wallet_address, cast(balance as blob), last_received_timestamp from _receivable_old", &mut statements
+            |row: &Row| {
+                let wallet: Wallet = row.get(0).expect("db corrupted");
+                let balance: i64 = row.get(1).expect("db corrupted");
+                let last_received_timestamp: i64 = row.get(2).expect("db corrupted");
+                Ok(vec![
+                    Box::new(wallet),
+                    Box::new(balance),
+                    Box::new(last_received_timestamp),
+                ])
+            },
+            &mut statements,
         );
-        Migrate_6_to_7::retype_table("pending_payable",
-                    "rowid integer primary key,
+        Migrate_6_to_7::retype_table(
+            declaration_utils.as_ref(),
+            "pending_payable",
+            "rowid integer primary key,
                                      transaction_hash text not null,
                                      amount blob not null,
                                      payable_timestamp integer not null,
                                      attempt integer not null,
                                      process_error text null",
-                                     "insert into pending_payable (rowid, transaction_hash, amount, payable_timestamp, attempt, process_error) \
-         select rowid, transaction_hash, cast(amount as blob), payable_timestamp, attempt, process_error from _pending_payable_old", &mut statements
+            |row: &Row| {
+                let rowid: i64 = row.get(0).expect("db corrupted");
+                let transaction_hash: String = row.get(1).expect("db corrupted");
+                let amount: i64 = row.get(2).expect("db corrupted");
+                let payable_timestamp: i64 = row.get(3).expect("db corrupted");
+                let attempt: i64 = row.get(4).expect("db corrupted");
+                let process_error: String = row.get(5).expect("db corrupted");
+                Ok(vec![
+                    Box::new(rowid),
+                    Box::new(transaction_hash),
+                    Box::new(amount),
+                    Box::new(payable_timestamp),
+                    Box::new(attempt),
+                    Box::new(process_error),
+                ])
+            },
+            &mut statements,
         );
 
         declaration_utils
-            .execute_upon_transaction(&statements.iter().map(|blah| blah.as_str()).collect_vec())
+            .execute_upon_transaction(
+                &statements
+                    .iter()
+                    .map(|boxed| boxed.as_ref())
+                    .collect_vec()
+            )
     }
 
     fn old_version(&self) -> usize {
@@ -517,15 +605,105 @@ impl DatabaseMigration for Migrate_6_to_7 {
 
 impl Migrate_6_to_7 {
     fn retype_table<'a>(
+        utils: &dyn MigDeclarationUtilities,
         table: &str,
         table_creation_lines: &str,
-        insert_statement: &'a str,
-        statements_so_far: &mut Vec<String>,
+        data_preparer: fn(row: &Row) -> rusqlite::Result<Vec<Box<dyn ToSql>>>,
+        statements_so_far: &mut Vec<Box<dyn StatementObject>>,
     ) {
-        statements_so_far.push(format!("alter table {0} rename to _{0}_old", table));
-        statements_so_far.push(format!("create table {} ({})", table, table_creation_lines));
-        statements_so_far.push(insert_statement.to_string());
-        statements_so_far.push(format!("drop table _{0}_old", table));
+        statements_so_far.push(Box::new(format!(
+            "alter table {0} rename to _{0}_old",
+            table
+        )));
+        statements_so_far.push(Box::new(format!(
+            "create table {} ({})",
+            table, table_creation_lines
+        )));
+        let param_names_delimited_by_comma = table_creation_lines
+            .split(',')
+            .map(|line| {
+                let clear_line = line.trim_start();
+                clear_line
+                    .chars()
+                    .take_while(|char| !char.is_whitespace())
+                    .collect::<String>()
+            })
+            .join(" ,");
+        let ( statement, critical_params_setting) = Self::compose_insert_statement(
+            utils,
+            table,
+            param_names_delimited_by_comma,
+            data_preparer,
+        );
+        let params_serialized = {
+            let mut collector = Vec::new();
+            Self::convert_critical_values_to_i128(critical_params_setting)
+                .into_iter()
+                .for_each(|record| record.into_iter().for_each(|piece| collector.push(piece)));
+            collector
+        };
+        let statement_with_params = StatementWithRusqliteParams {
+            sql_stm: statement,
+            params: RefCell::new(Some(params_from_iter(params_serialized))),
+        };
+        statements_so_far.push(Box::new(statement_with_params));
+        statements_so_far.push(Box::new(format!("drop table _{0}_old", table)));
+    }
+
+    fn compose_insert_statement(
+        utils: &dyn MigDeclarationUtilities,
+        table: &str,
+        param_names_for_select_stm: String,
+        data_preparer: fn(row: &Row) -> rusqlite::Result<Vec<Box<dyn ToSql>>>,
+    ) -> (String,(Vec<Vec<Box<dyn ToSql>>>, usize)) {
+        let transaction = utils.transaction();
+        let mut statement = transaction
+            .prepare(&format!(
+                "select {} from {}",
+                param_names_for_select_stm, table
+            ))
+            .expect("Internal error");
+        let separated_params = param_names_for_select_stm.split(',').collect_vec();
+        let critical_param_position = separated_params
+            .iter()
+            .position(|segment| segment.contains("balance") || segment.contains("amount"))
+            .expectv("critical param");
+        let number_of_params = separated_params.len();
+        let all_records_found = statement
+            .query_map([], |row: &Row| data_preparer(row))
+            .expect("Internal error")
+            .flatten()
+            .collect::<Vec<Vec<Box<dyn ToSql>>>>();
+        let insert_statement = {
+            let mut beginning = format!(
+                "insert into {} ({}) values ",
+                table, param_names_for_select_stm
+            );
+            (0..all_records_found.len()).for_each(|_| {
+                beginning.push_str(&format!("({}),", {
+                    let preprocessed = repeat("?,").take(number_of_params).collect::<String>();
+                    &preprocessed[..preprocessed.len() - 1].to_string()
+                }))
+            });
+            (&beginning[..beginning.len() - 1]).to_string()
+        };
+        (insert_statement,(all_records_found, critical_param_position))
+    }
+
+    fn convert_critical_values_to_i128(
+        critical_params_setting: (Vec<Vec<Box<dyn ToSql>>>,usize)
+    ) -> Vec<Vec<Box<dyn ToSql>>> {
+        let (mut collected_values, critical_value_position) = critical_params_setting;
+        collected_values.iter_mut().for_each(|line| {
+            let single = line.get(critical_value_position).expectv("critical value");
+            let rusqlite_value = single.to_sql().expectv("rusqlite representation");
+            let i64_value = match rusqlite_value {
+                ToSqlOutput::Owned(Value::Integer(num)) => num,
+                x => unimplemented!(),
+            };
+            line[critical_value_position] = Box::new(i64_value as i128);
+        });
+        collected_values
     }
 }
 
@@ -771,7 +949,8 @@ mod tests {
     };
     use crate::database::db_migrations::{
         DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbMigrator,
-        ExternalData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, Suppression,
+        ExternalData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, StatementObject,
+        StatementWithRusqliteParams, Suppression,
     };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
     use crate::db_config::db_encryption_layer::DbEncryptionLayer;
@@ -806,6 +985,7 @@ mod tests {
     use std::fs::create_dir_all;
     use std::iter::once;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
     use tiny_hderive::bip32::ExtendedPrivKey;
@@ -930,11 +1110,14 @@ mod tests {
             unimplemented!("Not needed so far")
         }
 
-        fn execute_upon_transaction<'a>(&self, sql_statements: &[&'a str]) -> rusqlite::Result<()> {
+        fn execute_upon_transaction<'a>(
+            &self,
+            sql_statements: &[&'a dyn StatementObject],
+        ) -> rusqlite::Result<()> {
             self.execute_upon_transaction_params.lock().unwrap().push(
                 sql_statements
                     .iter()
-                    .map(|str| str.to_string())
+                    .map(|stm_obj| stm_obj.to_string())
                     .collect::<Vec<String>>(),
             );
             self.execute_upon_transaction_results.borrow_mut().remove(0)
@@ -1286,10 +1469,10 @@ mod tests {
         let erroneous_statement_1 =
             "INSERT INTO botanic_garden (name, count) VALUES (sunflowers, 100)";
         let erroneous_statement_2 = "INSERT INTO milky_way (star) VALUES (just_discovered)";
-        let set_of_sql_statements = &[
-            correct_statement_1,
-            erroneous_statement_1,
-            erroneous_statement_2,
+        let set_of_sql_statements: &[&dyn StatementObject] = &[
+            &correct_statement_1,
+            &erroneous_statement_1,
+            &erroneous_statement_2,
         ];
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
         let config = DBMigratorInnerConfiguration::new();
@@ -1335,7 +1518,8 @@ mod tests {
         let statement_1 = "INSERT INTO botanic_garden (name,count) VALUES ('sun_flowers', 100)";
         let statement_2 = "ALTER TABLE botanic_garden RENAME TO just_garden"; //this statement returns an overview of the new table on its execution
         let statement_3 = "COMMIT";
-        let set_of_sql_statements = &[statement_1, statement_2, statement_3];
+        let set_of_sql_statements: &[&dyn StatementObject] =
+            &[&statement_1, &statement_2, &statement_3];
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
         let config = DBMigratorInnerConfiguration::new();
         let external_parameters = make_external_migration_parameters();
@@ -1354,6 +1538,75 @@ mod tests {
             .optional()
             .unwrap();
         assert!(assertion.is_some()) //means there is a table named 'just_garden' now
+    }
+
+    #[test]
+    fn execute_upon_transaction_handles_also_error_from_stm_with_params() {
+        let dir_path = ensure_node_home_directory_exists(
+            "db_migrations",
+            "execute_upon_transaction_handles_also_error_from_stm_with_params",
+        );
+        let db_path = dir_path.join("test_database.db");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            "CREATE TABLE botanic_garden (
+                        name TEXT,
+                        count integer
+                    )",
+            [],
+        )
+        .unwrap();
+        let statement_1_simple =
+            "INSERT INTO botanic_garden (name,count) VALUES ('sun_flowers', 100)";
+        let num = 4567_i64;
+        let word = "hello";
+        let stm = "update botanic_garden set name=?, count=?";
+        let statement_2_good = StatementWithRusqliteParams {
+            sql_stm: "select * from botanic_garden".to_string(),
+            params: RefCell::new(Some({
+                let params: &[&dyn ToSql] = [].as_slice();
+                params
+            })),
+        };
+        let statement_3_bad = StatementWithRusqliteParams {
+            sql_stm: "select * from foo".to_string(),
+            params: RefCell::new(Some(&[&"another_whatever"])),
+        };
+        //we won't get down here, error from the execution of statement_3 immediately terminate the circuit
+        let statement_4_demonstrative = StatementWithRusqliteParams {
+            sql_stm: "select * from bar".to_string(),
+            params: RefCell::new(Some(&[&"also_whatever"])),
+        };
+        let set_of_sql_statements: &[&dyn StatementObject] = &[
+            &statement_1_simple,
+            &statement_2_good,
+            &statement_3_bad,
+            &statement_4_demonstrative,
+        ];
+        let mut conn_wrapper = ConnectionWrapperReal::new(conn);
+        let config = DBMigratorInnerConfiguration::new();
+        let external_params = make_external_migration_parameters();
+        let subject = DBMigrationUtilitiesReal::new(&mut conn_wrapper, config).unwrap();
+
+        let result = subject
+            .make_mig_declaration_utils(&external_params, &Logger::new("test logger"))
+            .execute_upon_transaction(set_of_sql_statements);
+
+        match result {
+            //I was unable recreate the first field in the returned error
+            Err(Error::SqliteFailure(_, err_msg_opt)) => {
+                assert_eq!(err_msg_opt, Some("no such table: foo".to_string()))
+            }
+            x => panic!("we expected SqliteFailure(..) but got: {:?}", x),
+        }
+        let assert_conn = Connection::open(&db_path).unwrap();
+        let assertion: Option<(String, i64)> = assert_conn
+            .query_row("SELECT * FROM botanic_garden", [], |row| {
+                Ok((row.get(0).unwrap(), row.get(1).unwrap()))
+            })
+            .optional()
+            .unwrap();
+        assert_eq!(assertion, None)
     }
 
     fn make_success_mig_record(
@@ -2128,9 +2381,9 @@ mod tests {
                 );
                 assert_table_does_not_exist(&*conn, &format!("_{}_old", table_name))
             });
-        assert_number_still_there(&*conn, "select balance from payable", 1111);
-        assert_number_still_there(&*conn, "select balance from receivable", 2222);
-        assert_number_still_there(&*conn, "select amount from pending_payable", 3333);
+        assert_number_still_there(&*conn, "select balance from payable", 1234);
+        assert_number_still_there(&*conn, "select balance from receivable", 5678);
+        assert_number_still_there(&*conn, "select amount from pending_payable", 9123);
     }
 
     fn insert_value(conn: &dyn ConnectionWrapper, insert_stm: &str) {
@@ -2145,11 +2398,14 @@ mod tests {
     ) {
         let mut statement = conn.prepare(select_stm).unwrap();
         match statement.query_row([], |row| {
-            let num: rusqlite::Result<i128> = row.get(0);
+            let num: rusqlite::Result<Vec<u8>> = row.get(0);
             num
         }) {
-            Ok(num) => assert_eq!(num, expected_number),
-            Err(e) => panic!("we expected Ok but got: {}", e),
+            Ok(mut blob) => assert_eq!(
+                i128::from_str(&String::from_utf8_lossy(&blob)).unwrap(),
+                expected_number
+            ),
+            Err(e) => panic!("we expected Ok but got: {:?}", e),
         }
     }
 }
