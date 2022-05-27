@@ -1374,8 +1374,8 @@ mod tests {
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{
-        db_from_node, make_global_cryptde_node_record, make_node_descriptor_from_ip,
-        make_node_record, make_node_record_f, make_node_to_ui_recipient, neighborhood_from_nodes,
+        db_from_node, make_global_cryptde_node_record, make_node_descriptor, make_node_record,
+        make_node_record_f, make_node_to_ui_recipient, neighborhood_from_nodes,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::rate_pack;
@@ -1638,7 +1638,7 @@ mod tests {
     pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_established() {
         init_test_logging();
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let node_descriptor = make_node_descriptor(node_ip_addr);
         let mut subject = make_neighborhood(
             &node_descriptor,
             "neighborhood_handles_connection_progress_message_with_tcp_connection_established",
@@ -1691,7 +1691,7 @@ mod tests {
     fn ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received() {
         init_test_logging();
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let node_descriptor = make_node_descriptor(node_ip_addr);
         let mut subject = make_neighborhood(
             &node_descriptor,
             "ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received",
@@ -1734,7 +1734,7 @@ mod tests {
     pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_failed() {
         init_test_logging();
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let node_descriptor = make_node_descriptor(node_ip_addr);
         let subject = make_neighborhood(
             &node_descriptor,
             "neighborhood_handles_connection_progress_message_with_tcp_connection_failed",
@@ -1768,7 +1768,7 @@ mod tests {
     fn neighborhood_handles_a_connection_progress_message_with_pass_gossip_received() {
         init_test_logging();
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let node_descriptor = make_node_descriptor(node_ip_addr);
         let mut subject = make_neighborhood(
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_pass_gossip_received",
@@ -1808,7 +1808,7 @@ mod tests {
     fn neighborhood_handles_a_connection_progress_message_with_pass_loop_found() {
         init_test_logging();
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let node_descriptor = make_node_descriptor(node_ip_addr);
         let mut subject = make_neighborhood(
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_pass_loop_found",
@@ -1847,7 +1847,7 @@ mod tests {
     fn neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received() {
         init_test_logging();
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let node_descriptor = make_node_descriptor(node_ip_addr);
         let mut subject = make_neighborhood(
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received",
@@ -1887,7 +1887,7 @@ mod tests {
     fn neighborhood_handles_a_connection_progress_message_with_standard_gossip_received() {
         init_test_logging();
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let node_descriptor = make_node_descriptor(node_ip_addr);
         let mut subject = make_neighborhood(
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_standard_gossip_received",
@@ -1926,7 +1926,7 @@ mod tests {
     fn neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received() {
         init_test_logging();
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor_from_ip(node_ip_addr);
+        let node_descriptor = make_node_descriptor(node_ip_addr);
         let mut subject = make_neighborhood(
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received",

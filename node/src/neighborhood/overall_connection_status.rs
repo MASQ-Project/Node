@@ -279,7 +279,7 @@ mod tests {
     };
     use crate::neighborhood::PublicKey;
     use crate::test_utils::neighborhood_test_utils::{
-        make_ip, make_node_and_reipient, make_node_descriptor_from_ip, make_node_to_ui_recipient,
+        make_ip, make_node_and_reipient, make_node_descriptor, make_node_to_ui_recipient,
     };
     use actix::System;
     use masq_lib::blockchains::chains::Chain;
@@ -302,7 +302,7 @@ mod tests {
     #[test]
     fn connection_progress_handles_pass_gossip_correctly() {
         let ip_addr = make_ip(1);
-        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
+        let initial_node_descriptor = make_node_descriptor(ip_addr);
         let mut subject = ConnectionProgress::new(initial_node_descriptor.clone());
         let pass_target = make_ip(2);
         subject.update_stage(ConnectionStage::TcpConnectionEstablished);
@@ -324,7 +324,7 @@ mod tests {
     fn connection_progress_panics_while_handling_pass_gossip_in_case_tcp_connection_is_not_established(
     ) {
         let ip_addr = make_ip(1);
-        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
+        let initial_node_descriptor = make_node_descriptor(ip_addr);
         let mut subject = ConnectionProgress::new(initial_node_descriptor);
         let pass_target = make_ip(2);
 
@@ -345,8 +345,8 @@ mod tests {
 
     #[test]
     fn able_to_create_overall_connection_status() {
-        let node_desc_1 = make_node_descriptor_from_ip(make_ip(1));
-        let node_desc_2 = make_node_descriptor_from_ip(make_ip(2));
+        let node_desc_1 = make_node_descriptor(make_ip(1));
+        let node_desc_2 = make_node_descriptor(make_ip(2));
         let initial_node_descriptors = vec![node_desc_1.clone(), node_desc_2.clone()];
 
         let subject = OverallConnectionStatus::new(initial_node_descriptors);
@@ -373,7 +373,7 @@ mod tests {
 
     #[test]
     fn overall_connection_status_identifies_as_non_empty() {
-        let node_desc = make_node_descriptor_from_ip(make_ip(1));
+        let node_desc = make_node_descriptor(make_ip(1));
         let initial_node_descriptors = vec![node_desc];
 
         let subject = OverallConnectionStatus::new(initial_node_descriptors);
@@ -385,8 +385,8 @@ mod tests {
     fn can_receive_mut_ref_of_connection_progress_from_peer_addr() {
         let peer_1_ip = make_ip(1);
         let peer_2_ip = make_ip(2);
-        let desc_1 = make_node_descriptor_from_ip(peer_1_ip);
-        let desc_2 = make_node_descriptor_from_ip(peer_2_ip);
+        let desc_1 = make_node_descriptor(peer_1_ip);
+        let desc_2 = make_node_descriptor(peer_2_ip);
         let initial_node_descriptors = vec![desc_1.clone(), desc_2.clone()];
 
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
@@ -403,8 +403,8 @@ mod tests {
 
     #[test]
     fn can_receive_connection_progress_from_initial_node_desc() {
-        let desc_1 = make_node_descriptor_from_ip(make_ip(1));
-        let desc_2 = make_node_descriptor_from_ip(make_ip(2));
+        let desc_1 = make_node_descriptor(make_ip(1));
+        let desc_2 = make_node_descriptor(make_ip(2));
         let initial_node_descriptors = vec![desc_1.clone(), desc_2.clone()];
 
         let subject = OverallConnectionStatus::new(initial_node_descriptors);
@@ -421,8 +421,8 @@ mod tests {
 
     #[test]
     fn starting_descriptors_are_iterable() {
-        let node_desc_1 = make_node_descriptor_from_ip(make_ip(1));
-        let node_desc_2 = make_node_descriptor_from_ip(make_ip(2));
+        let node_desc_1 = make_node_descriptor(make_ip(1));
+        let node_desc_2 = make_node_descriptor(make_ip(2));
         let initial_node_descriptors = vec![node_desc_1.clone(), node_desc_2.clone()];
         let subject = OverallConnectionStatus::new(initial_node_descriptors);
 
@@ -435,8 +435,8 @@ mod tests {
 
     #[test]
     fn remove_deletes_descriptor_s_progress_and_returns_node_descriptor() {
-        let node_desc_1 = make_node_descriptor_from_ip(make_ip(1));
-        let node_desc_2 = make_node_descriptor_from_ip(make_ip(2));
+        let node_desc_1 = make_node_descriptor(make_ip(1));
+        let node_desc_2 = make_node_descriptor(make_ip(2));
         let initial_node_descriptors = vec![node_desc_1.clone(), node_desc_2.clone()];
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
@@ -923,8 +923,8 @@ mod tests {
         let ip_addr_1 = make_ip(1);
         let ip_addr_2 = make_ip(2);
         let mut subject = OverallConnectionStatus::new(vec![
-            make_node_descriptor_from_ip(ip_addr_1),
-            make_node_descriptor_from_ip(ip_addr_2),
+            make_node_descriptor(ip_addr_1),
+            make_node_descriptor(ip_addr_2),
         ]);
         let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
         subject.update_connection_stage(
