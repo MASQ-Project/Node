@@ -315,7 +315,7 @@ pub fn make_node_descriptor_from_ip(ip_addr: IpAddr) -> NodeDescriptor {
 }
 
 pub fn make_node_and_reipient() -> (IpAddr, NodeDescriptor, Recipient<NodeToUiMessage>) {
-    let ip_addr = make_ip(u8::MAX - 1);
+    let ip_addr = make_ip(u8::MAX);
     let node_descriptor = make_node_descriptor_from_ip(ip_addr);
     let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
 

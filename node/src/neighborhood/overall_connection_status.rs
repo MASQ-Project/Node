@@ -285,7 +285,6 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
     use masq_lib::ui_gateway::MessageTarget;
-    use std::net::IpAddr;
 
     #[test]
     #[should_panic(
@@ -375,7 +374,7 @@ mod tests {
     #[test]
     fn overall_connection_status_identifies_as_non_empty() {
         let node_desc = make_node_descriptor_from_ip(make_ip(1));
-        let initial_node_descriptors = vec![node_desc.clone()];
+        let initial_node_descriptors = vec![node_desc];
 
         let subject = OverallConnectionStatus::new(initial_node_descriptors);
 
@@ -959,9 +958,8 @@ mod tests {
         can_make_routes: bool,
         test_name: &str,
     ) -> (OverallConnectionStage, Option<NodeToUiMessage>) {
-        let peer_addr = make_ip(u8::MAX);
-        let mut subject =
-            OverallConnectionStatus::new(vec![make_node_descriptor_from_ip(peer_addr)]);
+        let (peer_addr, node_descriptor, _) = make_node_and_reipient();
+        let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
         let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
         subject.stage = initial_stage;
         subject.update_connection_stage(
