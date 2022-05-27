@@ -884,57 +884,39 @@ mod tests {
 
     #[test]
     fn doesn_t_send_message_to_the_ui_in_case_gossip_is_received_but_stage_hasn_t_updated() {
-        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
-        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
-        let (recipient, recording_arc) = make_node_to_ui_recipient();
-        subject.stage = OverallConnectionStage::ConnectedToNeighbor;
-        let system = System::new("test");
-        subject.update_connection_stage(
-            ip_addr,
-            ConnectionProgressEvent::TcpConnectionSuccessful,
-            &recipient,
-        );
-        subject.update_can_make_routes(false);
+        let initial_stage = OverallConnectionStage::ConnectedToNeighbor;
+        let event = ConnectionProgressEvent::StandardGossipReceived;
+        let can_make_routes = false;
 
-        subject.update_connection_stage(
-            ip_addr,
-            ConnectionProgressEvent::StandardGossipReceived,
-            &recipient,
-        );
+        let (stage, message_opt) =
+            result_when_neighborship_is_established_and_can_make_routes_is_updated(
+                initial_stage,
+                event,
+                can_make_routes,
+                "doesn_t_send_message_to_the_ui_in_case_gossip_is_received_but_stage_hasn_t_updated"
+            );
 
-        System::current().stop();
-        assert_eq!(system.run(), 0);
-        let recording = recording_arc.lock().unwrap();
-        assert_eq!(recording.len(), 0);
+        assert_eq!(stage, initial_stage);
+        assert_eq!(message_opt, None);
     }
 
     #[test]
     fn doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor(
     ) {
-        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let initial_node_descriptor = make_node_descriptor_from_ip(ip_addr);
-        let mut subject = OverallConnectionStatus::new(vec![initial_node_descriptor]);
-        let (recipient, recording_arc) = make_node_to_ui_recipient();
-        subject.stage = OverallConnectionStage::ThreeHopsRouteFound;
-        let system = System::new("test");
-        subject.update_connection_stage(
-            ip_addr,
-            ConnectionProgressEvent::TcpConnectionSuccessful,
-            &recipient,
-        );
-        subject.update_can_make_routes(false);
+        let initial_stage = OverallConnectionStage::ThreeHopsRouteFound;
+        let event = ConnectionProgressEvent::StandardGossipReceived;
+        let can_make_routes = false;
 
-        subject.update_connection_stage(
-            ip_addr,
-            ConnectionProgressEvent::StandardGossipReceived,
-            &recipient,
-        );
+        let (stage, message_opt) =
+            result_when_neighborship_is_established_and_can_make_routes_is_updated(
+                initial_stage,
+                event,
+                can_make_routes,
+                "doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor"
+            );
 
-        System::current().stop();
-        assert_eq!(system.run(), 0);
-        let recording = recording_arc.lock().unwrap();
-        assert_eq!(recording.len(), 0);
+        assert_eq!(stage, OverallConnectionStage::ConnectedToNeighbor);
+        assert_eq!(message_opt, None);
     }
 
     #[test]
@@ -1015,11 +997,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         let stage = subject.stage;
         let recording = node_to_ui_recording_arc.lock().unwrap();
-
-        let message_opt = recording
-            .get_record_opt::<NodeToUiMessage>(0)
-            .as_deref()
-            .cloned();
+        let message_opt = recording.get_record_opt::<NodeToUiMessage>(0).cloned();
 
         (stage, message_opt)
     }
