@@ -300,10 +300,24 @@ pub fn make_node_to_ui_recipient() -> (Recipient<NodeToUiMessage>, Arc<Mutex<Rec
     make_recipient_and_recording_arc()
 }
 
+pub fn make_ip(nonce: u8) -> IpAddr {
+    let ip_addr: IpAddr = Ipv4Addr::new(1, 1, 1, nonce).into();
+
+    ip_addr
+}
+
 pub fn make_node_descriptor_from_ip(ip_addr: IpAddr) -> NodeDescriptor {
     NodeDescriptor {
         blockchain: Chain::EthRopsten,
         encryption_public_key: PublicKey::from(vec![0, 0, 0]),
         node_addr_opt: Some(NodeAddr::new(&ip_addr, &[1, 2, 3])),
     }
+}
+
+pub fn make_node_and_reipient() -> (IpAddr, NodeDescriptor, Recipient<NodeToUiMessage>) {
+    let ip_addr = make_ip(u8::MAX - 1);
+    let node_descriptor = make_node_descriptor_from_ip(ip_addr);
+    let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
+
+    (ip_addr, node_descriptor, node_to_ui_recipient)
 }

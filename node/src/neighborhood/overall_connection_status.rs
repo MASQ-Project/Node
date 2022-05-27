@@ -279,13 +279,13 @@ mod tests {
     };
     use crate::neighborhood::PublicKey;
     use crate::test_utils::neighborhood_test_utils::{
-        make_node_descriptor_from_ip, make_node_to_ui_recipient,
+        make_ip, make_node_and_reipient, make_node_descriptor_from_ip, make_node_to_ui_recipient,
     };
     use actix::System;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
     use masq_lib::ui_gateway::MessageTarget;
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::IpAddr;
     use std::str::FromStr;
 
     #[test]
@@ -445,14 +445,6 @@ mod tests {
         let removed_desc = subject.remove(1);
 
         assert_eq!(removed_desc, node_desc_2);
-    }
-
-    fn make_node_and_reipient() -> (IpAddr, NodeDescriptor, Recipient<NodeToUiMessage>) {
-        let ip_addr = make_ip(u8::MAX - 1);
-        let node_descriptor = make_node_descriptor_from_ip(ip_addr);
-        let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
-
-        (ip_addr, node_descriptor, node_to_ui_recipient)
     }
 
     #[test]
@@ -736,7 +728,7 @@ mod tests {
     #[test]
     fn we_can_ask_about_can_make_routes() {
         let (_node_ip_addr, node_descriptor, _recipient) = make_node_and_reipient();
-        let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
+        let subject = OverallConnectionStatus::new(vec![node_descriptor]);
 
         let can_make_routes = subject.can_make_routes();
 
@@ -976,12 +968,6 @@ mod tests {
         );
 
         assert_eq!(subject.stage, OverallConnectionStage::ConnectedToNeighbor);
-    }
-
-    fn make_ip(nonce: u8) -> IpAddr {
-        let ip_addr: IpAddr = Ipv4Addr::new(1, 1, 1, nonce).into();
-
-        ip_addr
     }
 
     fn make_ocs_from_ip_addr(ip_address: Vec<IpAddr>) -> OverallConnectionStatus {
