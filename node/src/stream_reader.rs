@@ -622,7 +622,7 @@ mod tests {
 
         let after = SystemTime::now();
         let d_recording = d_recording_arc.lock().unwrap();
-        let d_record = d_recording.get_record::<dispatcher::InboundClientData> (0);
+        let d_record = d_recording.get_record::<dispatcher::InboundClientData>(0);
         check_timestamp(before, d_record.timestamp, after);
         assert_eq!(
             d_record,
@@ -637,7 +637,7 @@ mod tests {
             }
         );
 
-        let d_record = d_recording.get_record::<dispatcher::InboundClientData> (1);
+        let d_record = d_recording.get_record::<dispatcher::InboundClientData>(1);
         check_timestamp(before, d_record.timestamp, after);
         assert_eq!(
             d_record,

@@ -688,7 +688,7 @@ mod tests {
         let after = SystemTime::now();
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let dispatcher_record = dispatcher_recording.get_record::<dispatcher::InboundClientData>(0);
-        check_timestamp (before, dispatcher_record.timestamp, after);
+        check_timestamp(before, dispatcher_record.timestamp, after);
         assert_eq!(
             dispatcher_record,
             &dispatcher::InboundClientData {
@@ -702,7 +702,7 @@ mod tests {
             }
         );
         let dispatcher_record = dispatcher_recording.get_record::<dispatcher::InboundClientData>(1);
-        check_timestamp (before, dispatcher_record.timestamp, after);
+        check_timestamp(before, dispatcher_record.timestamp, after);
         assert_eq!(
             dispatcher_record,
             &dispatcher::InboundClientData {
@@ -716,7 +716,7 @@ mod tests {
             }
         );
         let dispatcher_record = dispatcher_recording.get_record::<dispatcher::InboundClientData>(2);
-        check_timestamp (before, dispatcher_record.timestamp, after);
+        check_timestamp(before, dispatcher_record.timestamp, after);
         assert_eq!(
             dispatcher_record,
             &dispatcher::InboundClientData {
@@ -1265,7 +1265,7 @@ mod tests {
         dispatcher_awaiter.await_message_count(1);
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let ibcd = dispatcher_recording.get_record::<InboundClientData>(0);
-        check_timestamp (before, ibcd.timestamp, after);
+        check_timestamp(before, ibcd.timestamp, after);
         assert_eq!(
             ibcd,
             &InboundClientData {

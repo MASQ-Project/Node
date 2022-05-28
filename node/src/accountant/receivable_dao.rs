@@ -42,8 +42,12 @@ pub struct ReceivableAccount {
 }
 
 pub trait ReceivableDao: Send {
-    fn more_money_receivable(&self, now: SystemTime, wallet: &Wallet, amount: u64)
-        -> Result<(), ReceivableDaoError>;
+    fn more_money_receivable(
+        &self,
+        now: SystemTime,
+        wallet: &Wallet,
+        amount: u64,
+    ) -> Result<(), ReceivableDaoError>;
 
     fn more_money_received(&mut self, now: SystemTime, transactions: Vec<BlockchainTransaction>);
 
@@ -315,7 +319,12 @@ impl ReceivableDaoReal {
     // Question: We didn't just receive a payment; why are we setting last_received_timestamp?
     // Answer: All new debts should start out young so that they don't trigger immediate delinquency.
     // Except for exotic tests, timestamp should be now or in the very recent past.
-    fn try_insert(&self, timestamp: SystemTime, wallet: &Wallet, amount: i64) -> Result<(), String> {
+    fn try_insert(
+        &self,
+        timestamp: SystemTime,
+        wallet: &Wallet,
+        amount: i64,
+    ) -> Result<(), String> {
         let mut stmt = self.conn.prepare("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[&wallet, &amount, &to_time_t(timestamp)];
         match stmt.execute(params) {
@@ -482,7 +491,9 @@ mod tests {
         let now = SystemTime::now();
         subject.more_money_receivable(now, &wallet, 1234).unwrap();
 
-        subject.more_money_receivable(SystemTime::UNIX_EPOCH, &wallet, 2345).unwrap();
+        subject
+            .more_money_receivable(SystemTime::UNIX_EPOCH, &wallet, 2345)
+            .unwrap();
 
         let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
@@ -502,7 +513,8 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_receivable(SystemTime::now(), &make_wallet("booga"), u64::MAX);
+        let result =
+            subject.more_money_receivable(SystemTime::now(), &make_wallet("booga"), u64::MAX);
 
         assert_eq!(result, Err(ReceivableDaoError::SignConversion(u64::MAX)))
     }
@@ -673,8 +685,12 @@ mod tests {
                 .unwrap(),
         );
 
-        subject.more_money_receivable(time_stub, &wallet1, 1234).unwrap();
-        subject.more_money_receivable(time_stub, &wallet2, 2345).unwrap();
+        subject
+            .more_money_receivable(time_stub, &wallet1, 1234)
+            .unwrap();
+        subject
+            .more_money_receivable(time_stub, &wallet2, 2345)
+            .unwrap();
 
         let accounts = subject
             .receivables()

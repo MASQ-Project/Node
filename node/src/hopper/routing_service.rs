@@ -521,6 +521,7 @@ mod tests {
     use super::*;
     use crate::banned_dao::BAN_CACHE;
     use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
+    use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use crate::sub_lib::cryptde::{encodex, CryptDE, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -545,7 +546,6 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::SystemTime;
-    use crate::node_test_utils::check_timestamp;
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {

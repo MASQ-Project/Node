@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::time::Duration;
+use std::ops::Add;
+use std::time::{Duration, SystemTime};
 
 use log::Level;
 use regex::escape;
@@ -15,7 +16,8 @@ use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, NodeStartupConfigBuilder,
 };
 use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
-use multinode_integration_tests_lib::utils::{config_dao, database_conn, receivable_dao};
+use multinode_integration_tests_lib::utils::{config_dao, receivable_dao};
+use node_lib::sub_lib::wallet::Wallet;
 
 #[test]
 fn debtors_are_credited_once_but_not_twice() {
@@ -63,46 +65,25 @@ fn debtors_are_credited_once_but_not_twice() {
             .ui_port(ui_port)
             .build(),
     );
-    // Get direct access to the RECEIVABLE table
     {
-        let conn = database_conn(&node);
-        // Create a receivable record to match the client receivable
-        let mut stmt = conn
-            .prepare(
-                "insert into receivable (\
-                wallet_address, \
-                balance, \
-                last_received_timestamp\
-            ) values (\
-                '0x3333333333333333333333333333333333333333',
-                1000000,
-                15000000
-            )",
+        let receivable_dao = receivable_dao(&node);
+        receivable_dao
+            .more_money_receivable(
+                SystemTime::UNIX_EPOCH.add(Duration::from_secs(15_000_000)),
+                &Wallet::new("0x3333333333333333333333333333333333333333"),
+                1_000_000,
             )
             .unwrap();
-        match stmt.execute([]) {
-            Ok(_) => (),
-            Err(e) => {
-                let msg = format!("{:?}", e);
-                panic!("Couldn't execute insert statement: {:?}", msg);
-            }
-        }
-        let mut stmt = conn
-            .prepare("update config set value = '1000' where name = 'start_block'")
-            .unwrap();
-        match stmt.execute([]) {
-            Ok(_) => (),
-            Err(e) => {
-                let msg = format!("{:?}", e);
-                panic!("Couldn't execute update statement: {:?}", msg);
-            }
-        }
     }
     {
-        // Use the config DAO to verify that the start block was correctly set
-        let config_dao = config_dao(&node);
+        let mut config_dao = config_dao(&node);
+        let config_xactn = config_dao.start_transaction().unwrap();
+        config_xactn
+            .set("start_block", Some("1000".to_string()))
+            .unwrap();
+        // Perhaps not strictly necessary
         assert_eq!(
-            config_dao.get("start_block").unwrap().value_opt.unwrap(),
+            config_xactn.get("start_block").unwrap().value_opt.unwrap(),
             "1000"
         );
     }

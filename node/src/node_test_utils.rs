@@ -210,9 +210,19 @@ where
     }
 }
 
-pub fn check_timestamp (before: SystemTime, timestamp: SystemTime, after: SystemTime) {
-    timestamp.duration_since (before).unwrap_or_else(|_| panic!("Timestamp should have been on or after {:?}, but was {:?}", before, timestamp));
-    after.duration_since (timestamp).unwrap_or_else(|_| panic!("Timestamp should have been on or before {:?}, but was {:?}", after, timestamp));
+pub fn check_timestamp(before: SystemTime, timestamp: SystemTime, after: SystemTime) {
+    timestamp.duration_since(before).unwrap_or_else(|_| {
+        panic!(
+            "Timestamp should have been on or after {:?}, but was {:?}",
+            before, timestamp
+        )
+    });
+    after.duration_since(timestamp).unwrap_or_else(|_| {
+        panic!(
+            "Timestamp should have been on or before {:?}, but was {:?}",
+            after, timestamp
+        )
+    });
 }
 
 pub struct NullFramer {

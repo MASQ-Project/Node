@@ -1290,9 +1290,7 @@ mod tests {
     use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::ui_gateway::{
-        MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage,
-    };
+    use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage};
 
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;

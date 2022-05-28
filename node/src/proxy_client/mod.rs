@@ -333,6 +333,7 @@ struct StreamContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_test_utils::check_timestamp;
     use crate::proxy_client::local_test_utils::ResolverWrapperFactoryMock;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::resolver_wrapper::ResolverWrapper;
@@ -367,7 +368,6 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::SystemTime;
-    use crate::node_test_utils::check_timestamp;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1008,7 +1008,8 @@ mod tests {
         assert_eq!(hopper_recording.len(), 2);
 
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let accountant_record = accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
+        let accountant_record =
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
         check_timestamp(before, accountant_record.timestamp, after);
         assert_eq!(
             accountant_record,
@@ -1020,7 +1021,8 @@ mod tests {
                 byte_rate: 200,
             }
         );
-        let accountant_record = accountant_recording.get_record::<ReportExitServiceProvidedMessage>(1);
+        let accountant_record =
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(1);
         check_timestamp(before, accountant_record.timestamp, after);
         assert_eq!(
             accountant_record,
@@ -1240,7 +1242,8 @@ mod tests {
             &expected_icp.clone()
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let accountant_record = accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
+        let accountant_record =
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
         check_timestamp(before, accountant_record.timestamp, after);
         assert_eq!(
             accountant_record,

@@ -277,7 +277,12 @@ pub struct PayableDaoMock {
 }
 
 impl PayableDao for PayableDaoMock {
-    fn more_money_payable(&self, now: SystemTime, wallet: &Wallet, amount: u64) -> Result<(), PayableDaoError> {
+    fn more_money_payable(
+        &self,
+        now: SystemTime,
+        wallet: &Wallet,
+        amount: u64,
+    ) -> Result<(), PayableDaoError> {
         self.more_money_payable_parameters
             .lock()
             .unwrap()

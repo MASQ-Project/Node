@@ -970,11 +970,12 @@ impl StreamKeyFactory for StreamKeyFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_test_utils::check_timestamp;
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
-    use crate::sub_lib::accountant::{ReportRoutingServiceConsumedMessage};
+    use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::cryptde::{decodex, CryptData};
     use crate::sub_lib::cryptde::{encodex, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -1015,7 +1016,6 @@ mod tests {
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::thread;
     use std::time::SystemTime;
-    use crate::node_test_utils::check_timestamp;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1118,7 +1118,7 @@ mod tests {
         rate_pack: RatePack,
     ) {
         let record = accountant_recording.get_record::<ReportExitServiceConsumedMessage>(idx);
-        check_timestamp (before, record.timestamp, after);
+        check_timestamp(before, record.timestamp, after);
         assert_eq!(
             record,
             &ReportExitServiceConsumedMessage {
@@ -1140,7 +1140,7 @@ mod tests {
         payload_size: usize,
     ) {
         let record = accountant_recording.get_record::<ReportRoutingServiceConsumedMessage>(idx);
-        check_timestamp (before, record.timestamp, after);
+        check_timestamp(before, record.timestamp, after);
         assert_eq!(
             accountant_recording.get_record::<ReportRoutingServiceConsumedMessage>(idx),
             &ReportRoutingServiceConsumedMessage {
@@ -3441,7 +3441,8 @@ mod tests {
         check_exit_report(
             &accountant_recording,
             0,
-            before, after,
+            before,
+            after,
             &incoming_route_d_wallet,
             first_exit_size,
             rate_pack(101),
@@ -3449,14 +3450,16 @@ mod tests {
         check_routing_report(
             &accountant_recording,
             1,
-            before, after,
+            before,
+            after,
             &incoming_route_e_wallet,
             routing_size,
         );
         check_routing_report(
             &accountant_recording,
             2,
-            before, after,
+            before,
+            after,
             &incoming_route_f_wallet,
             routing_size,
         );
@@ -3464,7 +3467,8 @@ mod tests {
         check_exit_report(
             &accountant_recording,
             3,
-            before, after,
+            before,
+            after,
             &incoming_route_g_wallet,
             second_exit_size,
             rate_pack(104),
@@ -3472,14 +3476,16 @@ mod tests {
         check_routing_report(
             &accountant_recording,
             4,
-            before, after,
+            before,
+            after,
             &incoming_route_h_wallet,
             routing_size,
         );
         check_routing_report(
             &accountant_recording,
             5,
-            before, after,
+            before,
+            after,
             &incoming_route_i_wallet,
             routing_size,
         );

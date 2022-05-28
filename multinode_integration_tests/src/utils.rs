@@ -16,8 +16,6 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 use std::{io, thread};
-use std::os::linux::fs::MetadataExt;
-use std::os::unix::fs::PermissionsExt;
 
 pub fn send_chunk(stream: &mut TcpStream, chunk: &[u8]) {
     stream

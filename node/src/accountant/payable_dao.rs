@@ -4,7 +4,7 @@ use crate::accountant::{unsigned_to_signed, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
-use crate::database::dao_utils::{DaoFactoryReal, to_time_t};
+use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::{ToSql, Type};
@@ -48,7 +48,12 @@ impl Payable {
 }
 
 pub trait PayableDao: Debug + Send {
-    fn more_money_payable(&self, now: SystemTime, wallet: &Wallet, amount: u64) -> Result<(), PayableDaoError>;
+    fn more_money_payable(
+        &self,
+        now: SystemTime,
+        wallet: &Wallet,
+        amount: u64,
+    ) -> Result<(), PayableDaoError>;
 
     fn mark_pending_payable_rowid(
         &self,
@@ -86,7 +91,12 @@ pub struct PayableDaoReal {
 }
 
 impl PayableDao for PayableDaoReal {
-    fn more_money_payable(&self, timestamp: SystemTime, wallet: &Wallet, amount: u64) -> Result<(), PayableDaoError> {
+    fn more_money_payable(
+        &self,
+        timestamp: SystemTime,
+        wallet: &Wallet,
+        amount: u64,
+    ) -> Result<(), PayableDaoError> {
         let signed_amount = unsigned_to_signed(amount).map_err(PayableDaoError::SignConversion)?;
         match self.try_increase_balance(timestamp, wallet, signed_amount) {
             Ok(_) => Ok(()),
@@ -238,11 +248,7 @@ impl PayableDao for PayableDaoReal {
             match total_balance_result {
                 Ok(total_balance) => Ok(total_balance),
                 Err(e)
-                    if e == Error::InvalidColumnType(
-                        0,
-                        "sum(balance)".to_string(),
-                        Type::Null,
-                    ) =>
+                    if e == Error::InvalidColumnType(0, "sum(balance)".to_string(), Type::Null) =>
                 {
                     Ok(0)
                 }
@@ -263,12 +269,21 @@ impl PayableDaoReal {
         PayableDaoReal { conn }
     }
 
-    fn try_increase_balance(&self, timestamp: SystemTime, wallet: &Wallet, amount: i64) -> Result<bool, String> {
+    fn try_increase_balance(
+        &self,
+        timestamp: SystemTime,
+        wallet: &Wallet,
+        amount: i64,
+    ) -> Result<bool, String> {
         let mut stmt = self
             .conn
             .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:address, :balance, :timestamp, null) on conflict (wallet_address) do update set balance = balance + :balance where wallet_address = :address")
             .expect("Internal error");
-        let params: &[(&str, &dyn ToSql)] = &[(":address", &wallet), (":balance", &amount), (":timestamp", &to_time_t(timestamp))];
+        let params: &[(&str, &dyn ToSql)] = &[
+            (":address", &wallet),
+            (":balance", &amount),
+            (":timestamp", &to_time_t(timestamp)),
+        ];
         match stmt.execute(params) {
             Ok(0) => Ok(false),
             Ok(_) => Ok(true),
@@ -379,7 +394,9 @@ mod tests {
         subject.more_money_payable(now, &wallet, 1234).unwrap();
 
         let status = {
-            subject.more_money_payable(SystemTime::UNIX_EPOCH, &wallet, 2345).unwrap();
+            subject
+                .more_money_payable(SystemTime::UNIX_EPOCH, &wallet, 2345)
+                .unwrap();
 
             account_status(&secondary_conn, &wallet).unwrap()
         };
@@ -676,9 +693,7 @@ mod tests {
         );
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
-        let conn =
-            Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags)
-                .unwrap();
+        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
         let insert = |wallet: &str, balance: i64, pending_payable_rowid: Option<i64>| {
             let params: &[&dyn ToSql] = &[&wallet, &balance, &0i64, &pending_payable_rowid];
 
@@ -726,7 +741,8 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_payable(SystemTime::now(), &make_wallet("foobar"), u64::MAX);
+        let result =
+            subject.more_money_payable(SystemTime::now(), &make_wallet("foobar"), u64::MAX);
 
         assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)))
     }
