@@ -16,6 +16,8 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 use std::{io, thread};
+use std::os::linux::fs::MetadataExt;
+use std::os::unix::fs::PermissionsExt;
 
 pub fn send_chunk(stream: &mut TcpStream, chunk: &[u8]) {
     stream
@@ -67,35 +69,19 @@ pub fn database_conn(node: &MASQRealNode) -> Box<dyn ConnectionWrapper> {
     ));
 
     // *** INSTRUMENTATION ***
-    let dir_metadata = std::fs::metadata(path.clone()).unwrap();
-    let dir_readonly = dir_metadata.permissions().readonly();
-    eprintln!(
-        "Database directory {:?} is readonly? {}",
-        path, dir_readonly
-    );
-    if dir_readonly {
-        dir_metadata.permissions().set_readonly(false);
-        let dir_metadata = std::fs::metadata(path.clone()).unwrap();
-        eprintln!(
-            "Set to read/write? {}",
-            !dir_metadata.permissions().readonly()
-        );
-    }
-    let file_path = path.join("node-data.db");
-    let file_metadata = std::fs::metadata(file_path.clone()).unwrap();
-    let file_readonly = file_metadata.permissions().readonly();
-    eprintln!(
-        "Database file {:?} is readonly? {}",
-        file_path, file_readonly
-    );
-    if file_readonly {
-        file_metadata.permissions().set_readonly(false);
-        let file_metadata = std::fs::metadata(file_path).unwrap();
-        eprintln!(
-            "Set to read/write? {}",
-            !file_metadata.permissions().readonly()
-        );
-    }
+    // fn handle_permissions (path: &std::path::PathBuf, name: &str) {
+    //     let metadata = std::fs::metadata(path.clone()).unwrap();
+    //     let metadata_ext = &metadata as &dyn MetadataExt;
+    //     let mode = &metadata_ext.st_mode();
+    //     eprintln! ("{} {:?} mode: {:03o}", name, path, mode & 0o777);
+    //     if (mode & 0o222) != 0o222 {
+    //         (&metadata.permissions() as &dyn PermissionsExt).set_mode (mode | 0o222);
+    //         let mode = &metadata_ext.st_mode();
+    //         eprintln!("Mode after set: {:03o}", mode);
+    //     }
+    // }
+    // handle_permissions (&path, "Database directory");
+    // handle_permissions (&path.join("node-data.db"), "Database file");
     // *** INSTRUMENTATION ***
 
     db_initializer

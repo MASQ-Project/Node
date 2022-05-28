@@ -40,6 +40,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use pretty_hex::PrettyHex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::time::SystemTime;
 use trust_dns_resolver::config::NameServerConfig;
 use trust_dns_resolver::config::Protocol;
 use trust_dns_resolver::config::ResolverConfig;
@@ -303,6 +304,7 @@ impl ProxyClient {
     ) {
         if let Some(paying_wallet) = stream_context.paying_wallet.clone() {
             let exit_report = ReportExitServiceProvidedMessage {
+                timestamp: SystemTime::now(),
                 paying_wallet,
                 payload_size: msg_data_len,
                 service_rate: self.exit_service_rate,
@@ -364,6 +366,9 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
+    use std::time::SystemTime;
+    use crate::node_test_utils::check_timestamp;
+
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "PROXYCLIENT");
@@ -916,8 +921,8 @@ mod tests {
             .hopper(hopper)
             .accountant(accountant)
             .build();
-
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let before = SystemTime::now();
 
         subject_addr
             .try_send(InboundServerData {
@@ -958,6 +963,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
+        let after = SystemTime::now();
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
@@ -1002,18 +1008,24 @@ mod tests {
         assert_eq!(hopper_recording.len(), 2);
 
         let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let accountant_record = accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
+        check_timestamp(before, accountant_record.timestamp, after);
         assert_eq!(
-            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0),
+            accountant_record,
             &ReportExitServiceProvidedMessage {
+                timestamp: accountant_record.timestamp,
                 paying_wallet: make_wallet("paying"),
                 payload_size: data.len(),
                 service_rate: 100,
                 byte_rate: 200,
             }
         );
+        let accountant_record = accountant_recording.get_record::<ReportExitServiceProvidedMessage>(1);
+        check_timestamp(before, accountant_record.timestamp, after);
         assert_eq!(
-            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(1),
+            accountant_record,
             &ReportExitServiceProvidedMessage {
+                timestamp: accountant_record.timestamp,
                 paying_wallet: make_wallet("paying"),
                 payload_size: data.len(),
                 service_rate: 100,
@@ -1176,6 +1188,7 @@ mod tests {
             protocol: ProxyProtocol::HTTP,
             originator_public_key: originator_public_key.clone(),
         };
+        let before = SystemTime::now();
 
         subject_addr
             .try_send(ExpiredCoresPackage::new(
@@ -1198,6 +1211,7 @@ mod tests {
             .unwrap();
         System::current().stop_with_code(0);
         system.run();
+        let after = SystemTime::now();
         let mut process_package_params = process_package_params_arc.lock().unwrap();
         let (actual_payload, paying_wallet_opt) = process_package_params.remove(0);
         assert_eq!(actual_payload, payload);
@@ -1226,9 +1240,12 @@ mod tests {
             &expected_icp.clone()
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let accountant_record = accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
+        check_timestamp(before, accountant_record.timestamp, after);
         assert_eq!(
-            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0),
+            accountant_record,
             &ReportExitServiceProvidedMessage {
+                timestamp: accountant_record.timestamp,
                 paying_wallet: make_wallet("gnimusnoc"),
                 payload_size: data.len(),
                 service_rate: 100,

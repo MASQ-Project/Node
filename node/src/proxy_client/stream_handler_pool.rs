@@ -23,6 +23,7 @@ use std::io;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 use tokio::prelude::future::FutureResult;
 use tokio::prelude::future::{err, ok};
 use trust_dns_resolver::error::ResolveError;
@@ -194,6 +195,7 @@ impl StreamHandlerPoolReal {
                     Some(wallet) => inner
                         .accountant_sub
                         .try_send(ReportExitServiceProvidedMessage {
+                            timestamp: SystemTime::UNIX_EPOCH, // TODO: Drive this in
                             paying_wallet: wallet,
                             payload_size,
                             service_rate: inner.exit_service_rate,

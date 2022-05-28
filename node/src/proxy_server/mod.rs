@@ -49,7 +49,7 @@ use pretty_hex::PrettyHex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
@@ -452,6 +452,7 @@ impl ProxyServer {
             return;
         }
         let stream_key = self.make_stream_key(&msg);
+        let timestamp = msg.timestamp;
         let payload = match self.make_payload(msg, &stream_key) {
             Ok(payload) => payload,
             Err(_e) => {
@@ -477,6 +478,7 @@ impl ProxyServer {
                 ProxyServer::try_transmit_to_hopper(
                     cryptde,
                     &hopper,
+                    timestamp,
                     route_query_response.clone(),
                     payload,
                     logger,
@@ -514,6 +516,7 @@ impl ProxyServer {
                                     ProxyServer::try_transmit_to_hopper(
                                         cryptde,
                                         &hopper,
+                                        timestamp,
                                         route_query_response,
                                         payload,
                                         logger,
@@ -576,6 +579,7 @@ impl ProxyServer {
                 "Reporting shutdown of {} to counterpart", &stream_key
             );
             let ibcd = InboundClientData {
+                timestamp: SystemTime::UNIX_EPOCH, // TODO: Drive this in
                 peer_addr: msg.peer_addr,
                 reception_port: Some(nca.reception_port),
                 last_data: true,
@@ -662,6 +666,7 @@ impl ProxyServer {
     fn try_transmit_to_hopper(
         cryptde: Box<dyn CryptDE>,
         hopper: &Recipient<IncipientCoresPackage>,
+        timestamp: SystemTime,
         route_query_response: RouteQueryResponse,
         payload: ClientRequestPayload_0v1,
         logger: Logger,
@@ -690,12 +695,14 @@ impl ProxyServer {
                 ProxyServer::report_exit_service(
                     accountant_exit_sub,
                     over.clone(),
+                    timestamp,
                     &payload,
                     &logger,
                 );
                 ProxyServer::transmit_to_hopper(
                     cryptde,
                     hopper,
+                    timestamp,
                     payload,
                     &route_query_response.route,
                     over,
@@ -713,6 +720,7 @@ impl ProxyServer {
     fn report_routing_service(
         accountant_routing_sub: &Recipient<ReportRoutingServiceConsumedMessage>,
         expected_services: Vec<ExpectedService>,
+        timestamp: SystemTime,
         payload_size: usize,
         logger: &Logger,
     ) {
@@ -732,6 +740,7 @@ impl ProxyServer {
             .into_iter()
             .for_each(|(earning_wallet, rate_pack)| {
                 let report_routing_service_consumed = ReportRoutingServiceConsumedMessage {
+                    timestamp,
                     earning_wallet: earning_wallet.clone(),
                     payload_size,
                     service_rate: rate_pack.routing_service_rate,
@@ -746,6 +755,7 @@ impl ProxyServer {
     fn report_exit_service(
         accountant_exit_sub: &Recipient<ReportExitServiceConsumedMessage>,
         expected_services: Vec<ExpectedService>,
+        timestamp: SystemTime,
         payload: &ClientRequestPayload_0v1,
         logger: &Logger,
     ) {
@@ -760,6 +770,7 @@ impl ProxyServer {
             Some((earning_wallet, rate_pack)) => {
                 let payload_size = payload.sequenced_packet.data.len();
                 let report_exit_service_consumed_message = ReportExitServiceConsumedMessage {
+                    timestamp,
                     earning_wallet: earning_wallet.clone(),
                     payload_size,
                     service_rate: rate_pack.exit_service_rate,
@@ -777,6 +788,7 @@ impl ProxyServer {
     fn transmit_to_hopper(
         cryptde: Box<dyn CryptDE>,
         hopper: &Recipient<IncipientCoresPackage>,
+        timestamp: SystemTime,
         payload: ClientRequestPayload_0v1,
         route: &Route,
         expected_services: Vec<ExpectedService>,
@@ -817,6 +829,7 @@ impl ProxyServer {
                 ProxyServer::report_routing_service(
                     accountant_routing_sub,
                     expected_services,
+                    timestamp,
                     pkg.payload.len(),
                     logger,
                 );
@@ -917,6 +930,7 @@ impl ProxyServer {
                     .expect("ProxyServer unbound")
                     .accountant_exit
                     .try_send(ReportExitServiceConsumedMessage {
+                        timestamp: SystemTime::now(),
                         earning_wallet: wallet.clone(),
                         payload_size: exit_size,
                         service_rate: rate_pack.exit_service_rate,
@@ -929,6 +943,7 @@ impl ProxyServer {
                     .expect("ProxyServer unbound")
                     .accountant_routing
                     .try_send(ReportRoutingServiceConsumedMessage {
+                        timestamp: SystemTime::now(),
                         earning_wallet: wallet.clone(),
                         payload_size: routing_size,
                         service_rate: DEFAULT_RATE_PACK.routing_service_rate,
@@ -959,7 +974,7 @@ mod tests {
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
-    use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
+    use crate::sub_lib::accountant::{ReportRoutingServiceConsumedMessage};
     use crate::sub_lib::cryptde::{decodex, CryptData};
     use crate::sub_lib::cryptde::{encodex, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -999,6 +1014,8 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::thread;
+    use std::time::SystemTime;
+    use crate::node_test_utils::check_timestamp;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1094,13 +1111,18 @@ mod tests {
     fn check_exit_report(
         accountant_recording: &MutexGuard<Recording>,
         idx: usize,
+        before: SystemTime,
+        after: SystemTime,
         wallet: &Wallet,
         payload_size: usize,
         rate_pack: RatePack,
     ) {
+        let record = accountant_recording.get_record::<ReportExitServiceConsumedMessage>(idx);
+        check_timestamp (before, record.timestamp, after);
         assert_eq!(
-            accountant_recording.get_record::<ReportExitServiceConsumedMessage>(idx),
+            record,
             &ReportExitServiceConsumedMessage {
+                timestamp: record.timestamp,
                 earning_wallet: wallet.clone(),
                 payload_size,
                 service_rate: rate_pack.exit_service_rate,
@@ -1112,12 +1134,17 @@ mod tests {
     fn check_routing_report(
         accountant_recording: &MutexGuard<Recording>,
         idx: usize,
+        before: SystemTime,
+        after: SystemTime,
         wallet: &Wallet,
         payload_size: usize,
     ) {
+        let record = accountant_recording.get_record::<ReportRoutingServiceConsumedMessage>(idx);
+        check_timestamp (before, record.timestamp, after);
         assert_eq!(
             accountant_recording.get_record::<ReportRoutingServiceConsumedMessage>(idx),
             &ReportRoutingServiceConsumedMessage {
+                timestamp: record.timestamp,
                 earning_wallet: wallet.clone(),
                 payload_size,
                 service_rate: DEFAULT_RATE_PACK.routing_service_rate,
@@ -1142,6 +1169,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
@@ -1233,6 +1261,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let request_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(8443),
             sequence_number: Some(0),
@@ -1242,6 +1271,7 @@ mod tests {
         };
 
         let tunnelled_msg = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(8443),
             sequence_number: Some(0),
@@ -1360,6 +1390,7 @@ mod tests {
         let http_request = b"CONNECT https://realdomain.nu:443 HTTP/1.1\r\nHost: https://bunkjunk.wrong:443\r\n\r\n";
         let request_data = http_request.to_vec();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr,
             reception_port: Some(443),
             last_data: false,
@@ -1421,6 +1452,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let request_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(8443),
             sequence_number: Some(0),
@@ -1492,6 +1524,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let request_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(8443),
             sequence_number: Some(0),
@@ -1559,6 +1592,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
@@ -1618,6 +1652,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
@@ -1681,6 +1716,7 @@ mod tests {
         thread::spawn(move || {
             let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
             let msg_from_dispatcher = InboundClientData {
+                timestamp: SystemTime::now(),
                 peer_addr: socket_addr.clone(),
                 reception_port: Some(HTTP_PORT),
                 sequence_number: Some(0),
@@ -1759,6 +1795,7 @@ mod tests {
         thread::spawn(move || {
             let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
             let msg_from_dispatcher = InboundClientData {
+                timestamp: SystemTime::now(),
                 peer_addr: socket_addr.clone(),
                 reception_port: Some(TLS_PORT),
                 sequence_number: Some(0),
@@ -1836,6 +1873,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
@@ -1910,6 +1948,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
@@ -2028,6 +2067,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
@@ -2104,6 +2144,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
@@ -2168,6 +2209,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
@@ -2230,6 +2272,7 @@ mod tests {
     #[test]
     fn proxy_server_sends_message_to_accountant_for_request_routing_service_consumed() {
         let cryptde = main_cryptde();
+        let now = SystemTime::now();
         let exit_earning_wallet = make_wallet("exit earning wallet");
         let route_1_earning_wallet = make_wallet("route 1 earning wallet");
         let route_2_earning_wallet = make_wallet("route 2 earning wallet");
@@ -2304,6 +2347,7 @@ mod tests {
         ProxyServer::try_transmit_to_hopper(
             cryptde.dup(),
             &peer_actors.hopper.from_hopper_client,
+            now,
             route_query_response,
             payload.clone(),
             logger,
@@ -2325,6 +2369,7 @@ mod tests {
         assert_eq!(
             record,
             &ReportRoutingServiceConsumedMessage {
+                timestamp: now,
                 earning_wallet: route_1_earning_wallet,
                 payload_size: payload_enc.len(),
                 service_rate: routing_node_1_rate_pack.routing_service_rate,
@@ -2335,6 +2380,7 @@ mod tests {
         assert_eq!(
             record,
             &ReportRoutingServiceConsumedMessage {
+                timestamp: now,
                 earning_wallet: route_2_earning_wallet,
                 payload_size: payload_enc.len(),
                 service_rate: routing_node_2_rate_pack.routing_service_rate,
@@ -2380,6 +2426,7 @@ mod tests {
         ProxyServer::try_transmit_to_hopper(
             cryptde.dup(),
             &peer_actors.hopper.from_hopper_client,
+            SystemTime::now(),
             route_query_response,
             payload.clone(),
             logger,
@@ -2425,13 +2472,14 @@ mod tests {
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (accountant_mock, _, accountant_log_arc) = make_recorder();
         let (neighborhood_mock, _, _) = make_recorder();
-        let zero_hop_route_reponse = zero_hop_route_response(&cryptde.public_key(), cryptde);
+        let zero_hop_route_response = zero_hop_route_response(&cryptde.public_key(), cryptde);
         let neighborhood_mock =
-            neighborhood_mock.route_query_response(Some(zero_hop_route_reponse.clone()));
+            neighborhood_mock.route_query_response(Some(zero_hop_route_response.clone()));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
@@ -2471,6 +2519,7 @@ mod tests {
     #[test]
     fn proxy_server_sends_message_to_accountant_for_request_exit_service_consumed() {
         let cryptde = main_cryptde();
+        let now = SystemTime::now();
         let earning_wallet = make_wallet("earning wallet");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (accountant_mock, accountant_awaiter, accountant_log_arc) = make_recorder();
@@ -2502,6 +2551,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: now,
             peer_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
@@ -2538,6 +2588,7 @@ mod tests {
         assert_eq!(
             record,
             &ReportExitServiceConsumedMessage {
+                timestamp: now,
                 earning_wallet,
                 payload_size: expected_data.len(),
                 service_rate: exit_node_rate_pack.exit_service_rate,
@@ -2560,6 +2611,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
@@ -2609,6 +2661,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
@@ -2701,6 +2754,7 @@ mod tests {
         ProxyServer::try_transmit_to_hopper(
             cryptde.dup(),
             &peer_actors.hopper.from_hopper_client,
+            SystemTime::now(),
             route_result,
             payload,
             logger,
@@ -2740,6 +2794,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
@@ -2820,6 +2875,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
@@ -2899,6 +2955,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
@@ -2976,6 +3033,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
@@ -3065,6 +3123,7 @@ mod tests {
         let neighborhood = Recorder::new().route_query_response(None);
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
@@ -3355,6 +3414,7 @@ mod tests {
             .build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let before = SystemTime::now();
 
         subject_addr
             .try_send(first_expired_cores_package.clone())
@@ -3366,6 +3426,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
+        let after = SystemTime::now();
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
@@ -3380,6 +3441,7 @@ mod tests {
         check_exit_report(
             &accountant_recording,
             0,
+            before, after,
             &incoming_route_d_wallet,
             first_exit_size,
             rate_pack(101),
@@ -3387,12 +3449,14 @@ mod tests {
         check_routing_report(
             &accountant_recording,
             1,
+            before, after,
             &incoming_route_e_wallet,
             routing_size,
         );
         check_routing_report(
             &accountant_recording,
             2,
+            before, after,
             &incoming_route_f_wallet,
             routing_size,
         );
@@ -3400,6 +3464,7 @@ mod tests {
         check_exit_report(
             &accountant_recording,
             3,
+            before, after,
             &incoming_route_g_wallet,
             second_exit_size,
             rate_pack(104),
@@ -3407,12 +3472,14 @@ mod tests {
         check_routing_report(
             &accountant_recording,
             4,
+            before, after,
             &incoming_route_h_wallet,
             routing_size,
         );
         check_routing_report(
             &accountant_recording,
             5,
+            before, after,
             &incoming_route_i_wallet,
             routing_size,
         );
@@ -3559,6 +3626,7 @@ mod tests {
         let mut peer_actors = peer_actors_builder().accountant(accountant).build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let before = SystemTime::now();
 
         subject_addr
             .try_send(expired_cores_package.clone())
@@ -3567,10 +3635,13 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
+        let after = SystemTime::now();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         check_exit_report(
             &accountant_recording,
             0,
+            before,
+            after,
             &incoming_route_d_wallet,
             0,
             rate_pack(101),
@@ -3578,12 +3649,16 @@ mod tests {
         check_routing_report(
             &accountant_recording,
             1,
+            before,
+            after,
             &incoming_route_e_wallet,
             routing_size,
         );
         check_routing_report(
             &accountant_recording,
             2,
+            before,
+            after,
             &incoming_route_f_wallet,
             routing_size,
         );
@@ -3936,6 +4011,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
             reception_port: Some(53),
             sequence_number: Some(0),

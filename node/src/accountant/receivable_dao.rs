@@ -42,10 +42,10 @@ pub struct ReceivableAccount {
 }
 
 pub trait ReceivableDao: Send {
-    fn more_money_receivable(&self, wallet: &Wallet, amount: u64)
+    fn more_money_receivable(&self, now: SystemTime, wallet: &Wallet, amount: u64)
         -> Result<(), ReceivableDaoError>;
 
-    fn more_money_received(&mut self, transactions: Vec<BlockchainTransaction>);
+    fn more_money_received(&mut self, now: SystemTime, transactions: Vec<BlockchainTransaction>);
 
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
@@ -82,14 +82,15 @@ pub struct ReceivableDaoReal {
 impl ReceivableDao for ReceivableDaoReal {
     fn more_money_receivable(
         &self,
+        timestamp: SystemTime,
         wallet: &Wallet,
         amount: u64,
     ) -> Result<(), ReceivableDaoError> {
         let signed_amount =
             unsigned_to_signed(amount).map_err(ReceivableDaoError::SignConversion)?;
-        match self.try_update(wallet, signed_amount) {
+        match self.try_add_debt(wallet, signed_amount) {
             Ok(true) => Ok(()),
-            Ok(false) => match self.try_insert(wallet, signed_amount) {
+            Ok(false) => match self.try_insert(timestamp, wallet, signed_amount) {
                 Ok(_) => Ok(()),
                 Err(e) => {
                     fatal!(self.logger, "Couldn't insert; database is corrupt: {}", e);
@@ -101,8 +102,8 @@ impl ReceivableDao for ReceivableDaoReal {
         }
     }
 
-    fn more_money_received(&mut self, payments: Vec<BlockchainTransaction>) {
-        self.try_multi_insert_payment(&payments)
+    fn more_money_received(&mut self, timestamp: SystemTime, payments: Vec<BlockchainTransaction>) {
+        self.try_multi_insert_payment(timestamp, &payments)
             .unwrap_or_else(|e| {
                 let mut report_lines =
                     vec![format!("{:10} {:42} {:18}", "Block #", "Wallet", "Amount")];
@@ -296,7 +297,9 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn try_update(&self, wallet: &Wallet, amount: i64) -> Result<bool, String> {
+    // Question: Why would we not update last_received_timestamp here? Is this a bug?
+    // Answer: No, it's not a bug. Adding more debt is different from receiving a payment.
+    fn try_add_debt(&self, wallet: &Wallet, amount: i64) -> Result<bool, String> {
         let mut stmt = self
             .conn
             .prepare("update receivable set balance = balance + ? where wallet_address = ?")
@@ -309,10 +312,12 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn try_insert(&self, wallet: &Wallet, amount: i64) -> Result<(), String> {
-        let timestamp = dao_utils::to_time_t(SystemTime::now());
+    // Question: We didn't just receive a payment; why are we setting last_received_timestamp?
+    // Answer: All new debts should start out young so that they don't trigger immediate delinquency.
+    // Except for exotic tests, timestamp should be now or in the very recent past.
+    fn try_insert(&self, timestamp: SystemTime, wallet: &Wallet, amount: i64) -> Result<(), String> {
         let mut stmt = self.conn.prepare("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").expect("Internal error");
-        let params: &[&dyn ToSql] = &[&wallet, &amount, &(timestamp as i64)];
+        let params: &[&dyn ToSql] = &[&wallet, &amount, &to_time_t(timestamp)];
         match stmt.execute(params) {
             Ok(_) => Ok(()),
             Err(e) => Err(format!("{}", e)),
@@ -321,6 +326,7 @@ impl ReceivableDaoReal {
 
     fn try_multi_insert_payment(
         &mut self,
+        timestamp: SystemTime,
         payments: &[BlockchainTransaction],
     ) -> Result<(), ReceivableDaoError> {
         let xactn = self.conn.transaction()?;
@@ -328,7 +334,7 @@ impl ReceivableDaoReal {
             let mut stmt = xactn.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?")
                 .expect ("Internal SQL error");
             for transaction in payments {
-                let timestamp = dao_utils::now_time_t();
+                let timestamp = dao_utils::to_time_t(timestamp);
                 let gwei_amount = match unsigned_to_signed(transaction.gwei_amount) {
                     Ok(amount) => amount,
                     Err(e) => return Err(ReceivableDaoError::SignConversion(e)),
@@ -366,7 +372,6 @@ mod tests {
     use super::*;
     use crate::accountant::test_utils::make_receivable_account;
     use crate::database::dao_utils::{from_time_t, now_time_t, to_time_t};
-    use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
     use crate::database::db_migrations::MigratorConfig;
@@ -375,7 +380,6 @@ mod tests {
     use crate::test_utils::make_wallet;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection, OpenFlags};
 
     #[test]
     fn conversion_from_pce_works() {
@@ -406,7 +410,7 @@ mod tests {
             gwei_amount: 18446744073709551615,
         }];
 
-        let result = subject.try_multi_insert_payment(&payments.as_slice());
+        let result = subject.try_multi_insert_payment(SystemTime::now(), &payments.as_slice());
 
         assert_eq!(
             result,
@@ -436,7 +440,7 @@ mod tests {
             gwei_amount: 18446744073709551615,
         }];
 
-        let _ = subject.try_multi_insert_payment(payments.as_slice());
+        let _ = subject.try_multi_insert_payment(SystemTime::now(), payments.as_slice());
     }
 
     #[test]
@@ -445,7 +449,7 @@ mod tests {
             "receivable_dao",
             "more_money_receivable_works_for_new_address",
         );
-        let before = dao_utils::to_time_t(SystemTime::now());
+        let now = SystemTime::now();
         let wallet = make_wallet("booga");
         let status = {
             let subject = ReceivableDaoReal::new(
@@ -454,26 +458,13 @@ mod tests {
                     .unwrap(),
             );
 
-            subject.more_money_receivable(&wallet, 1234).unwrap();
+            subject.more_money_receivable(now, &wallet, 1234).unwrap();
             subject.account_status(&wallet).unwrap()
         };
 
-        let after = dao_utils::to_time_t(SystemTime::now());
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance, 1234);
-        let timestamp = dao_utils::to_time_t(status.last_received_timestamp);
-        assert!(
-            timestamp >= before,
-            "{:?} should be on or after {:?}",
-            timestamp,
-            before
-        );
-        assert!(
-            timestamp <= after,
-            "{:?} should be on or before {:?}",
-            timestamp,
-            after
-        );
+        assert_eq!(to_time_t(status.last_received_timestamp), to_time_t(now));
     }
 
     #[test]
@@ -483,34 +474,20 @@ mod tests {
             "more_money_receivable_works_for_existing_address",
         );
         let wallet = make_wallet("booga");
-        let subject = {
-            let subject = ReceivableDaoReal::new(
-                DbInitializerReal::default()
-                    .initialize(&home_dir, true, MigratorConfig::test_default())
-                    .unwrap(),
-            );
-            subject.more_money_receivable(&wallet, 1234).unwrap();
-            let mut flags = OpenFlags::empty();
-            flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
-            let conn =
-                Connection::open_with_flags(&home_dir.join(db_initializer::DATABASE_FILE), flags)
-                    .unwrap();
-            conn.execute(
-                "update receivable set last_received_timestamp = 0 where wallet_address = '0x000000000000000000000000000000626f6f6761'",
-                [],
-            )
-            .unwrap();
-            subject
-        };
+        let subject = ReceivableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .unwrap(),
+        );
+        let now = SystemTime::now();
+        subject.more_money_receivable(now, &wallet, 1234).unwrap();
 
-        let status = {
-            subject.more_money_receivable(&wallet, 2345).unwrap();
-            subject.account_status(&wallet).unwrap()
-        };
+        subject.more_money_receivable(SystemTime::UNIX_EPOCH, &wallet, 2345).unwrap();
 
+        let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance, 3579);
-        assert_eq!(status.last_received_timestamp, SystemTime::UNIX_EPOCH);
+        assert_eq!(to_time_t(status.last_received_timestamp), to_time_t(now));
     }
 
     #[test]
@@ -525,30 +502,28 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_receivable(&make_wallet("booga"), u64::MAX);
+        let result = subject.more_money_receivable(SystemTime::now(), &make_wallet("booga"), u64::MAX);
 
         assert_eq!(result, Err(ReceivableDaoError::SignConversion(u64::MAX)))
     }
 
     #[test]
     fn more_money_received_works_for_existing_addresses() {
-        let before = dao_utils::to_time_t(SystemTime::now());
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
             "more_money_received_works_for_existing_address",
         );
         let debtor1 = make_wallet("debtor1");
         let debtor2 = make_wallet("debtor2");
+        let now = SystemTime::now();
         let mut subject = {
             let subject = ReceivableDaoReal::new(
                 DbInitializerReal::default()
                     .initialize(&home_dir, true, MigratorConfig::test_default())
                     .unwrap(),
             );
-            subject.more_money_receivable(&debtor1, 1234).unwrap();
-            subject.more_money_receivable(&debtor2, 2345).unwrap();
-            let mut flags = OpenFlags::empty();
-            flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
+            subject.more_money_receivable(now, &debtor1, 1234).unwrap();
+            subject.more_money_receivable(now, &debtor2, 2345).unwrap();
             subject
         };
 
@@ -566,7 +541,7 @@ mod tests {
                 },
             ];
 
-            subject.more_money_received(transactions);
+            subject.more_money_received(now, transactions);
             (
                 subject.account_status(&debtor1).unwrap(),
                 subject.account_status(&debtor2).unwrap(),
@@ -575,15 +550,11 @@ mod tests {
 
         assert_eq!(status1.wallet, debtor1);
         assert_eq!(status1.balance, 34);
-        let timestamp1 = dao_utils::to_time_t(status1.last_received_timestamp);
-        assert!(timestamp1 >= before);
-        assert!(timestamp1 <= dao_utils::to_time_t(SystemTime::now()));
+        assert_eq!(to_time_t(status1.last_received_timestamp), to_time_t(now));
 
         assert_eq!(status2.wallet, debtor2);
         assert_eq!(status2.balance, 45);
-        let timestamp2 = dao_utils::to_time_t(status2.last_received_timestamp);
-        assert!(timestamp2 >= before);
-        assert!(timestamp2 <= dao_utils::to_time_t(SystemTime::now()));
+        assert_eq!(to_time_t(status2.last_received_timestamp), to_time_t(now));
     }
 
     #[test]
@@ -605,7 +576,7 @@ mod tests {
                 gwei_amount: 2300u64,
                 block_number: 33u64,
             }];
-            subject.more_money_received(transactions);
+            subject.more_money_received(SystemTime::now(), transactions);
             subject.account_status(&debtor)
         };
 
@@ -657,7 +628,7 @@ mod tests {
             },
         ];
 
-        subject.more_money_received(payments);
+        subject.more_money_received(SystemTime::now(), payments);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: RusqliteError(\"no such table: receivable\")\n\
@@ -702,8 +673,8 @@ mod tests {
                 .unwrap(),
         );
 
-        subject.more_money_receivable(&wallet1, 1234).unwrap();
-        subject.more_money_receivable(&wallet2, 2345).unwrap();
+        subject.more_money_receivable(time_stub, &wallet1, 1234).unwrap();
+        subject.more_money_receivable(time_stub, &wallet2, 2345).unwrap();
 
         let accounts = subject
             .receivables()
@@ -714,6 +685,7 @@ mod tests {
             })
             .collect::<Vec<ReceivableAccount>>();
         assert_eq!(
+            accounts,
             vec![
                 ReceivableAccount {
                     wallet: wallet1,
@@ -725,8 +697,7 @@ mod tests {
                     balance: 2345,
                     last_received_timestamp: time_stub
                 },
-            ],
-            accounts
+            ]
         )
     }
 
