@@ -26,7 +26,7 @@ use rustc_hex::{FromHex, ToHex};
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
@@ -127,14 +127,15 @@ fn verify_bill_payment() {
         format!("{}", &serving_node_3_wallet),
         "0xb329c8b029a2d3d217e71bc4d188e8e1a4a8b924"
     );
+    let now = SystemTime::now();
     consuming_payable_dao
-        .more_money_payable(&serving_node_1_wallet, amount)
+        .more_money_payable(now, &serving_node_1_wallet, amount)
         .unwrap();
     consuming_payable_dao
-        .more_money_payable(&serving_node_2_wallet, amount)
+        .more_money_payable(now, &serving_node_2_wallet, amount)
         .unwrap();
     consuming_payable_dao
-        .more_money_payable(&serving_node_3_wallet, amount)
+        .more_money_payable(now, &serving_node_3_wallet, amount)
         .unwrap();
 
     let (serving_node_1_name, serving_node_1_index) =
@@ -149,7 +150,7 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
     serving_node_1_receivable_dao
-        .more_money_receivable(&contract_owner_wallet, amount)
+        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount)
         .unwrap();
     open_all_file_permissions(serving_node_1_path.clone().into());
 
@@ -165,7 +166,7 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
     serving_node_2_receivable_dao
-        .more_money_receivable(&contract_owner_wallet, amount)
+        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount)
         .unwrap();
     open_all_file_permissions(serving_node_2_path.clone().into());
 
@@ -181,7 +182,7 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
     serving_node_3_receivable_dao
-        .more_money_receivable(&contract_owner_wallet, amount)
+        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount)
         .unwrap();
     open_all_file_permissions(serving_node_3_path.clone().into());
 
