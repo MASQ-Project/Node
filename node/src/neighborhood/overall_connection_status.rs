@@ -279,7 +279,7 @@ mod tests {
     };
     use crate::neighborhood::PublicKey;
     use crate::test_utils::neighborhood_test_utils::{
-        make_ip, make_node_and_reipient, make_node_descriptor, make_node_to_ui_recipient,
+        make_ip, make_node_and_recipient, make_node_descriptor, make_node_to_ui_recipient,
     };
     use actix::System;
     use masq_lib::blockchains::chains::Chain;
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_tcp_connection_established() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
 
         subject.update_connection_stage(
@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_failed_when_tcp_connection_fails() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
 
         subject.update_connection_stage(
@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_neighborship_established() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         subject.update_connection_stage(
             node_ip_addr,
@@ -527,7 +527,7 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_neighborship_established_when_standard_gossip_is_received() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         subject.update_connection_stage(
             node_ip_addr,
@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_stage_zero_when_pass_gossip_is_received() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         let pass_target = make_ip(1);
         subject.update_connection_stage(
@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn updates_connection_stage_to_failed_when_pass_loop_is_found() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         subject.update_connection_stage(
             node_ip_addr,
@@ -618,7 +618,7 @@ mod tests {
 
     #[test]
     fn updates_connection_stage_to_failed_when_no_gossip_response_is_received() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         subject.update_connection_stage(
             node_ip_addr,
@@ -649,7 +649,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Unable to find the Node in connections with IP Address: 1.1.1.1")]
     fn panics_at_updating_the_connection_stage_if_a_node_is_not_a_part_of_connections() {
-        let (_node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let (_node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         let non_existing_node_s_ip_addr = make_ip(1);
 
@@ -680,7 +680,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Can't update the stage from StageZero to NeighborshipEstablished")]
     fn can_t_establish_neighborhsip_without_having_a_tcp_connection() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
 
         subject.update_connection_stage(
@@ -725,7 +725,7 @@ mod tests {
 
     #[test]
     fn we_can_ask_about_can_make_routes() {
-        let (_node_ip_addr, node_descriptor, _recipient) = make_node_and_reipient();
+        let (_node_ip_addr, node_descriptor, _recipient) = make_node_and_recipient();
         let subject = OverallConnectionStatus::new(vec![node_descriptor]);
 
         let can_make_routes = subject.can_make_routes();
@@ -735,7 +735,7 @@ mod tests {
 
     #[test]
     fn can_update_the_boolean_can_make_routes() {
-        let (_node_ip_addr, node_descriptor, _recipient) = make_node_and_reipient();
+        let (_node_ip_addr, node_descriptor, _recipient) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
         let can_make_routes_initially = subject.can_make_routes();
 
@@ -748,7 +748,7 @@ mod tests {
 
     #[test]
     fn updates_from_not_connected_to_connected_to_neighbor_in_case_flag_is_false() {
-        let (_node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let (_node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
         subject.update_can_make_routes(false);
 
@@ -759,7 +759,7 @@ mod tests {
 
     #[test]
     fn updates_from_not_connected_to_three_hops_route_found_in_case_flag_is_true() {
-        let (_node_ip_addr, node_descriptor, recipient) = make_node_and_reipient();
+        let (_node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
         subject.update_can_make_routes(true);
 
@@ -776,7 +776,7 @@ mod tests {
         let can_make_routes = true;
 
         let (stage, message_opt) =
-            result_when_neighborship_is_established_and_can_make_routes_is_updated(
+            stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
                 initial_stage,
                 event,
                 can_make_routes,
@@ -804,7 +804,7 @@ mod tests {
         let can_make_routes = false;
 
         let (stage, message_opt) =
-            result_when_neighborship_is_established_and_can_make_routes_is_updated(
+            stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
                 initial_stage,
                 event,
                 can_make_routes,
@@ -832,7 +832,7 @@ mod tests {
         let can_make_routes = true;
 
         let (stage, message_opt) =
-            result_when_neighborship_is_established_and_can_make_routes_is_updated(
+            stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
                 initial_stage,
                 event,
                 can_make_routes,
@@ -860,7 +860,7 @@ mod tests {
         let can_make_routes = false;
 
         let (stage, message_opt) =
-            result_when_neighborship_is_established_and_can_make_routes_is_updated(
+            stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
                 initial_stage,
                 event,
                 can_make_routes,
@@ -887,7 +887,7 @@ mod tests {
         let can_make_routes = false;
 
         let (stage, message_opt) =
-            result_when_neighborship_is_established_and_can_make_routes_is_updated(
+            stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
                 initial_stage,
                 event,
                 can_make_routes,
@@ -906,7 +906,7 @@ mod tests {
         let can_make_routes = false;
 
         let (stage, message_opt) =
-            result_when_neighborship_is_established_and_can_make_routes_is_updated(
+            stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
                 initial_stage,
                 event,
                 can_make_routes,
@@ -952,13 +952,13 @@ mod tests {
         assert_eq!(subject.stage, OverallConnectionStage::ConnectedToNeighbor);
     }
 
-    fn result_when_neighborship_is_established_and_can_make_routes_is_updated(
+    fn stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
         initial_stage: OverallConnectionStage,
         event: ConnectionProgressEvent,
         can_make_routes: bool,
         test_name: &str,
     ) -> (OverallConnectionStage, Option<NodeToUiMessage>) {
-        let (peer_addr, node_descriptor, _) = make_node_and_reipient();
+        let (peer_addr, node_descriptor, _) = make_node_and_recipient();
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
         let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
         subject.stage = initial_stage;

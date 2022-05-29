@@ -281,20 +281,18 @@ impl From<&NodeRecord> for AccessibleGossipRecord {
 }
 
 pub fn make_ip(nonce: u8) -> IpAddr {
-    let ip_addr: IpAddr = Ipv4Addr::new(1, 1, 1, nonce).into();
-
-    ip_addr
+    Ipv4Addr::new(1, 1, 1, nonce).into()
 }
 
 pub fn make_node_descriptor(ip_addr: IpAddr) -> NodeDescriptor {
     NodeDescriptor {
         blockchain: Chain::EthRopsten,
-        encryption_public_key: PublicKey::from(vec![0, 0, 0]),
+        encryption_public_key: PublicKey::from(&b"bitcoin is real money"[..]),
         node_addr_opt: Some(NodeAddr::new(&ip_addr, &[1, 2, 3])),
     }
 }
 
-pub fn make_node_and_reipient() -> (IpAddr, NodeDescriptor, Recipient<NodeToUiMessage>) {
+pub fn make_node_and_recipient() -> (IpAddr, NodeDescriptor, Recipient<NodeToUiMessage>) {
     let ip_addr = make_ip(u8::MAX);
     let node_descriptor = make_node_descriptor(ip_addr);
     let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
