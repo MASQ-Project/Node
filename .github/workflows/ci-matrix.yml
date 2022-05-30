@@ -43,9 +43,19 @@ jobs:
           rustup check
           rustup component add rustfmt
           rustup component add clippy
-          ./ci/all.sh
-          ./ci/multinode_integration_test.sh
+          if ! ./ci/all.sh; then
+            ALL_RESULT = "$?"
+            echo "ci/all.sh FAILED! $ALL_RESULT"
+          elif ! ./ci/multinode_integration_test.sh; then
+            MULTINODE_RESULT = "$?"
+            echo "ci/multinode_integration_test.sh FAILED! $MULTINODE_RESULT"
+          fi
           ./ci/collect_results.sh
+          if [[ $ALL_RESULT != "" || $MULTINODE_RESULT != "" ]]; then
+            exit 1
+          else
+            exit 0
+          fi
         shell: bash
       - name: Publish ${{ matrix.target.os }}
         uses: actions/upload-artifact@v3
