@@ -4,9 +4,16 @@ use crate::command::Command;
 use crate::masq_node::MASQNodeUtils;
 use node_lib::test_utils;
 use std::net::{IpAddr, Ipv4Addr};
+use crate::utils::UrlHolder;
 
 pub struct BlockchainServer<'a> {
     pub name: &'a str,
+}
+
+impl<'a> UrlHolder for BlockchainServer<'a> {
+    fn url(&self) -> String {
+        format!("http://{}:18545", self.ip().unwrap().trim())
+    }
 }
 
 impl<'a> BlockchainServer<'a> {
@@ -40,10 +47,6 @@ impl<'a> BlockchainServer<'a> {
         ];
         let mut command = Command::new("docker", Command::strings(args));
         command.stdout_or_stderr()
-    }
-
-    pub fn service_url(&self) -> String {
-        format!("http://{}:18545", self.ip().unwrap().trim())
     }
 
     pub fn wait_until_ready(&self) {

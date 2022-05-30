@@ -68,7 +68,7 @@ impl MASQNodeCluster {
 
     pub fn start_named_real_node(
         &mut self,
-        name: String,
+        name: &str,
         index: usize,
         config: NodeStartupConfig,
     ) -> MASQRealNode {

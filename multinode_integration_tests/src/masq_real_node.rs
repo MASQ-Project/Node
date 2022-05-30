@@ -756,7 +756,7 @@ impl MASQRealNode {
     ) -> Self {
         let name = Self::make_name(index);
         Self::start_with(
-            name,
+            &name,
             startup_config,
             index,
             host_node_parent_dir,
@@ -765,7 +765,7 @@ impl MASQRealNode {
     }
 
     pub fn start_prepared(
-        name: String,
+        name: &str,
         startup_config: NodeStartupConfig,
         index: usize,
         host_node_parent_dir: Option<String>,
@@ -780,14 +780,14 @@ impl MASQRealNode {
     }
 
     pub fn start_with(
-        name: String,
+        name: &str,
         startup_config: NodeStartupConfig,
         index: usize,
         host_node_parent_dir: Option<String>,
         docker_run_fn: Box<dyn Fn(&str, IpAddr, &str) -> Result<(), String>>,
     ) -> Self {
         let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
-        MASQNodeUtils::clean_up_existing_container(&name[..]);
+        MASQNodeUtils::clean_up_existing_container(name);
         let real_startup_config = match startup_config.ip_info {
             LocalIpInfo::ZeroHop => startup_config,
             LocalIpInfo::DistributedUnknown => NodeStartupConfigBuilder::copy(&startup_config)
@@ -803,12 +803,12 @@ impl MASQRealNode {
             None => MASQNodeUtils::find_project_root(),
         };
 
-        docker_run_fn(&root_dir, ip_addr, &name).expect("docker run");
+        docker_run_fn(&root_dir, ip_addr, name).expect("docker run");
 
         let ui_port = real_startup_config.ui_port_opt.unwrap_or(DEFAULT_UI_PORT);
         let ui_port_pair = format!("{}:{}", ui_port, ui_port);
         Self::exec_command_on_container_and_detach(
-            &name,
+            name,
             vec![
                 "/usr/local/bin/port_exposer",
                 "80:8080",
@@ -820,14 +820,14 @@ impl MASQRealNode {
         match &real_startup_config.firewall_opt {
             None => (),
             Some(firewall) => {
-                Self::create_impenetrable_firewall(&name);
+                Self::create_impenetrable_firewall(name);
                 firewall.ports_to_open.iter().for_each(|port| {
                     Self::open_firewall_port(&name, *port)
                         .unwrap_or_else(|_| panic!("Can't open port {}", *port))
                 });
             }
         }
-        Self::establish_wallet_info(&name, &real_startup_config);
+        Self::establish_wallet_info(name, &real_startup_config);
         let chain = real_startup_config.chain;
         let cryptde_null_opt = real_startup_config
             .fake_public_key_opt
@@ -836,7 +836,7 @@ impl MASQRealNode {
         let restart_startup_config = real_startup_config.clone();
         let guts = Rc::new(MASQRealNodeGuts {
             startup_config: real_startup_config.clone(),
-            name: name.clone(),
+            name: name.to_string(),
             container_ip: ip_addr,
             node_reference: NodeReference::new(
                 PublicKey::new(&[]),
@@ -869,7 +869,7 @@ impl MASQRealNode {
         let mut result = Self { guts };
         result.restart_node(restart_startup_config);
         let node_reference =
-            Self::extract_node_reference(&name).expect("extracting node reference");
+            Self::extract_node_reference(name).expect("extracting node reference");
         Rc::get_mut(&mut result.guts).unwrap().node_reference = node_reference;
         result
     }

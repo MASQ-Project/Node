@@ -16,6 +16,12 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 use std::{io, thread};
+use std::path::PathBuf;
+use crate::command::Command;
+
+pub trait UrlHolder {
+    fn url(&self) -> String;
+}
 
 pub fn send_chunk(stream: &mut TcpStream, chunk: &[u8]) {
     stream
@@ -59,29 +65,12 @@ pub fn wait_for_chunk(stream: &mut TcpStream, timeout: &Duration) -> Result<Vec<
     }
 }
 
-pub fn database_conn(node: &MASQRealNode) -> Box<dyn ConnectionWrapper> {
+pub fn database_conn(node_name: &str) -> Box<dyn ConnectionWrapper> {
     let db_initializer = DbInitializerReal::default();
     let path = std::path::PathBuf::from(MASQRealNode::node_home_dir(
         &MASQNodeUtils::find_project_root(),
-        &node.name().to_string(),
+        node_name,
     ));
-
-    // *** INSTRUMENTATION ***
-    // fn handle_permissions (path: &std::path::PathBuf, name: &str) {
-    //     let metadata = std::fs::metadata(path.clone()).unwrap();
-    //     let metadata_ext = &metadata as &dyn MetadataExt;
-    //     let mode = &metadata_ext.st_mode();
-    //     eprintln! ("{} {:?} mode: {:03o}", name, path, mode & 0o777);
-    //     if (mode & 0o222) != 0o222 {
-    //         (&metadata.permissions() as &dyn PermissionsExt).set_mode (mode | 0o222);
-    //         let mode = &metadata_ext.st_mode();
-    //         eprintln!("Mode after set: {:03o}", mode);
-    //     }
-    // }
-    // handle_permissions (&path, "Database directory");
-    // handle_permissions (&path.join("node-data.db"), "Database file");
-    // *** INSTRUMENTATION ***
-
     db_initializer
         .initialize(
             &path,
@@ -91,16 +80,16 @@ pub fn database_conn(node: &MASQRealNode) -> Box<dyn ConnectionWrapper> {
         .unwrap()
 }
 
-pub fn config_dao(node: &MASQRealNode) -> Box<dyn ConfigDao> {
-    Box::new(ConfigDaoReal::new(database_conn(node)))
+pub fn config_dao(node_name: &str) -> Box<dyn ConfigDao> {
+    Box::new(ConfigDaoReal::new(database_conn(node_name)))
 }
 
-pub fn payable_dao(node: &MASQRealNode) -> Box<dyn PayableDao> {
-    Box::new(PayableDaoReal::new(database_conn(node)))
+pub fn payable_dao(node_name: &str) -> Box<dyn PayableDao> {
+    Box::new(PayableDaoReal::new(database_conn(node_name)))
 }
 
-pub fn receivable_dao(node: &MASQRealNode) -> Box<dyn ReceivableDao> {
-    Box::new(ReceivableDaoReal::new(database_conn(node)))
+pub fn receivable_dao(node_name: &str) -> Box<dyn ReceivableDao> {
+    Box::new(ReceivableDaoReal::new(database_conn(node_name)))
 }
 
 pub fn wait_for_shutdown(stream: &mut TcpStream, timeout: &Duration) -> Result<(), io::Error> {
@@ -112,6 +101,21 @@ pub fn wait_for_shutdown(stream: &mut TcpStream, timeout: &Duration) -> Result<(
         Err(ref e) if e.kind() == ErrorKind::WouldBlock => Err(io::Error::from(e.kind())),
         Err(ref e) if e.kind() == ErrorKind::ConnectionReset => Ok(()),
         Err(e) => Err(e),
+    }
+}
+
+pub fn open_all_file_permissions(dir: PathBuf) {
+    match Command::new(
+        "chmod",
+        Command::strings(vec!["-R", "777", dir.to_str().unwrap()]),
+    )
+        .wait_for_exit()
+    {
+        0 => (),
+        _ => panic!(
+            "Couldn't chmod 777 files in directory {}",
+            dir.to_str().unwrap()
+        ),
     }
 }
 

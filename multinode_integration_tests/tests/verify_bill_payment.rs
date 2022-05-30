@@ -31,6 +31,7 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
 use web3::Web3;
+use multinode_integration_tests_lib::utils::{open_all_file_permissions, UrlHolder};
 
 #[test]
 fn verify_bill_payment() {
@@ -44,7 +45,7 @@ fn verify_bill_payment() {
     blockchain_server.start();
     blockchain_server.wait_until_ready();
     let (_event_loop_handle, http) = Http::with_max_parallel(
-        blockchain_server.service_url().as_ref(),
+        blockchain_server.url().as_ref(),
         REQUESTS_IN_PARALLEL,
     )
     .unwrap();
@@ -403,7 +404,7 @@ fn make_seed() -> Seed {
 }
 
 fn build_config(
-    server: &BlockchainServer,
+    server_url_holder: &dyn UrlHolder,
     seed: &Seed,
     payment_thresholds: PaymentThresholds,
     wallet_derivation_path: String,
@@ -411,7 +412,7 @@ fn build_config(
     let (serving_node_wallet, serving_node_secret) =
         make_node_wallet(seed, wallet_derivation_path.as_str());
     let config = NodeStartupConfigBuilder::standard()
-        .blockchain_service_url(server.service_url())
+        .blockchain_service_url(server_url_holder.url())
         .chain(Chain::Dev)
         .payment_thresholds(payment_thresholds)
         .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_secret))
@@ -451,19 +452,4 @@ fn expire_receivables(path: PathBuf) {
         .prepare("update config set value = '0' where name = 'start_block'")
         .unwrap();
     config_stmt.execute([]).unwrap();
-}
-
-fn open_all_file_permissions(dir: PathBuf) {
-    match Command::new(
-        "chmod",
-        Command::strings(vec!["-R", "777", dir.to_str().unwrap()]),
-    )
-    .wait_for_exit()
-    {
-        0 => (),
-        _ => panic!(
-            "Couldn't chmod 777 files in directory {}",
-            dir.to_str().unwrap()
-        ),
-    }
 }

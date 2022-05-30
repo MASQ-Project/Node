@@ -15,6 +15,7 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::masq_node_cluster::DockerHostSocketAddr;
+use crate::utils::UrlHolder;
 
 lazy_static! {
     static ref CONTENT_LENGTH_DETECTOR: Regex =
@@ -120,6 +121,12 @@ pub struct MockBlockchainClientServer {
     requests_arc: Arc<Mutex<Vec<String>>>,
     responses: Vec<String>,
     notifier: Sender<()>,
+}
+
+impl UrlHolder for MockBlockchainClientServer {
+    fn url(&self) -> String {
+        format!("http://{}", self.local_addr().unwrap())
+    }
 }
 
 impl Drop for MockBlockchainClientServer {
