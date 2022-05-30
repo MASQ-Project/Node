@@ -135,7 +135,7 @@ lazy_static! {
     pub static ref LOGFILE_NAME: Mutex<PathBuf> = Mutex::new(PathBuf::from("uninitialized"));
 }
 
-pub trait LoggerInitializerWrapper: Send {
+pub trait LoggerInitializerWrapper {
     fn init(
         &mut self,
         file_path: PathBuf,
