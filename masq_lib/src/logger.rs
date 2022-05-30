@@ -2,6 +2,8 @@
 use crate::messages::SerializableLogLevel;
 #[cfg(not(feature = "log_recipient_test"))]
 use crate::messages::{ToMessageBody, UiLogBroadcast};
+#[cfg(feature = "log_recipient_test")]
+use crate::test_utils::utils::MutexIncrementInset;
 #[cfg(not(feature = "log_recipient_test"))]
 use crate::ui_gateway::MessageTarget;
 use crate::ui_gateway::NodeToUiMessage;
@@ -216,11 +218,9 @@ impl From<Level> for SerializableLogLevel {
 }
 
 #[cfg(feature = "log_recipient_test")]
-pub struct Counter(pub usize);
-
-#[cfg(feature = "log_recipient_test")]
 lazy_static! {
-    pub static ref INITIALIZATION_COUNTER: Mutex<Counter> = Mutex::new(Counter(0));
+    pub static ref INITIALIZATION_COUNTER: Mutex<MutexIncrementInset> =
+        Mutex::new(MutexIncrementInset(0));
 }
 
 #[cfg(feature = "log_recipient_test")]
