@@ -4,7 +4,6 @@ use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
-use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
@@ -218,7 +217,7 @@ fn verify_bill_payment() {
     );
 
     let real_consuming_node =
-        cluster.start_named_real_node(consuming_node_name, consuming_node_index, consuming_config);
+        cluster.start_named_real_node(&consuming_node_name, consuming_node_index, consuming_config);
     for _ in 0..6 {
         cluster.start_real_node(
             NodeStartupConfigBuilder::standard()
@@ -264,17 +263,17 @@ fn verify_bill_payment() {
     );
 
     let serving_node_1 = cluster.start_named_real_node(
-        serving_node_1_name,
+        &serving_node_1_name,
         serving_node_1_index,
         serving_node_1_config,
     );
     let serving_node_2 = cluster.start_named_real_node(
-        serving_node_2_name,
+        &serving_node_2_name,
         serving_node_2_index,
         serving_node_2_config,
     );
     let serving_node_3 = cluster.start_named_real_node(
-        serving_node_3_name,
+        &serving_node_3_name,
         serving_node_3_index,
         serving_node_3_config,
     );
