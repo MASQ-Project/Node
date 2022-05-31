@@ -11,6 +11,7 @@ use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, EarningWalletInfo, MASQRealNode, NodeStartupConfig,
     NodeStartupConfigBuilder,
 };
+use multinode_integration_tests_lib::utils::{open_all_file_permissions, UrlHolder};
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;
@@ -31,7 +32,6 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
 use web3::Web3;
-use multinode_integration_tests_lib::utils::{open_all_file_permissions, UrlHolder};
 
 #[test]
 fn verify_bill_payment() {
@@ -44,11 +44,8 @@ fn verify_bill_payment() {
     };
     blockchain_server.start();
     blockchain_server.wait_until_ready();
-    let (_event_loop_handle, http) = Http::with_max_parallel(
-        blockchain_server.url().as_ref(),
-        REQUESTS_IN_PARALLEL,
-    )
-    .unwrap();
+    let (_event_loop_handle, http) =
+        Http::with_max_parallel(blockchain_server.url().as_ref(), REQUESTS_IN_PARALLEL).unwrap();
     let web3 = Web3::new(http.clone());
     let deriv_path = derivation_path(0, 0);
     let seed = make_seed();

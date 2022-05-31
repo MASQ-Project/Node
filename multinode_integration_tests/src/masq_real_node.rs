@@ -868,8 +868,7 @@ impl MASQRealNode {
         });
         let mut result = Self { guts };
         result.restart_node(restart_startup_config);
-        let node_reference =
-            Self::extract_node_reference(name).expect("extracting node reference");
+        let node_reference = Self::extract_node_reference(name).expect("extracting node reference");
         Rc::get_mut(&mut result.guts).unwrap().node_reference = node_reference;
         result
     }

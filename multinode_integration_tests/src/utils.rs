@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::command::Command;
 use crate::masq_node::{MASQNode, MASQNodeUtils};
 use crate::masq_real_node::MASQRealNode;
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
@@ -14,10 +15,9 @@ use node_lib::sub_lib::cryptde::{CryptData, PlainData};
 use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use std::{io, thread};
-use std::path::PathBuf;
-use crate::command::Command;
 
 pub trait UrlHolder {
     fn url(&self) -> String;
@@ -109,7 +109,7 @@ pub fn open_all_file_permissions(dir: PathBuf) {
         "chmod",
         Command::strings(vec!["-R", "777", dir.to_str().unwrap()]),
     )
-        .wait_for_exit()
+    .wait_for_exit()
     {
         0 => (),
         _ => panic!(
