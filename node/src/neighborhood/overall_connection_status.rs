@@ -188,6 +188,7 @@ impl OverallConnectionStatus {
         event: ConnectionProgressEvent,
         node_to_ui_recipient: &Recipient<NodeToUiMessage>,
     ) {
+        // TODO: This should return a Result of ConnectionProgress
         let connection_progress_to_modify = self.get_connection_progress_by_ip(peer_addr);
 
         let mut modify_connection_progress =
