@@ -28,6 +28,7 @@ fn debtors_are_credited_once_but_not_twice() {
     let ui_port = find_free_port();
     let mut cluster = MASQNodeCluster::start().unwrap();
     // Create and initialize mock blockchain client: prepare a receivable at block 2000
+    eprintln!("Setting up mock blockchain client");
     let blockchain_client_server = MBCSBuilder::new(mbcs_port)
         .response(
             vec![LogObject {
@@ -57,6 +58,7 @@ fn debtors_are_credited_once_but_not_twice() {
         )
         .start();
     // Start a real Node pointing at the mock blockchain client with a start block of 1000
+    eprintln!("Preparing Node to start");
     let node_config = NodeStartupConfigBuilder::standard()
         .log_level(Level::Debug)
         .scans(false)
@@ -64,9 +66,11 @@ fn debtors_are_credited_once_but_not_twice() {
         .ui_port(ui_port)
         .build();
     let (node_name, node_index) = cluster.prepare_real_node(&node_config);
+    eprintln!("Opening all file permissions");
     let node_home_dir =
         MASQRealNode::node_home_dir(&MASQNodeUtils::find_project_root(), &node_name);
     open_all_file_permissions(PathBuf::from(node_home_dir));
+    eprintln!("Setting up database");
     {
         let mut config_dao = config_dao(&node_name);
         let config_xactn = config_dao.start_transaction().unwrap();
@@ -74,7 +78,6 @@ fn debtors_are_credited_once_but_not_twice() {
             .set("start_block", Some("1000".to_string()))
             .unwrap();
     }
-    let node = cluster.start_named_real_node(&node_name, node_index, node_config);
     {
         let receivable_dao = receivable_dao(&node_name);
         receivable_dao
@@ -85,8 +88,12 @@ fn debtors_are_credited_once_but_not_twice() {
             )
             .unwrap();
     }
+    eprintln!("Starting Node");
+    let node = cluster.start_named_real_node(&node_name, node_index, node_config);
+    eprintln!("Starting UI");
     let ui_client = node.make_ui(ui_port);
     // Command a scan log
+    eprintln!("Commanding receivables scan");
     ui_client.send_request(
         UiScanRequest {
             scan_type: ScanType::Receivables,
@@ -95,9 +102,12 @@ fn debtors_are_credited_once_but_not_twice() {
     );
     let response = ui_client.wait_for_response(1235, Duration::from_secs(10));
     let (_, context_id) = UiScanResponse::fmb(response).unwrap();
+    eprintln!("Checking scan response");
     assert_eq!(context_id, 1235);
     // Kill the real Node
+    eprintln!("Killing Node");
     node.kill_node();
+    eprintln!("Asserting on database");
     // Use the receivable DAO to verify that the receivable's balance has been adjusted
     {
         let receivable_dao = receivable_dao(&node_name);
@@ -113,6 +123,7 @@ fn debtors_are_credited_once_but_not_twice() {
             "2001"
         );
     }
+    eprintln!("Passed!");
 }
 
 #[test]
