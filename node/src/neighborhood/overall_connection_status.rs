@@ -8,6 +8,7 @@ use actix::Recipient;
 use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use std::net::IpAddr;
+use std::string::String;
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum ConnectionStageErrors {
@@ -147,19 +148,22 @@ impl OverallConnectionStatus {
             .map(|connection_progress| &connection_progress.initial_node_descriptor)
     }
 
-    pub fn get_connection_progress_by_ip(&mut self, peer_addr: IpAddr) -> &mut ConnectionProgress {
-        let connection_progress_to_modify = self
+    pub fn get_connection_progress_by_ip(
+        &mut self,
+        peer_addr: IpAddr,
+    ) -> Result<&mut ConnectionProgress, String> {
+        let connection_progress_res = self
             .progress
             .iter_mut()
-            .find(|connection_progress| connection_progress.current_peer_addr == peer_addr)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Unable to find the Node in connections with IP Address: {}",
-                    peer_addr
-                )
-            });
+            .find(|connection_progress| connection_progress.current_peer_addr == peer_addr);
 
-        connection_progress_to_modify
+        match connection_progress_res {
+            Some(connection_progress) => Ok(connection_progress),
+            None => Err(format!(
+                "Unable to find the Node in connections with IP Address: {}",
+                peer_addr
+            )),
+        }
     }
 
     pub fn get_connection_progress_by_desc(
@@ -188,8 +192,8 @@ impl OverallConnectionStatus {
         event: ConnectionProgressEvent,
         node_to_ui_recipient: &Recipient<NodeToUiMessage>,
     ) {
-        // TODO: This should return a Result of ConnectionProgress
-        let connection_progress_to_modify = self.get_connection_progress_by_ip(peer_addr);
+        let connection_progress_to_modify = self.get_connection_progress_by_ip(peer_addr).unwrap();
+        // TODO: Do Something with the error - "Cannot update stage for the peer addr: {}"
 
         let mut modify_connection_progress =
             |stage: ConnectionStage| connection_progress_to_modify.update_stage(stage);
@@ -383,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn can_receive_mut_ref_of_connection_progress_from_peer_addr() {
+    fn can_recieve_a_result_of_connection_progress_from_peer_addr() {
         let peer_1_ip = make_ip(1);
         let peer_2_ip = make_ip(2);
         let desc_1 = make_node_descriptor(peer_1_ip);
@@ -392,13 +396,28 @@ mod tests {
 
         let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
+        let res_1 = subject.get_connection_progress_by_ip(peer_1_ip);
+        assert_eq!(res_1, Ok(&mut ConnectionProgress::new(desc_1)));
+        let res_2 = subject.get_connection_progress_by_ip(peer_2_ip);
+        assert_eq!(res_2, Ok(&mut ConnectionProgress::new(desc_2)));
+    }
+
+    #[test]
+    fn receives_an_error_in_receiving_connection_progress_from_unknown_ip_address() {
+        let peer = make_ip(1);
+        let desc = make_node_descriptor(peer);
+        let initial_node_descriptors = vec![desc];
+        let unknown_peer = make_ip(2);
+
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+
+        let res = subject.get_connection_progress_by_ip(unknown_peer);
         assert_eq!(
-            subject.get_connection_progress_by_ip(peer_1_ip),
-            &mut ConnectionProgress::new(desc_1)
-        );
-        assert_eq!(
-            subject.get_connection_progress_by_ip(peer_2_ip),
-            &mut ConnectionProgress::new(desc_2)
+            res,
+            Err(format!(
+                "Unable to find the Node in connections with IP Address: {}",
+                unknown_peer
+            ))
         );
     }
 

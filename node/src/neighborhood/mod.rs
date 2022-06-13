@@ -1171,7 +1171,9 @@ impl Neighborhood {
             prev_connection_progress: self
                 .overall_connection_status
                 .get_connection_progress_by_ip(current_peer_addr)
+                .unwrap()
                 .clone(),
+            // TODO: Do Something with the error - "Cannot send AskAboutDebutGossipMessage for peer with IP Address: {}"
         };
         self.tools.notify_later_ask_about_gossip.notify_later(
             message,
