@@ -280,10 +280,9 @@ impl DbInitializerReal {
     }
 
     fn create_pending_payable_table(&self, conn: &Connection) {
-        //TODO the rowid argument could be left out?
+        //TODO the rowid argument could be left out?.......I did that already...everything ok?
         conn.execute(
             "create table if not exists pending_payable (
-                    rowid integer primary key,
                     transaction_hash text not null,
                     amount blob not null,
                     payable_timestamp integer not null,

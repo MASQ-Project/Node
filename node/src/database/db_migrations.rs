@@ -9,6 +9,7 @@ use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERV
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use crate::sub_lib::wallet::Wallet;
+use futures::Sink;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
@@ -19,7 +20,7 @@ use rusqlite::types::{ToSqlOutput, Value};
 use rusqlite::{params_from_iter, Error, Params, Row, ToSql, Transaction};
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter};
-use std::iter::repeat;
+use std::iter::{once, repeat};
 use tiny_hderive::bip32::ExtendedPrivKey;
 
 pub trait DbMigrator {
@@ -241,7 +242,7 @@ impl<P: Params> StatementObject for StatementWithRusqliteParams<P> {
 
 impl<P: Params> Display for StatementWithRusqliteParams<P> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        unimplemented!()
     }
 }
 
@@ -529,18 +530,6 @@ impl DatabaseMigration for Migrate_6_to_7 {
                               balance blob not null,
                               last_paid_timestamp integer not null,
                               pending_payable_rowid integer null",
-            |row: &Row| {
-                let wallet: Wallet = row.get(0).expect("db corrupted");
-                let balance: i64 = row.get(1).expect("db corrupted");
-                let last_paid_timestamp: i64 = row.get(2).expect("db corrupted");
-                let pending_payable_rowid: Option<i64> = row.get(3).expect("db corrupted");
-                Ok(vec![
-                    Box::new(wallet),
-                    Box::new(balance),
-                    Box::new(last_paid_timestamp),
-                    Box::new(pending_payable_rowid),
-                ])
-            },
             &mut statements,
         );
         Migrate_6_to_7::retype_table(
@@ -549,43 +538,17 @@ impl DatabaseMigration for Migrate_6_to_7 {
             "wallet_address text primary key,
                              balance blob not null,
                              last_received_timestamp integer not null",
-            |row: &Row| {
-                let wallet: Wallet = row.get(0).expect("db corrupted");
-                let balance: i64 = row.get(1).expect("db corrupted");
-                let last_received_timestamp: i64 = row.get(2).expect("db corrupted");
-                Ok(vec![
-                    Box::new(wallet),
-                    Box::new(balance),
-                    Box::new(last_received_timestamp),
-                ])
-            },
             &mut statements,
         );
         Migrate_6_to_7::retype_table(
             declaration_utils.as_ref(),
             "pending_payable",
-            "rowid integer primary key,
-                              transaction_hash text not null,
+            //TODO careful with the removed line
+            "transaction_hash text not null,
                               amount blob not null,
                               payable_timestamp integer not null,
                               attempt integer not null,
                               process_error text null",
-            |row: &Row| {
-                let rowid: i64 = row.get(0).expect("db corrupted");
-                let transaction_hash: String = row.get(1).expect("db corrupted");
-                let amount: i64 = row.get(2).expect("db corrupted");
-                let payable_timestamp: i64 = row.get(3).expect("db corrupted");
-                let attempt: i64 = row.get(4).expect("db corrupted");
-                let process_error: Option<String> = row.get(5).expect("db corrupted");
-                Ok(vec![
-                    Box::new(rowid),
-                    Box::new(transaction_hash),
-                    Box::new(amount),
-                    Box::new(payable_timestamp),
-                    Box::new(attempt),
-                    Box::new(process_error),
-                ])
-            },
             &mut statements,
         );
 
@@ -603,11 +566,15 @@ impl Migrate_6_to_7 {
         utils: &dyn MigDeclarationUtilities,
         table: &str,
         table_creation_lines: &str,
-        data_preparer: fn(row: &Row) -> rusqlite::Result<Vec<Box<dyn ToSql>>>,
         statements_so_far: &mut Vec<Box<dyn StatementObject>>,
     ) {
         statements_so_far.push(Box::new(format!(
             "alter table {0} rename to _{0}_old",
+            table
+        )));
+        //it's null because we cannot initiate the values yet
+        statements_so_far.push(Box::new(format!(
+            "create table compensatory_{} (i128_column blob null)",
             table
         )));
         statements_so_far.push(Box::new(format!(
@@ -623,85 +590,89 @@ impl Migrate_6_to_7 {
                     .take_while(|char| !char.is_whitespace())
                     .collect::<String>()
             })
-            .join(" ,");
-        let (statement, critical_params_setting) = Self::compose_insert_statement(
+            .collect();
+        Self::compose_insert_statement(
             utils,
             table,
             param_names_delimited_by_comma,
-            data_preparer,
+            statements_so_far,
         );
-        let params_serialized = {
-            let mut collector = Vec::new();
-            Self::convert_critical_values_to_i128(critical_params_setting)
-                .into_iter()
-                .for_each(|record| record.into_iter().for_each(|piece| collector.push(piece)));
-            collector
-        };
-        let statement_with_params = StatementWithRusqliteParams {
-            sql_stm: statement,
-            params: RefCell::new(Some(params_from_iter(params_serialized))),
-        };
-        statements_so_far.push(Box::new(statement_with_params));
         statements_so_far.push(Box::new(format!("drop table _{0}_old", table)));
     }
 
     fn compose_insert_statement(
         utils: &dyn MigDeclarationUtilities,
         table: &str,
-        param_names_for_select_stm: String,
-        data_preparer: fn(row: &Row) -> rusqlite::Result<Vec<Box<dyn ToSql>>>,
-    ) -> (String, (Vec<Vec<Box<dyn ToSql>>>, usize)) {
-        let transaction = utils.transaction();
-        let mut statement = transaction
-            .prepare(&format!(
-                "select {} from {}",
-                param_names_for_select_stm, table
-            ))
-            .expect("Internal error");
-        let separated_params = param_names_for_select_stm.split(',').collect_vec();
-        let critical_param_position = separated_params
+        param_names_for_select_stm: Vec<String>,
+        statements_so_far: &mut Vec<Box<dyn StatementObject>>,
+    ) {
+        let critical_param_name = param_names_for_select_stm
             .iter()
-            .position(|segment| segment.contains("balance") || segment.contains("amount"))
-            .expectv("critical param");
-        let number_of_params = separated_params.len();
-        let all_records_found = statement
-            .query_map([], |row: &Row| data_preparer(row))
+            .find(|segment| *segment == "balance" || *segment == "amount")
+            .expectv("critical param")
+            .to_string();
+        let (non_sensitive_params, inner_join_non_sensitive_params) =
+            Self::prepare_non_sensitive_params(param_names_for_select_stm, &critical_param_name);
+        let transaction = utils.transaction();
+        let all_critical_values_found = transaction
+            .prepare(&format!("select ({}) from {}", critical_param_name, table,))
+            .expect("internal error")
+            .query_map([], |row: &Row| row.get(0))
             .expect("Internal error")
             .flatten()
-            .collect::<Vec<Vec<Box<dyn ToSql>>>>();
-        let insert_statement = {
-            let mut beginning = format!(
-                "insert into {} ({}) values ",
-                table, param_names_for_select_stm
-            );
-            (0..all_records_found.len()).for_each(|_| {
-                beginning.push_str(&format!("({}),", {
-                    let preprocessed = repeat("?,").take(number_of_params).collect::<String>();
-                    &preprocessed[..preprocessed.len() - 1].to_string()
-                }))
-            });
-            (&beginning[..beginning.len() - 1]).to_string()
-        };
-        (
-            insert_statement,
-            (all_records_found, critical_param_position),
-        )
+            .collect::<Vec<i64>>();
+        Self::fill_compensatory_table(all_critical_values_found, table, statements_so_far);
+        let final_insert_statement = format!(
+            "insert into {0} ({1}, {2}) \
+            select {3}, R.i128_column from _{0}_old L \
+            inner join compensatory_{0} R where L.rowid = R.rowid",
+            table, non_sensitive_params, critical_param_name, inner_join_non_sensitive_params
+        );
+        statements_so_far.push(Box::new(final_insert_statement))
     }
 
-    fn convert_critical_values_to_i128(
-        critical_params_setting: (Vec<Vec<Box<dyn ToSql>>>, usize),
-    ) -> Vec<Vec<Box<dyn ToSql>>> {
-        let (mut collected_values, critical_value_position) = critical_params_setting;
-        collected_values.iter_mut().for_each(|line| {
-            let single = line.get(critical_value_position).expectv("critical value");
-            let rusqlite_value = single.to_sql().expectv("rusqlite representation");
-            let i64_value = match rusqlite_value {
-                ToSqlOutput::Owned(Value::Integer(num)) => num,
-                x => unimplemented!(),
-            };
-            line[critical_value_position] = Box::new(i64_value as i128);
-        });
-        collected_values
+    fn prepare_non_sensitive_params(
+        param_names_for_select_stm: Vec<String>,
+        critical_param_name: &String,
+    ) -> (String, String) {
+        let non_sensitive_params_vec = param_names_for_select_stm
+            .into_iter()
+            .filter(|name| name != critical_param_name)
+            .collect_vec();
+        let non_sensitive_params = non_sensitive_params_vec.iter().join(", ");
+        let inner_join_non_sensitive_params = non_sensitive_params_vec
+            .into_iter()
+            .map(|word| format!("L.{}", word.trim()))
+            .join(", ");
+        (non_sensitive_params, inner_join_non_sensitive_params)
+    }
+
+    fn fill_compensatory_table(
+        all_critical_values_found: Vec<i64>,
+        table: &str,
+        statements_so_far: &mut Vec<Box<dyn StatementObject>>,
+    ) {
+        let statement_with_params = StatementWithRusqliteParams {
+            sql_stm: format!(
+                "insert into compensatory_{} (i128_column) values {}",
+                table,
+                (0..all_critical_values_found.len() - 1)
+                    .map(|_| "(?),")
+                    .chain(once("(?)"))
+                    .collect::<String>()
+            ),
+            params: RefCell::new(Some(params_from_iter(
+                Self::convert_critical_values_to_i128(all_critical_values_found),
+            ))),
+        };
+        statements_so_far.push(Box::new(statement_with_params));
+    }
+
+    fn convert_critical_values_to_i128(critical_values: Vec<i64>) -> Vec<i128> {
+        critical_values
+            .into_iter()
+            .map(|i64_value| i64_value as i128)
+            .collect()
     }
 }
 
@@ -715,7 +686,7 @@ impl DbMigratorReal {
         }
     }
 
-    fn list_of_migrations<'a>() -> &'a [&'a dyn DatabaseMigration] {
+    const fn list_of_migrations<'a>() -> &'a [&'a dyn DatabaseMigration] {
         &[
             &Migrate_0_to_1,
             &Migrate_1_to_2,
@@ -976,13 +947,14 @@ mod tests {
     use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
     use rand::Rng;
     use rusqlite::types::Value::Null;
-    use rusqlite::{Connection, Error, OptionalExtension, ToSql, Transaction};
+    use rusqlite::{Connection, Error, OptionalExtension, Row, ToSql, Transaction};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
     use std::iter::once;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
     use tiny_hderive::bip32::ExtendedPrivKey;
@@ -1137,8 +1109,14 @@ mod tests {
         }
     }
 
-    //TODO you could write a procedural macro for this place to check at runtime that the last item in the list_of_migration fits to CURRENT_SCHEMA_VERSION;
-    // it would make life easier for future developers writing a migration - it's not apparent that DBMigrator runs only migrations up to the version given by the CURRENT_SCHEMA_VERSION
+    const fn check_schema_version_continuity() {
+        if DbMigratorReal::list_of_migrations().len() != CURRENT_SCHEMA_VERSION {
+            panic!("It appears that you need to increment the current schema version to have DbMigrator \
+             function correctly if you just added a new migration")
+        };
+    }
+
+    const SMART_REMINDER: () = check_schema_version_continuity();
 
     #[test]
     fn panic_on_migration_properly_set() {
@@ -2327,7 +2305,6 @@ mod tests {
 
     #[test]
     fn migration_from_6_to_7_works() {
-        init_test_logging();
         let dir_path =
             ensure_node_home_directory_exists("db_migrations", "migration_from_6_to_7_works");
         let db_path = dir_path.join(DATABASE_FILE);
@@ -2349,7 +2326,7 @@ mod tests {
              values (\"0xD2d1b2eF58f6500c7ae22fCA42B8512d06813a03\",5678,22222)",
         );
         insert_value(&*pre_db_conn,"insert into pending_payable (transaction_hash, amount, payable_timestamp,attempt, process_error) \
-         values (\"0x231d1b2cF58f6500c71122fCA42B8512d068v3b01\",9123,33333,1,null)");
+         values (\"0xb5c8bd9430b6cc87a0e2fe110ece6bf527fa4f222a4bc8cd032f768fc5219838\",9123,33333,1,null)");
 
         let conn = subject
             .initialize_to_version(
@@ -2360,6 +2337,7 @@ mod tests {
             )
             .unwrap();
 
+        //TODO decide to eliminate this assertion part as the other part is stronger
         let critical_lines: &[(&str, &[&[&str]])] = &[
             ("payable", &[&["balance", "blob", "not", "null"]]),
             ("receivable", &[&["balance", "blob", "not", "null"]]),
@@ -2375,9 +2353,37 @@ mod tests {
                 );
                 assert_table_does_not_exist(&*conn, &format!("_{}_old", table_name))
             });
-        assert_number_still_there(&*conn, "select balance from payable", 1234);
-        assert_number_still_there(&*conn, "select balance from receivable", 5678);
-        assert_number_still_there(&*conn, "select amount from pending_payable", 9123);
+        assert_values_still_there_plus_i128(&*conn, "payable", |row| {
+            assert_eq!(
+                row.get::<usize, Wallet>(0).unwrap(),
+                Wallet::from_str("0xD7d1b2cF58f6500c7CB22fCA42B8512d06813a03").unwrap()
+            );
+            assert_eq!(row.get::<usize, i128>(1).unwrap(), 1234);
+            assert_eq!(row.get::<usize, i64>(2).unwrap(), 11111);
+            assert_eq!(row.get::<usize, Option<i64>>(3).unwrap(), None);
+            Ok(())
+        });
+        assert_values_still_there_plus_i128(&*conn, "receivable", |row| {
+            assert_eq!(
+                row.get::<usize, Wallet>(0).unwrap(),
+                Wallet::from_str("0xD2d1b2eF58f6500c7ae22fCA42B8512d06813a03").unwrap()
+            );
+            assert_eq!(row.get::<usize, i128>(1).unwrap(), 5678);
+            assert_eq!(row.get::<usize, i64>(2).unwrap(), 22222);
+            Ok(())
+        });
+        assert_values_still_there_plus_i128(&*conn, "pending_payable", |row| {
+            //one of the changes in this migration is dropping an explicit column for rowid - proved here; it would be returned with the select statement otherwise
+            assert_eq!(
+                row.get::<usize, String>(0).unwrap(),
+                "0xb5c8bd9430b6cc87a0e2fe110ece6bf527fa4f222a4bc8cd032f768fc5219838".to_string()
+            );
+            assert_eq!(row.get::<usize, i128>(1).unwrap(), 9123);
+            assert_eq!(row.get::<usize, i64>(2).unwrap(), 33333);
+            assert_eq!(row.get::<usize, i64>(3).unwrap(), 1);
+            assert_eq!(row.get::<usize, Option<String>>(4).unwrap(), None);
+            Ok(())
+        });
     }
 
     fn insert_value(conn: &dyn ConnectionWrapper, insert_stm: &str) {
@@ -2385,18 +2391,12 @@ mod tests {
         statement.execute([]).unwrap();
     }
 
-    fn assert_number_still_there(
+    fn assert_values_still_there_plus_i128(
         conn: &dyn ConnectionWrapper,
-        select_stm: &str,
-        expected_number: i128,
+        table: &str,
+        expected_typed_values: fn(&Row) -> rusqlite::Result<()>,
     ) {
-        let mut statement = conn.prepare(select_stm).unwrap();
-        match statement.query_row([], |row| {
-            let num: rusqlite::Result<i128> = row.get(0);
-            num
-        }) {
-            Ok(actual_number) => assert_eq!(actual_number, expected_number),
-            Err(e) => panic!("we expected Ok but got: {:?}", e),
-        }
+        let mut statement = conn.prepare(&format!("select * from {}", table)).unwrap();
+        statement.query_row([], expected_typed_values).unwrap();
     }
 }
