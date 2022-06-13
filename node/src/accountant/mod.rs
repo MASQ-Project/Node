@@ -507,6 +507,8 @@ impl Accountant {
             self.payable_threshold_tools
                 .calculate_payout_threshold(self.config.payment_thresholds, time_since_last_paid),
         );
+        eprintln!("threshold: {} wei", threshold);
+        eprintln!("balance:   {} wei", payable.balance);
         if payable.balance > threshold {
             Some(threshold)
         } else {
@@ -1141,10 +1143,10 @@ impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
         fn convert(num: u64) -> i64 {
             checked_conversion::<u64, i64>(num)
         }
-        let m = -(convert(payment_thresholds.debt_threshold_gwei)
-            - convert(payment_thresholds.permanent_debt_allowed_gwei)
-                / (convert(payment_thresholds.threshold_interval_sec)
-                    - convert(payment_thresholds.maturity_threshold_sec)));
+        let m = -((convert(payment_thresholds.debt_threshold_gwei)
+            - convert(payment_thresholds.permanent_debt_allowed_gwei))
+            / (convert(payment_thresholds.threshold_interval_sec)
+                - convert(payment_thresholds.maturity_threshold_sec)));
 
         let b = convert(payment_thresholds.debt_threshold_gwei)
             - m * convert(payment_thresholds.maturity_threshold_sec);
@@ -2020,7 +2022,7 @@ mod tests {
             balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 5),
             last_paid_timestamp: from_time_t(
                 now - checked_conversion::<u64, i64>(
-                    DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10,
+                    DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 10,
                 ),
             ),
             pending_payable_opt: None,
@@ -4228,7 +4230,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "blah")]
+    #[should_panic(
+        expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
+    )]
     fn overflow_check_works_for_overflow() {
         let big_number = u128::MAX;
 

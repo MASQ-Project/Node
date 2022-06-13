@@ -621,14 +621,16 @@ impl Migrate_6_to_7 {
             .expect("Internal error")
             .flatten()
             .collect::<Vec<i64>>();
-        Self::fill_compensatory_table(all_critical_values_found, table, statements_so_far);
-        let final_insert_statement = format!(
-            "insert into {0} ({1}, {2}) \
+        if !all_critical_values_found.is_empty() {
+            Self::fill_compensatory_table(all_critical_values_found, table, statements_so_far);
+            let final_insert_statement = format!(
+                "insert into {0} ({1}, {2}) \
             select {3}, R.i128_column from _{0}_old L \
             inner join compensatory_{0} R where L.rowid = R.rowid",
-            table, non_sensitive_params, critical_param_name, inner_join_non_sensitive_params
-        );
-        statements_so_far.push(Box::new(final_insert_statement))
+                table, non_sensitive_params, critical_param_name, inner_join_non_sensitive_params
+            );
+            statements_so_far.push(Box::new(final_insert_statement))
+        };
     }
 
     fn prepare_non_sensitive_params(

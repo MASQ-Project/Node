@@ -50,7 +50,6 @@ pub struct PaymentThresholds {
     pub permanent_debt_allowed_gwei: u64,
     pub threshold_interval_sec: u64,
     pub unban_below_gwei: u64,
-    //TODO caution!! these names were changed to WEI but the bit bandwidth wasn't change yet
 }
 
 #[cfg(test)]
