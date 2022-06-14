@@ -1146,7 +1146,7 @@ impl MASQRealNode {
 
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
         let regex = Self::descriptor_regex();
-        let mut retries_left = 10;
+        let mut retries_left = 50;
         loop {
             println!("Checking for {} startup", name);
             thread::sleep(Duration::from_millis(100));
