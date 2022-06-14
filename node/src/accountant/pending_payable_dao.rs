@@ -527,6 +527,11 @@ mod tests {
         )
     }
 
+    // transaction_hash text not null,
+    // amount blob not null,
+    // payable_timestamp integer not null,
+    // attempt integer not null,
+    // process_error text null
     #[test]
     fn mark_failure_works() {
         let home_dir =
@@ -545,7 +550,7 @@ mod tests {
         }
         let assert_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
         let mut assert_stm = assert_conn
-            .prepare("select * from pending_payable")
+            .prepare("select rowid, transaction_hash, amount, payable_timestamp, attempt, process_error from pending_payable")
             .unwrap();
         let mut assert_closure = || {
             assert_stm

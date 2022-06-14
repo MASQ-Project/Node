@@ -432,7 +432,7 @@ mod tests {
         assert_eq!(
             panic_1_msg,
             &format!(
-                "should be called only on uninitialized object, not: RatePack(Some({:?}))",
+                "should be called only on uninitialized object, not: RatePack(Initiated({:?}))",
                 DEFAULT_RATE_PACK
             )
         );
@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(
             panic_2_msg,
             &format!(
-                "should be called only on uninitialized object, not: PaymentThresholds(Some({:?}))",
+                "should be called only on uninitialized object, not: PaymentThresholds(Initiated({:?}))",
                 *DEFAULT_PAYMENT_THRESHOLDS
             )
         );
@@ -462,7 +462,7 @@ mod tests {
         assert_eq!(
             panic_3_msg,
             &format!(
-                "should be called only on uninitialized object, not: ScanIntervals(Some({:?}))",
+                "should be called only on uninitialized object, not: ScanIntervals(Initiated({:?}))",
                 *DEFAULT_SCAN_INTERVALS
             )
         );
@@ -480,7 +480,7 @@ mod tests {
         assert_eq!(
             panic_1_msg,
             &format!(
-                "should be called only on uninitialized object, not: RatePack(Some({:?}))",
+                "should be called only on uninitialized object, not: RatePack(Initiated({:?}))",
                 DEFAULT_RATE_PACK
             )
         );
@@ -495,7 +495,7 @@ mod tests {
         assert_eq!(
             panic_2_msg,
             &format!(
-                "should be called only on uninitialized object, not: PaymentThresholds(Some({:?}))",
+                "should be called only on uninitialized object, not: PaymentThresholds(Initiated({:?}))",
                 *DEFAULT_PAYMENT_THRESHOLDS
             )
         );
@@ -510,7 +510,7 @@ mod tests {
         assert_eq!(
             panic_3_msg,
             &format!(
-                "should be called only on uninitialized object, not: ScanIntervals(Some({:?}))",
+                "should be called only on uninitialized object, not: ScanIntervals(Initiated({:?}))",
                 *DEFAULT_SCAN_INTERVALS
             )
         );

@@ -441,6 +441,9 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
+    )]
     fn more_money_payable_works_for_overflow() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
@@ -453,10 +456,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.more_money_payable(&InsertUpdateCoreReal, &wallet, u128::MAX);
-        //TODO here I don't know....should we prevent panicking on overflow?
-
-        assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)));
+        let _ = subject.more_money_payable(&InsertUpdateCoreReal, &wallet, u128::MAX);
     }
 
     #[test]
@@ -473,7 +473,7 @@ mod tests {
         let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
         {
             let mut stm = boxed_conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp) values (?,?,?)").unwrap();
-            let params: &[&dyn ToSql] = &[&wallet, &5000, &150_000_000];
+            let params: &[&dyn ToSql] = &[&wallet, &5000_i128, &150_000_000];
             stm.execute(params).unwrap();
         }
         let subject = PayableDaoReal::new(boxed_conn);
@@ -732,7 +732,7 @@ mod tests {
         let conn =
             Connection::open_with_flags(&home_dir.join(db_initializer::DATABASE_FILE), flags)
                 .unwrap();
-        let insert = |wallet: &str, balance: i64, pending_payable_rowid: Option<i64>| {
+        let insert = |wallet: &str, balance: i128, pending_payable_rowid: Option<i64>| {
             let params: &[&dyn ToSql] = &[&wallet, &balance, &0i64, &pending_payable_rowid];
 
             conn
@@ -769,12 +769,12 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Overflow detected with 18446744073709551615: cannot be converted from u128 to i128"
+        expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
     )]
-    fn payable_amount_errors_on_insert_when_out_of_range() {
+    fn payable_amount_panics_on_insert_when_with_overflow() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "payable_amount_precision_loss_panics_on_insert",
+            "payable_amount_panics_on_insert_when_with_overflow",
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
