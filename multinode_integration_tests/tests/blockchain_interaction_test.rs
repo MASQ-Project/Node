@@ -90,14 +90,14 @@ fn debtors_are_credited_once_but_not_twice() {
             )
             .unwrap();
     }
-    eprintln! ("Verifying database changes");
+    eprintln!("Verifying database changes");
     // Use the receivable DAO to verify that the receivable's balance has been initialized
     {
         let receivable_dao = receivable_dao(&node_name);
         let receivable_accounts = receivable_dao.receivables();
         assert_eq!(receivable_accounts.len(), 1);
         assert_eq!(receivable_accounts[0].balance, 1_000_000);
-        eprintln! ("RECEIVABLE is okay");
+        eprintln!("RECEIVABLE is okay");
     }
     // Use the config DAO to verify that the start block has been set to 1000
     {
@@ -106,7 +106,7 @@ fn debtors_are_credited_once_but_not_twice() {
             config_dao.get("start_block").unwrap().value_opt.unwrap(),
             "1000"
         );
-        eprintln! ("CONFIG is okay");
+        eprintln!("CONFIG is okay");
     }
     eprintln!("Starting Node");
     let node = cluster.start_named_real_node(&node_name, node_index, node_config);

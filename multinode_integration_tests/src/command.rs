@@ -56,7 +56,11 @@ impl Command {
 
     pub fn stdout_and_stderr(&mut self) -> String {
         self.wait_for_exit();
-        format! ("STDOUT:\n{}\n\nSTDERR:\n{}\n\n", self.stdout_as_string(), self.stderr_as_string())
+        format!(
+            "STDOUT:\n{}\n\nSTDERR:\n{}\n\n",
+            self.stdout_as_string(),
+            self.stderr_as_string()
+        )
     }
 
     pub fn stdout_as_string(&self) -> String {
