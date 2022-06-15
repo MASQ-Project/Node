@@ -39,7 +39,7 @@ impl Command {
 
     pub fn stdout_or_stderr(&mut self) -> Result<String, String> {
         match self.wait_for_exit() {
-            0 => Ok(self.stdout_as_string()),
+            0 => Ok(self.stdout_and_stderr()),
             _ => Err(self.diagnosis()),
         }
     }
@@ -56,18 +56,18 @@ impl Command {
 
     pub fn stdout_and_stderr(&mut self) -> String {
         self.wait_for_exit();
-        self.stdout_as_string() + self.stderr_as_string().as_str()
+        format! ("STDOUT:\n{}\n\nSTDERR:\n{}\n\n", self.stdout_as_string(), self.stderr_as_string())
     }
 
     pub fn stdout_as_string(&self) -> String {
         let text = String::from_utf8(self.output.as_ref().unwrap().stdout.clone()).unwrap();
-        println!("{}", Self::truncate_long_string(text.clone()));
+        println!("STDOUT:\n{}", Self::truncate_long_string(text.clone()));
         text
     }
 
     pub fn stderr_as_string(&self) -> String {
         let text = String::from_utf8(self.output.as_ref().unwrap().stderr.clone()).unwrap();
-        println!("{}", Self::truncate_long_string(text.clone()));
+        println!("STDERR:\n{}", Self::truncate_long_string(text.clone()));
         text
     }
 
