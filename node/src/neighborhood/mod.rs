@@ -34,7 +34,7 @@ use crate::db_config::persistent_configuration::{
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
-use crate::neighborhood::overall_connection_status::OverallConnectionStatus;
+use crate::neighborhood::overall_connection_status::{ConnectionProgress, OverallConnectionStatus};
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PublicKey;
@@ -259,16 +259,33 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ConnectionProgressMessage, ctx: &mut Self::Context) -> Self::Result {
-        self.overall_connection_status.update_connection_stage(
-            msg.peer_addr,
-            msg.event.clone(),
-            self.node_to_ui_recipient_opt
-                .as_ref()
-                .expect("UI Gateway is unbound"),
-        );
+        eprintln!("Handling the Connection Progress Message");
+        if let Ok(connection_progress) = self
+            .overall_connection_status
+            .get_connection_progress_by_ip(msg.peer_addr)
+        {
+            OverallConnectionStatus::update_connection_stage(
+                connection_progress,
+                msg.event.clone(),
+            );
 
-        if msg.event == ConnectionProgressEvent::TcpConnectionSuccessful {
-            self.send_ask_about_debut_gossip_message(ctx, msg.peer_addr);
+            eprintln!("Entering match statement");
+            match msg.event {
+                ConnectionProgressEvent::TcpConnectionSuccessful => {
+                    self.send_ask_about_debut_gossip_message(ctx, msg.peer_addr);
+                }
+                ConnectionProgressEvent::IntroductionGossipReceived(_)
+                | ConnectionProgressEvent::StandardGossipReceived => {
+                    eprintln!("Yes, I was called");
+                    self.overall_connection_status
+                        .update_stage_of_overall_connection_status(
+                            self.node_to_ui_recipient_opt
+                                .as_ref()
+                                .expect("UI Gateway is unbound"),
+                        );
+                }
+                _ => (),
+            }
         }
     }
 }
@@ -281,20 +298,21 @@ impl Handler<AskAboutDebutGossipMessage> for Neighborhood {
         msg: AskAboutDebutGossipMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let new_connection_progress = self
-            .overall_connection_status
-            .get_connection_progress_by_desc(&msg.prev_connection_progress.initial_node_descriptor);
-
-        if msg.prev_connection_progress == *new_connection_progress {
-            // No change, hence no response was received
-            self.overall_connection_status.update_connection_stage(
-                msg.prev_connection_progress.current_peer_addr,
-                ConnectionProgressEvent::NoGossipResponseReceived,
-                self.node_to_ui_recipient_opt
-                    .as_ref()
-                    .expect("UI Gateway is unbound"),
-            );
-        }
+        unimplemented!();
+        // let new_connection_progress = self
+        //     .overall_connection_status
+        //     .get_connection_progress_by_desc(&msg.prev_connection_progress.initial_node_descriptor);
+        //
+        // if msg.prev_connection_progress == *new_connection_progress {
+        //     // No change, hence no response was received
+        //     self.overall_connection_status.update_connection_stage(
+        //         msg.prev_connection_progress.current_peer_addr,
+        //         ConnectionProgressEvent::NoGossipResponseReceived,
+        //         self.node_to_ui_recipient_opt
+        //             .as_ref()
+        //             .expect("UI Gateway is unbound"),
+        //     );
+        // }
     }
 }
 
@@ -1376,8 +1394,8 @@ mod tests {
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{
-        db_from_node, make_global_cryptde_node_record, make_node_descriptor, make_node_record,
-        make_node_record_f, make_node_to_ui_recipient, neighborhood_from_nodes,
+        db_from_node, make_global_cryptde_node_record, make_ip, make_node_descriptor,
+        make_node_record, make_node_record_f, make_node_to_ui_recipient, neighborhood_from_nodes,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::rate_pack;
@@ -1637,6 +1655,34 @@ mod tests {
     }
 
     #[test]
+    pub fn neighborhood_doesn_t_do_anything_if_it_receives_a_cpm_with_an_unknown_peer_addr() {
+        let known_peer = make_ip(1);
+        let unknown_peer = make_ip(2);
+        let node_descriptor = make_node_descriptor(known_peer);
+        let mut subject = make_subject_from_node_descriptor(
+            &node_descriptor,
+            "neighborhood_doesn_t_do_anything_if_it_receives_a_cpm_with_an_unknown_peer_addr",
+        );
+        let initial_ocs = subject.overall_connection_status.clone();
+        let addr = subject.start();
+        let cpm_recipient = addr.clone().recipient::<ConnectionProgressMessage>();
+        let system = System::new("testing");
+        let cpm = ConnectionProgressMessage {
+            peer_addr: unknown_peer,
+            event: ConnectionProgressEvent::TcpConnectionSuccessful,
+        };
+
+        cpm_recipient.try_send(cpm).unwrap();
+
+        let assertions = Box::new(move |actor: &mut Neighborhood| {
+            assert_eq!(actor.overall_connection_status, initial_ocs);
+        });
+        addr.try_send(AssertionsMessage { assertions }).unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+    }
+
+    #[test]
     pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_established() {
         init_test_logging();
         let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
@@ -1698,10 +1744,13 @@ mod tests {
             &node_descriptor,
             "ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received",
         );
-        subject.overall_connection_status.update_connection_stage(
-            node_ip_addr,
+        let connection_progress_to_modify = subject
+            .overall_connection_status
+            .get_connection_progress_by_ip(node_ip_addr)
+            .unwrap();
+        OverallConnectionStatus::update_connection_stage(
+            connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let beginning_connection_progress = ConnectionProgress {
             initial_node_descriptor: node_descriptor.clone(),
@@ -1775,10 +1824,13 @@ mod tests {
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_pass_gossip_received",
         );
-        subject.overall_connection_status.update_connection_stage(
-            node_ip_addr,
+        let connection_progress_to_modify = subject
+            .overall_connection_status
+            .get_connection_progress_by_ip(node_ip_addr)
+            .unwrap();
+        OverallConnectionStatus::update_connection_stage(
+            connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1815,10 +1867,13 @@ mod tests {
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_pass_loop_found",
         );
-        subject.overall_connection_status.update_connection_stage(
-            node_ip_addr,
+        let connection_progress_to_modify = subject
+            .overall_connection_status
+            .get_connection_progress_by_ip(node_ip_addr)
+            .unwrap();
+        OverallConnectionStatus::update_connection_stage(
+            connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1854,10 +1909,13 @@ mod tests {
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received",
         );
-        subject.overall_connection_status.update_connection_stage(
-            node_ip_addr,
+        let connection_progress_to_modify = subject
+            .overall_connection_status
+            .get_connection_progress_by_ip(node_ip_addr)
+            .unwrap();
+        OverallConnectionStatus::update_connection_stage(
+            connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1894,10 +1952,13 @@ mod tests {
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_standard_gossip_received",
         );
-        subject.overall_connection_status.update_connection_stage(
-            node_ip_addr,
+        let connection_progress_to_modify = subject
+            .overall_connection_status
+            .get_connection_progress_by_ip(node_ip_addr)
+            .unwrap();
+        OverallConnectionStatus::update_connection_stage(
+            connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1933,10 +1994,13 @@ mod tests {
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received",
         );
-        subject.overall_connection_status.update_connection_stage(
-            node_ip_addr,
+        let connection_progress_to_modify = subject
+            .overall_connection_status
+            .get_connection_progress_by_ip(node_ip_addr)
+            .unwrap();
+        OverallConnectionStatus::update_connection_stage(
+            connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
-            subject.node_to_ui_recipient_opt.as_ref().unwrap(),
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
