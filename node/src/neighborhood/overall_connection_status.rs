@@ -96,7 +96,7 @@ impl ConnectionProgress {
 }
 
 #[derive(PartialEq, Debug, Copy, Clone)]
-enum OverallConnectionStage {
+pub enum OverallConnectionStage {
     NotConnected = 0,
     ConnectedToNeighbor = 1, // When an Introduction or Standard Gossip (acceptance) is received
     ThreeHopsRouteFound = 2, // Data can be relayed once this stage is reached
@@ -274,6 +274,10 @@ impl OverallConnectionStatus {
 
     pub fn update_can_make_routes(&mut self, can_make_routes: bool) {
         self.can_make_routes = can_make_routes;
+    }
+
+    pub fn stage(&self) -> OverallConnectionStage {
+        self.stage
     }
 }
 
@@ -917,37 +921,43 @@ mod tests {
     }
 
     #[test]
-    fn progress_done_by_one_connection_progress_can_not_be_overridden_by_other_in_overall_connection_progress(
-    ) {
-        let ip_addr_1 = make_ip(1);
-        let ip_addr_2 = make_ip(2);
-        let mut subject = OverallConnectionStatus::new(vec![
-            make_node_descriptor(ip_addr_1),
-            make_node_descriptor(ip_addr_2),
-        ]);
-        let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
-        let connection_progress_1 = subject.get_connection_progress_by_ip(ip_addr_1).unwrap();
-        OverallConnectionStatus::update_connection_stage(
-            connection_progress_1,
-            ConnectionProgressEvent::TcpConnectionSuccessful,
-        );
-        OverallConnectionStatus::update_connection_stage(
-            connection_progress_1,
-            ConnectionProgressEvent::IntroductionGossipReceived(make_ip(3)),
-        );
-        let connection_progress_2 = subject.get_connection_progress_by_ip(ip_addr_2).unwrap();
-        OverallConnectionStatus::update_connection_stage(
-            connection_progress_2,
-            ConnectionProgressEvent::TcpConnectionSuccessful,
-        );
-
-        OverallConnectionStatus::update_connection_stage(
-            connection_progress_2,
-            ConnectionProgressEvent::PassGossipReceived(make_ip(4)),
-        );
-
-        assert_eq!(subject.stage, OverallConnectionStage::ConnectedToNeighbor);
+    fn getter_fn_for_the_stage_of_overall_connection_status_exists() {
+        let subject = OverallConnectionStatus::new(vec![make_node_descriptor(make_ip(1))]);
+        assert_eq!(subject.stage(), OverallConnectionStage::NotConnected);
     }
+
+    // #[test]
+    // fn progress_done_by_one_connection_progress_can_not_be_overridden_by_other_in_overall_connection_progress(
+    // ) {
+    //     let ip_addr_1 = make_ip(1);
+    //     let ip_addr_2 = make_ip(2);
+    //     let mut subject = OverallConnectionStatus::new(vec![
+    //         make_node_descriptor(ip_addr_1),
+    //         make_node_descriptor(ip_addr_2),
+    //     ]);
+    //     let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
+    //     let connection_progress_1 = subject.get_connection_progress_by_ip(ip_addr_1).unwrap();
+    //     OverallConnectionStatus::update_connection_stage(
+    //         connection_progress_1,
+    //         ConnectionProgressEvent::TcpConnectionSuccessful,
+    //     );
+    //     OverallConnectionStatus::update_connection_stage(
+    //         connection_progress_1,
+    //         ConnectionProgressEvent::IntroductionGossipReceived(make_ip(3)),
+    //     );
+    //     let connection_progress_2 = subject.get_connection_progress_by_ip(ip_addr_2).unwrap();
+    //     OverallConnectionStatus::update_connection_stage(
+    //         connection_progress_2,
+    //         ConnectionProgressEvent::TcpConnectionSuccessful,
+    //     );
+    //
+    //     OverallConnectionStatus::update_connection_stage(
+    //         connection_progress_2,
+    //         ConnectionProgressEvent::PassGossipReceived(make_ip(4)),
+    //     );
+    //
+    //     assert_eq!(subject.stage, OverallConnectionStage::ConnectedToNeighbor);
+    // }
 
     fn stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
         initial_stage: OverallConnectionStage,

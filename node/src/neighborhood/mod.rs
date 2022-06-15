@@ -1363,6 +1363,7 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use itertools::Itertools;
+    use openssl::init;
     use serde_cbor;
     use std::time::Duration;
     use tokio::prelude::Future;
@@ -1413,7 +1414,9 @@ mod tests {
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
         NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
     };
-    use crate::neighborhood::overall_connection_status::{ConnectionProgress, ConnectionStage};
+    use crate::neighborhood::overall_connection_status::{
+        ConnectionProgress, ConnectionStage, OverallConnectionStage,
+    };
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
@@ -2020,6 +2023,71 @@ mod tests {
                     current_peer_addr: node_ip_addr,
                     connection_stage: ConnectionStage::Failed(NoGossipResponseReceived)
                 }]
+            );
+        });
+        addr.try_send(AssertionsMessage { assertions }).unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+    }
+
+    #[test]
+    pub fn progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overriden_by_the_other(
+    ) {
+        init_test_logging();
+        let peer_1 = make_ip(1);
+        let peer_2 = make_ip(2);
+        let initial_node_descriptors =
+            vec![make_node_descriptor(peer_1), make_node_descriptor(peer_2)];
+        let neighborhood_config = NeighborhoodConfig {
+            mode: NeighborhoodMode::Standard(
+                NodeAddr::new(&make_ip(3), &[1234]),
+                initial_node_descriptors,
+                rate_pack(100),
+            ),
+        };
+        let mut subject = Neighborhood::new(
+            main_cryptde(),
+            &bc_from_nc_plus(
+                neighborhood_config,
+                make_wallet("earning"),
+                None,
+                "progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overriden_by_the_other"),
+        );
+        let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
+        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
+        let addr = subject.start();
+        let cpm_recipient = addr.clone().recipient();
+        let system = System::new("testing");
+        cpm_recipient
+            .try_send(ConnectionProgressMessage {
+                peer_addr: peer_1,
+                event: ConnectionProgressEvent::TcpConnectionSuccessful,
+            })
+            .unwrap();
+        cpm_recipient
+            .try_send(ConnectionProgressMessage {
+                peer_addr: peer_1,
+                event: ConnectionProgressEvent::IntroductionGossipReceived(make_ip(4)),
+            })
+            .unwrap();
+        cpm_recipient
+            .try_send(ConnectionProgressMessage {
+                peer_addr: peer_2,
+                event: ConnectionProgressEvent::TcpConnectionSuccessful,
+            })
+            .unwrap();
+
+        cpm_recipient
+            .try_send(ConnectionProgressMessage {
+                peer_addr: peer_2,
+                event: ConnectionProgressEvent::PassGossipReceived(make_ip(5)),
+            })
+            .unwrap();
+
+        let assertions = Box::new(move |actor: &mut Neighborhood| {
+            assert_eq!(
+                actor.overall_connection_status.stage(),
+                OverallConnectionStage::ConnectedToNeighbor
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
