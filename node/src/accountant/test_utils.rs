@@ -353,13 +353,13 @@ impl PayableDao for PayableDaoMock {
         self.non_pending_payables_results.borrow_mut().remove(0)
     }
 
-    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
-        self.top_records_parameters
-            .lock()
-            .unwrap()
-            .push((minimum_amount, maximum_age));
-        self.top_records_results.borrow_mut().remove(0)
-    }
+    // fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
+    //     self.top_records_parameters
+    //         .lock()
+    //         .unwrap()
+    //         .push((minimum_amount, maximum_age));
+    //     self.top_records_results.borrow_mut().remove(0)
+    // }
 
     fn total(&self) -> u128 {
         self.total_results.borrow_mut().remove(0)
@@ -530,13 +530,13 @@ impl ReceivableDao for ReceivableDaoMock {
         self.paid_delinquencies_results.borrow_mut().remove(0)
     }
 
-    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
-        self.top_records_parameters
-            .lock()
-            .unwrap()
-            .push((minimum_amount, maximum_age));
-        self.top_records_results.borrow_mut().remove(0)
-    }
+    // fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
+    //     self.top_records_parameters
+    //         .lock()
+    //         .unwrap()
+    //         .push((minimum_amount, maximum_age));
+    //     self.top_records_results.borrow_mut().remove(0)
+    // }
 
     fn total(&self) -> i128 {
         self.total_results.borrow_mut().remove(0)

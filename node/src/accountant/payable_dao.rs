@@ -75,7 +75,7 @@ pub trait PayableDao: Debug + Send {
 
     fn non_pending_payables(&self) -> Vec<PayableAccount>;
 
-    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount>;
+    //fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount>;
 
     fn total(&self) -> u128;
 }
@@ -183,75 +183,75 @@ impl PayableDao for PayableDaoReal {
     }
 
     //TODO: never used!!
-    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
-        let min_amt =
-            unsigned_to_signed::<u64, i64>(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
-        let max_age = unsigned_to_signed::<u64, i64>(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
-        let min_timestamp = dao_utils::now_time_t() - max_age;
-        let mut stmt = self
-            .conn
-            .prepare(
-                r#"
-                select
-                    balance,
-                    last_paid_timestamp,
-                    wallet_address,
-                    pending_payable_rowid,
-                    pending_payable.transaction_hash
-                from
-                    payable
-                left join pending_payable on
-                    pending_payable.rowid = payable.pending_payable_rowid
-                where
-                    balance >= ? and
-                    last_paid_timestamp >= ?
-                order by
-                    balance desc,
-                    last_paid_timestamp desc
-            "#,
-            )
-            .expect("Internal error");
-        let params: &[&dyn ToSql] = &[&min_amt, &min_timestamp];
-        stmt.query_map(params, |row| {
-            let balance_result = get_unsized_128(row, 0);
-            let last_paid_timestamp_result = row.get(1);
-            let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
-            let pending_payable_rowid_result_opt: Result<Option<u64>, Error> = row.get(3);
-            let pending_payable_hash_result_opt: Result<Option<String>, Error> = row.get(4);
-            match (
-                wallet_result,
-                balance_result,
-                last_paid_timestamp_result,
-                pending_payable_rowid_result_opt,
-                pending_payable_hash_result_opt,
-            ) {
-                (
-                    Ok(wallet),
-                    Ok(balance),
-                    Ok(last_paid_timestamp),
-                    Ok(pending_payable_rowid_opt),
-                    Ok(pending_payable_hash_opt),
-                ) => Ok(PayableAccount {
-                    wallet,
-                    balance,
-                    last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    pending_payable_opt: pending_payable_rowid_opt.map(|rowid| PendingPayableId {
-                        rowid,
-                        hash: pending_payable_hash_opt
-                            .map(|s| H256::from_str(&s[2..]).expectv("string tx hash"))
-                            .expectv("tx hash"),
-                    }),
-                }),
-                x => panic!(
-                    "Database is corrupt: PAYABLE table columns and/or types {:?}",
-                    x
-                ),
-            }
-        })
-        .expect("Database is corrupt")
-        .flatten()
-        .collect()
-    }
+    //fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
+    //     let min_amt =
+    //         unsigned_to_signed::<u64, i64>(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+    //     let max_age = unsigned_to_signed::<u64, i64>(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+    //     let min_timestamp = dao_utils::now_time_t() - max_age;
+    //     let mut stmt = self
+    //         .conn
+    //         .prepare(
+    //             r#"
+    //             select
+    //                 balance,
+    //                 last_paid_timestamp,
+    //                 wallet_address,
+    //                 pending_payable_rowid,
+    //                 pending_payable.transaction_hash
+    //             from
+    //                 payable
+    //             left join pending_payable on
+    //                 pending_payable.rowid = payable.pending_payable_rowid
+    //             where
+    //                 balance >= ? and
+    //                 last_paid_timestamp >= ?
+    //             order by
+    //                 balance desc,
+    //                 last_paid_timestamp desc
+    //         "#,
+    //         )
+    //         .expect("Internal error");
+    //     let params: &[&dyn ToSql] = &[&min_amt, &min_timestamp];
+    //     stmt.query_map(params, |row| {
+    //         let balance_result = get_unsized_128(row, 0);
+    //         let last_paid_timestamp_result = row.get(1);
+    //         let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
+    //         let pending_payable_rowid_result_opt: Result<Option<u64>, Error> = row.get(3);
+    //         let pending_payable_hash_result_opt: Result<Option<String>, Error> = row.get(4);
+    //         match (
+    //             wallet_result,
+    //             balance_result,
+    //             last_paid_timestamp_result,
+    //             pending_payable_rowid_result_opt,
+    //             pending_payable_hash_result_opt,
+    //         ) {
+    //             (
+    //                 Ok(wallet),
+    //                 Ok(balance),
+    //                 Ok(last_paid_timestamp),
+    //                 Ok(pending_payable_rowid_opt),
+    //                 Ok(pending_payable_hash_opt),
+    //             ) => Ok(PayableAccount {
+    //                 wallet,
+    //                 balance,
+    //                 last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+    //                 pending_payable_opt: pending_payable_rowid_opt.map(|rowid| PendingPayableId {
+    //                     rowid,
+    //                     hash: pending_payable_hash_opt
+    //                         .map(|s| H256::from_str(&s[2..]).expectv("string tx hash"))
+    //                         .expectv("tx hash"),
+    //                 }),
+    //             }),
+    //             x => panic!(
+    //                 "Database is corrupt: PAYABLE table columns and/or types {:?}",
+    //                 x
+    //             ),
+    //         }
+    //     })
+    //     .expect("Database is corrupt")
+    //     .flatten()
+    //     .collect()
+    // }
 
     fn total(&self) -> u128 {
         let mut stmt = self
@@ -289,33 +289,33 @@ impl PayableDaoReal {
     }
 
     //TODO replace these by the new ones
-    fn try_decrease_balance(
-        &self,
-        rowid: u64,
-        amount: i64,
-        last_paid_timestamp: SystemTime,
-    ) -> Result<(), String> {
-        let mut stmt = self
-            .conn
-            .prepare("update payable set balance = balance - :balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :referential_rowid")
-            .expect("Internal error");
-        let params: &[(&str, &dyn ToSql)] = &[
-            (":balance", &amount),
-            (":last_paid", &dao_utils::to_time_t(last_paid_timestamp)),
-            (
-                ":referential_rowid",
-                &i64::try_from(rowid).expect("SQLite was wrong when choosing the rowid"),
-            ),
-        ];
-        match stmt.execute(params) {
-            Ok(1) => Ok(()),
-            Ok(num) => panic!(
-                "Trying to decrease balance for rowid {}: {} rows changed instead of 1",
-                rowid, num
-            ),
-            Err(e) => Err(format!("{}", e)),
-        }
-    }
+    // fn try_decrease_balance(
+    //     &self,
+    //     rowid: u64,
+    //     amount: i64,
+    //     last_paid_timestamp: SystemTime,
+    // ) -> Result<(), String> {
+    //     let mut stmt = self
+    //         .conn
+    //         .prepare("update payable set balance = balance - :balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :referential_rowid")
+    //         .expect("Internal error");
+    //     let params: &[(&str, &dyn ToSql)] = &[
+    //         (":balance", &amount),
+    //         (":last_paid", &dao_utils::to_time_t(last_paid_timestamp)),
+    //         (
+    //             ":referential_rowid",
+    //             &i64::try_from(rowid).expect("SQLite was wrong when choosing the rowid"),
+    //         ),
+    //     ];
+    //     match stmt.execute(params) {
+    //         Ok(1) => Ok(()),
+    //         Ok(num) => panic!(
+    //             "Trying to decrease balance for rowid {}: {} rows changed instead of 1",
+    //             rowid, num
+    //         ),
+    //         Err(e) => Err(format!("{}", e)),
+    //     }
+    // }
 }
 
 #[cfg(test)]
@@ -346,16 +346,17 @@ mod tests {
         expected = "Trying to decrease balance for rowid 45: 0 rows changed instead of 1"
     )]
     fn try_decrease_balance_changed_no_rows() {
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "try_decrease_balance_changed_no_rows",
-        );
-        let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
-            .unwrap();
-        let subject = PayableDaoReal::new(wrapped_conn);
-
-        let _ = subject.try_decrease_balance(45, 1111, SystemTime::now());
+        todo!("fix me or fetch a replacement")
+        // let home_dir = ensure_node_home_directory_exists(
+        //     "payable_dao",
+        //     "try_decrease_balance_changed_no_rows",
+        // );
+        // let wrapped_conn = DbInitializerReal::default()
+        //     .initialize(&home_dir, true, MigratorConfig::test_default())
+        //     .unwrap();
+        // let subject = PayableDaoReal::new(wrapped_conn);
+        //
+        // let _ = subject.try_decrease_balance(45, 1111, SystemTime::now());
     }
 
     #[test]
@@ -788,89 +789,90 @@ mod tests {
 
     #[test]
     fn top_records_and_total() {
-        let home_dir = ensure_node_home_directory_exists("payable_dao", "top_records_and_total");
-        let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
-            .unwrap();
-        let insert = |wallet: &str,
-                      balance: i64,
-                      timestamp: i64,
-                      pending_payable_rowid: Option<i64>| {
-            let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp, &pending_payable_rowid];
-            conn
-                .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?)")
-                .unwrap()
-                .execute(params)
-                .unwrap();
-        };
-        let timestamp1 = dao_utils::now_time_t() - 80_000;
-        let timestamp2 = dao_utils::now_time_t() - 86_401;
-        let timestamp3 = dao_utils::now_time_t() - 86_000;
-        let timestamp4 = dao_utils::now_time_t() - 86_001;
-        insert(
-            "0x1111111111111111111111111111111111111111",
-            999_999_999, // below minimum amount - reject
-            timestamp1,  // below maximum age
-            None,
-        );
-        insert(
-            "0x2222222222222222222222222222222222222222",
-            1_000_000_000, // minimum amount
-            timestamp2,    // above maximum age - reject
-            None,
-        );
-        insert(
-            "0x3333333333333333333333333333333333333333",
-            1_000_000_000, // minimum amount
-            timestamp3,    // below maximum age
-            None,
-        );
-        insert(
-            "0x4444444444444444444444444444444444444444",
-            1_000_000_001, // above minimum amount
-            timestamp4,    // below maximum age
-            Some(1),
-        );
-        let params: &[&dyn ToSql] = &[
-            &String::from("0xabc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"),
-            &40,
-            &177777777,
-            &1,
-        ];
-        conn
-            .prepare("insert into pending_payable (transaction_hash,amount,payable_timestamp,attempt) values (?,?,?,?)")
-            .unwrap()
-            .execute(params)
-            .unwrap();
-
-        let subject = PayableDaoReal::new(conn);
-
-        let top_records = subject.top_records(1_000_000_000, 86400);
-        let total = subject.total();
-        assert_eq!(
-            top_records,
-            vec![
-                PayableAccount {
-                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
-                    balance: 1_000_000_001,
-                    last_paid_timestamp: dao_utils::from_time_t(timestamp4),
-                    pending_payable_opt: Some(PendingPayableId {
-                        rowid: 1,
-                        hash: H256::from_str(
-                            "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
-                        )
-                        .unwrap()
-                    })
-                },
-                PayableAccount {
-                    wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
-                    balance: 1_000_000_000,
-                    last_paid_timestamp: dao_utils::from_time_t(timestamp3),
-                    pending_payable_opt: None
-                },
-            ]
-        );
-        assert_eq!(total, 4_000_000_000)
+        todo!("fix me")
+        // let home_dir = ensure_node_home_directory_exists("payable_dao", "top_records_and_total");
+        // let conn = DbInitializerReal::default()
+        //     .initialize(&home_dir, true, MigratorConfig::test_default())
+        //     .unwrap();
+        // let insert = |wallet: &str,
+        //               balance: i64,
+        //               timestamp: i64,
+        //               pending_payable_rowid: Option<i64>| {
+        //     let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp, &pending_payable_rowid];
+        //     conn
+        //         .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?)")
+        //         .unwrap()
+        //         .execute(params)
+        //         .unwrap();
+        // };
+        // let timestamp1 = dao_utils::now_time_t() - 80_000;
+        // let timestamp2 = dao_utils::now_time_t() - 86_401;
+        // let timestamp3 = dao_utils::now_time_t() - 86_000;
+        // let timestamp4 = dao_utils::now_time_t() - 86_001;
+        // insert(
+        //     "0x1111111111111111111111111111111111111111",
+        //     999_999_999, // below minimum amount - reject
+        //     timestamp1,  // below maximum age
+        //     None,
+        // );
+        // insert(
+        //     "0x2222222222222222222222222222222222222222",
+        //     1_000_000_000, // minimum amount
+        //     timestamp2,    // above maximum age - reject
+        //     None,
+        // );
+        // insert(
+        //     "0x3333333333333333333333333333333333333333",
+        //     1_000_000_000, // minimum amount
+        //     timestamp3,    // below maximum age
+        //     None,
+        // );
+        // insert(
+        //     "0x4444444444444444444444444444444444444444",
+        //     1_000_000_001, // above minimum amount
+        //     timestamp4,    // below maximum age
+        //     Some(1),
+        // );
+        // let params: &[&dyn ToSql] = &[
+        //     &String::from("0xabc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"),
+        //     &40,
+        //     &177777777,
+        //     &1,
+        // ];
+        // conn
+        //     .prepare("insert into pending_payable (transaction_hash,amount,payable_timestamp,attempt) values (?,?,?,?)")
+        //     .unwrap()
+        //     .execute(params)
+        //     .unwrap();
+        //
+        // let subject = PayableDaoReal::new(conn);
+        //
+        // let top_records = subject.top_records(1_000_000_000, 86400);
+        // let total = subject.total();
+        // assert_eq!(
+        //     top_records,
+        //     vec![
+        //         PayableAccount {
+        //             wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
+        //             balance: 1_000_000_001,
+        //             last_paid_timestamp: dao_utils::from_time_t(timestamp4),
+        //             pending_payable_opt: Some(PendingPayableId {
+        //                 rowid: 1,
+        //                 hash: H256::from_str(
+        //                     "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
+        //                 )
+        //                 .unwrap()
+        //             })
+        //         },
+        //         PayableAccount {
+        //             wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
+        //             balance: 1_000_000_000,
+        //             last_paid_timestamp: dao_utils::from_time_t(timestamp3),
+        //             pending_payable_opt: None
+        //         },
+        //     ]
+        // );
+        // assert_eq!(total, 4_000_000_000)
     }
 
     #[test]
