@@ -167,23 +167,20 @@ impl OverallConnectionStatus {
     }
 
     pub fn get_connection_progress_by_desc(
-        &self,
+        &mut self,
         initial_node_descriptor: &NodeDescriptor,
-    ) -> &ConnectionProgress {
-        let connection_progress = self
-            .progress
-            .iter()
-            .find(|connection_progress| {
-                &connection_progress.initial_node_descriptor == initial_node_descriptor
-            })
-            .unwrap_or_else(|| {
-                panic!(
-                    "Unable to find the Node in connections with Node Descriptor: {:?}",
-                    initial_node_descriptor
-                )
-            });
+    ) -> Result<&mut ConnectionProgress, String> {
+        let connection_progress = self.progress.iter_mut().find(|connection_progress| {
+            &connection_progress.initial_node_descriptor == initial_node_descriptor
+        });
 
-        connection_progress
+        match connection_progress {
+            Some(connection_progress) => Ok(connection_progress),
+            None => Err(format!(
+                "Unable to find the Node in connections with Node Descriptor: {:?}",
+                initial_node_descriptor
+            )),
+        }
     }
 
     pub fn update_connection_stage(
@@ -225,7 +222,7 @@ impl OverallConnectionStatus {
         }
     }
 
-    pub(crate) fn update_stage_of_overall_connection_status(
+    pub fn update_stage_of_overall_connection_status(
         &mut self,
         node_to_ui_recipient: &Recipient<NodeToUiMessage>,
     ) {
@@ -257,6 +254,7 @@ impl OverallConnectionStatus {
         node_to_ui_recipient
             .try_send(message)
             .expect("UI Gateway is unbound.");
+        eprintln!("message sent");
     }
 
     pub fn is_empty(&self) -> bool {
@@ -432,15 +430,32 @@ mod tests {
         let desc_2 = make_node_descriptor(make_ip(2));
         let initial_node_descriptors = vec![desc_1.clone(), desc_2.clone()];
 
-        let subject = OverallConnectionStatus::new(initial_node_descriptors);
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
 
         assert_eq!(
             subject.get_connection_progress_by_desc(&desc_1),
-            &ConnectionProgress::new(desc_1)
+            Ok(&mut ConnectionProgress::new(desc_1))
         );
         assert_eq!(
             subject.get_connection_progress_by_desc(&desc_2),
-            &ConnectionProgress::new(desc_2)
+            Ok(&mut ConnectionProgress::new(desc_2))
+        );
+    }
+
+    #[test]
+    fn receives_an_error_in_receiving_connection_progress_from_unknown_initial_node_desc() {
+        let known_desc = make_node_descriptor(make_ip(1));
+        let unknown_desc = make_node_descriptor(make_ip(2));
+        let initial_node_descriptors = vec![known_desc];
+
+        let mut subject = OverallConnectionStatus::new(initial_node_descriptors);
+
+        assert_eq!(
+            subject.get_connection_progress_by_desc(&unknown_desc),
+            Err(format!(
+                "Unable to find the Node in connections with Node Descriptor: {:?}",
+                unknown_desc
+            ))
         );
     }
 
