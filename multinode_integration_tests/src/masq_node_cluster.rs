@@ -23,6 +23,7 @@ pub struct MASQNodeCluster {
 
 impl MASQNodeCluster {
     pub fn start() -> Result<MASQNodeCluster, String> {
+        MASQNodeCluster::docker_version()?;
         MASQNodeCluster::cleanup()?;
         MASQNodeCluster::create_network()?;
         let host_node_parent_dir = match env::var("HOST_NODE_PARENT_DIR") {
@@ -216,6 +217,17 @@ impl MASQNodeCluster {
             .map(|result| result.err().unwrap())
             .collect();
         if results.is_empty() {
+            // let mut command = Command::new(
+            //     "docker",
+            //     Command::strings(vec!["container", "prune", "-f"]),
+            // );
+            // match command.wait_for_exit() {
+            //     0 => Ok(()),
+            //     _ => Err(format!(
+            //         "Could not prune containers: {}",
+            //         command.stderr_as_string()
+            //     )),
+            // }
             Ok(())
         } else {
             Err(results.join("; "))
@@ -257,6 +269,17 @@ impl MASQNodeCluster {
                 command.stderr_as_string()
             )),
         }
+    }
+
+    fn docker_version() -> Result<String, String> {
+        let mut command = Command::new("docker", Command::strings(vec!["--version"]));
+        if command.wait_for_exit() != 0 {
+            return Err(format!(
+                "Could not get Docker version: {}",
+                command.stderr_as_string()
+            ));
+        }
+        Ok(command.stdout_as_string())
     }
 
     fn list_network() -> Result<String, String> {
