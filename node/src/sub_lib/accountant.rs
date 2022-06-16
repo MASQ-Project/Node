@@ -54,8 +54,10 @@ pub struct PaymentThresholds {
 
 #[cfg(test)]
 impl PaymentThresholds {
+    //TODO carefully!!! this means that we may not need this at all, but check it twice
     pub fn sugg_and_grace(&self, now: i64) -> i64 {
-        now - checked_conversion::<u64, i64>(self.maturity_threshold_sec)
+        now
+            // - checked_conversion::<u64, i64>(self.maturity_threshold_sec)
             - checked_conversion::<u64, i64>(self.payment_grace_period_sec)
     }
 

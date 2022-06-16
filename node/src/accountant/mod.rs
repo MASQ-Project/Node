@@ -85,7 +85,7 @@ pub struct Accountant {
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayable>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
-    payable_threshold_tools: Box<dyn PayableExceedThresholdTools>,
+    payable_threshold_tools: Box<dyn PayableThresholdTools>,
     logger: Logger,
 }
 
@@ -325,7 +325,7 @@ impl Accountant {
             report_new_payments_sub: None,
             report_sent_payments_sub: None,
             ui_message_sub: None,
-            payable_threshold_tools: Box::new(PayableExceedThresholdToolsReal::default()),
+            payable_threshold_tools: Box::new(PayableThresholdToolsReal::default()),
             logger: Logger::new("Accountant"),
         }
     }
@@ -506,7 +506,7 @@ impl Accountant {
 
         let threshold = gwei_to_wei(
             self.payable_threshold_tools
-                .calculate_payout_threshold(self.config.payment_thresholds, time_since_last_paid),
+                .calculate_payout_threshold(&self.config.payment_thresholds, time_since_last_paid),
         );
         eprintln!("threshold: {} wei", threshold);
         eprintln!("balance:   {} wei", payable.balance);
@@ -1121,17 +1121,17 @@ impl From<&PendingPayableFingerprint> for PendingPayableId {
     }
 }
 
-trait PayableExceedThresholdTools {
+trait PayableThresholdTools {
     fn is_innocent_age(&self, age: u64, limit: u64) -> bool;
     fn is_innocent_balance(&self, balance: u128, limit: u128) -> bool;
-    fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> u64;
+    fn calculate_payout_threshold(&self, payment_thresholds: &PaymentThresholds, x: u64) -> u64;
     as_any_dcl!();
 }
 
 #[derive(Default)]
-struct PayableExceedThresholdToolsReal {}
+struct PayableThresholdToolsReal {}
 
-impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
+impl PayableThresholdTools for PayableThresholdToolsReal {
     fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
         age <= limit
     }
@@ -1140,50 +1140,71 @@ impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
         balance <= limit
     }
 
-    fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> u64 {
-        fn convert(num: u64) -> i64 {
-            checked_conversion::<u64, i64>(num)
-        }
+    fn calculate_payout_threshold(&self, payment_thresholds: &PaymentThresholds, x: u64) -> u64 {
+        ThresholdUtils::calculate_sloped_threshold_by_time(payment_thresholds, x) as u64
+    }
+    as_any_impl!();
+}
+
+pub struct ThresholdUtils {}
+
+impl ThresholdUtils {
+    pub fn slope(payment_thresholds: &PaymentThresholds) -> f64 {
+        -(Self::convert(payment_thresholds.debt_threshold_gwei) as f64
+            - Self::convert(payment_thresholds.permanent_debt_allowed_gwei) as f64)
+            / Self::convert(payment_thresholds.threshold_interval_sec) as f64
+    }
+
+    fn convert(num: u64) -> i64 {
+        checked_conversion::<u64, i64>(num)
+    }
+
+    pub fn compute_theoretical_interception_with_y_axis(
+        m: f64,
+        debt_threshold: i64,
+        maturity_threshold_sec: i64,
+    ) -> f64 {
+        let m = m.abs();
+        let x_interception = (debt_threshold as f64 / m) + maturity_threshold_sec as f64;
+        m * x_interception
+    }
+
+    pub fn calculate_sloped_threshold_by_time(
+        payment_thresholds: &PaymentThresholds,
+        time: u64,
+    ) -> f64 {
         //TODO: how to write safe conversion from u64 to f64???
         eprintln!(
             "low point: {}",
             payment_thresholds.maturity_threshold_sec + payment_thresholds.threshold_interval_sec
         );
-        eprintln!("x: {}", x);
-        if x >= payment_thresholds.maturity_threshold_sec
-            + payment_thresholds.threshold_interval_sec
-        {
-            return payment_thresholds.permanent_debt_allowed_gwei;
-        };
-        let m = -((convert(payment_thresholds.debt_threshold_gwei) as f64
-            - convert(payment_thresholds.permanent_debt_allowed_gwei) as f64)
-            / convert(payment_thresholds.threshold_interval_sec) as f64);
+        eprintln!("x: {}", time);
+
+        let m = ThresholdUtils::slope(&payment_thresholds);
         eprintln!("m: {}", m);
 
         // let b = convert(payment_thresholds.debt_threshold_gwei + payment_thresholds.permanent_debt_allowed_gwei)
         //     + m * convert(payment_thresholds.maturity_threshold_sec);
-        let (x_interception, y_interception) = compute_theoretical_interceptions_with_axis(
-            m.abs(),
-            convert(payment_thresholds.debt_threshold_gwei),
-            convert(payment_thresholds.maturity_threshold_sec),
+        let y_interception = ThresholdUtils::compute_theoretical_interception_with_y_axis(
+            m,
+            ThresholdUtils::convert(payment_thresholds.debt_threshold_gwei),
+            ThresholdUtils::convert(payment_thresholds.maturity_threshold_sec),
         );
-        eprintln!("x_int: {}, y_int: {}", x_interception, y_interception);
+        eprintln!("y_int: {}", y_interception);
         let b = y_interception;
         eprintln!("b: {}", b);
-        let y = m * convert(x) as f64 + b;
+        let y = m * time as f64 + b; //TODO safe?
         eprintln!("y signed: {}", y);
-        y as u64
+        let f_debt_threshold_gwei = payment_thresholds.debt_threshold_gwei as f64; //TODO safe?
+        let f_permanent_debt_allowed_gwei = payment_thresholds.permanent_debt_allowed_gwei as f64; //TODO safe?
+        if y >= f_debt_threshold_gwei {
+            return f_debt_threshold_gwei;
+        };
+        if y <= f_permanent_debt_allowed_gwei {
+            return f_permanent_debt_allowed_gwei;
+        };
+        y
     }
-    as_any_impl!();
-}
-
-fn compute_theoretical_interceptions_with_axis(
-    m: f64,
-    debt_threshold: i64,
-    maturity_threshold_sec: i64,
-) -> (f64, f64) {
-    let x_intersection = (debt_threshold as f64 / m) + maturity_threshold_sec as f64;
-    (x_intersection, m * x_intersection)
 }
 
 #[cfg(test)]
@@ -1193,6 +1214,7 @@ mod tests {
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::test_utils::{
+        assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment,
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
         make_receivable_account, BannedDaoFactoryMock, ConfigDaoFactoryMock, PayableDaoFactoryMock,
         PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
@@ -1250,7 +1272,7 @@ mod tests {
         calculate_payout_threshold_results: RefCell<Vec<u64>>,
     }
 
-    impl PayableExceedThresholdTools for PayableThresholdToolsMock {
+    impl PayableThresholdTools for PayableThresholdToolsMock {
         fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
             self.is_innocent_age_params
                 .lock()
@@ -1267,11 +1289,15 @@ mod tests {
             self.is_innocent_balance_results.borrow_mut().remove(0)
         }
 
-        fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> u64 {
+        fn calculate_payout_threshold(
+            &self,
+            payment_thresholds: &PaymentThresholds,
+            x: u64,
+        ) -> u64 {
             self.calculate_payout_threshold_params
                 .lock()
                 .unwrap()
-                .push((payment_thresholds, x));
+                .push((*payment_thresholds, x));
             self.calculate_payout_threshold_results
                 .borrow_mut()
                 .remove(0)
@@ -1424,7 +1450,7 @@ mod tests {
         result
             .payable_threshold_tools
             .as_any()
-            .downcast_ref::<PayableExceedThresholdToolsReal>()
+            .downcast_ref::<PayableThresholdToolsReal>()
             .unwrap();
         assert_eq!(result.crashable, false);
         assert_eq!(result.financial_statistics.total_paid_receivable, 0);
@@ -3352,7 +3378,7 @@ mod tests {
 
     #[test]
     fn threshold_sloped_line_corresponds_to_the_thought_model() {
-        let subject = PayableExceedThresholdToolsReal {};
+        let subject = PayableThresholdToolsReal {};
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 2_592_000,
             debt_threshold_gwei: 1_000_000_000,
@@ -3363,11 +3389,11 @@ mod tests {
         };
 
         let point1 = subject.calculate_payout_threshold(
-            payment_thresholds,
+            &payment_thresholds,
             payment_thresholds.maturity_threshold_sec + payment_thresholds.threshold_interval_sec,
         );
         let point2 = subject.calculate_payout_threshold(
-            payment_thresholds,
+            &payment_thresholds,
             payment_thresholds.maturity_threshold_sec,
         );
 
@@ -3383,7 +3409,7 @@ mod tests {
 
     #[test]
     fn threshold_reacts_correctly_also_after_the_sloped_section() {
-        let subject = PayableExceedThresholdToolsReal {};
+        let subject = PayableThresholdToolsReal {};
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 2_592_000,
             debt_threshold_gwei: 1_000_000_000,
@@ -3394,7 +3420,7 @@ mod tests {
         };
 
         let result = subject.calculate_payout_threshold(
-            payment_thresholds,
+            &payment_thresholds,
             payment_thresholds.maturity_threshold_sec
                 + payment_thresholds.threshold_interval_sec
                 + 123,
@@ -3451,6 +3477,69 @@ mod tests {
                    "Paying qualified debts:\n\
                    10001000 owed for 2593234sec exceeds threshold: 9512428; creditor: 0x0000000000000000000000000077616c6c657430\n\
                    10000001 owed for 2592001sec exceeds threshold: 9999604; creditor: 0x0000000000000000000000000077616c6c657431"
+        )
+    }
+
+    #[test]
+    fn payout_sloped_segment_in_payment_thresholds_goes_along_a_proper_line() {
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 333,
+            payment_grace_period_sec: 444,
+            permanent_debt_allowed_gwei: 4444,
+            debt_threshold_gwei: 8888,
+            threshold_interval_sec: 1111111,
+            unban_below_gwei: 0,
+        };
+        let now = to_time_t(SystemTime::now());
+        let higher_corner_timestamp = payment_thresholds.maturity_threshold_sec;
+        let middle_point_timestamp = payment_thresholds.maturity_threshold_sec
+            + payment_thresholds.threshold_interval_sec / 2;
+        let lower_corner_timestamp =
+            payment_thresholds.maturity_threshold_sec + payment_thresholds.threshold_interval_sec;
+        let tested_fn = |payment_thresholds: &PaymentThresholds, time| {
+            PayableThresholdToolsReal {}.calculate_payout_threshold(payment_thresholds, time)
+                as i128
+                * GWEI_TO_WEI
+        };
+
+        assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment(
+            tested_fn,
+            payment_thresholds,
+            higher_corner_timestamp,
+            middle_point_timestamp,
+            lower_corner_timestamp,
+        )
+    }
+
+    #[test]
+    fn computation_of_calculate_sloped_threshold_by_time_cannot_exceed_limit_points() {
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 1000,
+            payment_grace_period_sec: 444,
+            permanent_debt_allowed_gwei: 44,
+            debt_threshold_gwei: 8888,
+            threshold_interval_sec: 11111,
+            unban_below_gwei: 0,
+        };
+
+        let seeming_upper_overflow = ThresholdUtils::calculate_sloped_threshold_by_time(
+            &payment_thresholds,
+            payment_thresholds.maturity_threshold_sec - 10,
+        ) as u64;
+        let seeming_lower_overflow = ThresholdUtils::calculate_sloped_threshold_by_time(
+            &payment_thresholds,
+            payment_thresholds.maturity_threshold_sec
+                + payment_thresholds.threshold_interval_sec
+                + 33,
+        ) as u64;
+
+        assert_eq!(
+            seeming_upper_overflow,
+            payment_thresholds.debt_threshold_gwei
+        );
+        assert_eq!(
+            seeming_lower_overflow,
+            payment_thresholds.permanent_debt_allowed_gwei
         )
     }
 

@@ -13,7 +13,7 @@ use crate::accountant::pending_payable_dao::{
     PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory,
 };
 use crate::accountant::receivable_dao::{
-    ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
+    ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory, ReceivableDaoReal,
 };
 use crate::accountant::{Accountant, PendingPayableId};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
@@ -25,7 +25,7 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds};
+use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds, GWEI_TO_WEI};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -984,4 +984,48 @@ pub fn convert_to_all_string_values(str_args: Vec<(&str, &str)>) -> Vec<(String,
         .into_iter()
         .map(|(a, b)| (a.to_string(), b.to_string()))
         .collect()
+}
+
+pub fn assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment<F>(
+    tested_fn: F,
+    payment_thresholds: PaymentThresholds,
+    higher_corner_timestamp: u64,
+    middle_point_timestamp: u64,
+    lower_corner_timestamp: u64,
+) where
+    F: Fn(&PaymentThresholds, u64) -> i128,
+{
+    let higher_corner_point = tested_fn(&payment_thresholds, higher_corner_timestamp);
+    let middle_point = tested_fn(&payment_thresholds, middle_point_timestamp);
+    let lower_corner_point = tested_fn(&payment_thresholds, lower_corner_timestamp);
+
+    let allowed_imprecision = 1 * GWEI_TO_WEI;
+    let ideal_template_higher = payment_thresholds.debt_threshold_gwei as i128 * GWEI_TO_WEI;
+    let ideal_template_middle = ((payment_thresholds.debt_threshold_gwei
+        - payment_thresholds.permanent_debt_allowed_gwei)
+        / 2
+        + payment_thresholds.permanent_debt_allowed_gwei) as i128
+        * GWEI_TO_WEI;
+    let ideal_template_lower = payment_thresholds.permanent_debt_allowed_gwei as i128 * GWEI_TO_WEI;
+    assert!(
+        higher_corner_point <= ideal_template_higher + allowed_imprecision
+            && ideal_template_higher - allowed_imprecision <= higher_corner_point,
+        "ideal: {}, real: {}",
+        ideal_template_higher,
+        higher_corner_point
+    );
+    assert!(
+        middle_point <= ideal_template_middle + allowed_imprecision
+            && ideal_template_middle - allowed_imprecision <= middle_point,
+        "ideal: {}, real: {}",
+        ideal_template_middle,
+        middle_point
+    );
+    assert!(
+        lower_corner_point <= ideal_template_lower + allowed_imprecision
+            && ideal_template_lower - allowed_imprecision <= lower_corner_point,
+        "ideal: {}, real: {}",
+        ideal_template_lower,
+        lower_corner_point
+    );
 }

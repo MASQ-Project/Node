@@ -501,22 +501,38 @@ pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::{DbInitializer, InitializationError};
     use crate::database::db_migrations::MigratorConfig;
-    use rusqlite::Transaction;
+    use rusqlite::{Connection, Transaction, TransactionBehavior};
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
     #[derive(Debug, Default)]
-    pub struct ConnectionWrapperMock<'b, 'a: 'b> {
+    pub struct ConnectionWrapperMock<'a> {
         prepare_params: Arc<Mutex<Vec<String>>>,
         prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
-        transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
+        transaction_results: RefCell<Vec<Result<ArtificialTransaction, Error>>>,
     }
 
-    unsafe impl<'a: 'b, 'b> Send for ConnectionWrapperMock<'a, 'b> {}
+    #[derive(Debug)]
+    pub struct ArtificialTransaction {
+        conn: Connection,
+    }
 
-    impl<'a: 'b, 'b> ConnectionWrapperMock<'a, 'b> {
+    impl ArtificialTransaction {
+        pub fn new() -> Self {
+            Self {
+                conn: Connection::open_in_memory().unwrap(),
+            }
+        }
+        fn transaction(&self) -> Transaction {
+            Transaction::new_unchecked(&self.conn, TransactionBehavior::Deferred).unwrap()
+        }
+    }
+
+    unsafe impl<'a> Send for ConnectionWrapperMock<'a> {}
+
+    impl<'a> ConnectionWrapperMock<'a> {
         pub fn new() -> Self {
             Self::default()
         }
@@ -526,13 +542,13 @@ pub mod test_utils {
             self
         }
 
-        pub fn transaction_result(self, result: Result<Transaction<'b>, Error>) -> Self {
+        pub fn transaction_result(self, result: Result<ArtificialTransaction, Error>) -> Self {
             self.transaction_results.borrow_mut().push(result);
             self
         }
     }
 
-    impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
+    impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
         fn prepare(&self, query: &str) -> Result<Statement, Error> {
             self.prepare_params
                 .lock()
@@ -542,7 +558,10 @@ pub mod test_utils {
         }
 
         fn transaction<'_a: '_b, '_b>(&'_a mut self) -> Result<Transaction<'_b>, Error> {
-            self.transaction_results.borrow_mut().remove(0)
+            match self.transaction_results.borrow_mut().remove(0) {
+                Ok(artificial_transaction) => Ok(artificial_transaction.transaction()),
+                Err(e) => Err(e),
+            }
         }
     }
 
