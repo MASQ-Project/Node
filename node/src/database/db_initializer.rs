@@ -508,7 +508,7 @@ pub mod test_utils {
     use std::sync::{Arc, Mutex};
 
     #[derive(Debug, Default)]
-    pub struct ConnectionWrapperMock<'b, 'a: 'b>  {
+    pub struct ConnectionWrapperMock<'b, 'a: 'b> {
         prepare_params: Arc<Mutex<Vec<String>>>,
         prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
         transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,

@@ -11,13 +11,14 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::{now_time_t, to_time_t, DaoFactoryReal};
 use crate::db_config::config_dao::{ConfigDaoWrite, ConfigDaoWriteableReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
-use crate::sub_lib::accountant::{GWEI_TO_WEI, PaymentThresholds};
+use crate::sub_lib::accountant::{PaymentThresholds, GWEI_TO_WEI};
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use itertools::Either;
 use masq_lib::logger::Logger;
-use rusqlite::named_params;
+use masq_lib::utils::plus;
 use rusqlite::types::{ToSql, Type};
+use rusqlite::{named_params, params_from_iter};
 use rusqlite::{OptionalExtension, Row};
 use std::time::SystemTime;
 
@@ -174,11 +175,7 @@ impl ReceivableDao for ReceivableDaoReal {
         system_now: SystemTime,
         payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
-        self.mine_metadata_of_yet_unbanned_with_temp_table(payment_thresholds, system_now);//TODO do something wth the result
-        let slope =
-            (checked_conversion::<u64, i64>(payment_thresholds.permanent_debt_allowed_gwei)
-                - checked_conversion::<u64, i64>(payment_thresholds.debt_threshold_gwei))
-                / (checked_conversion::<u64, i64>(payment_thresholds.threshold_interval_sec));
+        self.mine_metadata_of_yet_unbanned(payment_thresholds, system_now);
         let sql = indoc!(
             r"
             select r.wallet_address, r.balance, r.last_received_timestamp
@@ -191,21 +188,23 @@ impl ReceivableDao for ReceivableDaoReal {
                 and b.wallet_address is null
         "
         );
-        let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
-        let findings = stmt.query_map(
-            named_params! {
-                ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(system_now)),
-            },
-            Self::row_to_account,
-        )
-        .expect("Couldn't retrieve new delinquencies: database corruption")
-        .flatten()
-        .collect();
+        let findings = self
+            .conn
+            .prepare(sql)
+            .expect("Couldn't prepare statement")
+            .query_map(
+                named_params! {
+                    ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(system_now)),
+                },
+                Self::row_to_account,
+            )
+            .expect("Couldn't retrieve new delinquencies: database corruption")
+            .flatten()
+            .collect();
         self.truncate_metadata_table();
         findings
     }
 
-    //TODO: NO
     fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount> {
         let sql = indoc!(
             r"
@@ -311,57 +310,58 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn mine_metadata_of_yet_unbanned_with_temp_table(
+    fn mine_metadata_of_yet_unbanned(
         &self,
         payment_thresholds: &PaymentThresholds,
         system_now: SystemTime,
-    ) -> Result<(), String> {
+    ) {
         let sql = indoc!(
             r"
-            create temp table delinquency_metadata(
+            create temp table if not exists delinquency_metadata(
                 wallet_address text not null,
                 curve_point blob not null
             )"
         );
-        let mut temp_table_stm = self.conn.prepare(sql).expect("internal error");
-        temp_table_stm
+        self.conn
+            .prepare(sql)
+            .expect("internal error")
             .execute([])
             .expect("creation of a temporary table failed");
-        //TODO do we need some checks or error messages to let the user know?
-        let slope = -(payment_thresholds.permanent_debt_allowed_gwei as f64
-            - payment_thresholds.debt_threshold_gwei as f64)
-            / (payment_thresholds.threshold_interval_sec as f64);
-        let mut select_stm = self.conn.prepare("select r.wallet_address, r.last_received_timestamp from receivable r left outer join banned b on r.wallet_address = b.wallet_address where b.wallet_address is null").expect("internal error");
-        let mut insert_stm = self.conn.prepare("insert into delinquency_metadata (wallet_address, curve_point) values (:wallet_address, :curve_point)").expect("internal error");
-        select_stm
+        let mut select_stm = self
+            .conn
+            .prepare(indoc!(
+                r"
+                select r.wallet_address, r.last_received_timestamp from receivable r
+                left outer join banned b on r.wallet_address = b.wallet_address
+                where b.wallet_address is null"
+            ))
+            .expect("internal error");
+        let found_data = select_stm
             .query_map([], |row| {
                 let wallet_address: rusqlite::Result<String> = row.get(0);
                 let timestamp: rusqlite::Result<i64> = row.get(1);
                 match (wallet_address, timestamp) {
-                    (Ok(wallet_address), Ok(timestamp)) => {
-                        let curve_point = Self::delinquency_curve_height_detection(
+                    (Ok(wallet_address), Ok(timestamp)) => Ok((
+                        wallet_address,
+                        Self::delinquency_curve_height_detection(
                             payment_thresholds,
                             to_time_t(system_now),
                             timestamp,
-                        );
-                        eprintln!(
-                            "declining boarder {}\n, {}",
-                            curve_point, wallet_address
-                        );
-                        let insert_params = named_params!(
-                            ":wallet_address": &wallet_address,
-                            ":curve_point": &curve_point
-                        );
-                        insert_stm.execute(insert_params)?;
-                        Ok(())
-                    }
+                        ),
+                    )),
                     _ => unimplemented!(),
                 }
             })
             .expect("internal error")
-            .collect::<Vec<rusqlite::Result<()>>>();
-        Ok(())
-        //TODO probably drop the table
+            .flatten()
+            .collect::<Vec<(String, i128)>>();
+        let serial_params = Self::serialize_sql_params(found_data);
+        let sql = Self::prepare_multi_insert_statement(serial_params.len() / 2);
+        let mut stm = self.conn.prepare(&sql).expect("bad multi insert statement");
+        stm.execute(params_from_iter(
+            serial_params.iter().map(|param| param.as_ref()),
+        ))
+        .expect("insert operation failed");
     }
 
     pub fn delinquency_curve_height_detection(
@@ -370,7 +370,7 @@ impl ReceivableDaoReal {
         timestamp: i64,
     ) -> i128 {
         let time = payment_thresholds.grace(now) - timestamp;
-        let time = if time.is_negative(){0}else {time};
+        let time = if time.is_negative() { 0 } else { time };
         eprintln!("now: {}", now);
         eprintln!("timestamp: {}", timestamp);
         eprintln!("time: {}", time);
@@ -381,12 +381,31 @@ impl ReceivableDaoReal {
             * GWEI_TO_WEI
     }
 
-    fn truncate_metadata_table(&self){
-        //'To truncate a table in SQLite, you just need to execute a DELETE statement without a WHERE clause'
-        let _ = self.conn.prepare("delete from delinquency_metadata").expect("internal error").execute([]).expect("internal error");
+    fn prepare_multi_insert_statement(row_count: usize) -> String {
+        let mut flexible_part = "(?, ?),".repeat(row_count);
+        flexible_part.pop();
+        format!(
+            "insert into delinquency_metadata (wallet_address,curve_point) values {}",
+            flexible_part
+        )
     }
 
-    //TODO: YES - direct replace
+    fn serialize_sql_params(pairs: Vec<(String, i128)>) -> Vec<Box<dyn ToSql>> {
+        pairs.into_iter().fold(vec![], |acc, (wallet, point)| {
+            plus(plus(acc, Box::new(wallet)), Box::new(point))
+        })
+    }
+
+    fn truncate_metadata_table(&self) {
+        //'To truncate a table in SQLite, you just need to execute a DELETE statement without a WHERE clause'
+        let _ = self
+            .conn
+            .prepare("delete from delinquency_metadata")
+            .expect("internal error")
+            .execute([])
+            .expect("internal error");
+    }
+
     fn try_multi_insert_payment(
         &mut self,
         core: &dyn InsertUpdateCore,
@@ -451,7 +470,6 @@ impl ReceivableDaoReal {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
     use super::*;
     use crate::accountant::blob_utils::{InsertUpdateCoreReal, InsertUpdateError, Table};
     use crate::accountant::test_utils::{
@@ -460,7 +478,7 @@ mod tests {
     };
     use crate::database::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::database::db_initializer;
-    use crate::database::db_initializer::test_utils::{ConnectionWrapperMock};
+    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
     use crate::database::db_migrations::MigratorConfig;
@@ -474,6 +492,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, Error, OpenFlags, Statement, Transaction, TransactionBehavior};
+    use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -910,7 +929,7 @@ mod tests {
     }
 
     #[test]
-    fn despite_not_much_realistic_timestamp_gap_smaller_than_grace_period_can_never_blow_up(){
+    fn despite_not_much_realistic_timestamp_gap_smaller_than_grace_period_can_never_blow_up() {
         let payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 25,
             payment_grace_period_sec: 50,
@@ -920,15 +939,22 @@ mod tests {
             unban_below_gwei: 0,
         };
         let now = to_time_t(SystemTime::now());
-        let timestamp= now - 11;
+        let timestamp = now - 11;
 
-        let result = ReceivableDaoReal::delinquency_curve_height_detection(&payment_thresholds,now,timestamp);
+        let result = ReceivableDaoReal::delinquency_curve_height_detection(
+            &payment_thresholds,
+            now,
+            timestamp,
+        );
 
-        assert_eq!(result,payment_thresholds.debt_threshold_gwei as i128 * GWEI_TO_WEI)
+        assert_eq!(
+            result,
+            payment_thresholds.debt_threshold_gwei as i128 * GWEI_TO_WEI
+        )
     }
 
     #[test]
-    fn creating_temp_table_of_curve_heights_for_potential_new_delinquencies() {
+    fn mine_curve_heights_on_temp_table_for_potential_new_delinquencies() {
         let payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 25,
             payment_grace_period_sec: 50,
@@ -939,7 +965,7 @@ mod tests {
         };
         let home_dir = ensure_node_home_directory_exists(
             "accountant",
-            "fetching_potential_new_delinquencies_and_their_curve_heights",
+            "mine_curve_heights_on_temp_table_for_potential_new_delinquencies",
         );
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -947,7 +973,7 @@ mod tests {
         let wallet_banned = make_wallet("wallet_banned");
         let wallet_1 = make_wallet("wallet_1");
         let wallet_2 = make_wallet("wallet_2");
-        let unbanned_account_1_timestamp = from_time_t(to_time_t(SystemTime::now())-1000);
+        let unbanned_account_1_timestamp = from_time_t(to_time_t(SystemTime::now()) - 1000);
         let unbanned_account_2_timestamp = SystemTime::now();
         let banned_account = ReceivableAccount {
             wallet: wallet_banned,
@@ -970,7 +996,7 @@ mod tests {
         add_receivable_account(&conn, &unbanned_account_2);
         let subject = ReceivableDaoReal::new(conn);
 
-        subject.mine_metadata_of_yet_unbanned_with_temp_table(&payment_thresholds, SystemTime::now());
+        subject.mine_metadata_of_yet_unbanned(&payment_thresholds, SystemTime::now());
 
         let now = now_time_t();
         let captured = capture_rows(subject.conn.as_ref(), "delinquency_metadata");
@@ -1010,7 +1036,7 @@ mod tests {
 
     #[test]
     fn new_delinquencies_unit_slope() {
-        fn wei_conversion(gwei: u64)->i128{
+        fn wei_conversion(gwei: u64) -> i128 {
             i128::try_from(gwei).unwrap() * GWEI_TO_WEI
         }
         let pcs = PaymentThresholds {
@@ -1019,12 +1045,11 @@ mod tests {
             permanent_debt_allowed_gwei: 100,
             debt_threshold_gwei: 200,
             threshold_interval_sec: 100,
-            unban_below_gwei: 0
+            unban_below_gwei: 0,
         };
         let now = now_time_t();
         let mut not_delinquent_inside_grace_period = make_receivable_account(1234, false);
-        not_delinquent_inside_grace_period.balance =
-            wei_conversion(pcs.debt_threshold_gwei + 1);
+        not_delinquent_inside_grace_period.balance = wei_conversion(pcs.debt_threshold_gwei + 1);
         not_delinquent_inside_grace_period.last_received_timestamp =
             from_time_t(pcs.sugg_and_grace(now) + 2);
         let mut not_delinquent_after_grace_below_slope = make_receivable_account(2345, false);
@@ -1033,8 +1058,7 @@ mod tests {
         not_delinquent_after_grace_below_slope.last_received_timestamp =
             from_time_t(pcs.sugg_and_grace(now) - 1);
         let mut delinquent_above_slope_after_grace = make_receivable_account(3456, true);
-        delinquent_above_slope_after_grace.balance =
-            wei_conversion(pcs.debt_threshold_gwei - 1);
+        delinquent_above_slope_after_grace.balance = wei_conversion(pcs.debt_threshold_gwei - 1);
         delinquent_above_slope_after_grace.last_received_timestamp =
             from_time_t(pcs.sugg_and_grace(now) - 2);
         let mut not_delinquent_below_slope_before_stop = make_receivable_account(4567, false);
@@ -1080,14 +1104,14 @@ mod tests {
             permanent_debt_allowed_gwei: 100,
             debt_threshold_gwei: 110,
             threshold_interval_sec: 100,
-            unban_below_gwei: 0
+            unban_below_gwei: 0,
         };
         let now = now_time_t();
         let mut not_delinquent = make_receivable_account(1234, false);
-        not_delinquent.balance = 105*GWEI_TO_WEI;
+        not_delinquent.balance = 105 * GWEI_TO_WEI;
         not_delinquent.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 25);
         let mut delinquent = make_receivable_account(2345, true);
-        delinquent.balance = 105*GWEI_TO_WEI;
+        delinquent.balance = 105 * GWEI_TO_WEI;
         delinquent.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 75);
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_shallow_slope");
@@ -1150,10 +1174,10 @@ mod tests {
         };
         let now = now_time_t();
         let mut existing_delinquency = make_receivable_account(1234, true);
-        existing_delinquency.balance = 250*GWEI_TO_WEI;
+        existing_delinquency.balance = 250 * GWEI_TO_WEI;
         existing_delinquency.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 1);
         let mut new_delinquency = make_receivable_account(2345, true);
-        new_delinquency.balance = 250*GWEI_TO_WEI;
+        new_delinquency.balance = 250 * GWEI_TO_WEI;
         new_delinquency.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 1);
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
@@ -1175,7 +1199,7 @@ mod tests {
     }
 
     #[test]
-    fn metadata_gets_gone_after_the_procedure_of_new_delinquencies(){
+    fn metadata_gets_gone_after_the_procedure_of_new_delinquencies() {
         let pcs = PaymentThresholds {
             maturity_threshold_sec: 25,
             payment_grace_period_sec: 50,
@@ -1200,13 +1224,16 @@ mod tests {
 
         let result = subject.new_delinquencies(from_time_t(now), &pcs);
 
-        let mut stm = subject.conn.prepare("select * from delinquency_metadata").unwrap();
-        let error = stm.query_row([],|row|{Ok(())}).unwrap_err();
-        assert_eq!(error,Error::QueryReturnedNoRows)
+        let mut stm = subject
+            .conn
+            .prepare("select * from delinquency_metadata")
+            .unwrap();
+        let error = stm.query_row([], |row| Ok(())).unwrap_err();
+        assert_eq!(error, Error::QueryReturnedNoRows)
     }
 
     #[test]
-    fn temporary_metadata_table_gets_gone_after_disconnection<'a:'b,'b>(){
+    fn temporary_metadata_table_gets_gone_after_disconnection<'a: 'b, 'b>() {
         let payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 25,
             payment_grace_period_sec: 50,
@@ -1233,13 +1260,15 @@ mod tests {
 
         drop(subject);
 
-        let new_connection =  db_initializer
+        let new_connection = db_initializer
             .initialize(&home_dir, false, MigratorConfig::test_default())
             .unwrap();
         let error = new_connection.prepare(assertion_sql).unwrap_err();
         match error {
-            Error::SqliteFailure(_,Some(msg)) => assert_eq!(msg,"no such table: delinquency_metadata".to_string()),
-            x => panic!("we expected 'no such table error' but received: {}",x)
+            Error::SqliteFailure(_, Some(msg)) => {
+                assert_eq!(msg, "no such table: delinquency_metadata".to_string())
+            }
+            x => panic!("we expected 'no such table error' but received: {}", x),
         }
     }
 
@@ -1469,15 +1498,18 @@ mod tests {
 
     #[test]
     fn update_in_try_multi_insert_payment_returns_early_error_with_params_assertion() {
-        let home = ensure_node_home_directory_exists("receivable_dao",
-                                                     "update_in_try_multi_insert_payment_returns_early_error_with_params_assertion"
+        let home = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "update_in_try_multi_insert_payment_returns_early_error_with_params_assertion",
         );
-        let conn = DbInitializerReal::default().initialize(&home,true,MigratorConfig::test_default()).unwrap();
+        let conn = DbInitializerReal::default()
+            .initialize(&home, true, MigratorConfig::test_default())
+            .unwrap();
         let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
         let insert_update_core = InsertUpdateCoreMock::default()
             .update_params(&insert_or_update_params_arc)
             .update_result(Err(InsertUpdateError("SomethingWrong".to_string())));
-        let mut subject = ReceivableDaoReal::new( conn);
+        let mut subject = ReceivableDaoReal::new(conn);
         let payments = vec![
             PaidReceivable {
                 block_number: 42u64,
