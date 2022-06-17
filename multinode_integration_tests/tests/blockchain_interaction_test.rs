@@ -23,6 +23,7 @@ use multinode_integration_tests_lib::utils::{
 use node_lib::sub_lib::wallet::Wallet;
 
 #[test]
+#[ignore]
 fn debtors_are_credited_once_but_not_twice() {
     let mbcs_port = find_free_port();
     let ui_port = find_free_port();

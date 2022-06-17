@@ -217,17 +217,6 @@ impl MASQNodeCluster {
             .map(|result| result.err().unwrap())
             .collect();
         if results.is_empty() {
-            // let mut command = Command::new(
-            //     "docker",
-            //     Command::strings(vec!["container", "prune", "-f"]),
-            // );
-            // match command.wait_for_exit() {
-            //     0 => Ok(()),
-            //     _ => Err(format!(
-            //         "Could not prune containers: {}",
-            //         command.stderr_as_string()
-            //     )),
-            // }
             Ok(())
         } else {
             Err(results.join("; "))
