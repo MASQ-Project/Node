@@ -11,7 +11,7 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::{now_time_t, to_time_t, DaoFactoryReal};
 use crate::db_config::config_dao::{ConfigDaoWrite, ConfigDaoWriteableReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
-use crate::sub_lib::accountant::{PaymentThresholds, GWEI_TO_WEI};
+use crate::sub_lib::accountant::{GWEI_TO_WEI, PaymentThresholds};
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use itertools::Either;
@@ -174,8 +174,7 @@ impl ReceivableDao for ReceivableDaoReal {
         system_now: SystemTime,
         payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
-        let now = to_time_t(system_now);
-        //TODO this slope is tilt in the wrong direction; a minus is absent there at the beginning
+        self.mine_metadata_of_yet_unbanned_with_temp_table(payment_thresholds, system_now);//TODO do something wth the result
         let slope =
             (checked_conversion::<u64, i64>(payment_thresholds.permanent_debt_allowed_gwei)
                 - checked_conversion::<u64, i64>(payment_thresholds.debt_threshold_gwei))
@@ -185,27 +184,25 @@ impl ReceivableDao for ReceivableDaoReal {
             select r.wallet_address, r.balance, r.last_received_timestamp
             from receivable r
             left outer join banned b on r.wallet_address = b.wallet_address
+            inner join delinquency_metadata d on r.wallet_address = d.wallet_address
             where
                 r.last_received_timestamp < :sugg_and_grace
-                and r.balance > :balance_to_decrease_from + :slope * (:sugg_and_grace - r.last_received_timestamp)
-                and r.balance > :permanent_debt
+                and r.balance > d.curve_point
                 and b.wallet_address is null
         "
         );
         let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
-        //   let point_at_payment_threshold = payment_thresholds.debt_threshold_gwei + slope * (payment_thresholds.sugg_and_grace(now)-)
-        stmt.query_map(
+        let findings = stmt.query_map(
             named_params! {
-                ":slope": slope,
-                ":sugg_and_grace": payment_thresholds.sugg_and_grace(now),
-                ":balance_to_decrease_from": (payment_thresholds.debt_threshold_gwei as i128) * GWEI_TO_WEI,
-                ":permanent_debt": (payment_thresholds.permanent_debt_allowed_gwei as i128) * GWEI_TO_WEI,
+                ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(system_now)),
             },
             Self::row_to_account,
         )
         .expect("Couldn't retrieve new delinquencies: database corruption")
         .flatten()
-        .collect()
+        .collect();
+        self.truncate_metadata_table();
+        findings
     }
 
     //TODO: NO
@@ -314,7 +311,7 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn mine_metadata_of_yet_unbanned(
+    fn mine_metadata_of_yet_unbanned_with_temp_table(
         &self,
         payment_thresholds: &PaymentThresholds,
         system_now: SystemTime,
@@ -342,18 +339,18 @@ impl ReceivableDaoReal {
                 let timestamp: rusqlite::Result<i64> = row.get(1);
                 match (wallet_address, timestamp) {
                     (Ok(wallet_address), Ok(timestamp)) => {
-                        let declining_curve_boarder = Self::delinquency_curve_height_detection(
+                        let curve_point = Self::delinquency_curve_height_detection(
                             payment_thresholds,
                             to_time_t(system_now),
                             timestamp,
                         );
                         eprintln!(
                             "declining boarder {}\n, {}",
-                            declining_curve_boarder, wallet_address
+                            curve_point, wallet_address
                         );
                         let insert_params = named_params!(
                             ":wallet_address": &wallet_address,
-                            ":curve_point": &declining_curve_boarder
+                            ":curve_point": &curve_point
                         );
                         insert_stm.execute(insert_params)?;
                         Ok(())
@@ -372,12 +369,21 @@ impl ReceivableDaoReal {
         now: i64,
         timestamp: i64,
     ) -> i128 {
-        let time = payment_thresholds.sugg_and_grace(now) - timestamp;
+        let time = payment_thresholds.grace(now) - timestamp;
+        let time = if time.is_negative(){0}else {time};
+        eprintln!("now: {}", now);
+        eprintln!("timestamp: {}", timestamp);
+        eprintln!("time: {}", time);
         ThresholdUtils::calculate_sloped_threshold_by_time(
             payment_thresholds,
             checked_conversion::<i64, u64>(time),
         ) as i128
             * GWEI_TO_WEI
+    }
+
+    fn truncate_metadata_table(&self){
+        //'To truncate a table in SQLite, you just need to execute a DELETE statement without a WHERE clause'
+        let _ = self.conn.prepare("delete from delinquency_metadata").expect("internal error").execute([]).expect("internal error");
     }
 
     //TODO: YES - direct replace
@@ -445,6 +451,7 @@ impl ReceivableDaoReal {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use super::*;
     use crate::accountant::blob_utils::{InsertUpdateCoreReal, InsertUpdateError, Table};
     use crate::accountant::test_utils::{
@@ -453,9 +460,7 @@ mod tests {
     };
     use crate::database::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::database::db_initializer;
-    use crate::database::db_initializer::test_utils::{
-        ArtificialTransaction, ConnectionWrapperMock,
-    };
+    use crate::database::db_initializer::test_utils::{ConnectionWrapperMock};
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
     use crate::database::db_migrations::MigratorConfig;
@@ -468,7 +473,7 @@ mod tests {
     use actix::clock::now;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection, Error, OpenFlags, Transaction, TransactionBehavior};
+    use rusqlite::{Connection, Error, OpenFlags, Statement, Transaction, TransactionBehavior};
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -905,18 +910,32 @@ mod tests {
     }
 
     #[test]
-    fn fetching_curve_heights_for_potential_new_delinquencies() {
-        //TODO change this comment
-        //these values are actually irrelevant because the decision
-        //is made based on whether the wallet is listed among the current known delinquents;
-        //we would judge the quality of the debt in the next step
+    fn despite_not_much_realistic_timestamp_gap_smaller_than_grace_period_can_never_blow_up(){
         let payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 25,
             payment_grace_period_sec: 50,
             permanent_debt_allowed_gwei: 100,
             debt_threshold_gwei: 200,
             threshold_interval_sec: 100,
-            unban_below_gwei: 0, // doesn't matter for this test
+            unban_below_gwei: 0,
+        };
+        let now = to_time_t(SystemTime::now());
+        let timestamp= now - 11;
+
+        let result = ReceivableDaoReal::delinquency_curve_height_detection(&payment_thresholds,now,timestamp);
+
+        assert_eq!(result,payment_thresholds.debt_threshold_gwei as i128 * GWEI_TO_WEI)
+    }
+
+    #[test]
+    fn creating_temp_table_of_curve_heights_for_potential_new_delinquencies() {
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 25,
+            payment_grace_period_sec: 50,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 200,
+            threshold_interval_sec: 100,
+            unban_below_gwei: 0,
         };
         let home_dir = ensure_node_home_directory_exists(
             "accountant",
@@ -928,12 +947,12 @@ mod tests {
         let wallet_banned = make_wallet("wallet_banned");
         let wallet_1 = make_wallet("wallet_1");
         let wallet_2 = make_wallet("wallet_2");
-        let unbanned_account_1_timestamp = from_time_t(38_400_000_000);
+        let unbanned_account_1_timestamp = from_time_t(to_time_t(SystemTime::now())-1000);
         let unbanned_account_2_timestamp = SystemTime::now();
         let banned_account = ReceivableAccount {
             wallet: wallet_banned,
             balance: 80057,
-            last_received_timestamp: from_time_t(26_500_000_000),
+            last_received_timestamp: from_time_t(16_554_000_000),
         };
         let unbanned_account_1 = ReceivableAccount {
             wallet: wallet_1.clone(),
@@ -951,7 +970,7 @@ mod tests {
         add_receivable_account(&conn, &unbanned_account_2);
         let subject = ReceivableDaoReal::new(conn);
 
-        subject.mine_metadata_of_yet_unbanned(&payment_thresholds, SystemTime::now());
+        subject.mine_metadata_of_yet_unbanned_with_temp_table(&payment_thresholds, SystemTime::now());
 
         let now = now_time_t();
         let captured = capture_rows(subject.conn.as_ref(), "delinquency_metadata");
@@ -991,43 +1010,46 @@ mod tests {
 
     #[test]
     fn new_delinquencies_unit_slope() {
+        fn wei_conversion(gwei: u64)->i128{
+            i128::try_from(gwei).unwrap() * GWEI_TO_WEI
+        }
         let pcs = PaymentThresholds {
             maturity_threshold_sec: 25,
             payment_grace_period_sec: 50,
             permanent_debt_allowed_gwei: 100,
             debt_threshold_gwei: 200,
             threshold_interval_sec: 100,
-            unban_below_gwei: 0, // doesn't matter for this test
+            unban_below_gwei: 0
         };
         let now = now_time_t();
         let mut not_delinquent_inside_grace_period = make_receivable_account(1234, false);
         not_delinquent_inside_grace_period.balance =
-            i128::try_from(pcs.debt_threshold_gwei + 1).unwrap();
+            wei_conversion(pcs.debt_threshold_gwei + 1);
         not_delinquent_inside_grace_period.last_received_timestamp =
             from_time_t(pcs.sugg_and_grace(now) + 2);
         let mut not_delinquent_after_grace_below_slope = make_receivable_account(2345, false);
         not_delinquent_after_grace_below_slope.balance =
-            i128::try_from(pcs.debt_threshold_gwei - 2).unwrap();
+            wei_conversion(pcs.debt_threshold_gwei - 2);
         not_delinquent_after_grace_below_slope.last_received_timestamp =
             from_time_t(pcs.sugg_and_grace(now) - 1);
         let mut delinquent_above_slope_after_grace = make_receivable_account(3456, true);
         delinquent_above_slope_after_grace.balance =
-            i128::try_from(pcs.debt_threshold_gwei - 1).unwrap();
+            wei_conversion(pcs.debt_threshold_gwei - 1);
         delinquent_above_slope_after_grace.last_received_timestamp =
             from_time_t(pcs.sugg_and_grace(now) - 2);
         let mut not_delinquent_below_slope_before_stop = make_receivable_account(4567, false);
         not_delinquent_below_slope_before_stop.balance =
-            i128::try_from(pcs.permanent_debt_allowed_gwei + 1).unwrap();
+            wei_conversion(pcs.permanent_debt_allowed_gwei + 1);
         not_delinquent_below_slope_before_stop.last_received_timestamp =
             from_time_t(pcs.sugg_thru_decreasing(now) + 2);
         let mut delinquent_above_slope_before_stop = make_receivable_account(5678, true);
         delinquent_above_slope_before_stop.balance =
-            i128::try_from(pcs.permanent_debt_allowed_gwei + 2).unwrap();
+            wei_conversion(pcs.permanent_debt_allowed_gwei + 2);
         delinquent_above_slope_before_stop.last_received_timestamp =
             from_time_t(pcs.sugg_thru_decreasing(now) + 1);
         let mut not_delinquent_above_slope_after_stop = make_receivable_account(6789, false);
         not_delinquent_above_slope_after_stop.balance =
-            i128::try_from(pcs.permanent_debt_allowed_gwei - 1).unwrap();
+            wei_conversion(pcs.permanent_debt_allowed_gwei - 1);
         not_delinquent_above_slope_after_stop.last_received_timestamp =
             from_time_t(pcs.sugg_thru_decreasing(now) - 2);
         let home_dir = ensure_node_home_directory_exists("accountant", "new_delinquencies");
@@ -1058,14 +1080,14 @@ mod tests {
             permanent_debt_allowed_gwei: 100,
             debt_threshold_gwei: 110,
             threshold_interval_sec: 100,
-            unban_below_gwei: 0, // doesn't matter for this test
+            unban_below_gwei: 0
         };
         let now = now_time_t();
         let mut not_delinquent = make_receivable_account(1234, false);
-        not_delinquent.balance = 105;
+        not_delinquent.balance = 105*GWEI_TO_WEI;
         not_delinquent.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 25);
         let mut delinquent = make_receivable_account(2345, true);
-        delinquent.balance = 105;
+        delinquent.balance = 105*GWEI_TO_WEI;
         delinquent.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 75);
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_shallow_slope");
@@ -1091,14 +1113,14 @@ mod tests {
             permanent_debt_allowed_gwei: 100,
             debt_threshold_gwei: 1100,
             threshold_interval_sec: 100,
-            unban_below_gwei: 0, // doesn't matter for this test
+            unban_below_gwei: 0,
         };
         let now = now_time_t();
         let mut not_delinquent = make_receivable_account(1234, false);
-        not_delinquent.balance = 600;
+        not_delinquent.balance = 600 * GWEI_TO_WEI;
         not_delinquent.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 25);
         let mut delinquent = make_receivable_account(2345, true);
-        delinquent.balance = 600;
+        delinquent.balance = 600 * GWEI_TO_WEI;
         delinquent.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 75);
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_steep_slope");
@@ -1124,16 +1146,15 @@ mod tests {
             permanent_debt_allowed_gwei: 100,
             debt_threshold_gwei: 200,
             threshold_interval_sec: 100,
-            unban_below_gwei: 0, // doesn't matter for this test
+            unban_below_gwei: 0,
         };
         let now = now_time_t();
         let mut existing_delinquency = make_receivable_account(1234, true);
-        existing_delinquency.balance = 250;
+        existing_delinquency.balance = 250*GWEI_TO_WEI;
         existing_delinquency.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 1);
         let mut new_delinquency = make_receivable_account(2345, true);
-        new_delinquency.balance = 250;
+        new_delinquency.balance = 250*GWEI_TO_WEI;
         new_delinquency.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 1);
-
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
             "new_delinquencies_does_not_find_existing_delinquencies",
@@ -1151,6 +1172,75 @@ mod tests {
 
         assert_contains(&result, &new_delinquency);
         assert_eq!(1, result.len());
+    }
+
+    #[test]
+    fn metadata_gets_gone_after_the_procedure_of_new_delinquencies(){
+        let pcs = PaymentThresholds {
+            maturity_threshold_sec: 25,
+            payment_grace_period_sec: 50,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 200,
+            threshold_interval_sec: 100,
+            unban_below_gwei: 0,
+        };
+        let now = now_time_t();
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "metadata_gets_gone_after_the_procedure_of_new_delinquencies",
+        );
+        let db_initializer = DbInitializerReal::default();
+        let conn = db_initializer
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        add_receivable_account(&conn, &make_receivable_account(1234, true));
+        add_receivable_account(&conn, &make_receivable_account(5678, true));
+        add_receivable_account(&conn, &make_receivable_account(9012, true));
+        let subject = ReceivableDaoReal::new(conn);
+
+        let result = subject.new_delinquencies(from_time_t(now), &pcs);
+
+        let mut stm = subject.conn.prepare("select * from delinquency_metadata").unwrap();
+        let error = stm.query_row([],|row|{Ok(())}).unwrap_err();
+        assert_eq!(error,Error::QueryReturnedNoRows)
+    }
+
+    #[test]
+    fn temporary_metadata_table_gets_gone_after_disconnection<'a:'b,'b>(){
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 25,
+            payment_grace_period_sec: 50,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 200,
+            threshold_interval_sec: 100,
+            unban_below_gwei: 0,
+        };
+        let now = now_time_t();
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "temporary_metadata_table_gets_gone_after_disconnection",
+        );
+        let db_initializer = DbInitializerReal::default();
+        let conn = db_initializer
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        add_receivable_account(&conn, &make_receivable_account(1234, true));
+        add_receivable_account(&conn, &make_receivable_account(5678, true));
+        let subject = ReceivableDaoReal::new(conn);
+        let _ = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
+        let assertion_sql = "select * from delinquency_metadata";
+        subject.conn.prepare(assertion_sql).unwrap();
+
+        drop(subject);
+
+        let new_connection =  db_initializer
+            .initialize(&home_dir, false, MigratorConfig::test_default())
+            .unwrap();
+        let error = new_connection.prepare(assertion_sql).unwrap_err();
+        match error {
+            Error::SqliteFailure(_,Some(msg)) => assert_eq!(msg,"no such table: delinquency_metadata".to_string()),
+            x => panic!("we expected 'no such table error' but received: {}",x)
+        }
     }
 
     #[test]
@@ -1378,14 +1468,16 @@ mod tests {
     }
 
     #[test]
-    fn update_in_try_multi_insert_payment_params_assertion() {
+    fn update_in_try_multi_insert_payment_returns_early_error_with_params_assertion() {
+        let home = ensure_node_home_directory_exists("receivable_dao",
+                                                     "update_in_try_multi_insert_payment_returns_early_error_with_params_assertion"
+        );
+        let conn = DbInitializerReal::default().initialize(&home,true,MigratorConfig::test_default()).unwrap();
         let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
         let insert_update_core = InsertUpdateCoreMock::default()
             .update_params(&insert_or_update_params_arc)
             .update_result(Err(InsertUpdateError("SomethingWrong".to_string())));
-        let mut subject = ReceivableDaoReal::new(Box::new(
-            ConnectionWrapperMock::new().transaction_result(Ok(ArtificialTransaction::new())),
-        ));
+        let mut subject = ReceivableDaoReal::new( conn);
         let payments = vec![
             PaidReceivable {
                 block_number: 42u64,
@@ -1424,23 +1516,7 @@ mod tests {
             sql_param_names_assertable,
             convert_to_all_string_values(vec![
                 (":wallet", &make_wallet("some_address").to_string()),
-                (":balance", &18446744073709551615_i128.to_string()),
-            ])
-        );
-        let (select_sql_2, update_sql_2, table_2, sql_param_names_2) =
-            insert_or_update_params.pop().unwrap();
-        assert_eq!(select_sql_2, select_sql);
-        assert_eq!(update_sql_2, update_sql);
-        assert_eq!(table_2, table);
-        let sql_param_names_2_assertable: Vec<(String, String)> = sql_param_names_2
-            .into_iter()
-            .filter(|(param, _)| param.as_str() != ":last_received")
-            .collect();
-        assert_eq!(
-            sql_param_names_2_assertable,
-            convert_to_all_string_values(vec![
-                (":wallet", &make_wallet("other_address").to_string()),
-                (":balance", &444444555333337_i128.to_string()),
+                (":balance", &(-18446744073709551615_i128).to_string()),
             ])
         );
         assert_eq!(insert_or_update_params.pop(), None)

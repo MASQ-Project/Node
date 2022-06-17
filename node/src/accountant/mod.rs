@@ -3377,59 +3377,6 @@ mod tests {
     }
 
     #[test]
-    fn threshold_sloped_line_corresponds_to_the_thought_model() {
-        let subject = PayableThresholdToolsReal {};
-        let payment_thresholds = PaymentThresholds {
-            threshold_interval_sec: 2_592_000,
-            debt_threshold_gwei: 1_000_000_000,
-            payment_grace_period_sec: 86_400,
-            maturity_threshold_sec: 86_400,
-            permanent_debt_allowed_gwei: 10_000_000,
-            unban_below_gwei: 10_000_000,
-        };
-
-        let point1 = subject.calculate_payout_threshold(
-            &payment_thresholds,
-            payment_thresholds.maturity_threshold_sec + payment_thresholds.threshold_interval_sec,
-        );
-        let point2 = subject.calculate_payout_threshold(
-            &payment_thresholds,
-            payment_thresholds.maturity_threshold_sec,
-        );
-
-        assert!(
-            point1 >= payment_thresholds.permanent_debt_allowed_gwei - 1
-                && point1 <= payment_thresholds.permanent_debt_allowed_gwei + 1
-        );
-        assert!(
-            point2 >= payment_thresholds.debt_threshold_gwei - 1
-                && point2 <= payment_thresholds.debt_threshold_gwei + 1
-        )
-    }
-
-    #[test]
-    fn threshold_reacts_correctly_also_after_the_sloped_section() {
-        let subject = PayableThresholdToolsReal {};
-        let payment_thresholds = PaymentThresholds {
-            threshold_interval_sec: 2_592_000,
-            debt_threshold_gwei: 1_000_000_000,
-            payment_grace_period_sec: 86_400,
-            maturity_threshold_sec: 86_400,
-            permanent_debt_allowed_gwei: 10_000_000,
-            unban_below_gwei: 10_000_000,
-        };
-
-        let result = subject.calculate_payout_threshold(
-            &payment_thresholds,
-            payment_thresholds.maturity_threshold_sec
-                + payment_thresholds.threshold_interval_sec
-                + 123,
-        );
-
-        assert_eq!(result, payment_thresholds.permanent_debt_allowed_gwei);
-    }
-
-    #[test]
     fn payables_debug_summary_prints_pretty_summary() {
         todo!("maybe add a magical crate that could separate big numbers by commas after every thousand");
         let now = to_time_t(SystemTime::now());

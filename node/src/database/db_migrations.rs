@@ -914,7 +914,7 @@ mod tests {
     use crate::blockchain::bip39::Bip39;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::dao_utils::{from_time_t, to_time_t};
-    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
+    use crate::database::db_initializer::test_utils::{ConnectionWrapperMock};
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, DATABASE_FILE,
     };

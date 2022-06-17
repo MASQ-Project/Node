@@ -508,31 +508,15 @@ pub mod test_utils {
     use std::sync::{Arc, Mutex};
 
     #[derive(Debug, Default)]
-    pub struct ConnectionWrapperMock<'a> {
+    pub struct ConnectionWrapperMock<'b, 'a: 'b>  {
         prepare_params: Arc<Mutex<Vec<String>>>,
         prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
-        transaction_results: RefCell<Vec<Result<ArtificialTransaction, Error>>>,
+        transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
     }
 
-    #[derive(Debug)]
-    pub struct ArtificialTransaction {
-        conn: Connection,
-    }
+    unsafe impl<'a: 'b, 'b> Send for ConnectionWrapperMock<'a, 'b> {}
 
-    impl ArtificialTransaction {
-        pub fn new() -> Self {
-            Self {
-                conn: Connection::open_in_memory().unwrap(),
-            }
-        }
-        fn transaction(&self) -> Transaction {
-            Transaction::new_unchecked(&self.conn, TransactionBehavior::Deferred).unwrap()
-        }
-    }
-
-    unsafe impl<'a> Send for ConnectionWrapperMock<'a> {}
-
-    impl<'a> ConnectionWrapperMock<'a> {
+    impl<'a: 'b, 'b> ConnectionWrapperMock<'a, 'b> {
         pub fn new() -> Self {
             Self::default()
         }
@@ -542,13 +526,13 @@ pub mod test_utils {
             self
         }
 
-        pub fn transaction_result(self, result: Result<ArtificialTransaction, Error>) -> Self {
+        pub fn transaction_result(self, result: Result<Transaction<'b>, Error>) -> Self {
             self.transaction_results.borrow_mut().push(result);
             self
         }
     }
 
-    impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
+    impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
         fn prepare(&self, query: &str) -> Result<Statement, Error> {
             self.prepare_params
                 .lock()
@@ -558,10 +542,7 @@ pub mod test_utils {
         }
 
         fn transaction<'_a: '_b, '_b>(&'_a mut self) -> Result<Transaction<'_b>, Error> {
-            match self.transaction_results.borrow_mut().remove(0) {
-                Ok(artificial_transaction) => Ok(artificial_transaction.transaction()),
-                Err(e) => Err(e),
-            }
+            self.transaction_results.borrow_mut().remove(0)
         }
     }
 
