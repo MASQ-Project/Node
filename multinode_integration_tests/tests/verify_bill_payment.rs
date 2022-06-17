@@ -43,8 +43,8 @@ fn verify_bill_payment() {
     };
     blockchain_server.start();
     blockchain_server.wait_until_ready();
-    let (_event_loop_handle, http) =
-        Http::with_max_parallel(blockchain_server.url().as_ref(), REQUESTS_IN_PARALLEL).unwrap();
+    let url = blockchain_server.url().to_string();
+    let (_event_loop_handle, http) = Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
     let web3 = Web3::new(http.clone());
     let deriv_path = derivation_path(0, 0);
     let seed = make_seed();
