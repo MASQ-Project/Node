@@ -1111,14 +1111,17 @@ mod tests {
         }
     }
 
+    const _SMART_REMINDER: () = check_schema_version_continuity();
+
+    #[allow(dead_code)]
     const fn check_schema_version_continuity() {
         if DbMigratorReal::list_of_migrations().len() != CURRENT_SCHEMA_VERSION {
-            panic!("It appears that you need to increment the current schema version to have DbMigrator \
-             function correctly if you just added a new migration")
+            panic!(
+                "It appears you need to increment the current schema version to have DbMigrator \
+             work correctly if any new migration added"
+            )
         };
     }
-
-    const SMART_REMINDER: () = check_schema_version_continuity();
 
     #[test]
     fn panic_on_migration_properly_set() {

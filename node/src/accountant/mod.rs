@@ -61,6 +61,7 @@ use std::fmt::Display;
 use std::ops::{Add, Mul, Neg};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
+use thousands::Separable;
 use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
@@ -657,10 +658,10 @@ impl Accountant {
                     .payable_exceeded_threshold(payable)
                     .expect("Threshold suddenly changed!");
                 format!(
-                    "{} owed for {}sec exceeds threshold: {}; creditor: {}",
-                    payable.balance,
+                    "{} Wei owed for {} sec exceeds threshold: {} Wei; creditor: {}",
+                    payable.balance.separate_with_commas(),
                     p_age.as_secs(),
-                    threshold,
+                    threshold.separate_with_commas(),
                     payable.wallet
                 )
             })
@@ -1065,13 +1066,19 @@ impl Accountant {
     }
 }
 
-pub fn unsigned_to_signed<T: Copy, S: TryFrom<T>>(unsigned: T) -> Result<S, T> {
+pub fn sign_conversion<T: Copy, S: TryFrom<T>>(unsigned: T) -> Result<S, T> {
     S::try_from(unsigned).map_err(|_| unsigned)
 }
 
 pub fn checked_conversion<T: Copy + Display, S: TryFrom<T>>(unsigned: T) -> S {
-    unsigned_to_signed(unsigned).unwrap_or_else(|num| {
-        panic!(
+    polite_checked_conversion(unsigned).unwrap_or_else(|msg| panic!("{}", msg))
+}
+
+pub fn polite_checked_conversion<T: Copy + Display, S: TryFrom<T>>(
+    unsigned: T,
+) -> Result<S, String> {
+    sign_conversion(unsigned).map_err(|num| {
+        format!(
             "Overflow detected with {}: cannot be converted from {} to {}",
             num,
             type_name::<T>(),
@@ -1080,6 +1087,7 @@ pub fn checked_conversion<T: Copy + Display, S: TryFrom<T>>(unsigned: T) -> S {
     })
 }
 
+//TODO dead code?
 pub fn checked_conversion_negative<T: Copy + Display, S: TryFrom<T> + Neg + Neg<Output = S>>(
     unsigned: T,
 ) -> S {
@@ -1212,7 +1220,7 @@ mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::receivable_dao::ReceivableAccount;
+    use crate::accountant::receivable_dao::{ReceivableAccount, SignConversionError};
     use crate::accountant::test_utils::{
         assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment,
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
@@ -3015,8 +3023,9 @@ mod tests {
     fn record_service_provided_handles_overflow() {
         init_test_logging();
         let wallet = make_wallet("booga");
-        let receivable_dao = ReceivableDaoMock::new()
-            .more_money_receivable_result(Err(ReceivableDaoError::SignConversion(1234)));
+        let receivable_dao = ReceivableDaoMock::new().more_money_receivable_result(Err(
+            ReceivableDaoError::SignConversion(SignConversionError::BadNum(1234)),
+        ));
         let subject = AccountantBuilder::default()
             .receivable_dao(receivable_dao)
             .build();
@@ -3378,7 +3387,6 @@ mod tests {
 
     #[test]
     fn payables_debug_summary_prints_pretty_summary() {
-        todo!("maybe add a magical crate that could separate big numbers by commas after every thousand");
         let now = to_time_t(SystemTime::now());
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 2_592_000,
@@ -3422,8 +3430,8 @@ mod tests {
 
         assert_eq!(result,
                    "Paying qualified debts:\n\
-                   10001000 owed for 2593234sec exceeds threshold: 9512428; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   10000001 owed for 2592001sec exceeds threshold: 9999604; creditor: 0x0000000000000000000000000077616c6c657431"
+                   10,002,000,000,000,000 Wei owed for 2678400 sec exceeds threshold: 10,000,000,000,000,000 Wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
+                   999,999,999,000,000,000 Wei owed for 86455 sec exceeds threshold: 999,978,993,000,000,000 Wei; creditor: 0x0000000000000000000000000077616c6c657431"
         )
     }
 
@@ -4333,14 +4341,14 @@ mod tests {
 
     #[test]
     fn unsigned_to_signed_handles_zero() {
-        let result = unsigned_to_signed::<u64, i64>(0u64);
+        let result = sign_conversion::<u64, i64>(0u64);
 
         assert_eq!(result, Ok(0i64));
     }
 
     #[test]
     fn unsigned_to_signed_handles_max_allowable() {
-        let result = unsigned_to_signed::<u64, i64>(i64::MAX as u64);
+        let result = sign_conversion::<u64, i64>(i64::MAX as u64);
 
         assert_eq!(result, Ok(i64::MAX));
     }
@@ -4348,7 +4356,7 @@ mod tests {
     #[test]
     fn unsigned_to_signed_handles_max_plus_one() {
         let attempt = (i64::MAX as u64) + 1;
-        let result = unsigned_to_signed::<u64, i64>((i64::MAX as u64) + 1);
+        let result = sign_conversion::<u64, i64>((i64::MAX as u64) + 1);
 
         assert_eq!(result, Err(attempt));
     }
@@ -4358,8 +4366,13 @@ mod tests {
         expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
     )]
     fn overflow_check_works_for_overflow() {
-        let big_number = u128::MAX;
+        checked_conversion::<u128, i128>(u128::MAX);
+    }
 
-        checked_conversion::<u128, i128>(big_number);
+    #[test]
+    fn checked_conversion_without_panic() {
+        let result = polite_checked_conversion::<u128, i128>(u128::MAX);
+
+        assert_eq!(result,Err("Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128".to_string()))
     }
 }

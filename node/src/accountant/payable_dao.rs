@@ -1,10 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::blob_utils::{
-    get_unsized_128, BalanceChange, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal,
-    ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
+    collect_and_sum_i128_values_from_table, get_unsized_128, BalanceChange, InsertUpdateConfig,
+    InsertUpdateCore, InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
-use crate::accountant::{checked_conversion, unsigned_to_signed, PendingPayableId};
+use crate::accountant::{
+    checked_conversion, polite_checked_conversion, sign_conversion, PendingPayableId,
+};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -254,32 +256,17 @@ impl PayableDao for PayableDaoReal {
     // }
 
     fn total(&self) -> u128 {
-        let mut stmt = self
-            .conn
-            .prepare("select sum(balance) from payable")
-            .expect("Internal error");
-        match stmt.query_row([], |row| {
-            let total_balance_result_signed: Result<i128, rusqlite::Error> = row.get(0);
-            match total_balance_result_signed.map(|total| total as u128) {
-                Ok(total_balance) => Ok(total_balance),
-                Err(e)
-                    if e == rusqlite::Error::InvalidColumnType(
-                        0,
-                        "sum(balance)".to_string(),
-                        Type::Null,
-                    ) =>
-                {
-                    Ok(0)
-                }
-                Err(e) => panic!(
-                    "Database is corrupt: PAYABLE table columns and/or types: {:?}",
-                    e
-                ),
-            }
-        }) {
-            Ok(value) => value,
-            Err(e) => panic!("Database is corrupt: {:?}", e),
-        }
+        sign_conversion::<i128, u128>(collect_and_sum_i128_values_from_table(
+            self.conn.as_ref(),
+            Table::Payable,
+            "balance",
+        ))
+        .unwrap_or_else(|num| {
+            panic!(
+                "database corrupted: negative sum ({}) in payable table",
+                num
+            )
+        })
     }
 }
 
@@ -287,35 +274,6 @@ impl PayableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> PayableDaoReal {
         PayableDaoReal { conn }
     }
-
-    //TODO replace these by the new ones
-    // fn try_decrease_balance(
-    //     &self,
-    //     rowid: u64,
-    //     amount: i64,
-    //     last_paid_timestamp: SystemTime,
-    // ) -> Result<(), String> {
-    //     let mut stmt = self
-    //         .conn
-    //         .prepare("update payable set balance = balance - :balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :referential_rowid")
-    //         .expect("Internal error");
-    //     let params: &[(&str, &dyn ToSql)] = &[
-    //         (":balance", &amount),
-    //         (":last_paid", &dao_utils::to_time_t(last_paid_timestamp)),
-    //         (
-    //             ":referential_rowid",
-    //             &i64::try_from(rowid).expect("SQLite was wrong when choosing the rowid"),
-    //         ),
-    //     ];
-    //     match stmt.execute(params) {
-    //         Ok(1) => Ok(()),
-    //         Ok(num) => panic!(
-    //             "Trying to decrease balance for rowid {}: {} rows changed instead of 1",
-    //             rowid, num
-    //         ),
-    //         Err(e) => Err(format!("{}", e)),
-    //     }
-    // }
 }
 
 #[cfg(test)]
@@ -340,24 +298,6 @@ mod tests {
     use std::path::Path;
     use std::sync::{Arc, Mutex};
     use web3::types::U256;
-
-    #[test]
-    #[should_panic(
-        expected = "Trying to decrease balance for rowid 45: 0 rows changed instead of 1"
-    )]
-    fn try_decrease_balance_changed_no_rows() {
-        todo!("fix me or fetch a replacement")
-        // let home_dir = ensure_node_home_directory_exists(
-        //     "payable_dao",
-        //     "try_decrease_balance_changed_no_rows",
-        // );
-        // let wrapped_conn = DbInitializerReal::default()
-        //     .initialize(&home_dir, true, MigratorConfig::test_default())
-        //     .unwrap();
-        // let subject = PayableDaoReal::new(wrapped_conn);
-        //
-        // let _ = subject.try_decrease_balance(45, 1111, SystemTime::now());
-    }
 
     #[test]
     fn more_money_payable_works_for_new_address() {
@@ -558,7 +498,7 @@ mod tests {
             &recipient_wallet,
             &amount,
             &to_time_t(timestamp),
-            &unsigned_to_signed::<u64, i64>(rowid).unwrap(),
+            &sign_conversion::<u64, i64>(rowid).unwrap(),
         ];
         let row_changed = stm1.execute(params).unwrap();
         assert_eq!(row_changed, 1);
@@ -655,6 +595,9 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
+    )]
     fn transaction_confirmed_works_for_overflow_from_amount_stored_in_pending_payable_fingerprint()
     {
         let home_dir = ensure_node_home_directory_exists(
@@ -789,7 +732,7 @@ mod tests {
 
     #[test]
     fn top_records_and_total() {
-        todo!("fix me")
+        todo!("decide how to see to the top records query")
         // let home_dir = ensure_node_home_directory_exists("payable_dao", "top_records_and_total");
         // let conn = DbInitializerReal::default()
         //     .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -875,6 +818,84 @@ mod tests {
         // assert_eq!(total, 4_000_000_000)
     }
 
+    fn insert_record(
+        conn: &dyn ConnectionWrapper,
+        wallet: &str,
+        balance: i128,
+        timestamp: i64,
+        pending_payable_rowid: Option<i64>,
+    ) {
+        let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp, &pending_payable_rowid];
+        conn
+        .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?)")
+        .unwrap()
+        .execute(params)
+        .unwrap();
+    }
+
+    #[test]
+    fn total_works() {
+        let home_dir = ensure_node_home_directory_exists("payable_dao", "total_works");
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let timestamp = dao_utils::now_time_t();
+        insert_record(
+            &*conn,
+            "0x1111111111111111111111111111111111111111",
+            999_999_999,
+            timestamp - 1000,
+            None,
+        );
+        insert_record(
+            &*conn,
+            "0x2222222222222222222222222222222222222222",
+            1_000_123_123,
+            timestamp - 2000,
+            None,
+        );
+        insert_record(
+            &*conn,
+            "0x3333333333333333333333333333333333333333",
+            1_000_000_000,
+            timestamp - 3000,
+            None,
+        );
+        insert_record(
+            &*conn,
+            "0x4444444444444444444444444444444444444444",
+            1_000_000_001,
+            timestamp - 4000,
+            Some(3),
+        );
+        let subject = PayableDaoReal::new(conn);
+
+        let total = subject.total();
+
+        assert_eq!(total, 4_000_123_123)
+    }
+
+    #[test]
+    #[should_panic(expected = "database corrupted: negative sum (-999999) in payable table")]
+    fn total_catches_negative_sum_as_error() {
+        let home_dir =
+            ensure_node_home_directory_exists("payable_dao", "total_catches_negative_sum_as_error");
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let timestamp = dao_utils::now_time_t();
+        insert_record(
+            &*conn,
+            "0x1111111111111111111111111111111111111111",
+            -999_999,
+            timestamp - 1000,
+            None,
+        );
+        let subject = PayableDaoReal::new(conn);
+
+        let _ = subject.total();
+    }
+
     #[test]
     fn correctly_totals_zero_records() {
         let home_dir =
@@ -924,7 +945,7 @@ mod tests {
     }
 
     #[test]
-    fn update_in_transaction_confirmed_params_assertion() {
+    fn update_in_transaction_confirmed_with_params_assertion() {
         let update_params_arc = Arc::new(Mutex::new(vec![]));
         let wrapped_conn = ConnectionWrapperMock::new();
         let fingerprint = make_pending_payable_fingerprint();
@@ -948,7 +969,7 @@ mod tests {
         assert_eq!(
             sql_param_names,
             convert_to_all_string_values(vec![
-                (":balance", &12345_i128.to_string()),
+                (":balance", &(-12345_i128).to_string()),
                 (
                     ":last_paid",
                     &to_time_t(from_time_t(222_222_222)).to_string()

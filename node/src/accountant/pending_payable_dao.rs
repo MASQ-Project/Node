@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::blob_utils::get_unsized_128;
-use crate::accountant::{checked_conversion, unsigned_to_signed};
+use crate::accountant::{checked_conversion, sign_conversion};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::{from_time_t, to_time_t, DaoFactoryReal};
@@ -100,7 +100,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 
     fn delete_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        let signed_id = unsigned_to_signed::<u64, i64>(id)
+        let signed_id = sign_conversion::<u64, i64>(id)
             .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
@@ -117,7 +117,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 
     fn update_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        let signed_id = unsigned_to_signed::<u64, i64>(id)
+        let signed_id = sign_conversion::<u64, i64>(id)
             .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
@@ -134,7 +134,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 
     fn mark_failure(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        let signed_id = unsigned_to_signed::<u64, i64>(id)
+        let signed_id = sign_conversion::<u64, i64>(id)
             .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
@@ -181,7 +181,7 @@ mod tests {
     use crate::accountant::pending_payable_dao::{
         PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
     };
-    use crate::accountant::unsigned_to_signed;
+    use crate::accountant::sign_conversion;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::from_time_t;
@@ -423,7 +423,7 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         let conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
-        let signed_row_id = unsigned_to_signed::<u64, i64>(rowid).unwrap();
+        let signed_row_id = sign_conversion::<u64, i64>(rowid).unwrap();
         let mut stm2 = conn
             .prepare("select * from pending_payable where rowid = ?")
             .unwrap();

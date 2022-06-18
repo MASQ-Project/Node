@@ -2165,6 +2165,7 @@ dependencies = [
  "sodiumoxide",
  "sysinfo",
  "system-configuration",
+ "thousands",
  "tiny-bip39",
  "tiny-hderive",
  "tokio 0.1.22",
@@ -3591,6 +3592,12 @@ dependencies = [
  "quote 1.0.14",
  "syn 1.0.85",
 ]
+
+[[package]]
+name = "thousands"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bf63baf9f5039dadc247375c29eb13706706cfde997d0330d05aa63a77d8820"
 
 [[package]]
 name = "time"

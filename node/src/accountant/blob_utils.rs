@@ -1,11 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::checked_conversion;
 use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::receivable_dao::ReceivableDaoError;
+use crate::accountant::{checked_conversion, polite_checked_conversion};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
-use itertools::Either;
+use itertools::{Either, Itertools};
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::ToSqlOutput;
 use rusqlite::ErrorCode::ConstraintViolation;
@@ -302,6 +302,12 @@ impl BalanceChange {
             change: checked_conversion::<u128, i128>(abs_change).neg(),
         }
     }
+
+    pub fn polite_new_subtraction(abs_change: u128) -> Result<Self, String> {
+        Ok(Self {
+            change: polite_checked_conversion::<u128, i128>(abs_change).map(|num| num.neg())?,
+        })
+    }
 }
 
 impl ToSql for BalanceChange {
@@ -368,6 +374,22 @@ impl From<InsertUpdateError> for ReceivableDaoError {
     fn from(iu_err: InsertUpdateError) -> Self {
         ReceivableDaoError::RusqliteError(iu_err.0)
     }
+}
+
+pub fn collect_and_sum_i128_values_from_table(
+    conn: &dyn ConnectionWrapper,
+    table: Table,
+    parameter_name: &str,
+) -> i128 {
+    let select_stm = format!("select {} from {}", parameter_name, table);
+    conn.prepare(&select_stm)
+        .expect("select stm error")
+        .query_map([], |row| {
+            Ok(row.get::<usize, i128>(0).expectv("i128 value"))
+        })
+        .expect("select query failed")
+        .flatten()
+        .fold(0_i128, |acc, num: i128| acc + num)
 }
 
 //TODO after you move the tests rename the modules of home dirs to the right ones

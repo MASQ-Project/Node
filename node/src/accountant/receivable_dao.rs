@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::blob_utils::Table::Receivable;
 use crate::accountant::blob_utils::{
-    BalanceChange, InsertUpdateConfig, InsertUpdateCore, InsertUpdateCoreReal, ParamKeyHolder,
-    SQLExtendedParams, UpdateConfig,
+    collect_and_sum_i128_values_from_table, BalanceChange, InsertUpdateConfig, InsertUpdateCore,
+    InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
-use crate::accountant::{checked_conversion, unsigned_to_signed, ThresholdUtils};
+use crate::accountant::{checked_conversion, sign_conversion, ThresholdUtils};
 use crate::blockchain::blockchain_interface::PaidReceivable;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -24,9 +24,15 @@ use std::time::SystemTime;
 
 #[derive(Debug, PartialEq)]
 pub enum ReceivableDaoError {
-    SignConversion(u128),
+    SignConversion(SignConversionError<u128>),
     ConfigurationError(String),
     RusqliteError(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum SignConversionError<T> {
+    Msg(String),
+    BadNum(T),
 }
 
 impl From<PersistentConfigError> for ReceivableDaoError {
@@ -107,7 +113,7 @@ impl ReceivableDao for ReceivableDaoReal {
         })?)
     }
 
-    //TODO -- chop it, you can
+    //TODO -- chop it, you can do it
     fn more_money_received(&mut self, payments: Vec<PaidReceivable>) {
         self.try_multi_insert_payment(&InsertUpdateCoreReal, &payments) //TODO check if it blows up if you change it to the mock version
             .unwrap_or_else(|e| {
@@ -273,32 +279,7 @@ impl ReceivableDao for ReceivableDaoReal {
 
     //TODO: YES _ but different operations
     fn total(&self) -> i128 {
-        let mut stmt = self
-            .conn
-            .prepare("select sum(balance) from receivable")
-            .expect("Internal error");
-        match stmt.query_row([], |row| {
-            let total_balance_result: Result<i128, rusqlite::Error> = row.get(0);
-            match total_balance_result {
-                Ok(total_balance) => Ok(total_balance),
-                Err(e)
-                    if e == rusqlite::Error::InvalidColumnType(
-                        0,
-                        "sum(balance)".to_string(),
-                        Type::Null,
-                    ) =>
-                {
-                    Ok(0)
-                }
-                Err(e) => panic!(
-                    "Database is corrupt: RECEIVABLE table columns and/or types: {:?}",
-                    e
-                ),
-            }
-        }) {
-            Ok(value) => value,
-            Err(e) => panic!("Database is corrupt: {:?}", e),
-        }
+        collect_and_sum_i128_values_from_table(self.conn.as_ref(), Table::Receivable, "balance")
     }
 }
 
@@ -439,7 +420,7 @@ impl ReceivableDaoReal {
                         vec![
                             (":wallet", &ParamKeyHolder::new(&transaction.from,"wallet_address")),
                             //:balance is later recomputed into :updated_balance
-                            (":balance", &BalanceChange::new_subtraction(transaction.wei_amount)),
+                            (":balance", &BalanceChange::polite_new_subtraction(transaction.wei_amount).map_err(|e|ReceivableDaoError::SignConversion(SignConversionError::Msg(e)))?),
                             (":last_received", &now_time_t()),
                         ]),
                     table: Receivable
@@ -509,7 +490,6 @@ mod tests {
 
     #[test]
     fn try_multi_insert_payment_handles_error_of_number_sign_check() {
-        todo!("what was this test supposed to do?");
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
             "try_multi_insert_payment_handles_error_of_number_sign_check",
@@ -522,14 +502,16 @@ mod tests {
         let payments = vec![PaidReceivable {
             block_number: 42u64,
             from: make_wallet("some_address"),
-            wei_amount: 18446744073709551615,
+            wei_amount: u128::MAX,
         }];
 
         let result = subject.try_multi_insert_payment(&InsertUpdateCoreReal, &payments.as_slice());
 
         assert_eq!(
             result,
-            Err(ReceivableDaoError::SignConversion(18446744073709551615))
+            Err(ReceivableDaoError::SignConversion(
+                SignConversionError::Msg("Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128".to_string())
+            ))
         )
     }
 
@@ -1224,11 +1206,12 @@ mod tests {
 
         let result = subject.new_delinquencies(from_time_t(now), &pcs);
 
+        assert!(!result.is_empty());
         let mut stm = subject
             .conn
             .prepare("select * from delinquency_metadata")
             .unwrap();
-        let error = stm.query_row([], |row| Ok(())).unwrap_err();
+        let error = stm.query_row([], |_row| Ok(())).unwrap_err();
         assert_eq!(error, Error::QueryReturnedNoRows)
     }
 
@@ -1339,7 +1322,7 @@ mod tests {
 
     #[test]
     fn top_records_and_total() {
-        todo!("fix this")
+        todo!("decide how to see to the top records query")
         // let home_dir = ensure_node_home_directory_exists("receivable_dao", "top_records_and_total");
         // let conn = DbInitializerReal::default()
         //     .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -1397,6 +1380,43 @@ mod tests {
         //     ]
         // );
         // assert_eq!(total, 4_000_000_000)
+    }
+
+    #[test]
+    fn total_works() {
+        let home_dir = ensure_node_home_directory_exists("receivable_dao", "total_works");
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let insert = |wallet: &str, balance: i128, timestamp: i64| {
+            let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp];
+            conn
+                .prepare("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)")
+                .unwrap()
+                .execute(params)
+                .unwrap();
+        };
+        let timestamp = dao_utils::now_time_t();
+        insert(
+            "0x1111111111111111111111111111111111111111",
+            999_999_800,
+            timestamp - 1000,
+        );
+        insert(
+            "0x2222222222222222222222222222222222222222",
+            1_000_000_070,
+            timestamp - 3333,
+        );
+        insert(
+            "0x3333333333333333333333333333333333333333",
+            1_000_000_130,
+            timestamp - 4567,
+        );
+        let subject = ReceivableDaoReal::new(conn);
+
+        let total = subject.total();
+
+        assert_eq!(total, 3_000_000_000)
     }
 
     #[test]
