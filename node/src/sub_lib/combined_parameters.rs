@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
-use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::{I64, U64};
+use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::U64;
 use crate::sub_lib::combined_parameters::InitiationState::{Initiated, Uninitiated};
 use crate::sub_lib::neighborhood::RatePack;
 use masq_lib::constants::COMBINED_PARAMETERS_DELIMITER;

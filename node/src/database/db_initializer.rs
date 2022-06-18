@@ -501,7 +501,7 @@ pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::{DbInitializer, InitializationError};
     use crate::database::db_migrations::MigratorConfig;
-    use rusqlite::{Connection, Transaction, TransactionBehavior};
+    use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};

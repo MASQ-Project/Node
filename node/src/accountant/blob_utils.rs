@@ -5,7 +5,7 @@ use crate::accountant::receivable_dao::ReceivableDaoError;
 use crate::accountant::{checked_conversion, polite_checked_conversion};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
-use itertools::{Either, Itertools};
+use itertools::Either;
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::ToSqlOutput;
 use rusqlite::ErrorCode::ConstraintViolation;

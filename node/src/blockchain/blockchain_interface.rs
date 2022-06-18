@@ -15,6 +15,7 @@ use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::SystemTime;
+use thousands::Separable;
 use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
 use web3::types::{
@@ -199,11 +200,6 @@ pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
 
 const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
 
-pub fn to_wei_u128(wei: U256) -> Option<u128> {
-    todo!("test drive me; and delete my old test");
-    u128::try_from(wei).ok()
-}
-
 pub fn to_wei(gwub: u64) -> U256 {
     let subgwei = U256::from(gwub);
     subgwei.full_mul(GWEI).try_into().expect("Internal Error")
@@ -255,8 +251,8 @@ where
                                 .filter_map(|log: &Log| match log.block_number {
                                     Some(block_number) => {
                                         let amount: U256 = U256::from(log.data.0.as_slice());
-                                        let gwei_amount = to_wei_u128(amount);
-                                        gwei_amount.map(|gwei_amount| PaidReceivable {
+                                        let wei_amount = u128::try_from(amount);
+                                        wei_amount.ok().map(|gwei_amount| PaidReceivable {
                                             block_number: u64::try_from(block_number)
                                                 .expect("Internal Error"), // TODO: back to testing for overflow
                                             from: Wallet::from(log.topics[1]),
@@ -414,7 +410,7 @@ where
 
     fn preparation_log(&self, inputs: &SendTransactionInputs) -> String {
         format!("Preparing transaction for {} Wei to {} from {} (chain_id: {}, contract: {:#x}, gas price: {})",
-        inputs.amount,
+        inputs.amount.separate_with_commas(),
         inputs.recipient,
         inputs.consuming_wallet,
         self.chain.rec().num_chain_id,
@@ -429,7 +425,7 @@ where
         amount: {} Wei,\n\
         (chain: {}, contract: {:#x})",
             recipient,
-            amount,
+            amount.separate_with_commas(),
             self.chain.rec().literal_identifier,
             self.contract_address()
         )
@@ -690,7 +686,7 @@ mod tests {
             vec![PaidReceivable {
                 block_number: 4_974_179u64,
                 from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-                wei_amount: 4_503_599_u128,
+                wei_amount: 4_503_599_627_370_496_u128,
             }]
         )
     }
@@ -1021,7 +1017,7 @@ mod tests {
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
         );
-        let amount = 9000;
+        let amount = 9_000_000_000_000;
         let gas_price = 120;
         let account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
             make_wallet("blah123"),
@@ -1066,11 +1062,11 @@ mod tests {
         };
         assert_eq!(sent_backup, &expected_pending_payable_fingerprint);
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
+        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9,000,000,000,000 Wei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
         log_handler.exists_log_containing(
             "INFO: BlockchainInterface: About to send transaction:\n\
         recipient: 0x00000000000000000000000000626c6168313233,\n\
-        amount: 9000,\n\
+        amount: 9,000,000,000,000 Wei,\n\
         (chain: eth-ropsten, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3)",
         );
     }
@@ -1121,10 +1117,10 @@ mod tests {
             .request_new_pending_payable_fingerprint_result(payable_timestamp)
             .send_raw_transaction_params(&send_raw_transaction_params_arc)
             .send_raw_transaction_result(Ok(hash));
-        let amount = 50_000;
+        let amount_of_wei = 50_000_000_000_000;
         let account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
             make_wallet("blah123"),
-            amount,
+            amount_of_wei,
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
@@ -1155,7 +1151,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             *request_new_pending_payable_fingerprint_params,
-            vec![(hash, amount)]
+            vec![(hash, amount_of_wei)]
         );
         let send_raw_transaction = send_raw_transaction_params_arc.lock().unwrap();
         assert_eq!(
@@ -1395,7 +1391,7 @@ mod tests {
         Wallet::from(address)
     }
 
-    const TEST_PAYMENT_AMOUNT: u128 = 1000;
+    const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
     const TEST_GAS_PRICE_ETH: u64 = 110;
     const TEST_GAS_PRICE_POLYGON: u64 = 50;
 
@@ -1405,7 +1401,6 @@ mod tests {
         template: &[u8],
     ) {
         let recipient = {
-            //the place where this recipient would've been really used cannot be found in this test; we just need to supply some
             let (accountant, _, _) = make_recorder();
             let account_addr = accountant.start();
             recipient!(account_addr, PendingPayableFingerprint)
@@ -1758,11 +1753,6 @@ mod tests {
             Err(e) => panic!("we expected a different error than: {}", e),
             Ok(x) => panic!("we expected an error, but got: {:?}", x),
         };
-    }
-
-    #[test]
-    fn to_wei_truncates_units_smaller_than_gwei() {
-        assert_eq!(Some(1), to_wei_u128(U256::from(1_999_999_999)));
     }
 
     #[test]

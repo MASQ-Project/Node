@@ -13,7 +13,7 @@ use crate::accountant::pending_payable_dao::{
     PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory,
 };
 use crate::accountant::receivable_dao::{
-    ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory, ReceivableDaoReal,
+    ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::{Accountant, PendingPayableId};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};

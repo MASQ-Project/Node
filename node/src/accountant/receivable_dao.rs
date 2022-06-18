@@ -4,7 +4,7 @@ use crate::accountant::blob_utils::{
     collect_and_sum_i128_values_from_table, BalanceChange, InsertUpdateConfig, InsertUpdateCore,
     InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
-use crate::accountant::{checked_conversion, sign_conversion, ThresholdUtils};
+use crate::accountant::{checked_conversion, ThresholdUtils};
 use crate::blockchain::blockchain_interface::PaidReceivable;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -17,7 +17,7 @@ use indoc::indoc;
 use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::utils::plus;
-use rusqlite::types::{ToSql, Type};
+use rusqlite::types::ToSql;
 use rusqlite::{named_params, params_from_iter};
 use rusqlite::{OptionalExtension, Row};
 use std::time::SystemTime;
@@ -469,11 +469,9 @@ mod tests {
     };
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
-    use actix::clock::now;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection, Error, OpenFlags, Statement, Transaction, TransactionBehavior};
-    use std::cell::RefCell;
+    use rusqlite::{Connection, Error, OpenFlags};
     use std::sync::{Arc, Mutex};
 
     #[test]

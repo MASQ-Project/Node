@@ -3445,7 +3445,6 @@ mod tests {
             threshold_interval_sec: 1111111,
             unban_below_gwei: 0,
         };
-        let now = to_time_t(SystemTime::now());
         let higher_corner_timestamp = payment_thresholds.maturity_threshold_sec;
         let middle_point_timestamp = payment_thresholds.maturity_threshold_sec
             + payment_thresholds.threshold_interval_sec / 2;

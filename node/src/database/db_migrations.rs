@@ -8,19 +8,16 @@ use crate::db_config::typed_config_layer::decode_bytes;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-use crate::sub_lib::wallet::Wallet;
-use futures::Sink;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
-use rusqlite::types::{ToSqlOutput, Value};
-use rusqlite::{params_from_iter, Error, Params, Row, ToSql, Transaction};
+use rusqlite::{params_from_iter, Error, Params, Row, Transaction};
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter};
-use std::iter::{once, repeat};
+use std::iter::once;
 use tiny_hderive::bip32::ExtendedPrivKey;
 
 pub trait DbMigrator {

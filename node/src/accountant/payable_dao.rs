@@ -4,9 +4,7 @@ use crate::accountant::blob_utils::{
     collect_and_sum_i128_values_from_table, get_unsized_128, BalanceChange, InsertUpdateConfig,
     InsertUpdateCore, InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
-use crate::accountant::{
-    checked_conversion, polite_checked_conversion, sign_conversion, PendingPayableId,
-};
+use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -14,10 +12,8 @@ use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use masq_lib::utils::ExpectValue;
-use rusqlite::types::{ToSql, Type};
-use rusqlite::Error;
+use rusqlite::types::ToSql;
 use std::fmt::Debug;
-use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
 
