@@ -3,7 +3,8 @@
 pub(in crate::accountant) mod accountant_tools {
     use crate::accountant::{
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction,
-        RequestTransactionReceipts, ScanForPayables, ScanForPendingPayable, ScanForReceivables,
+        RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
+        ScanForReceivables,
     };
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use actix::{Context, Recipient};
@@ -27,7 +28,7 @@ pub(in crate::accountant) mod accountant_tools {
     }
 
     pub trait Scanner {
-        fn scan(&self, accountant: &Accountant);
+        fn scan(&self, accountant: &Accountant, response_skeleton_opt: Option<ResponseSkeleton>);
         fn notify_later_assertable(&self, accountant: &Accountant, ctx: &mut Context<Accountant>);
         as_any_dcl!();
     }
@@ -36,15 +37,17 @@ pub(in crate::accountant) mod accountant_tools {
     pub struct PendingPayablesScanner;
 
     impl Scanner for PendingPayablesScanner {
-        fn scan(&self, accountant: &Accountant) {
-            accountant.scan_for_pending_payable()
+        fn scan(&self, accountant: &Accountant, response_skeleton_opt: Option<ResponseSkeleton>) {
+            accountant.scan_for_pending_payable(response_skeleton_opt)
         }
         fn notify_later_assertable(&self, accountant: &Accountant, ctx: &mut Context<Accountant>) {
             let _ = accountant
                 .tools
                 .notify_later_scan_for_pending_payable
                 .notify_later(
-                    ScanForPendingPayable {},
+                    ScanForPendingPayables {
+                        response_skeleton_opt: None, // because scheduled scans don't respond
+                    },
                     accountant
                         .config
                         .scan_intervals
@@ -59,13 +62,15 @@ pub(in crate::accountant) mod accountant_tools {
     pub struct PayablesScanner;
 
     impl Scanner for PayablesScanner {
-        fn scan(&self, accountant: &Accountant) {
-            accountant.scan_for_payables()
+        fn scan(&self, accountant: &Accountant, response_skeleton_opt: Option<ResponseSkeleton>) {
+            accountant.scan_for_payables(response_skeleton_opt)
         }
 
         fn notify_later_assertable(&self, accountant: &Accountant, ctx: &mut Context<Accountant>) {
             let _ = accountant.tools.notify_later_scan_for_payable.notify_later(
-                ScanForPayables {},
+                ScanForPayables {
+                    response_skeleton_opt: None,
+                },
                 accountant.config.scan_intervals.payable_scan_interval,
                 ctx,
             );
@@ -78,8 +83,9 @@ pub(in crate::accountant) mod accountant_tools {
     pub struct ReceivablesScanner;
 
     impl Scanner for ReceivablesScanner {
-        fn scan(&self, accountant: &Accountant) {
-            accountant.scan_for_received_payments();
+        fn scan(&self, accountant: &Accountant, response_skeleton_opt: Option<ResponseSkeleton>) {
+            // TODO: Figure out how to combine the results of these two into a single response to the UI
+            accountant.scan_for_received_payments(response_skeleton_opt);
             accountant.scan_for_delinquencies()
         }
 
@@ -88,7 +94,9 @@ pub(in crate::accountant) mod accountant_tools {
                 .tools
                 .notify_later_scan_for_receivable
                 .notify_later(
-                    ScanForReceivables {},
+                    ScanForReceivables {
+                        response_skeleton_opt: None,
+                    },
                     accountant.config.scan_intervals.receivable_scan_interval,
                     ctx,
                 );
@@ -102,7 +110,8 @@ pub(in crate::accountant) mod accountant_tools {
     pub struct NullScanner;
 
     impl Scanner for NullScanner {
-        fn scan(&self, _accountant: &Accountant) {}
+        fn scan(&self, _accountant: &Accountant, _response_skeleton_opt: Option<ResponseSkeleton>) {
+        }
         fn notify_later_assertable(
             &self,
             _accountant: &Accountant,
@@ -115,7 +124,7 @@ pub(in crate::accountant) mod accountant_tools {
     #[derive(Default)]
     pub struct TransactionConfirmationTools {
         pub notify_later_scan_for_pending_payable:
-            Box<dyn NotifyLaterHandle<ScanForPendingPayable, Accountant>>,
+            Box<dyn NotifyLaterHandle<ScanForPendingPayables, Accountant>>,
         pub notify_later_scan_for_payable: Box<dyn NotifyLaterHandle<ScanForPayables, Accountant>>,
         pub notify_later_scan_for_receivable:
             Box<dyn NotifyLaterHandle<ScanForReceivables, Accountant>>,

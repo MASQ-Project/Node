@@ -498,9 +498,10 @@ mod tests {
         );
 
         let _received_message_number_three: UiConfigurationChangedBroadcast =
-            connection.receive().unwrap();
+            connection.skip_until_received().unwrap();
 
-        let _received_message_number_four: UiNodeCrashedBroadcast = connection.receive().unwrap();
+        let _received_message_number_four: UiNodeCrashedBroadcast =
+            connection.skip_until_received().unwrap();
 
         let received_message_number_five: UiDescriptorResponse = connection
             .transact_with_context_id(conversation_number_three_request.clone(), 3)
@@ -510,7 +511,8 @@ mod tests {
             Some("ae15fe6".to_string())
         );
 
-        let _received_message_number_six: UiNewPasswordBroadcast = connection.receive().unwrap();
+        let _received_message_number_six: UiNewPasswordBroadcast =
+            connection.skip_until_received().unwrap();
 
         let requests = stop_handle.stop();
 

@@ -1,7 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
-    ReceivedPayments, RequestTransactionReceipts, ScanForPayables, ScanForReceivables, SentPayable,
+    ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
+    ScanForPendingPayables, ScanForReceivables, SentPayable,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
@@ -121,6 +122,7 @@ recorder_message_handler!(ReportExitServiceConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceConsumedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
+recorder_message_handler!(ScanError);
 recorder_message_handler!(SentPayable);
 recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(SetDbPasswordMsg);
@@ -135,6 +137,7 @@ recorder_message_handler!(ReportTransactionReceipts);
 recorder_message_handler!(ReportAccountsPayable);
 recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
+recorder_message_handler!(ScanForPendingPayables);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -380,6 +383,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
         report_sent_payments: recipient!(addr, SentPayable),
+        scan_errors: recipient!(addr, ScanError),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),
     }
 }

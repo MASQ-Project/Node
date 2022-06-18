@@ -705,6 +705,32 @@ its database, in encrypted form, because it needs to withdraw money from the wal
 will not retain it; but you'll need it to withdraw earned funds from the wallet, especially if you didn't request or
 retain a mnemonic phrase.
 
+#### `logBroadcast`
+##### Direction: Broadcast
+##### Correspondent: Node
+##### Layout:
+```
+"msg": <String>,
+"logLevel": <String>
+```
+##### Description:
+This broadcast intends to give the user an immediate notification about a significant event that just occurred in
+the Node. At a bit lower level, this is a reaction to when the execution flow crosses any place with logging that bears
+a severity of `Info`, `Warn` or `Error`. Every such situation produces this broadcast along with the usual,
+long-adopted way of writing a log into a file and so both happen simultaneously. 
+
+Certain plans are to diverge between what is going to be printed to the log file and what is going to be given to
+the UI, while the latter in a prettier and user-friendlier form, but more preparation must go before we can implement
+that. 
+
+The log level constraining the UI output from less important messages (`Debug` and `Trace`) is now steadily given 
+by the `Info` level. However, we may consider make it adjustable if there is a demand like that.
+
+`msg` is the message describing a passed event. 
+
+`logLevel` indicates what severity the reported event had. It can only be a string from this list: `Info`, `Warn`,
+`Error`.
+
 #### `newPassword`
 ##### Direction: Broadcast
 ##### Correspondent: Node
@@ -833,6 +859,41 @@ The `payload` field is a string of JSON, containing the payload of the unrecogni
 The UI should disconnect from the Daemon, connect to the Node on `localhost` at the indicated port,
 reconstruct the original message from the `opcode`, `contextId`, and `payload` fields, and send it to the
 Node.
+
+#### `scan`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "name": <string>
+}
+```
+##### Description:
+This message instructs the Node to perform a payables scan, a pending-payables scan, or a receivables scan, depending 
+on the `name` parameter. This will be an extra, additional scan and will not affect the Node's regular schedule of 
+autonomous scans, if any, except that it's possible that it may delay a regular autonomous scan if the Node is busy 
+with your scan when the autonomous scan is scheduled.
+
+The `name` field in the payload must be "payables" or "pendingpayables" or "receivables".
+
+A payables scan will search through the database for payable bills that are big enough and old enough to pay, and will 
+pay them from your consuming wallet. A pending-payables scan will find payments you've already made on the blockchain
+that have since been confirmed--actually received by your creditors--and remove them from your books. A receivables 
+scan will do two things: first, it will scan the blockchain for receivables that have been paid to your earning wallet, 
+and adjust your books to reflect those payments; second, it will run a database scan to handle delinquency banning and 
+unbanning.
+
+#### `scan`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+}
+```
+##### Description:
+This is a simple acknowledgment that the requested scan has been completed.
 
 #### `setConfiguration`
 ##### Direction: Request

@@ -4,7 +4,8 @@ pub mod utils;
 
 use masq_lib::constants::{DEFAULT_CHAIN, NODE_NOT_RUNNING_ERROR};
 use masq_lib::messages::{
-    ToMessageBody, UiFinancialsResponse, UiSetupRequest, UiShutdownRequest, NODE_UI_PROTOCOL,
+    ToMessageBody, UiFinancialsResponse, UiSetupRequest, UiSetupResponse, UiShutdownRequest,
+    NODE_UI_PROTOCOL,
 };
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
@@ -70,7 +71,7 @@ fn initialization_sequence_integration() {
         "initialization_test",
         "initialization_sequence_integration",
     );
-    let _: UiSetupRequest = initialization_client
+    let _: UiSetupResponse = initialization_client
         .transact(UiSetupRequest::new(vec![
             ("dns-servers", Some("1.1.1.1")),
             ("neighborhood-mode", Some("zero-hop")),
@@ -239,6 +240,6 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
 
     let mut node = MASQNode::start_standard(test_name, None, false, true, false, false);
 
-    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with the wrong chain name detected; expected: eth-ropsten, was: eth-mainnet";
+    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with a wrong chain name detected; expected: eth-ropsten, was: eth-mainnet";
     node.wait_for_log(regex_pattern, Some(1000));
 }

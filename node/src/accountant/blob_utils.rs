@@ -75,7 +75,7 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
         }) {
             Ok(_) => Ok(()),
             Err(e) => Err(InsertUpdateError(format!(
-                "Updating balance for {} of {} Wei to {}; failing on: '{}'",
+                "Updating balance for {} of {} Wei to {} with error '{}'",
                 config.table(),
                 balance_change,
                 params.params[key_idx].1,
@@ -112,7 +112,7 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
                 let params = config.params.params();
                 let ((_, _, key_idx), amount) = Self::fetch_fundamentals(params);
                 Err(InsertUpdateError(format!(
-                    "Updating balance after invalid insertion for {} of {} Wei to {}; failing on: '{}'",
+                    "Updating balance after invalid insertion for {} of {} Wei to {} with error '{}'",
                     config.table, amount, params[key_idx].1, e
                 )))
             }
@@ -672,7 +672,7 @@ mod tests {
 
         let result = InsertUpdateCoreReal.update(Either::Left(&wrapped_conn), &update_config);
 
-        assert_eq!(result, Err(InsertUpdateError("Updating balance for payable of 100 Wei to a11122; failing on: 'Query returned no rows'".to_string())));
+        assert_eq!(result, Err(InsertUpdateError("Updating balance for payable of 100 Wei to a11122 with error 'Query returned no rows'".to_string())));
     }
 
     #[test]
@@ -698,7 +698,7 @@ mod tests {
 
         let result = InsertUpdateCoreReal.update(Either::Left(conn_ref), &update_config);
 
-        assert_eq!(result, Err(InsertUpdateError("Updating balance for payable of 100 Wei to a11122; failing on: 'Invalid column type Text at index: 0, name: balance'".to_string())));
+        assert_eq!(result, Err(InsertUpdateError("Updating balance for payable of 100 Wei to a11122 with error 'Invalid column type Text at index: 0, name: balance'".to_string())));
     }
 
     #[test]
@@ -725,7 +725,7 @@ mod tests {
 
         let result = InsertUpdateCoreReal.update(Either::Left(conn_ref), &update_config);
 
-        assert_eq!(result, Err(InsertUpdateError("Updating balance for payable of 100 Wei to a11122; failing on: 'Invalid parameter name: :woodstock'".to_string())));
+        assert_eq!(result, Err(InsertUpdateError("Updating balance for payable of 100 Wei to a11122 with error 'Invalid parameter name: :woodstock'".to_string())));
     }
 
     //TODO are upsert detailed tests missing???

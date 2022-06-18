@@ -8,11 +8,16 @@ on:
 
 jobs:
   build:
-    name: Build node on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [macOS-latest, ubuntu-latest, windows-latest]
+        target:
+          - { name: linux, os: ubuntu-latest }
+          - { name: macos, os: macOS-latest }
+          - { name: windows, os: windows-latest }
+
+    name: Build node on ${{ matrix.target.os }}
+    runs-on: ${{ matrix.target.os }}
     steps:
       - uses: actions/checkout@v3
       - name: Cache sccache results
@@ -22,7 +27,7 @@ jobs:
         with:
           path: ~/.cargo/cache
           key: ${{ runner.os }}-0001
-      - name: Build ${{ matrix.os }}
+      - name: Build ${{ matrix.target.os }}
         run: |
           rustup check
           case "$OSTYPE" in
@@ -42,9 +47,8 @@ jobs:
           ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh
         shell: bash
-      - name: Publish ${{ matrix.os }}
+      - name: Publish ${{ matrix.target.os }}
         uses: actions/upload-artifact@v3
         with:
-          name: Node-${{ matrix.os }}
-          path: results/generated/bin
-          
+          name: Node-${{ matrix.target.name }}
+          path: results

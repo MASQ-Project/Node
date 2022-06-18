@@ -1,6 +1,6 @@
 [package]
 name = "node"
-version = "1.0.0"
+version = "0.6.0"
 license = "GPL-3.0-only"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 copyright = "Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved."
@@ -13,7 +13,7 @@ members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
 
 [dependencies]
 actix = "0.7.9"
-automap = { path = "../automap" }
+automap = { path = "../automap"}
 backtrace = "0.3.57"
 base64 = "0.13.0"
 bytes = "0.4.12"

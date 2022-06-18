@@ -4,12 +4,12 @@ use crate::accountant::blob_utils::{
     collect_and_sum_i128_values_from_table, BalanceChange, InsertUpdateConfig, InsertUpdateCore,
     InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
+use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
 use crate::accountant::{checked_conversion, ThresholdUtils};
-use crate::blockchain::blockchain_interface::PaidReceivable;
+use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::{now_time_t, to_time_t, DaoFactoryReal};
-use crate::db_config::config_dao::{ConfigDaoWrite, ConfigDaoWriteableReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::accountant::{PaymentThresholds, GWEI_TO_WEI};
 use crate::sub_lib::wallet::Wallet;
@@ -18,7 +18,7 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::utils::plus;
 use rusqlite::types::ToSql;
-use rusqlite::{named_params, params_from_iter};
+use rusqlite::{named_params, params_from_iter, Error};
 use rusqlite::{OptionalExtension, Row};
 use std::time::SystemTime;
 
@@ -41,6 +41,12 @@ impl From<PersistentConfigError> for ReceivableDaoError {
     }
 }
 
+impl From<rusqlite::Error> for ReceivableDaoError {
+    fn from(input: Error) -> Self {
+        RusqliteError(format!("{:?}", input))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceivableAccount {
     pub wallet: Wallet,
@@ -56,7 +62,7 @@ pub trait ReceivableDao: Send {
         amount: u128,
     ) -> Result<(), ReceivableDaoError>;
 
-    fn more_money_received(&mut self, transactions: Vec<PaidReceivable>);
+    fn more_money_received(&mut self, transactions: Vec<BlockchainTransaction>);
 
     //TODO used just in tests to assert on other things
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
@@ -114,7 +120,7 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     //TODO -- chop it, you can do it
-    fn more_money_received(&mut self, payments: Vec<PaidReceivable>) {
+    fn more_money_received(&mut self, payments: Vec<BlockchainTransaction>) {
         self.try_multi_insert_payment(&InsertUpdateCoreReal, &payments) //TODO check if it blows up if you change it to the mock version
             .unwrap_or_else(|e| {
                 let mut report_lines =
@@ -390,31 +396,12 @@ impl ReceivableDaoReal {
     fn try_multi_insert_payment(
         &mut self,
         core: &dyn InsertUpdateCore,
-        payments: &[PaidReceivable],
+        payments: &[BlockchainTransaction],
     ) -> Result<(), ReceivableDaoError> {
-        let tx = match self.conn.transaction() {
-            Ok(t) => t,
-            Err(e) => return Err(ReceivableDaoError::RusqliteError(e.to_string())),
-        };
-
-        let block_number = payments
-            .iter()
-            .map(|t| t.block_number)
-            .max()
-            .expect("we should have minimally one payment here");
-
-        let mut writer = ConfigDaoWriteableReal::new(tx);
-        match writer.set("start_block", Some(block_number.to_string())) {
-            Ok(_) => (),
-            Err(e) => return Err(ReceivableDaoError::RusqliteError(format!("{:?}", e))),
-        }
-        let tx = writer
-            .extract()
-            .expect("Transaction disappeared from writer");
-
+        let xactn = self.conn.transaction()?;
         {
             for transaction in payments {
-                core.update(Either::Right(&tx), &UpdateConfig {
+                core.update(Either::Right(&xactn), &UpdateConfig {
                     update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
                     params: SQLExtendedParams::new(
                         vec![
@@ -427,7 +414,7 @@ impl ReceivableDaoReal {
                 })?
             }
         }
-        match tx.commit() {
+        match xactn.commit() {
             // Error response is untested here, because without a mockable Transaction, it's untestable.
             Err(e) => Err(ReceivableDaoError::RusqliteError(format!("{:?}", e))),
             Ok(_) => Ok(()),
@@ -463,15 +450,12 @@ mod tests {
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
     use crate::database::db_migrations::MigratorConfig;
-    use crate::db_config::config_dao::ConfigDaoReal;
-    use crate::db_config::persistent_configuration::{
-        PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
-    };
+    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection, Error, OpenFlags};
+    use rusqlite::{Connection, OpenFlags};
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -497,7 +481,7 @@ mod tests {
                 .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
-        let payments = vec![PaidReceivable {
+        let payments = vec![BlockchainTransaction {
             block_number: 42u64,
             from: make_wallet("some_address"),
             wei_amount: u128::MAX,
@@ -509,37 +493,6 @@ mod tests {
             result,
             Err(ReceivableDaoError::SignConversion(
                 SignConversionError::Msg("Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128".to_string())
-            ))
-        )
-    }
-
-    #[test]
-    fn try_multi_insert_payment_handles_error_setting_start_block() {
-        let home_dir = ensure_node_home_directory_exists(
-            "receivable_dao",
-            "try_multi_insert_payment_handles_error_setting_start_block",
-        );
-        let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
-            .unwrap();
-        {
-            let mut stmt = conn.prepare("drop table config").unwrap();
-            stmt.execute([]).unwrap();
-        }
-        let mut subject = ReceivableDaoReal::new(conn);
-
-        let payments = vec![PaidReceivable {
-            block_number: 42u64,
-            from: make_wallet("some_address"),
-            wei_amount: 18446744073709551615,
-        }];
-
-        let result = subject.try_multi_insert_payment(&InsertUpdateCoreReal, &payments.as_slice());
-
-        assert_eq!(
-            result,
-            Err(ReceivableDaoError::RusqliteError(
-                "DatabaseError(\"no such table: config\")".to_string()
             ))
         )
     }
@@ -560,7 +513,7 @@ mod tests {
         }
         let mut subject = ReceivableDaoReal::new(conn);
 
-        let payments = vec![PaidReceivable {
+        let payments = vec![BlockchainTransaction {
             block_number: 42u64,
             from: make_wallet("some_address"),
             wei_amount: 18446744073709551615,
@@ -696,12 +649,12 @@ mod tests {
 
         let (status1, status2) = {
             let transactions = vec![
-                PaidReceivable {
+                BlockchainTransaction {
                     from: debtor1.clone(),
                     wei_amount: 1200_u128,
                     block_number: 35_u64,
                 },
-                PaidReceivable {
+                BlockchainTransaction {
                     from: debtor2.clone(),
                     wei_amount: 2300_u128,
                     block_number: 57_u64,
@@ -726,14 +679,6 @@ mod tests {
         let timestamp2 = dao_utils::to_time_t(status2.last_received_timestamp);
         assert!(timestamp2 >= before);
         assert!(timestamp2 <= dao_utils::to_time_t(SystemTime::now()));
-        let config_dao = ConfigDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
-                .unwrap(),
-        );
-        let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        let start_block = persistent_config.start_block().unwrap();
-        assert_eq!(57u64, start_block);
     }
 
     #[test]
@@ -750,7 +695,7 @@ mod tests {
         );
 
         let status = {
-            let transactions = vec![PaidReceivable {
+            let transactions = vec![BlockchainTransaction {
                 from: debtor.clone(),
                 wei_amount: 2300_u128,
                 block_number: 33_u64,
@@ -763,33 +708,55 @@ mod tests {
     }
 
     #[test]
-    fn more_money_received_logs_when_transaction_fails() {
+    fn more_money_received_logs_when_try_multi_insert_payment_fails() {
         init_test_logging();
-        let conn_mock =
-            ConnectionWrapperMock::default().transaction_result(Err(Error::InvalidQuery));
-        let mut receivable_dao = ReceivableDaoReal::new(Box::new(conn_mock));
+
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "more_money_received_logs_when_try_multi_insert_payment_fails",
+        );
+        let mut subject = ReceivableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .unwrap(),
+        );
+        // Sabotage the database so there'll be an error
+        {
+            let mut conn = DbInitializerReal::default()
+                .initialize(&home_dir, false, MigratorConfig::test_default())
+                .unwrap();
+            let xactn = conn.transaction().unwrap();
+            xactn
+                .prepare("drop table receivable")
+                .unwrap()
+                .execute([])
+                .unwrap();
+            xactn.commit().unwrap();
+        }
+
         let payments = vec![
-            PaidReceivable {
+            BlockchainTransaction {
                 block_number: 1234567890,
                 from: Wallet::new("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
                 wei_amount: 123456789123456789,
             },
-            PaidReceivable {
+            BlockchainTransaction {
                 block_number: 2345678901,
                 from: Wallet::new("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"),
                 wei_amount: 234567891234567891,
             },
-            PaidReceivable {
+            BlockchainTransaction {
                 block_number: 3456789012,
                 from: Wallet::new("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
                 wei_amount: 345678912345678912,
             },
         ];
 
-        receivable_dao.more_money_received(payments);
+        subject.more_money_received(payments);
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: RusqliteError(\"Query is not read-only\")\n\
+            "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: \
+            RusqliteError(\"Updating balance for receivable of -123456789123456789 Wei to 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with error 'no such table: receivable'\")\n\
             Block #    Wallet                                     Amount            \n\
             1234567890 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 123456789123456789\n\
             2345678901 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 234567891234567891\n\
@@ -1529,12 +1496,12 @@ mod tests {
             .update_result(Err(InsertUpdateError("SomethingWrong".to_string())));
         let mut subject = ReceivableDaoReal::new(conn);
         let payments = vec![
-            PaidReceivable {
+            BlockchainTransaction {
                 block_number: 42u64,
                 from: make_wallet("some_address"),
                 wei_amount: 18446744073709551615,
             },
-            PaidReceivable {
+            BlockchainTransaction {
                 block_number: 60u64,
                 from: make_wallet("other_address"),
                 wei_amount: 444444555333337,

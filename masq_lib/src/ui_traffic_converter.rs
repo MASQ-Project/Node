@@ -95,7 +95,8 @@ impl UiTrafficConverter {
             Ok(json) => format!("\"payload\": {}", json),
             Err((error_code, error_msg)) => format!(
                 "\"error\": {{\"code\": {}, \"message\": \"{}\"}}",
-                error_code, error_msg
+                error_code,
+                Self::escape(&error_msg)
             ),
         };
         format!("{{{}{}{}}}", opcode_section, path_section, payload_section)
@@ -208,6 +209,21 @@ impl UiTrafficConverter {
             )),
             None => Err(MissingFieldError(name.to_string())),
         }
+    }
+
+    fn escape(input: &str) -> String {
+        let mut output = String::new();
+        input.chars().for_each(|c| match c {
+            '\x08' => output.push_str("\\b"),
+            '\x0C' => output.push_str("\\f"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            '\"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            other => output.push(other),
+        });
+        output
     }
 }
 
@@ -609,5 +625,14 @@ mod tests {
             NonCritical("whomp".to_string(), None, error).to_string(),
             "Error unmarshalling 'whomp' message: Required field was missing: booga".to_string()
         );
+    }
+
+    #[test]
+    fn escape_works() {
+        let input = "Backspace: \x08; Form feed: \x0C; Newline: \n; Carriage return: \r; Tab: \t; Double quote: \"; Backslash: \\";
+
+        let output = UiTrafficConverter::escape(input);
+
+        assert_eq! (output, "Backspace: \\b; Form feed: \\f; Newline: \\n; Carriage return: \\r; Tab: \\t; Double quote: \\\"; Backslash: \\\\");
     }
 }

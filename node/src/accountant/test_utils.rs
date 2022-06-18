@@ -18,7 +18,7 @@ use crate::accountant::receivable_dao::{
 use crate::accountant::{Accountant, PendingPayableId};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::blockchain::blockchain_interface::PaidReceivable;
+use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
@@ -28,7 +28,6 @@ use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds, GWEI_TO_WEI};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
@@ -84,7 +83,6 @@ pub struct AccountantBuilder {
     pending_payable_dao_factory: Option<Box<dyn PendingPayableDaoFactory>>,
     banned_dao_factory: Option<Box<dyn BannedDaoFactory>>,
     config_dao_factory: Option<Box<dyn ConfigDaoFactory>>,
-    persistent_configuration: Option<PersistentConfigurationMock>,
 }
 
 impl Default for AccountantBuilder {
@@ -96,7 +94,6 @@ impl Default for AccountantBuilder {
             pending_payable_dao_factory: None,
             banned_dao_factory: None,
             config_dao_factory: None,
-            persistent_configuration: None,
         }
     }
 }
@@ -129,13 +126,8 @@ impl AccountantBuilder {
         self
     }
 
-    pub fn config_dao(mut self, persistent_config_dao: ConfigDaoMock) -> Self {
-        self.config_dao_factory = Some(Box::new(ConfigDaoFactoryMock::new(persistent_config_dao)));
-        self
-    }
-
-    pub fn persistent_config(mut self, persistent_config: PersistentConfigurationMock) -> Self {
-        self.persistent_configuration = Some(persistent_config);
+    pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {
+        self.config_dao_factory = Some(Box::new(ConfigDaoFactoryMock::new(config_dao)));
         self
     }
 
@@ -159,23 +151,13 @@ impl AccountantBuilder {
         let banned_dao_factory = self
             .banned_dao_factory
             .unwrap_or(Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new())));
-        let (config_dao_factory, persistent_config_opt) = match (self.config_dao_factory,self.persistent_configuration){
-            (Some(_),Some(_)) => panic!("you probably don't want to specify config_dao and persistent_config at the same time"),
-            (Some(config_dao),None) => (config_dao,None),
-            (None,Some(persistent_config)) => (Box::new(ConfigDaoFactoryMock::new(ConfigDaoMock::new())) as Box<dyn ConfigDaoFactory>,Some(persistent_config)),
-            (None,None) => (Box::new(ConfigDaoFactoryMock::new(ConfigDaoMock::new()))as Box<dyn ConfigDaoFactory>,None)
-        };
-        let mut accountant = Accountant::new(
+        let accountant = Accountant::new(
             &config,
             payable_dao_factory,
             receivable_dao_factory,
             pending_payable_dao_factory,
             banned_dao_factory,
-            config_dao_factory,
         );
-        if let Some(persistent_config) = persistent_config_opt {
-            accountant.persistent_configuration = Box::new(persistent_config)
-        };
         accountant
     }
 }
@@ -457,7 +439,7 @@ pub struct ReceivableDaoMock {
     account_status_results: RefCell<Vec<Option<ReceivableAccount>>>,
     more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u128)>>>,
     more_money_receivable_results: RefCell<Vec<Result<(), ReceivableDaoError>>>,
-    more_money_received_parameters: Arc<Mutex<Vec<Vec<PaidReceivable>>>>,
+    more_money_received_parameters: Arc<Mutex<Vec<Vec<BlockchainTransaction>>>>,
     more_money_received_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     receivables_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentThresholds)>>>,
@@ -484,7 +466,7 @@ impl ReceivableDao for ReceivableDaoMock {
         self.more_money_receivable_results.borrow_mut().remove(0)
     }
 
-    fn more_money_received(&mut self, transactions: Vec<PaidReceivable>) {
+    fn more_money_received(&mut self, transactions: Vec<BlockchainTransaction>) {
         self.more_money_received_parameters
             .lock()
             .unwrap()
@@ -563,7 +545,7 @@ impl ReceivableDaoMock {
 
     pub fn more_money_received_parameters(
         mut self,
-        parameters: &Arc<Mutex<Vec<Vec<PaidReceivable>>>>,
+        parameters: &Arc<Mutex<Vec<Vec<BlockchainTransaction>>>>,
     ) -> Self {
         self.more_money_received_parameters = parameters.clone();
         self

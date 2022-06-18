@@ -203,4 +203,4 @@ There are three or four types of Gossip, depending on how you count them.
   to everyone it knows. Instead, it makes a list of all its half neighbors and custom-builds a special Gossip package 
   for each one.
 
-Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+Copyright (c) 2022, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.

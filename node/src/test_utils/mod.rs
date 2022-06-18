@@ -14,9 +14,9 @@ pub mod recorder;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
-
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::payer::Payer;
+use crate::bootstrapper::CryptDEPair;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
@@ -72,6 +72,13 @@ pub fn main_cryptde() -> &'static dyn CryptDE {
 
 pub fn alias_cryptde() -> &'static dyn CryptDE {
     ALIAS_CRYPTDE_NULL.as_ref()
+}
+
+pub fn make_cryptde_pair() -> CryptDEPair {
+    CryptDEPair {
+        main: main_cryptde(),
+        alias: alias_cryptde(),
+    }
 }
 
 pub struct ArgsBuilder {
@@ -518,11 +525,14 @@ pub mod unshared_test_utils {
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use actix::Message;
-    use actix::{Actor, Addr, AsyncContext, Context, Handler, SpawnHandle, System};
-    use crossbeam_channel::{Receiver, Sender};
+    use actix::{Actor, Addr, AsyncContext, Context, Handler, System};
+    use actix::{Message, SpawnHandle};
+    use crossbeam_channel::{unbounded, Receiver, Sender};
+    use lazy_static::lazy_static;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
+    #[cfg(not(feature = "no_test_share"))]
+    use masq_lib::test_utils::utils::MutexIncrementInset;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::cell::RefCell;
@@ -530,7 +540,6 @@ pub mod unshared_test_utils {
     use std::num::ParseIntError;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
-    use std::thread;
     use std::time::Duration;
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
@@ -595,6 +604,7 @@ pub mod unshared_test_utils {
             scan_intervals: *DEFAULT_SCAN_INTERVALS,
             payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+            suppress_initial_scans: false,
         }
     }
 
@@ -603,6 +613,7 @@ pub mod unshared_test_utils {
             scan_intervals: Default::default(),
             payment_thresholds: Default::default(),
             when_pending_too_long_sec: Default::default(),
+            suppress_initial_scans: false,
         }
     }
 
@@ -651,17 +662,14 @@ pub mod unshared_test_utils {
     ) {
         let system = System::new("test");
         let addr: Addr<T> = actor.start();
-        let dummy_actor = DummyActor::new(None);
-        let dummy_address = dummy_actor.start();
+        let killer = SystemKillerActor::new(Duration::from_millis(2000));
+        killer.start();
 
         addr.try_send(NodeFromUiMessage {
             client_id: 0,
             body: UiCrashRequest::new(crash_key, "panic message").tmb(0),
         })
         .unwrap();
-        dummy_address
-            .try_send(CleanUpMessage { sleep_ms: 2000 })
-            .unwrap();
         system.run();
         panic!("test failed")
     }
@@ -679,39 +687,46 @@ pub mod unshared_test_utils {
         pub sleep_ms: u64,
     }
 
-    pub struct DummyActor {
-        system_stop_signal_opt: Option<Sender<()>>,
-    }
-
-    impl DummyActor {
-        pub fn new(system_stop_signal: Option<Sender<()>>) -> Self {
-            Self {
-                system_stop_signal_opt: system_stop_signal,
-            }
-        }
-    }
-
-    impl Actor for DummyActor {
-        type Context = Context<Self>;
-    }
-
-    impl Handler<CleanUpMessage> for DummyActor {
-        type Result = ();
-
-        fn handle(&mut self, msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
-            thread::sleep(Duration::from_millis(msg.sleep_ms));
-            if let Some(sender) = &self.system_stop_signal_opt {
-                let _ = sender.send(());
-            };
-            System::current().stop();
-        }
-    }
-
     pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
         (0..s.len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
             .collect()
+    }
+
+    pub struct SystemKillerActor {
+        after: Duration,
+        tx: Sender<()>,
+        rx: Receiver<()>,
+    }
+
+    impl Actor for SystemKillerActor {
+        type Context = Context<Self>;
+
+        fn started(&mut self, ctx: &mut Self::Context) {
+            ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after.clone());
+        }
+    }
+
+    // Note: the sleep_ms field of the CleanUpMessage is unused; all we need is a time strobe.
+    impl Handler<CleanUpMessage> for SystemKillerActor {
+        type Result = ();
+
+        fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
+            System::current().stop();
+            self.tx.try_send(()).expect("Receiver is dead");
+        }
+    }
+
+    impl SystemKillerActor {
+        pub fn new(after: Duration) -> Self {
+            let (tx, rx) = unbounded();
+            Self { after, tx, rx }
+        }
+
+        pub fn receiver(&self) -> Receiver<()> {
+            self.rx.clone()
+        }
     }
 
     pub struct NotifyLaterHandleMock<M> {
@@ -809,6 +824,56 @@ pub mod unshared_test_utils {
                 ctx.notify(msg)
             }
         }
+    }
+
+    //This is intended as an aid when standard constructs (e.g. downcasting,
+    //raw pointers) fail to help us make an assertion on a parameter use of a particular trait object.
+    //It is actually handy for very specific scenarios:
+    //
+    //Consider writing a test. We initiate a mocked trait object "O" encapsulated in a Box (so we will be
+    //moving ownership) and we plan to paste it in a function A. The function contains other functions like
+    //B, C, D. Let's say C takes our trait object as downgraded (with a plain reference) because D later takes
+    //"O" wholly as within the box. That means we couldn't easily call it in C.
+    //We need to assert from outside of fn A that "O" was pasted in C properly. However for capturing a param
+    //we need an owned or a clonable object, neither of those is usually acceptable. A possible raw pointer of "O"
+    //that we create outside of fn A will be always different than what we have in C, because a move occurred
+    //in between, by moving the Box around.
+    //Downcasting is also a pain and not proving anything alone.
+    //
+    //That's why we can add a test-only method to our arbitrary trait by this macro. It allows to implement
+    //a method fetching a made up id which is internally generated and dedicated to the object before the test begins.
+    //Then, at any stage, there is a chance to ask for that id from within any mocked function
+    //where we want to precisely identify what we get with the arguments that come in. The captured id represents the
+    //supplied instance, one of the function's parameters, and can be later asserted by comparing it with a copy of
+    //the same artificial id generated in the setup part of the test.
+
+    lazy_static! {
+        pub static ref ARBITRARY_ID_STAMP_SEQUENCER: Mutex<MutexIncrementInset> =
+            Mutex::new(MutexIncrementInset(0));
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct ArbitraryIdStamp(usize);
+
+    impl ArbitraryIdStamp {
+        pub fn new() -> Self {
+            ArbitraryIdStamp({
+                let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
+                access.0 += 1;
+                access.0
+            })
+        }
+    }
+
+    #[macro_export]
+    macro_rules! arbitrary_id_stamp {
+        () => {
+            #[cfg(test)]
+            fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                //no necessity to implemented it for all impls of the trait this becomes a member of
+                intentionally_blank!()
+            }
+        };
     }
 }
 

@@ -585,7 +585,7 @@ mod tests {
         assert_eq!(
             result,
             Err(PayableDaoError::RusqliteError(
-                "Updating balance for payable of -12345 Wei to 789; failing on: 'Query returned no rows'".to_string()
+                "Updating balance for payable of -12345 Wei to 789 with error 'Query returned no rows'".to_string()
             ))
         )
     }
