@@ -1349,6 +1349,7 @@ pub fn regenerate_signed_gossip(
 
 #[cfg(test)]
 mod tests {
+    use std::any::TypeId;
     use std::cell::RefCell;
     use std::convert::TryInto;
     use std::net::{IpAddr, SocketAddr};
@@ -2027,6 +2028,12 @@ mod tests {
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_standard_gossip_received",
         );
+        // let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
+        let (recorder, _awaiter, node_to_ui_recording_arc) = make_recorder();
+        let recorder = recorder.stop_condition(TypeId::of::<NodeToUiMessage>());
+        let addr = recorder.start();
+        let node_to_ui_recipient = addr.recipient::<NodeToUiMessage>();
+        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
             .get_connection_progress_by_ip(node_ip_addr)
@@ -2056,8 +2063,21 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        System::current().stop();
+        // System::current().stop();
         assert_eq!(system.run(), 0);
+        let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
+        let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
+        assert_eq!(node_to_ui_mutex.len(), 1);
+        assert_eq!(
+            node_to_ui_message_opt,
+            Some(&NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiConnectionChangeBroadcast {
+                    stage: UiConnectionChangeStage::ConnectedToNeighbor
+                }
+                .tmb(0)
+            })
+        );
     }
 
     #[test]

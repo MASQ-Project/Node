@@ -49,9 +49,11 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
+use actix::System;
 use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::Any;
+use std::any::TypeId;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -62,6 +64,7 @@ pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
+    stop_condition_opt: Option<TypeId>,
 }
 
 #[derive(Default)]
@@ -84,6 +87,11 @@ macro_rules! recorder_message_handler {
 
             fn handle(&mut self, msg: $message_type, _ctx: &mut Self::Context) {
                 self.record(msg);
+                if let Some(expected_type_id) = self.stop_condition_opt {
+                    if expected_type_id == TypeId::of::<$message_type>() {
+                        System::current().stop()
+                    }
+                }
             }
         }
     };
@@ -215,6 +223,11 @@ impl Recorder {
 
     pub fn route_query_response(mut self, response: Option<RouteQueryResponse>) -> Recorder {
         self.route_query_responses.push(response);
+        self
+    }
+
+    pub fn stop_condition(mut self, message_type_id: TypeId) -> Recorder {
+        self.stop_condition_opt = Some(message_type_id);
         self
     }
 }
