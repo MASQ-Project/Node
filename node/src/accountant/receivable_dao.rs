@@ -358,9 +358,6 @@ impl ReceivableDaoReal {
     ) -> i128 {
         let time = payment_thresholds.grace(now) - timestamp;
         let time = if time.is_negative() { 0 } else { time };
-        eprintln!("now: {}", now);
-        eprintln!("timestamp: {}", timestamp);
-        eprintln!("time: {}", time);
         ThresholdUtils::calculate_sloped_threshold_by_time(
             payment_thresholds,
             checked_conversion::<i64, u64>(time),

@@ -238,7 +238,7 @@ impl<P: Params> StatementObject for StatementWithRusqliteParams<P> {
 }
 
 impl<P: Params> Display for StatementWithRusqliteParams<P> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
         unimplemented!()
     }
 }

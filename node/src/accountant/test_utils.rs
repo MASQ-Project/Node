@@ -892,11 +892,14 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
     ) -> Result<(), InsertUpdateError> {
         let owned_params: Vec<(String, String)> = config
             .update_params()
-            .params()
+            .extended_params()
             .iter()
             .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
             .collect();
-        let (in_table_key, sql_key, _) = config.update_params().params().fetch_key_specification();
+        let (in_table_key, sql_key, _) = config
+            .update_params()
+            .extended_params()
+            .fetch_key_specification();
         self.update_params.lock().unwrap().push((
             config.select_sql(&in_table_key, &sql_key),
             config.update_sql().to_string(),
@@ -916,7 +919,7 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
     ) -> Result<(), InsertUpdateError> {
         let owned_params: Vec<(String, String)> = config
             .params
-            .params()
+            .extended_params()
             .iter()
             .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
             .collect();
