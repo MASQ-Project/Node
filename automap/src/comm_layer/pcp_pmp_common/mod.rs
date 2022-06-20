@@ -24,7 +24,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::process::Command;
 use std::time::Duration;
 
-pub const ROUTER_PORT: u16 = 5351; // from the PCP and PMP RFCs
+pub const ROUTER_MULTICAST_PORT: u16 = 5350; // from the PCP and PMP RFCs
+pub const    ROUTER_SERVER_PORT: u16 = 5351; // from the PCP and PMP RFCs
 pub const HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS: u64 = 1000;
 
 #[derive(Clone, Copy, Debug, PartialEq)]

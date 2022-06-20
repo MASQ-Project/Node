@@ -2,11 +2,11 @@
 
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
-use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::str::FromStr;
 
 use crossbeam_channel::Sender;
-
+use socket2::{Domain, SockAddr, Socket, Type};
 use masq_lib::utils::AutomapProtocol;
 
 use crate::comm_layer::pcp_pmp_common::MappingConfig;
@@ -157,6 +157,32 @@ impl LocalIpFinderReal {
     pub fn new() -> Self {
         Self {}
     }
+}
+
+const ROUTER_MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new (224, 0, 0, 1);
+
+fn create_polite_multicast_socket(interface_and_port: SocketAddr) -> Result<UdpSocket, std::io::Error> {
+    let (interface_v4, port) = match interface_and_port {
+        SocketAddr::V4(socket_addr_v4) => (socket_addr_v4.ip().clone(), socket_addr_v4.port()),
+        SocketAddr::V6(_) => unimplemented!("IPv6 is not yet supported for multicast"),
+    };
+    //creates new UDP socket on ipv4 address
+    let socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
+    //linux/macos have reuse_port exposed so we can flag it for non-windows systems
+    #[cfg(not(target_os = "windows"))]
+    socket.set_reuse_port(true)?;
+    //windows has reuse_port hidden and implicitly flagged with reuse_address
+    socket.set_reuse_address(true)?;
+    //subscribes to multicast group on the interface
+    socket.join_multicast_v4(&ROUTER_MULTICAST_GROUP, &interface_v4)?;
+    //binds to the multicast interface and port
+    socket
+        .bind(&SockAddr::from(SocketAddr::new(
+            IpAddr::from(interface_v4),
+            port,
+        )))?;
+    //converts socket2 socket into a std::net socket, required for correct recv_from method
+    Ok (socket.into())
 }
 
 #[cfg(test)]

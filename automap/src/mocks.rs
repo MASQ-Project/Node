@@ -18,8 +18,9 @@ use std::io::ErrorKind;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{io, thread};
+use std::fmt::Debug;
 
 lazy_static! {
     pub static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -440,4 +441,35 @@ pub fn parameterizable_automap_control(
             subject_so_far = replace_transactor(subject_so_far, Box::new(transactor));
             subject_so_far
         })
+}
+
+pub fn await_value<F, T, E>(
+    interval_and_limit_ms: Option<(u64, u64)>,
+    mut f: F,
+) -> Result<T, String>
+    where
+        E: Debug,
+        F: FnMut() -> Result<T, E>,
+{
+    let (interval_ms, limit_ms) = interval_and_limit_ms.unwrap_or((250, 1000));
+    let interval_dur = Duration::from_millis(interval_ms);
+    let deadline = Instant::now() + Duration::from_millis(limit_ms);
+    let mut delay = 0;
+    let mut log = "".to_string();
+    loop {
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "\n{}\nTimeout: waited for more than {}ms",
+                log, limit_ms
+            ));
+        }
+        match f() {
+            Ok(t) => return Ok(t),
+            Err(e) => {
+                log.extend(format!("  +{}: {:?}\n", delay, e).chars());
+                delay += interval_ms;
+                thread::sleep(interval_dur);
+            }
+        }
+    }
 }

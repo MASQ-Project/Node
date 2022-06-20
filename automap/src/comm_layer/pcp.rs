@@ -18,15 +18,8 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::{debug, warning};
 
-use crate::comm_layer::pcp_pmp_common::{
-    find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig,
-    UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory,
-    HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS, ROUTER_PORT,
-};
-use crate::comm_layer::{
-    AutomapError, AutomapErrorCause, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal,
-    Transactor,
-};
+use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS, ROUTER_SERVER_PORT, ROUTER_MULTICAST_PORT};
+use crate::comm_layer::{AutomapError, AutomapErrorCause, create_polite_multicast_socket, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, ROUTER_MULTICAST_GROUP, Transactor};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
@@ -77,7 +70,8 @@ struct PcpTransactorInner {
 
 pub struct PcpTransactor {
     inner_arc: Arc<Mutex<PcpTransactorInner>>,
-    router_port: u16,
+    router_server_port: u16,
+    router_announce_port: u16,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     join_handle_opt: Option<JoinHandle<ChangeHandler>>,
     read_timeout_millis: u64,
@@ -100,7 +94,7 @@ impl Transactor for PcpTransactor {
             .mapping_transactor
             .transact(
                 &inner.factories,
-                SocketAddr::new(router_ip, self.router_port),
+                SocketAddr::new(router_ip, self.router_server_port),
                 &mut MappingConfig {
                     // We have to have something here. Its value doesn't really matter, as long as
                     // it's not a port somebody else has mapped so that we don't accidentally
@@ -137,7 +131,7 @@ impl Transactor for PcpTransactor {
             .mapping_transactor
             .transact(
                 &inner.factories,
-                SocketAddr::new(router_ip, self.router_port),
+                SocketAddr::new(router_ip, self.router_server_port),
                 &mut mapping_config,
             )?
             .0;
@@ -147,7 +141,7 @@ impl Transactor for PcpTransactor {
             .try_send(HousekeepingThreadCommand::InitializeMappingConfig(
                 mapping_config,
             ))
-            .expect("Housekeepig thread panicked");
+            .expect("Housekeeping thread panicked");
         Ok(approved_lifetime / 2)
     }
 
@@ -169,7 +163,7 @@ impl Transactor for PcpTransactor {
             .mapping_transactor
             .transact(
                 &inner.factories,
-                SocketAddr::new(router_ip, self.router_port),
+                SocketAddr::new(router_ip, self.router_server_port),
                 &mut MappingConfig {
                     hole_port,
                     next_lifetime: Duration::from_secs(0),
@@ -195,17 +189,20 @@ impl Transactor for PcpTransactor {
         if let Some(_change_handler_stopper) = &self.housekeeper_commander_opt {
             return Err(AutomapError::HousekeeperAlreadyRunning);
         }
+        // TODO: Establish shared UDP multicast connection to router
         let (tx, rx) = unbounded();
         self.housekeeper_commander_opt = Some(tx.clone());
         let inner_arc = self.inner_arc.clone();
-        let router_addr = SocketAddr::new(router_ip, self.router_port);
+        let router_server_addr = SocketAddr::new(router_ip, self.router_server_port);
+        let router_announce_addr = SocketAddr::new(IpAddr::from (ROUTER_MULTICAST_GROUP), self.router_announce_port);
         let read_timeout_millis = self.read_timeout_millis;
         let logger = self.logger.clone();
         self.join_handle_opt = Some(thread::spawn(move || {
             Self::thread_guts(
                 &rx,
                 inner_arc,
-                router_addr,
+                router_server_addr,
+                router_announce_addr,
                 change_handler,
                 read_timeout_millis,
                 logger,
@@ -257,7 +254,8 @@ impl Default for PcpTransactor {
                 mapping_transactor: Box::new(MappingTransactorReal::default()),
                 factories: Factories::default(),
             })),
-            router_port: ROUTER_PORT,
+            router_server_port: ROUTER_SERVER_PORT,
+            router_announce_port: ROUTER_MULTICAST_PORT,
             housekeeper_commander_opt: None,
             join_handle_opt: None,
             read_timeout_millis: HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS,
@@ -277,13 +275,28 @@ impl PcpTransactor {
     fn thread_guts(
         rx: &Receiver<HousekeepingThreadCommand>,
         inner_arc: Arc<Mutex<PcpTransactorInner>>,
-        router_addr: SocketAddr,
+        router_server_addr: SocketAddr,
+        router_announce_addr: SocketAddr,
         change_handler: ChangeHandler,
         read_timeout_millis: u64,
         logger: Logger,
     ) -> ChangeHandler {
         let mut last_remapped = Instant::now();
         let mut mapping_config_opt: Option<MappingConfig> = None;
+        let mut buffer = [0u8; 64];
+        let announce_socket = match create_polite_multicast_socket(router_announce_addr) {
+            Ok (socket) => socket,
+            // TODO: SPIKE
+            Err (e) => {
+                change_handler (AutomapChange::Error(AutomapError::SocketBindingError(
+                    format! ("{:?}", e),
+                    router_announce_addr
+                )));
+                return change_handler;
+            }
+            // TODO: SPIKE
+        };
+        announce_socket.set_read_timeout(Some (Duration::from_millis (read_timeout_millis)));
         loop {
             match rx.try_recv() {
                 Ok(HousekeepingThreadCommand::Stop) => {
@@ -313,6 +326,24 @@ impl PcpTransactor {
                 }
                 Err(_) => (),
             }
+            match announce_socket.recv(&mut buffer[..]) {
+                Ok (len) => {
+                    match PcpPacket::try_from (&buffer[..]) {
+                        Ok (packet) => if packet.opcode == Opcode::Announce {
+                            // TODO: This is almost certainly wrong. Do more investigation.
+                            match packet.client_ip_opt {
+                                Some (ip) => change_handler (AutomapChange::NewIp(ip)),
+                                None => todo! ("Complete me!"),
+                            }
+                        }
+                        else {
+                            todo! ("Complete me!");
+                        },
+                        Err (e) => todo! ("Complete me!"),
+                    }
+                },
+                Err (e) => todo! ("Complete me"),
+            };
             thread::sleep(Duration::from_millis(read_timeout_millis)); // replaces IP-change check
             let since_last_remapped = last_remapped.elapsed();
             match &mut mapping_config_opt {
@@ -323,7 +354,7 @@ impl PcpTransactor {
                         let requested_lifetime = mapping_config.next_lifetime;
                         if let Err(e) = Self::remap_port(
                             &inner,
-                            router_addr,
+                            router_server_addr,
                             mapping_config,
                             requested_lifetime,
                             &logger,
@@ -571,17 +602,15 @@ mod tests {
     use std::net::{SocketAddr, SocketAddrV4};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::time::Duration;
+    use std::time::{Duration};
     use std::{io, thread};
 
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::utils::localhost;
+    use masq_lib::utils::{find_free_port, localhost};
 
-    use crate::comm_layer::pcp_pmp_common::ROUTER_PORT;
-    use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
-    use crate::mocks::{
-        FreePortFactoryMock, LocalIpFinderMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock,
-    };
+    use crate::comm_layer::pcp_pmp_common::ROUTER_SERVER_PORT;
+    use crate::comm_layer::{AutomapErrorCause, create_polite_multicast_socket, LocalIpFinder, ROUTER_MULTICAST_GROUP};
+    use crate::mocks::{await_value, FreePortFactoryMock, LocalIpFinderMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
@@ -713,7 +742,7 @@ mod tests {
         let result = subject
             .transact(
                 &factories,
-                SocketAddr::new(router_ip, ROUTER_PORT),
+                SocketAddr::new(router_ip, ROUTER_SERVER_PORT),
                 &mut MappingConfig {
                     hole_port: 6666,
                     next_lifetime: Duration::from_secs(4321),
@@ -753,7 +782,7 @@ mod tests {
 
         let result = subject.transact(
             &factories,
-            SocketAddr::new(router_ip, ROUTER_PORT),
+            SocketAddr::new(router_ip, ROUTER_SERVER_PORT),
             &mut MappingConfig {
                 hole_port: 6666,
                 next_lifetime: Duration::from_secs(4321),
@@ -790,7 +819,7 @@ mod tests {
 
         let result = subject.transact(
             &factories,
-            SocketAddr::new(router_ip, ROUTER_PORT),
+            SocketAddr::new(router_ip, ROUTER_SERVER_PORT),
             &mut MappingConfig {
                 hole_port: 6666,
                 next_lifetime: Duration::from_secs(4321),
@@ -817,7 +846,7 @@ mod tests {
         let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
-            .recv_from_result(Ok((0, SocketAddr::new(router_ip, ROUTER_PORT))), vec![]);
+            .recv_from_result(Ok((0, SocketAddr::new(router_ip, ROUTER_SERVER_PORT))), vec![]);
         let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let subject = MappingTransactorReal::default();
         let mut factories = Factories::default();
@@ -825,7 +854,7 @@ mod tests {
 
         let result = subject.transact(
             &factories,
-            SocketAddr::new(router_ip, ROUTER_PORT),
+            SocketAddr::new(router_ip, ROUTER_SERVER_PORT),
             &mut MappingConfig {
                 hole_port: 6666,
                 next_lifetime: Duration::from_secs(4321),
@@ -856,7 +885,7 @@ mod tests {
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(
-                Ok((len, SocketAddr::new(router_ip, ROUTER_PORT))),
+                Ok((len, SocketAddr::new(router_ip, ROUTER_SERVER_PORT))),
                 buffer[0..len].to_vec(),
             );
         let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
@@ -866,7 +895,7 @@ mod tests {
 
         let result = subject.transact(
             &factories,
-            SocketAddr::new(router_ip, ROUTER_PORT),
+            SocketAddr::new(router_ip, ROUTER_SERVER_PORT),
             &mut MappingConfig {
                 hole_port: 6666,
                 next_lifetime: Duration::from_secs(4321),
@@ -898,7 +927,7 @@ mod tests {
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
             .recv_from_result(
-                Ok((len, SocketAddr::new(router_ip, ROUTER_PORT))),
+                Ok((len, SocketAddr::new(router_ip, ROUTER_SERVER_PORT))),
                 buffer[0..len].to_vec(),
             );
         let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
@@ -908,7 +937,7 @@ mod tests {
 
         let result = subject.transact(
             &factories,
-            SocketAddr::new(router_ip, ROUTER_PORT),
+            SocketAddr::new(router_ip, ROUTER_SERVER_PORT),
             &mut MappingConfig {
                 hole_port: 6666,
                 next_lifetime: Duration::from_secs(4321),
@@ -962,7 +991,7 @@ mod tests {
             .recv_from_result(
                 Ok((
                     1000,
-                    SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_PORT),
+                    SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_SERVER_PORT),
                 )),
                 response[0..response_len].to_vec(),
             );
@@ -1014,7 +1043,7 @@ mod tests {
             .recv_from_result(
                 Ok((
                     1000,
-                    SocketAddr::new(IpAddr::from_str("192.168.0.249").unwrap(), ROUTER_PORT),
+                    SocketAddr::new(IpAddr::from_str("192.168.0.249").unwrap(), ROUTER_SERVER_PORT),
                 )),
                 response[0..response_len].to_vec(),
             );
@@ -1092,7 +1121,7 @@ mod tests {
             .recv_from_result(
                 Ok((
                     1000,
-                    SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_PORT),
+                    SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_SERVER_PORT),
                 )),
                 response[0..response_len].to_vec(),
             );
@@ -1148,7 +1177,7 @@ mod tests {
         );
         assert_eq!(
             actual_addr,
-            SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_PORT)
+            SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_SERVER_PORT)
         );
         let recv_from_params = recv_from_params_arc.lock().unwrap();
         assert_eq!(*recv_from_params, vec![()]);
@@ -1169,7 +1198,7 @@ mod tests {
             .recv_from_result(
                 Ok((
                     1000,
-                    SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_PORT),
+                    SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_SERVER_PORT),
                 )),
                 response[0..response_len].to_vec(),
             );
@@ -1227,7 +1256,7 @@ mod tests {
             .recv_from_result(
                 Ok((
                     1000,
-                    SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_PORT),
+                    SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_SERVER_PORT),
                 )),
                 response[0..response_len].to_vec(),
             );
@@ -1251,7 +1280,7 @@ mod tests {
             *send_to_params,
             vec![(
                 request[0..request_len].to_vec(),
-                SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_PORT)
+                SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_SERVER_PORT)
             )]
         );
         let recv_from_params = recv_from_params_arc.lock().unwrap();
@@ -1273,7 +1302,7 @@ mod tests {
             .recv_from_result(
                 Ok((
                     1000,
-                    SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_PORT),
+                    SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_SERVER_PORT),
                 )),
                 response[0..response_len].to_vec(),
             );
@@ -1309,6 +1338,46 @@ mod tests {
             result.err().unwrap(),
             AutomapError::HousekeeperAlreadyRunning
         )
+    }
+
+    #[test]
+    fn start_housekeeping_thread_opens_multicast_socket_to_router() {
+        let received_new_ip: Arc<Mutex<Option<IpAddr>>> = Arc::new (Mutex::new (None));
+        let inner_received_new_ip = received_new_ip.clone();
+        let change_handler = move |msg| {
+            match msg {
+                AutomapChange::NewIp(new_ip) => inner_received_new_ip.lock().unwrap().replace (new_ip),
+                _ => None,
+            };
+        };
+        let mut subject = PcpTransactor::default();
+        let commander = subject.start_housekeeping_thread(Box::new (change_handler),
+            IpAddr::from_str("1.2.3.4").unwrap()).unwrap();
+        let mut announce = PcpPacket::default();
+        announce.opcode = Opcode::Announce;
+        announce.direction = Direction::Response;
+        announce.client_ip_opt = Some (IpAddr::from_str ("4.3.2.1").unwrap());
+        let mut announce_buffer = [0u8; 64];
+        let announce_len = announce.marshal (&mut announce_buffer).unwrap();
+        let multicast_interface = match localhost() {
+            IpAddr::V4(v4_addr) => v4_addr,
+            addr => panic! ("Expected localhost() to be IPv4, but got {:?}", addr),
+        };
+        let multicast_port = find_free_port();
+        let interface_and_port = SocketAddr::V4(SocketAddrV4::new (multicast_interface, multicast_port));
+        let router_socket = create_polite_multicast_socket(interface_and_port).unwrap();
+        let multicast_addr = SocketAddr::new (IpAddr::V4(ROUTER_MULTICAST_GROUP), multicast_port);
+
+        router_socket.send_to (&announce_buffer[0..announce_len], multicast_addr).unwrap();
+
+        let change = await_value(None, || {
+            match received_new_ip.lock().unwrap().take() {
+                Some (element) => Ok (element),
+                None => Err ("timed out".to_string()),
+            }
+        }).unwrap();
+        commander.try_send (HousekeepingThreadCommand::Stop).unwrap();
+        assert_eq! (change, IpAddr::from_str ("4.3.2.1").unwrap());
     }
 
     #[test]
@@ -1412,6 +1481,7 @@ mod tests {
             &rx,
             inner_arc,
             SocketAddr::new(localhost(), 0),
+            SocketAddr::new(localhost(), 0),
             change_handler,
             10,
             Logger::new("no_remap_test"),
@@ -1507,6 +1577,7 @@ mod tests {
                 &rx,
                 inner_arc,
                 SocketAddr::new(localhost(), 0),
+                SocketAddr::new(localhost(), 0),
                 change_handler,
                 10,
                 Logger::new("timed_remap_test"),
@@ -1550,6 +1621,7 @@ mod tests {
                     mapping_transactor,
                     factories: Factories::default(),
                 })),
+                SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 0),
                 SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 0),
                 Box::new(|_| ()),
                 10,
@@ -1598,6 +1670,7 @@ mod tests {
                     mapping_transactor,
                     factories: Factories::default(),
                 })),
+                SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 0),
                 SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 0),
                 change_handler,
                 10,
