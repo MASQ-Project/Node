@@ -1396,7 +1396,8 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, make_global_cryptde_node_record, make_ip, make_node_descriptor,
-        make_node_record, make_node_record_f, make_node_to_ui_recipient, neighborhood_from_nodes,
+        make_node_record, make_node_record_f, make_node_to_ui_recipient,
+        make_recipient_and_recording_arc, neighborhood_from_nodes,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::rate_pack;
@@ -1921,7 +1922,10 @@ mod tests {
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_pass_loop_found",
         );
-        let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
+        let (recorder, _awaiter, node_to_ui_recording_arc) = make_recorder();
+        let recorder = recorder.stop_condition(TypeId::of::<NodeToUiMessage>());
+        let addr = recorder.start();
+        let node_to_ui_recipient = addr.recipient::<NodeToUiMessage>();
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
@@ -1968,7 +1972,8 @@ mod tests {
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received",
         );
-        let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
+        let (node_to_ui_recipient, node_to_ui_recording_arc) =
+            make_recipient_and_recording_arc(Some(TypeId::of::<NodeToUiMessage>()));
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
@@ -1981,8 +1986,6 @@ mod tests {
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
-        let killer = SystemKillerActor::new(Duration::from_millis(3_000));
-        killer.start();
         let new_node = IpAddr::from_str("10.20.30.40").unwrap();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
@@ -2002,7 +2005,6 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        // System::current().stop();
         assert_eq!(system.run(), 0);
         let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
         let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
@@ -2012,7 +2014,7 @@ mod tests {
             Some(&NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionChangeStage::ThreeHopsRouteFound
+                    stage: UiConnectionChangeStage::ConnectedToNeighbor
                 }
                 .tmb(0)
             })
@@ -2028,11 +2030,8 @@ mod tests {
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_standard_gossip_received",
         );
-        // let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
-        let (recorder, _awaiter, node_to_ui_recording_arc) = make_recorder();
-        let recorder = recorder.stop_condition(TypeId::of::<NodeToUiMessage>());
-        let addr = recorder.start();
-        let node_to_ui_recipient = addr.recipient::<NodeToUiMessage>();
+        let (node_to_ui_recipient, node_to_ui_recording_arc) =
+            make_recipient_and_recording_arc(Some(TypeId::of::<NodeToUiMessage>()));
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
@@ -2063,7 +2062,6 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        // System::current().stop();
         assert_eq!(system.run(), 0);
         let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
         let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
