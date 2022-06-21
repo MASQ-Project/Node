@@ -1184,7 +1184,6 @@ impl Neighborhood {
                 .get_connection_progress_by_ip(current_peer_addr)
                 .unwrap()
                 .clone(),
-            // TODO: Do Something with the error - "Cannot send AskAboutDebutGossipMessage for peer with IP Address: {}"
         };
         self.tools.notify_later_ask_about_gossip.notify_later(
             message,
@@ -1824,12 +1823,10 @@ mod tests {
     pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_failed() {
         init_test_logging();
         let (node_ip_addr, node_descriptor) = make_node(1);
-        let mut subject = make_subject_from_node_descriptor(
+        let subject = make_subject_from_node_descriptor(
             &node_descriptor,
             "neighborhood_handles_connection_progress_message_with_tcp_connection_failed",
         );
-        let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
-        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
@@ -1856,10 +1853,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
-        let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(system.run(), 0);
-        assert_eq!(node_to_ui_message_opt, None);
     }
 
     #[test]
