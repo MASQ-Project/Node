@@ -1714,8 +1714,12 @@ mod tests {
 
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
-                actor.overall_connection_status.progress,
-                vec![beginning_connection_progress_clone]
+                actor.overall_connection_status,
+                OverallConnectionStatus {
+                    can_make_routes: false,
+                    stage: OverallConnectionStage::NotConnected,
+                    progress: vec![beginning_connection_progress_clone]
+                }
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
@@ -1769,12 +1773,16 @@ mod tests {
 
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
-                actor.overall_connection_status.progress,
-                vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor,
-                    current_peer_addr: node_ip_addr,
-                    connection_stage: ConnectionStage::Failed(NoGossipResponseReceived),
-                }]
+                actor.overall_connection_status,
+                OverallConnectionStatus {
+                    can_make_routes: false,
+                    stage: OverallConnectionStage::NotConnected,
+                    progress: vec![ConnectionProgress {
+                        initial_node_descriptor: node_descriptor,
+                        current_peer_addr: node_ip_addr,
+                        connection_stage: ConnectionStage::Failed(NoGossipResponseReceived),
+                    }]
+                }
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
@@ -1835,12 +1843,16 @@ mod tests {
 
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
-                actor.overall_connection_status.progress,
-                vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
-                    current_peer_addr: node_ip_addr,
-                    connection_stage: ConnectionStage::Failed(TcpConnectionFailed)
-                }]
+                actor.overall_connection_status,
+                OverallConnectionStatus {
+                    can_make_routes: false,
+                    stage: OverallConnectionStage::NotConnected,
+                    progress: vec![ConnectionProgress {
+                        initial_node_descriptor: node_descriptor.clone(),
+                        current_peer_addr: node_ip_addr,
+                        connection_stage: ConnectionStage::Failed(TcpConnectionFailed)
+                    }]
+                }
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
@@ -1880,12 +1892,16 @@ mod tests {
 
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
-                actor.overall_connection_status.progress,
-                vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
-                    current_peer_addr: new_pass_target,
-                    connection_stage: ConnectionStage::StageZero
-                }]
+                actor.overall_connection_status,
+                OverallConnectionStatus {
+                    can_make_routes: false,
+                    stage: OverallConnectionStage::NotConnected,
+                    progress: vec![ConnectionProgress {
+                        initial_node_descriptor: node_descriptor.clone(),
+                        current_peer_addr: new_pass_target,
+                        connection_stage: ConnectionStage::StageZero
+                    }]
+                }
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
@@ -1921,12 +1937,16 @@ mod tests {
 
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
-                actor.overall_connection_status.progress,
-                vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
-                    current_peer_addr: node_ip_addr,
-                    connection_stage: ConnectionStage::Failed(PassLoopFound)
-                }]
+                actor.overall_connection_status,
+                OverallConnectionStatus {
+                    can_make_routes: false,
+                    stage: OverallConnectionStage::NotConnected,
+                    progress: vec![ConnectionProgress {
+                        initial_node_descriptor: node_descriptor.clone(),
+                        current_peer_addr: node_ip_addr,
+                        connection_stage: ConnectionStage::Failed(PassLoopFound)
+                    }]
+                }
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
@@ -1965,12 +1985,16 @@ mod tests {
 
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
-                actor.overall_connection_status.progress,
-                vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
-                    current_peer_addr: node_ip_addr,
-                    connection_stage: ConnectionStage::NeighborshipEstablished
-                }]
+                actor.overall_connection_status,
+                OverallConnectionStatus {
+                    can_make_routes: false,
+                    stage: OverallConnectionStage::ConnectedToNeighbor,
+                    progress: vec![ConnectionProgress {
+                        initial_node_descriptor: node_descriptor.clone(),
+                        current_peer_addr: node_ip_addr,
+                        connection_stage: ConnectionStage::NeighborshipEstablished
+                    }]
+                }
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
@@ -2021,12 +2045,16 @@ mod tests {
 
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
-                actor.overall_connection_status.progress,
-                vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
-                    current_peer_addr: node_ip_addr,
-                    connection_stage: ConnectionStage::NeighborshipEstablished
-                }]
+                actor.overall_connection_status,
+                OverallConnectionStatus {
+                    can_make_routes: false,
+                    stage: OverallConnectionStage::ConnectedToNeighbor,
+                    progress: vec![ConnectionProgress {
+                        initial_node_descriptor: node_descriptor.clone(),
+                        current_peer_addr: node_ip_addr,
+                        connection_stage: ConnectionStage::NeighborshipEstablished
+                    }]
+                }
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
@@ -2074,12 +2102,16 @@ mod tests {
 
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(
-                actor.overall_connection_status.progress,
-                vec![ConnectionProgress {
-                    initial_node_descriptor: node_descriptor.clone(),
-                    current_peer_addr: node_ip_addr,
-                    connection_stage: ConnectionStage::Failed(NoGossipResponseReceived)
-                }]
+                actor.overall_connection_status,
+                OverallConnectionStatus {
+                    can_make_routes: false,
+                    stage: OverallConnectionStage::NotConnected,
+                    progress: vec![ConnectionProgress {
+                        initial_node_descriptor: node_descriptor.clone(),
+                        current_peer_addr: node_ip_addr,
+                        connection_stage: ConnectionStage::Failed(NoGossipResponseReceived)
+                    }]
+                }
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();

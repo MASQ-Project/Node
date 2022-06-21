@@ -121,9 +121,9 @@ impl From<OverallConnectionStage> for UiConnectionChangeStage {
 #[derive(PartialEq, Debug, Clone)]
 pub struct OverallConnectionStatus {
     // The check_connectedness() updates the boolean when three hops route is found
-    can_make_routes: bool,
+    pub can_make_routes: bool,
     // Transition depends on the ConnectionProgressMessage & check_connectedness(), they may not be in sync
-    stage: OverallConnectionStage,
+    pub stage: OverallConnectionStage,
     // Corresponds to the initial_node_descriptors, that are entered by the user using --neighbors
     pub progress: Vec<ConnectionProgress>,
 }
