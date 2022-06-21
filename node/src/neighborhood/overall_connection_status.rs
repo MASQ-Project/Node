@@ -278,8 +278,7 @@ mod tests {
     };
     use crate::neighborhood::PublicKey;
     use crate::test_utils::neighborhood_test_utils::{
-        make_ip, make_node, make_node_and_recipient, make_node_descriptor,
-        make_node_to_ui_recipient,
+        make_ip, make_node, make_node_descriptor, make_node_to_ui_recipient,
     };
     use actix::System;
     use masq_lib::blockchains::chains::Chain;
@@ -735,7 +734,7 @@ mod tests {
 
     #[test]
     fn we_can_ask_about_can_make_routes() {
-        let (_node_ip_addr, node_descriptor, _recipient) = make_node_and_recipient();
+        let node_descriptor = make_node_descriptor(make_ip(1));
         let subject = OverallConnectionStatus::new(vec![node_descriptor]);
 
         let can_make_routes = subject.can_make_routes();
@@ -745,7 +744,7 @@ mod tests {
 
     #[test]
     fn can_update_the_boolean_can_make_routes() {
-        let (_node_ip_addr, node_descriptor, _recipient) = make_node_and_recipient();
+        let node_descriptor = make_node_descriptor(make_ip(1));
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
         let can_make_routes_initially = subject.can_make_routes();
 

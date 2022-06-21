@@ -300,14 +300,6 @@ pub fn make_node(nonce: u8) -> (IpAddr, NodeDescriptor) {
     (ip_addr, node_descriptor)
 }
 
-pub fn make_node_and_recipient() -> (IpAddr, NodeDescriptor, Recipient<NodeToUiMessage>) {
-    let ip_addr = make_ip(u8::MAX);
-    let node_descriptor = make_node_descriptor(ip_addr);
-    let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
-
-    (ip_addr, node_descriptor, node_to_ui_recipient)
-}
-
 pub fn make_recipient_and_recording_arc<M: 'static>(
     stopping_message: Option<TypeId>,
 ) -> (Recipient<M>, Arc<Mutex<Recording>>)
