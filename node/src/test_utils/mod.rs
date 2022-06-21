@@ -876,7 +876,7 @@ pub mod unshared_test_utils {
         };
     }
 
-    //this method can be handy but your object must contain this field:
+    //this macro can be handy but your object must contain this field:
     //arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>
     #[macro_export]
     macro_rules! set_arbitrary_id_stamp {

@@ -2333,20 +2333,9 @@ mod tests {
             )
             .unwrap();
 
-        //TODO decide to eliminate this assertion part as the other part is stronger
-        let critical_lines: &[(&str, &[&[&str]])] = &[
-            ("payable", &[&["balance", "blob", "not", "null"]]),
-            ("receivable", &[&["balance", "blob", "not", "null"]]),
-            ("pending_payable", &[&["amount", "blob", "not", "null"]]),
-        ];
-        critical_lines
+        ["payable", "receivable", "pending_payable"]
             .iter()
-            .for_each(|(table_name, expected_sql_chopped)| {
-                assert_create_table_stm_contains_some_parts(
-                    &*conn,
-                    table_name,
-                    expected_sql_chopped,
-                );
+            .for_each(|table_name| {
                 assert_table_does_not_exist(&*conn, &format!("_{}_old", table_name))
             });
         assert_values_still_there_plus_i128(&*conn, "payable", |row| {

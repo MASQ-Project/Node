@@ -391,8 +391,6 @@ pub fn collect_and_sum_i128_values_from_table(
         .fold(0_i128, |acc, num: i128| acc + num)
 }
 
-//TODO after you move the tests rename the modules of home dirs to the right ones
-
 #[cfg(test)]
 mod tests {
     use super::*;

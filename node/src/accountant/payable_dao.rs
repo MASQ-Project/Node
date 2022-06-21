@@ -106,7 +106,6 @@ impl PayableDao for PayableDaoReal {
         })?)
     }
 
-    //TODO: NO
     fn mark_pending_payable_rowid(
         &self,
         wallet: &Wallet,
@@ -147,7 +146,6 @@ impl PayableDao for PayableDaoReal {
         })?)
     }
 
-    //TODO: NO
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
         let mut stmt = self.conn
             .prepare("select wallet_address, balance, last_paid_timestamp from payable where pending_payable_rowid is null")

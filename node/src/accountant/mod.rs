@@ -483,7 +483,6 @@ impl Accountant {
             "Chose {} qualified debts to pay",
             qualified_payables.len()
         );
-        //TODO do we evaluate payables_debug_summary() only if required?
         debug!(
             self.logger,
             "{}",
@@ -663,7 +662,7 @@ impl Accountant {
         if !self.our_wallet(wallet) {
             match self.payable_dao
                 .as_ref()
-                .more_money_payable(wallet,total_charge){   //TODO try if this blow some test up if you insert the mocked core
+                .more_money_payable(wallet,total_charge){
                 Ok(_) => (),
                 Err(PayableDaoError::SignConversion(_)) => error! (
                     self.logger,
@@ -980,7 +979,6 @@ impl Accountant {
         if let Err(e) = self
             .payable_dao
             .transaction_confirmed(&msg.pending_payable_fingerprint)
-        //TODO try if this blow some test up if you insert the mocked core
         {
             panic!(
                 "Was unable to uncheck pending payable '{}' after confirmation due to '{:?}'",
@@ -1085,7 +1083,11 @@ impl Accountant {
             max_pending_interval: u64,
             logger: &Logger,
         ) -> PendingTransactionStatus {
-            info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",fingerprint.hash, fingerprint.attempt_opt.expectv("initialized attempt"), elapsed_in_ms(fingerprint.timestamp));
+            info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",
+                fingerprint.hash,
+                fingerprint.attempt_opt.expectv("initialized attempt"),
+                elapsed_in_ms(fingerprint.timestamp)
+            );
             let elapsed = fingerprint
                 .timestamp
                 .elapsed()
@@ -1119,7 +1121,11 @@ impl Accountant {
             fingerprint: &PendingPayableFingerprint,
             logger: &Logger,
         ) -> PendingTransactionStatus {
-            error!(logger,"Pending transaction '{}' announced as a failure, interpreting attempt {} after {}ms from the sending",fingerprint.hash,fingerprint.attempt_opt.expectv("initialized attempt"),elapsed_in_ms(fingerprint.timestamp));
+            error!(logger,"Pending transaction '{}' announced as a failure, interpreting attempt {} after {}ms from the sending",
+                fingerprint.hash,
+                fingerprint.attempt_opt.expectv("initialized attempt"),
+                elapsed_in_ms(fingerprint.timestamp)
+            );
             PendingTransactionStatus::Failure(fingerprint.into())
         }
         match receipt.status{
@@ -1209,7 +1215,7 @@ impl Accountant {
 #[derive(Debug, PartialEq, Clone)]
 enum PendingTransactionStatus {
     StillPending(PendingPayableId), //updates slightly the record, waits an interval and starts a new round
-    Failure(PendingPayableId),      //official tx failure
+    Failure(PendingPayableId),      //clear tx failure
     Confirmed(PendingPayableFingerprint), //tx was fully processed and successful
 }
 
@@ -1282,16 +1288,15 @@ impl ThresholdUtils {
         payment_thresholds: &PaymentThresholds,
         time: u64,
     ) -> f64 {
-        //TODO: how to write safe conversion from u64 to f64???
         let m = ThresholdUtils::slope(&payment_thresholds);
         let b = ThresholdUtils::compute_theoretical_interception_with_y_axis(
             m,
             ThresholdUtils::convert(payment_thresholds.debt_threshold_gwei),
             ThresholdUtils::convert(payment_thresholds.maturity_threshold_sec),
         );
-        let y = m * time as f64 + b; //TODO safe?
-        let f_debt_threshold_gwei = payment_thresholds.debt_threshold_gwei as f64; //TODO safe?
-        let f_permanent_debt_allowed_gwei = payment_thresholds.permanent_debt_allowed_gwei as f64; //TODO safe?
+        let y = m * time as f64 + b;
+        let f_debt_threshold_gwei = payment_thresholds.debt_threshold_gwei as f64;
+        let f_permanent_debt_allowed_gwei = payment_thresholds.permanent_debt_allowed_gwei as f64;
         if y >= f_debt_threshold_gwei {
             return f_debt_threshold_gwei;
         };

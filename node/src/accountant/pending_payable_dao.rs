@@ -527,11 +527,6 @@ mod tests {
         )
     }
 
-    // transaction_hash text not null,
-    // amount blob not null,
-    // payable_timestamp integer not null,
-    // attempt integer not null,
-    // process_error text null
     #[test]
     fn mark_failure_works() {
         let home_dir =

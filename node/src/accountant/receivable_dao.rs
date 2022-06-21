@@ -117,27 +117,9 @@ impl ReceivableDao for ReceivableDaoReal {
         })?)
     }
 
-    //TODO -- chop it, you can do it
     fn more_money_received(&mut self, payments: Vec<BlockchainTransaction>) {
-        self.try_multi_insert_payment(&InsertUpdateCoreReal, &payments) //TODO check if it blows up if you change it to the mock version
-            .unwrap_or_else(|e| {
-                let mut report_lines =
-                    vec![format!("{:10} {:42} {:18}", "Block #", "Wallet", "Amount")];
-                let mut sum = 0u128;
-                payments.iter().for_each(|t| {
-                    report_lines.push(format!(
-                        "{:10} {:42} {:18}",
-                        t.block_number, t.from, t.wei_amount
-                    ));
-                    sum += t.wei_amount;
-                });
-                report_lines.push(format!("{:10} {:42} {:18}", "TOTAL", "", sum));
-                let report = report_lines.join("\n");
-                error!(
-                    self.logger,
-                    "Payment reception failed, rolling back: {:?}\n{}", e, report
-                );
-            })
+        self.try_multi_insert_payment(&payments)
+            .unwrap_or_else(|e| self.more_money_received_pretty_error_log(&payments, e))
     }
 
     //TODO: probably replace with 'top records' with proper range
@@ -378,7 +360,7 @@ impl ReceivableDaoReal {
     }
 
     fn truncate_metadata_table(&self) {
-        //'To truncate a table in SQLite, you just need to execute a DELETE statement without a WHERE clause'
+        //delete statement without where clause substitutes 'truncate' in sqlite
         let _ = self
             .conn
             .prepare("delete from delinquency_metadata")
@@ -389,13 +371,12 @@ impl ReceivableDaoReal {
 
     fn try_multi_insert_payment(
         &mut self,
-        core: &dyn InsertUpdateCore,
         payments: &[BlockchainTransaction],
     ) -> Result<(), ReceivableDaoError> {
         let xactn = self.conn.transaction()?;
         {
             for transaction in payments {
-                core.update(Either::Right(&xactn), &UpdateConfig {
+                self.insert_update_core.update(Either::Right(&xactn), &UpdateConfig {
                     update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
                     params: SQLExtendedParams::new(
                         vec![
@@ -428,12 +409,34 @@ impl ReceivableDaoReal {
             _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
         }
     }
+
+    fn more_money_received_pretty_error_log(
+        &self,
+        payments: &[BlockchainTransaction],
+        error: ReceivableDaoError,
+    ) {
+        let mut report_lines = vec![format!("{:10} {:42} {:18}", "Block #", "Wallet", "Amount")];
+        let mut sum = 0u128;
+        payments.iter().for_each(|t| {
+            report_lines.push(format!(
+                "{:10} {:42} {:18}",
+                t.block_number, t.from, t.wei_amount
+            ));
+            sum += t.wei_amount;
+        });
+        report_lines.push(format!("{:10} {:42} {:18}", "TOTAL", "", sum));
+        let report = report_lines.join("\n");
+        error!(
+            self.logger,
+            "Payment reception failed, rolling back: {:?}\n{}", error, report
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::blob_utils::{InsertUpdateCoreReal, InsertUpdateError, Table};
+    use crate::accountant::blob_utils::{InsertUpdateError, Table};
     use crate::accountant::test_utils::{
         assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment,
         convert_to_all_string_values, make_receivable_account, InsertUpdateCoreMock,
@@ -481,7 +484,7 @@ mod tests {
             wei_amount: u128::MAX,
         }];
 
-        let result = subject.try_multi_insert_payment(&InsertUpdateCoreReal, &payments.as_slice());
+        let result = subject.try_multi_insert_payment(&payments.as_slice());
 
         assert_eq!(
             result,
@@ -513,7 +516,7 @@ mod tests {
             wei_amount: 18446744073709551615,
         }];
 
-        let _ = subject.try_multi_insert_payment(&InsertUpdateCoreReal, payments.as_slice());
+        let _ = subject.try_multi_insert_payment(payments.as_slice());
     }
 
     #[test]
@@ -1432,6 +1435,7 @@ mod tests {
             .update_params(&insert_or_update_params_arc)
             .update_result(Err(InsertUpdateError("SomethingWrong".to_string())));
         let mut subject = ReceivableDaoReal::new(conn);
+        subject.insert_update_core = Box::new(insert_update_core);
         let payments = vec![
             BlockchainTransaction {
                 block_number: 42u64,
@@ -1445,7 +1449,7 @@ mod tests {
             },
         ];
 
-        let result = subject.try_multi_insert_payment(&insert_update_core, &payments);
+        let result = subject.try_multi_insert_payment(&payments);
 
         assert_eq!(
             result,
