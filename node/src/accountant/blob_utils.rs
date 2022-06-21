@@ -2,7 +2,7 @@
 
 use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::receivable_dao::ReceivableDaoError;
-use crate::accountant::{checked_conversion, polite_checked_conversion};
+use crate::accountant::{checked_conversion, politely_checked_conversion};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
@@ -11,11 +11,11 @@ use rusqlite::types::ToSqlOutput;
 use rusqlite::ErrorCode::ConstraintViolation;
 use rusqlite::{Error, Row, Statement, ToSql, Transaction};
 use std::any::Any;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use std::ops::Neg;
 
-pub trait InsertUpdateCore {
+pub trait InsertUpdateCore: Send + Debug {
     fn update<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &Transaction>,
@@ -44,6 +44,7 @@ pub trait ExtendedParamsMarker: ToSql + Display {
     }
 }
 
+#[derive(Debug)]
 pub struct InsertUpdateCoreReal;
 
 impl InsertUpdateCore for InsertUpdateCoreReal {
@@ -299,7 +300,7 @@ impl BalanceChange {
 
     pub fn polite_new_subtraction(abs_change: u128) -> Result<Self, String> {
         Ok(Self {
-            change: polite_checked_conversion::<u128, i128>(abs_change).map(|num| num.neg())?,
+            change: politely_checked_conversion::<u128, i128>(abs_change).map(|num| num.neg())?,
         })
     }
 }

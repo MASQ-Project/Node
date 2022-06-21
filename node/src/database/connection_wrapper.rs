@@ -3,6 +3,8 @@
 use rusqlite::{Connection, Error, Statement, Transaction};
 use std::fmt::Debug;
 
+use crate::arbitrary_id_stamp;
+use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
 #[cfg(test)]
 use std::any::Any;
 
@@ -14,6 +16,8 @@ pub trait ConnectionWrapper: Debug + Send {
     fn as_any(&self) -> &dyn Any {
         intentionally_blank!()
     }
+    #[cfg(test)]
+    arbitrary_id_stamp!();
 }
 
 #[derive(Debug)]

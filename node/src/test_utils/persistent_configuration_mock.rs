@@ -3,6 +3,7 @@
 #![cfg(test)]
 
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+use crate::set_arbitrary_id_stamp;
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
@@ -64,7 +65,7 @@ pub struct PersistentConfigurationMock {
     scan_intervals_results: RefCell<Vec<Result<ScanIntervals, PersistentConfigError>>>,
     set_scan_intervals_params: Arc<Mutex<Vec<String>>>,
     set_scan_intervals_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+    arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>,
 }
 
 impl PersistentConfiguration for PersistentConfigurationMock {
@@ -267,7 +268,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-        *self.arbitrary_id_stamp_opt.as_ref().unwrap()
+        self.arbitrary_id_stamp_opt.borrow().unwrap()
     }
 }
 
@@ -613,10 +614,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn set_arbitrary_id_stamp(mut self, stamp: ArbitraryIdStamp) -> Self {
-        self.arbitrary_id_stamp_opt = Some(stamp);
-        self
-    }
+    set_arbitrary_id_stamp!();
 
     fn result_from<T: Clone>(results: &RefCell<Vec<T>>) -> T {
         let mut borrowed = results.borrow_mut();

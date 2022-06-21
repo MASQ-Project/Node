@@ -8,7 +8,6 @@ pub mod tools;
 #[cfg(test)]
 pub mod test_utils;
 
-use crate::accountant::blob_utils::InsertUpdateCoreReal;
 use masq_lib::constants::SCAN_ERROR;
 
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
@@ -58,7 +57,7 @@ use std::any::type_name;
 use std::any::Any;
 use std::default::Default;
 use std::fmt::Display;
-use std::ops::{Add, Mul, Neg};
+use std::ops::{Add, Mul};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use thousands::Separable;
@@ -329,7 +328,7 @@ impl Handler<ReportTransactionReceipts> for Accountant {
             msg.fingerprints_with_receipts.len()
         );
         let statuses = self.handle_pending_transaction_with_its_receipt(&msg);
-        self.process_transaction_by_status(statuses, ctx);
+        self.process_transactions_by_their_status(statuses, ctx);
         if let Some(response_skeleton) = &msg.response_skeleton_opt {
             self.ui_message_sub
                 .as_ref()
@@ -632,7 +631,7 @@ impl Accountant {
         if !self.our_wallet(wallet) {
             match self.receivable_dao
                 .as_ref()
-                .more_money_receivable(&InsertUpdateCoreReal,wallet, total_charge) {  //TODO try if this blow some test up if you insert the mocked core
+                .more_money_receivable(wallet, total_charge) {
                 Ok(_) => (),
                 Err(ReceivableDaoError::SignConversion(_)) => error! (
                     self.logger,
@@ -664,7 +663,7 @@ impl Accountant {
         if !self.our_wallet(wallet) {
             match self.payable_dao
                 .as_ref()
-                .more_money_payable(&InsertUpdateCoreReal,wallet, total_charge) {   //TODO try if this blow some test up if you insert the mocked core
+                .more_money_payable(wallet,total_charge){   //TODO try if this blow some test up if you insert the mocked core
                 Ok(_) => (),
                 Err(PayableDaoError::SignConversion(_)) => error! (
                     self.logger,
@@ -980,7 +979,7 @@ impl Accountant {
     fn handle_confirm_pending_transaction(&mut self, msg: ConfirmPendingTransaction) {
         if let Err(e) = self
             .payable_dao
-            .transaction_confirmed(&InsertUpdateCoreReal, &msg.pending_payable_fingerprint)
+            .transaction_confirmed(&msg.pending_payable_fingerprint)
         //TODO try if this blow some test up if you insert the mocked core
         {
             panic!(
@@ -1151,7 +1150,7 @@ impl Accountant {
         }
     }
 
-    fn process_transaction_by_status(
+    fn process_transactions_by_their_status(
         &self,
         statuses: Vec<PendingTransactionStatus>,
         ctx: &mut Context<Self>,
@@ -1205,45 +1204,6 @@ impl Accountant {
             ),
         }
     }
-}
-
-pub fn sign_conversion<T: Copy, S: TryFrom<T>>(unsigned: T) -> Result<S, T> {
-    S::try_from(unsigned).map_err(|_| unsigned)
-}
-
-pub fn checked_conversion<T: Copy + Display, S: TryFrom<T>>(unsigned: T) -> S {
-    polite_checked_conversion(unsigned).unwrap_or_else(|msg| panic!("{}", msg))
-}
-
-pub fn polite_checked_conversion<T: Copy + Display, S: TryFrom<T>>(
-    unsigned: T,
-) -> Result<S, String> {
-    sign_conversion(unsigned).map_err(|num| {
-        format!(
-            "Overflow detected with {}: cannot be converted from {} to {}",
-            num,
-            type_name::<T>(),
-            type_name::<S>()
-        )
-    })
-}
-
-//TODO dead code?
-pub fn checked_conversion_negative<T: Copy + Display, S: TryFrom<T> + Neg + Neg<Output = S>>(
-    unsigned: T,
-) -> S {
-    -checked_conversion::<T, S>(unsigned)
-}
-
-pub fn gwei_to_wei<T: Mul + Mul<Output = T> + From<u64> + From<S>, S>(gwei: S) -> T {
-    (T::from(gwei)).mul(T::from(1_000_000_000))
-}
-
-fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
-    timestamp
-        .elapsed()
-        .expect("time calculation for elapsed failed")
-        .as_millis()
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -1323,27 +1283,13 @@ impl ThresholdUtils {
         time: u64,
     ) -> f64 {
         //TODO: how to write safe conversion from u64 to f64???
-        eprintln!(
-            "low point: {}",
-            payment_thresholds.maturity_threshold_sec + payment_thresholds.threshold_interval_sec
-        );
-        eprintln!("x: {}", time);
-
         let m = ThresholdUtils::slope(&payment_thresholds);
-        eprintln!("m: {}", m);
-
-        // let b = convert(payment_thresholds.debt_threshold_gwei + payment_thresholds.permanent_debt_allowed_gwei)
-        //     + m * convert(payment_thresholds.maturity_threshold_sec);
-        let y_interception = ThresholdUtils::compute_theoretical_interception_with_y_axis(
+        let b = ThresholdUtils::compute_theoretical_interception_with_y_axis(
             m,
             ThresholdUtils::convert(payment_thresholds.debt_threshold_gwei),
             ThresholdUtils::convert(payment_thresholds.maturity_threshold_sec),
         );
-        eprintln!("y_int: {}", y_interception);
-        let b = y_interception;
-        eprintln!("b: {}", b);
         let y = m * time as f64 + b; //TODO safe?
-        eprintln!("y signed: {}", y);
         let f_debt_threshold_gwei = payment_thresholds.debt_threshold_gwei as f64; //TODO safe?
         let f_permanent_debt_allowed_gwei = payment_thresholds.permanent_debt_allowed_gwei as f64; //TODO safe?
         if y >= f_debt_threshold_gwei {
@@ -1354,6 +1300,38 @@ impl ThresholdUtils {
         };
         y
     }
+}
+
+pub fn sign_conversion<T: Copy, S: TryFrom<T>>(unsigned: T) -> Result<S, T> {
+    S::try_from(unsigned).map_err(|_| unsigned)
+}
+
+pub fn checked_conversion<T: Copy + Display, S: TryFrom<T>>(unsigned: T) -> S {
+    politely_checked_conversion(unsigned).unwrap_or_else(|msg| panic!("{}", msg))
+}
+
+pub fn politely_checked_conversion<T: Copy + Display, S: TryFrom<T>>(
+    unsigned: T,
+) -> Result<S, String> {
+    sign_conversion(unsigned).map_err(|num| {
+        format!(
+            "Overflow detected with {}: cannot be converted from {} to {}",
+            num,
+            type_name::<T>(),
+            type_name::<S>()
+        )
+    })
+}
+
+pub fn gwei_to_wei<T: Mul + Mul<Output = T> + From<u64> + From<S>, S>(gwei: S) -> T {
+    (T::from(gwei)).mul(T::from(1_000_000_000))
+}
+
+fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
+    timestamp
+        .elapsed()
+        .expect("time calculation for elapsed failed")
+        .as_millis()
 }
 
 #[cfg(test)]
@@ -4945,7 +4923,7 @@ mod tests {
 
     #[test]
     fn checked_conversion_without_panic() {
-        let result = polite_checked_conversion::<u128, i128>(u128::MAX);
+        let result = politely_checked_conversion::<u128, i128>(u128::MAX);
 
         assert_eq!(result,Err("Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128".to_string()))
     }

@@ -57,17 +57,13 @@ pub struct ReceivableAccount {
 pub trait ReceivableDao: Send {
     fn more_money_receivable(
         &self,
-        core: &dyn InsertUpdateCore,
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), ReceivableDaoError>;
 
     fn more_money_received(&mut self, transactions: Vec<BlockchainTransaction>);
 
-    //TODO used just in tests to assert on other things
-    fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
-
-    //TODO never used
+    //TODO never used -- remove and substitute with top records
     fn receivables(&self) -> Vec<ReceivableAccount>;
 
     fn new_delinquencies(
@@ -82,6 +78,9 @@ pub trait ReceivableDao: Send {
     //fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount>;
 
     fn total(&self) -> i128;
+
+    #[cfg(test)]
+    fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 }
 
 pub trait ReceivableDaoFactory {
@@ -96,18 +95,17 @@ impl ReceivableDaoFactory for DaoFactoryReal {
 
 pub struct ReceivableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
+    insert_update_core: Box<dyn InsertUpdateCore>,
     logger: Logger,
 }
 
 impl ReceivableDao for ReceivableDaoReal {
-    //TODO: YES
     fn more_money_receivable(
         &self,
-        core: &dyn InsertUpdateCore,
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), ReceivableDaoError> {
-        Ok(core.upsert(&*self.conn,  InsertUpdateConfig{
+        Ok(self.insert_update_core.upsert(&*self.conn,  InsertUpdateConfig{
             insert_sql: "insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet,:balance,strftime('%s','now'))",
             update_sql: "update receivable set balance = :updated_balance where wallet_address = :wallet",
             params: SQLExtendedParams::new(
@@ -142,21 +140,7 @@ impl ReceivableDao for ReceivableDaoReal {
             })
     }
 
-    //TODO: NO
-    fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "select wallet_address, balance, last_received_timestamp from receivable where wallet_address = ?",
-            )
-            .expect("Internal error");
-        match stmt.query_row(&[&wallet], Self::row_to_account).optional() {
-            Ok(value) => value,
-            Err(e) => panic!("Database is corrupt: {:?}", e),
-        }
-    }
-
-    //TODO: NO
+    //TODO: probably replace with 'top records' with proper range
     fn receivables(&self) -> Vec<ReceivableAccount> {
         let mut stmt = self
             .conn
@@ -181,7 +165,6 @@ impl ReceivableDao for ReceivableDaoReal {
         .collect()
     }
 
-    //TODO: NO
     fn new_delinquencies(
         &self,
         system_now: SystemTime,
@@ -283,9 +266,22 @@ impl ReceivableDao for ReceivableDaoReal {
     //     .collect()
     // }
 
-    //TODO: YES _ but different operations
     fn total(&self) -> i128 {
         collect_and_sum_i128_values_from_table(self.conn.as_ref(), Table::Receivable, "balance")
+    }
+
+    #[cfg(test)]
+    fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "select wallet_address, balance, last_received_timestamp from receivable where wallet_address = ?",
+            )
+            .expect("Internal error");
+        match stmt.query_row(&[&wallet], Self::row_to_account).optional() {
+            Ok(value) => value,
+            Err(e) => panic!("Database is corrupt: {:?}", e),
+        }
     }
 }
 
@@ -293,6 +289,7 @@ impl ReceivableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ReceivableDaoReal {
         ReceivableDaoReal {
             conn,
+            insert_update_core: Box::new(InsertUpdateCoreReal),
             logger: Logger::new("ReceivableDaoReal"),
         }
     }
@@ -534,9 +531,7 @@ mod tests {
                     .unwrap(),
             );
 
-            subject
-                .more_money_receivable(&InsertUpdateCoreReal, &wallet, 1234)
-                .unwrap();
+            subject.more_money_receivable(&wallet, 1234).unwrap();
             subject.account_status(&wallet).unwrap()
         };
 
@@ -571,9 +566,7 @@ mod tests {
                     .initialize(&home_dir, true, MigratorConfig::test_default())
                     .unwrap(),
             );
-            subject
-                .more_money_receivable(&InsertUpdateCoreReal, &wallet, 1234)
-                .unwrap();
+            subject.more_money_receivable(&wallet, 1234).unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
             let conn =
@@ -588,9 +581,7 @@ mod tests {
         };
 
         let status = {
-            subject
-                .more_money_receivable(&InsertUpdateCoreReal, &wallet, 2345)
-                .unwrap();
+            subject.more_money_receivable(&wallet, 2345).unwrap();
             subject.account_status(&wallet).unwrap()
         };
 
@@ -614,8 +605,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let _ =
-            subject.more_money_receivable(&InsertUpdateCoreReal, &make_wallet("booga"), u128::MAX);
+        let _ = subject.more_money_receivable(&make_wallet("booga"), u128::MAX);
     }
 
     #[test]
@@ -633,12 +623,8 @@ mod tests {
                     .initialize(&home_dir, true, MigratorConfig::test_default())
                     .unwrap(),
             );
-            subject
-                .more_money_receivable(&InsertUpdateCoreReal, &debtor1, 1234)
-                .unwrap();
-            subject
-                .more_money_receivable(&InsertUpdateCoreReal, &debtor2, 2345)
-                .unwrap();
+            subject.more_money_receivable(&debtor1, 1234).unwrap();
+            subject.more_money_receivable(&debtor2, 2345).unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
             subject
@@ -795,12 +781,8 @@ mod tests {
                 .unwrap(),
         );
 
-        subject
-            .more_money_receivable(&InsertUpdateCoreReal, &wallet1, 1234)
-            .unwrap();
-        subject
-            .more_money_receivable(&InsertUpdateCoreReal, &wallet2, 2345)
-            .unwrap();
+        subject.more_money_receivable(&wallet1, 1234).unwrap();
+        subject.more_money_receivable(&wallet2, 2345).unwrap();
 
         let accounts = subject
             .receivables()
@@ -1395,53 +1377,6 @@ mod tests {
         assert_eq!(result, 0)
     }
 
-    // #[test]
-    // fn insert_or_update_receivable_works_for_insert_positive() {
-    //     let wallet_address = "xyz456";
-    //     let path = ensure_node_home_directory_exists(
-    //         "dao_shared_methods",
-    //         "insert_or_update_receivable_works_for_insert_positive",
-    //     );
-    //     let conn_box = DbInitializerReal::default()
-    //         .initialize(&path, true, MigratorConfig::test_default())
-    //         .unwrap();
-    //     let conn = conn_box.as_ref();
-    //     let amount_wei = i128::MAX;
-    //
-    //     let result = upsert_receivable(conn, &InsertUpdateCoreReal, wallet_address, amount_wei);
-    //
-    //     assert_eq!(result, Ok(()));
-    //     let (balance, last_timestamp) = read_row_receivable(conn, wallet_address).unwrap();
-    //     assert!(is_timely_around(last_timestamp));
-    //     assert_eq!(balance, amount_wei)
-    // }
-    //
-    // #[test]
-    // fn insert_or_update_receivable_works_for_update_positive() {
-    //     let wallet_address = "xyz789";
-    //     let path = ensure_node_home_directory_exists(
-    //         "dao_shared_methods",
-    //         "insert_or_update_receivable_works_for_update_positive",
-    //     );
-    //     let conn = DbInitializerReal::default()
-    //         .initialize(&path, true, MigratorConfig::test_default())
-    //         .unwrap();
-    //     insert_receivable_100_balance_100_last_time_stamp(conn.as_ref(), wallet_address);
-    //     let amount_wei = i128::MAX - 100;
-    //
-    //     let result = upsert_receivable(
-    //         conn.as_ref(),
-    //         &InsertUpdateCoreReal,
-    //         wallet_address,
-    //         amount_wei,
-    //     );
-    //
-    //     assert_eq!(result, Ok(()));
-    //     let (balance, last_timestamp) = read_row_receivable(conn.as_ref(), wallet_address).unwrap();
-    //     assert_eq!(last_timestamp, 100); //TODO this might be an old issue - do we really never want to update the timestamp? Can it ever disappear or the timestamp from the initial insertion persists forever?
-    //     assert_eq!(balance, amount_wei + 100)
-    // }
-
     #[test]
     fn upsert_in_more_money_receivable_params_assertion() {
         let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1450,9 +1385,12 @@ mod tests {
         let insert_update_core = InsertUpdateCoreMock::default()
             .upsert_params(&insert_or_update_params_arc)
             .upsert_results(Err(InsertUpdateError("SomethingWrong".to_string())));
-        let subject = ReceivableDaoReal::new(Box::new(ConnectionWrapperMock::new()));
+        let conn = ConnectionWrapperMock::new();
+        let conn_id_stamp = conn.set_arbitrary_id_stamp();
+        let mut subject = ReceivableDaoReal::new(Box::new(conn));
+        subject.insert_update_core = Box::new(insert_update_core);
 
-        let result = subject.more_money_receivable(&insert_update_core, &wallet, amount);
+        let result = subject.more_money_receivable(&wallet, amount);
 
         assert_eq!(
             result,
@@ -1461,7 +1399,9 @@ mod tests {
             ))
         );
         let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
-        let (update_sql, insert_sql, table, sql_param_names) = insert_or_update_params.remove(0);
+        let (captured_conn_id_stamp, update_sql, insert_sql, table, sql_param_names) =
+            insert_or_update_params.remove(0);
+        assert_eq!(captured_conn_id_stamp, conn_id_stamp);
         assert!(insert_or_update_params.is_empty());
         assert_eq!(
             update_sql,
@@ -1514,8 +1454,9 @@ mod tests {
             ))
         );
         let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
-        let (select_sql, update_sql, table, sql_param_names) =
+        let (captured_conn_id_stamp_opt, select_sql, update_sql, table, sql_param_names) =
             insert_or_update_params.pop().unwrap();
+        assert_eq!(captured_conn_id_stamp_opt, None); //implication: operation over sqlite transaction
         assert_eq!(
             select_sql,
             "select balance from receivable where wallet_address = :wallet"
@@ -1535,68 +1476,6 @@ mod tests {
         );
         assert_eq!(insert_or_update_params.pop(), None)
     }
-
-    // #[test]
-    // fn update_receivable_works_positive() {
-    //     let wallet_address = "xyz123";
-    //     let path = ensure_node_home_directory_exists(
-    //         "dao_shared_methods",
-    //         "update_receivable_works_positive",
-    //     );
-    //     let mut conn = DbInitializerReal::default()
-    //         .initialize(&path, true, MigratorConfig::test_default())
-    //         .unwrap();
-    //     insert_receivable_100_balance_100_last_time_stamp(conn.as_ref(), wallet_address);
-    //     let tx = conn.transaction().unwrap();
-    //     let amount_wei = i128::MAX - 100;
-    //     let last_received_time_stamp_sec = 4_545_789;
-    //
-    //     let result = update_receivable(
-    //         &tx,
-    //         &InsertUpdateCoreReal,
-    //         wallet_address,
-    //         amount_wei,
-    //         last_received_time_stamp_sec,
-    //     );
-    //
-    //     tx.commit().unwrap();
-    //     assert_eq!(result, Ok(()));
-    //     let (balance, last_time_stamp) =
-    //         read_row_receivable(conn.as_ref(), wallet_address).unwrap();
-    //     assert_eq!(balance, amount_wei + 100);
-    //     assert_eq!(last_time_stamp, last_received_time_stamp_sec);
-    // }
-    //
-    // #[test]
-    // fn update_receivable_works_negative() {
-    //     let wallet_address = "xyz178";
-    //     let path = ensure_node_home_directory_exists(
-    //         "dao_shared_methods",
-    //         "update_receivable_works_negative",
-    //     );
-    //     let mut conn = DbInitializerReal::default()
-    //         .initialize(&path, true, MigratorConfig::test_default())
-    //         .unwrap();
-    //     insert_receivable_100_balance_100_last_time_stamp(conn.as_ref(), wallet_address);
-    //     let tx = conn.transaction().unwrap();
-    //     let amount_wei = -345_125;
-    //     let last_received_time_stamp_sec = 4_545_789;
-    //
-    //     let result = update_receivable(
-    //         &tx,
-    //         &InsertUpdateCoreReal,
-    //         wallet_address,
-    //         amount_wei,
-    //         last_received_time_stamp_sec,
-    //     );
-    //
-    //     tx.commit().unwrap();
-    //     assert_eq!(result, Ok(()));
-    //     let (balance, last_time_stamp) =
-    //         read_row_receivable(conn.as_ref(), wallet_address).unwrap();
-    //     assert_eq!(balance, -345_025);
-    //     assert_eq!(last_time_stamp, last_received_time_stamp_sec);
-    // }
 
     fn add_receivable_account(conn: &Box<dyn ConnectionWrapper>, account: &ReceivableAccount) {
         let mut stmt = conn.prepare ("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").unwrap();

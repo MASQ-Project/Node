@@ -3,8 +3,7 @@
 #![cfg(test)]
 
 use crate::accountant::blob_utils::{
-    get_unsized_128, FetchValue, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError, Table,
-    UpdateConfiguration,
+    FetchValue, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError, Table, UpdateConfiguration,
 };
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
@@ -21,21 +20,21 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::dao_utils;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds, GWEI_TO_WEI};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
-use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
+use crate::test_utils::unshared_test_utils::{
+    make_populated_accountant_config_with_defaults, ArbitraryIdStamp,
+};
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
 use itertools::Either;
-use rusqlite::{Connection, Error, OptionalExtension, Transaction as RusqliteTransaction};
+use rusqlite::Transaction as RusqliteTransaction;
 use std::cell::RefCell;
 use std::fmt::Display;
-use std::ptr::addr_of;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -285,12 +284,7 @@ pub struct PayableDaoMock {
 }
 
 impl PayableDao for PayableDaoMock {
-    fn more_money_payable(
-        &self,
-        core: &dyn InsertUpdateCore,
-        wallet: &Wallet,
-        amount: u128,
-    ) -> Result<(), PayableDaoError> {
+    fn more_money_payable(&self, wallet: &Wallet, amount: u128) -> Result<(), PayableDaoError> {
         self.more_money_payable_parameters
             .lock()
             .unwrap()
@@ -314,7 +308,6 @@ impl PayableDao for PayableDaoMock {
 
     fn transaction_confirmed(
         &self,
-        core: &dyn InsertUpdateCore,
         payment: &PendingPayableFingerprint,
     ) -> Result<(), PayableDaoError> {
         self.transaction_confirmed_params
@@ -345,6 +338,11 @@ impl PayableDao for PayableDaoMock {
 
     fn total(&self) -> u128 {
         self.total_results.borrow_mut().remove(0)
+    }
+
+    fn account_status(&self, _wallet: &Wallet) -> Option<PayableAccount> {
+        //test-only trait member
+        intentionally_blank!()
     }
 }
 
@@ -435,8 +433,6 @@ impl PayableDaoMock {
 
 #[derive(Debug, Default)]
 pub struct ReceivableDaoMock {
-    account_status_parameters: Arc<Mutex<Vec<Wallet>>>,
-    account_status_results: RefCell<Vec<Option<ReceivableAccount>>>,
     more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u128)>>>,
     more_money_receivable_results: RefCell<Vec<Result<(), ReceivableDaoError>>>,
     more_money_received_parameters: Arc<Mutex<Vec<Vec<BlockchainTransaction>>>>,
@@ -455,7 +451,6 @@ pub struct ReceivableDaoMock {
 impl ReceivableDao for ReceivableDaoMock {
     fn more_money_receivable(
         &self,
-        core: &dyn InsertUpdateCore,
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), ReceivableDaoError> {
@@ -471,15 +466,6 @@ impl ReceivableDao for ReceivableDaoMock {
             .lock()
             .unwrap()
             .push(transactions);
-    }
-
-    fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
-        self.account_status_parameters
-            .lock()
-            .unwrap()
-            .push(wallet.clone());
-
-        self.account_status_results.borrow_mut().remove(0)
     }
 
     fn receivables(&self) -> Vec<ReceivableAccount> {
@@ -512,6 +498,10 @@ impl ReceivableDao for ReceivableDaoMock {
         self.paid_delinquencies_results.borrow_mut().remove(0)
     }
 
+    fn total(&self) -> i128 {
+        self.total_results.borrow_mut().remove(0)
+    }
+
     // fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
     //     self.top_records_parameters
     //         .lock()
@@ -520,8 +510,9 @@ impl ReceivableDao for ReceivableDaoMock {
     //     self.top_records_results.borrow_mut().remove(0)
     // }
 
-    fn total(&self) -> i128 {
-        self.total_results.borrow_mut().remove(0)
+    fn account_status(&self, _wallet: &Wallet) -> Option<ReceivableAccount> {
+        //test-only trait member
+        intentionally_blank!()
     }
 }
 
@@ -839,49 +830,32 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
     }
 }
 
-//warning: this test function will not tell you anything about the transaction record in the pending_payable table
-pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccount> {
-    let mut stmt = conn
-        .prepare("select balance, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?")
-        .unwrap();
-    stmt.query_row(&[&wallet], |row| {
-        let balance_result = get_unsized_128(row, 0);
-        let last_paid_timestamp_result = row.get(1);
-        let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(2);
-        match (
-            balance_result,
-            last_paid_timestamp_result,
-            pending_payable_rowid_result,
-        ) {
-            (Ok(balance), Ok(last_paid_timestamp), Ok(rowid)) => Ok(PayableAccount {
-                wallet: wallet.clone(),
-                balance,
-                last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                pending_payable_opt: match rowid {
-                    Some(rowid) => Some(PendingPayableId {
-                        rowid: u64::try_from(rowid).unwrap(),
-                        hash: H256::from_uint(&U256::from(0)), //garbage
-                    }),
-                    None => None,
-                },
-            }),
-            e => panic!(
-                "Database is corrupt: PAYABLE table columns and/or types: {:?}",
-                e
-            ),
-        }
-    })
-    .optional()
-    .unwrap()
-}
-
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct InsertUpdateCoreMock {
-    update_params: Arc<Mutex<Vec<(String, String, String, Vec<(String, String)>)>>>, //trait-object-like params tested specially
+    update_params: Arc<
+        Mutex<
+            Vec<(
+                Option<ArbitraryIdStamp>,
+                String,
+                String,
+                String,
+                Vec<(String, String)>,
+            )>,
+        >,
+    >, //trait-object-like params tested specially
     update_results: RefCell<Vec<Result<(), InsertUpdateError>>>,
-    upsert_params: Arc<Mutex<Vec<(String, String, Table, Vec<(String, String)>)>>>,
+    upsert_params: Arc<
+        Mutex<
+            Vec<(
+                ArbitraryIdStamp,
+                String,
+                String,
+                Table,
+                Vec<(String, String)>,
+            )>,
+        >,
+    >,
     upsert_results: RefCell<Vec<Result<(), InsertUpdateError>>>,
-    connection_wrapper_as_pointer_to_compare: Option<*const dyn ConnectionWrapper>,
 }
 
 impl InsertUpdateCore for InsertUpdateCoreMock {
@@ -901,14 +875,16 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
             .extended_params()
             .fetch_key_specification();
         self.update_params.lock().unwrap().push((
+            if let Either::Left(conn) = conn {
+                Some(conn.arbitrary_id_stamp())
+            } else {
+                None
+            },
             config.select_sql(&in_table_key, &sql_key),
             config.update_sql().to_string(),
             config.table(),
             owned_params,
         ));
-        if let Some(conn_wrapp_pointer) = self.connection_wrapper_as_pointer_to_compare {
-            assert_eq!(conn_wrapp_pointer, addr_of!(*conn.left().unwrap()))
-        }
         self.update_results.borrow_mut().remove(0)
     }
 
@@ -924,14 +900,12 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
             .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
             .collect();
         self.upsert_params.lock().unwrap().push((
+            conn.arbitrary_id_stamp(),
             config.update_sql.to_string(),
             config.insert_sql.to_string(),
             config.table,
             owned_params,
         ));
-        if let Some(conn_wrapp_pointer) = self.connection_wrapper_as_pointer_to_compare {
-            assert_eq!(conn_wrapp_pointer, addr_of!(*conn))
-        }
         self.upsert_results.borrow_mut().remove(0)
     }
 }
@@ -939,7 +913,17 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
 impl InsertUpdateCoreMock {
     pub fn update_params(
         mut self,
-        params: &Arc<Mutex<Vec<(String, String, String, Vec<(String, String)>)>>>,
+        params: &Arc<
+            Mutex<
+                Vec<(
+                    Option<ArbitraryIdStamp>,
+                    String,
+                    String,
+                    String,
+                    Vec<(String, String)>,
+                )>,
+            >,
+        >,
     ) -> Self {
         self.update_params = params.clone();
         self
@@ -952,7 +936,17 @@ impl InsertUpdateCoreMock {
 
     pub fn upsert_params(
         mut self,
-        params: &Arc<Mutex<Vec<(String, String, Table, Vec<(String, String)>)>>>,
+        params: &Arc<
+            Mutex<
+                Vec<(
+                    ArbitraryIdStamp,
+                    String,
+                    String,
+                    Table,
+                    Vec<(String, String)>,
+                )>,
+            >,
+        >,
     ) -> Self {
         self.upsert_params = params.clone();
         self

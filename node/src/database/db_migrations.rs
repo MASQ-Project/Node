@@ -540,7 +540,6 @@ impl DatabaseMigration for Migrate_6_to_7 {
         Migrate_6_to_7::retype_table(
             declaration_utils.as_ref(),
             "pending_payable",
-            //TODO careful with the removed line
             "transaction_hash text not null,
                               amount blob not null,
                               payable_timestamp integer not null,
@@ -566,8 +565,8 @@ impl Migrate_6_to_7 {
         statements_so_far: &mut Vec<Box<dyn StatementObject>>,
     ) {
         statements_so_far.push(Box::new(format!(
-            "alter table {0} rename to _{0}_old",
-            table
+            "alter table {table} rename to _{table}_old",
+            table = table
         )));
         //it's null because we cannot initiate the values yet
         statements_so_far.push(Box::new(format!(
@@ -594,7 +593,7 @@ impl Migrate_6_to_7 {
             param_names_delimited_by_comma,
             statements_so_far,
         );
-        statements_so_far.push(Box::new(format!("drop table _{0}_old", table)));
+        statements_so_far.push(Box::new(format!("drop table _{}_old", table)));
     }
 
     fn compose_insert_statement(
@@ -661,17 +660,12 @@ impl Migrate_6_to_7 {
                     .collect::<String>()
             ),
             params: RefCell::new(Some(params_from_iter(
-                Self::convert_critical_values_to_i128(all_critical_values_found),
+                all_critical_values_found
+                    .into_iter()
+                    .map(|i64_value| i64_value as i128),
             ))),
         };
         statements_so_far.push(Box::new(statement_with_params));
-    }
-
-    fn convert_critical_values_to_i128(critical_values: Vec<i64>) -> Vec<i128> {
-        critical_values
-            .into_iter()
-            .map(|i64_value| i64_value as i128)
-            .collect()
     }
 }
 

@@ -501,6 +501,8 @@ pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::{DbInitializer, InitializationError};
     use crate::database::db_migrations::MigratorConfig;
+    use crate::set_arbitrary_id_stamp;
+    use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
@@ -512,6 +514,7 @@ pub mod test_utils {
         prepare_params: Arc<Mutex<Vec<String>>>,
         prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
         transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
+        arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>,
     }
 
     unsafe impl<'a: 'b, 'b> Send for ConnectionWrapperMock<'a, 'b> {}
@@ -530,6 +533,8 @@ pub mod test_utils {
             self.transaction_results.borrow_mut().push(result);
             self
         }
+
+        set_arbitrary_id_stamp!();
     }
 
     impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
@@ -543,6 +548,10 @@ pub mod test_utils {
 
         fn transaction<'_a: '_b, '_b>(&'_a mut self) -> Result<Transaction<'_b>, Error> {
             self.transaction_results.borrow_mut().remove(0)
+        }
+
+        fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+            self.arbitrary_id_stamp_opt.borrow().unwrap()
         }
     }
 

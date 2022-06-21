@@ -870,8 +870,21 @@ pub mod unshared_test_utils {
         () => {
             #[cfg(test)]
             fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                //no necessity to implemented it for all impls of the trait this becomes a member of
+                //no necessity to implemented it for all impls of the trait this is to be a member of
                 intentionally_blank!()
+            }
+        };
+    }
+
+    //this method can be handy but your object must contain this field:
+    //arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>
+    #[macro_export]
+    macro_rules! set_arbitrary_id_stamp {
+        () => {
+            pub fn set_arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                let id_stamp = ArbitraryIdStamp::new();
+                self.arbitrary_id_stamp_opt.borrow_mut().replace(id_stamp);
+                id_stamp
             }
         };
     }

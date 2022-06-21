@@ -14,6 +14,7 @@ use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::find_free_port;
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
+use node_lib::accountant::test_utils::InsertUpdateCoreMock;
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::database::db_migrations::MigratorConfig;
 use node_lib::test_utils::make_wallet;
@@ -33,10 +34,10 @@ fn ui_requests_something_and_gets_corresponding_response() {
             .unwrap()
     };
     PayableDaoReal::new(make_conn())
-        .more_money_payable(&make_wallet("abc"), 45678)
+        .more_money_payable(&InsertUpdateCoreReal {}, e & make_wallet("abc"), 45678)
         .unwrap();
     ReceivableDaoReal::new(make_conn())
-        .more_money_receivable(&make_wallet("xyz"), 65432)
+        .more_money_receivable(&InsertUpdateCoreReal {}, &make_wallet("xyz"), 65432)
         .unwrap();
     let mut node = utils::MASQNode::start_standard(
         "ui_requests_something_and_gets_corresponding_response",
