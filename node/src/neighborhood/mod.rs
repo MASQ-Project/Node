@@ -1973,14 +1973,8 @@ mod tests {
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received",
         );
-        let (ui_gateway_recorder, awaiter, node_to_ui_recording_arc) = make_recorder();
-        let mut expected_count_by_messages: HashMap<TypeId, usize> = HashMap::new();
-        // expected_count_by_messages.insert(TypeId::of::<ConnectionProgressMessage>(), 1);
-        expected_count_by_messages.insert(TypeId::of::<NodeToUiMessage>(), 1);
-        let ui_gateway_recorder =
-            ui_gateway_recorder.stop_after_messages(expected_count_by_messages);
-        let addr = ui_gateway_recorder.start();
-        let node_to_ui_recipient = addr.recipient();
+        let (node_to_ui_recipient, node_to_ui_recording_arc) =
+            make_recipient_and_recording_arc(Some(TypeId::of::<NodeToUiMessage>()));
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
