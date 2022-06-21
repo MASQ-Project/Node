@@ -280,7 +280,6 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                                 .expect("UI Gateway is unbound"),
                         );
                 }
-                // _ => todo!("don't do anything!"),
                 _ => (),
             }
         }
