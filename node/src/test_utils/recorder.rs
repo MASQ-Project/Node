@@ -236,7 +236,7 @@ impl Recorder {
         self
     }
 
-    pub fn stop_condition(mut self, message_type_id: TypeId) -> Recorder {
+    pub fn stop_condition(self, message_type_id: TypeId) -> Recorder {
         let mut expected_count_by_messages: HashMap<TypeId, usize> = HashMap::new();
         expected_count_by_messages.insert(message_type_id, 1);
         self.stop_after_messages(expected_count_by_messages)

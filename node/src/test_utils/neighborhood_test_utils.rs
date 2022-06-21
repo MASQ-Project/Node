@@ -293,6 +293,13 @@ pub fn make_node_descriptor(ip_addr: IpAddr) -> NodeDescriptor {
     }
 }
 
+pub fn make_node(nonce: u8) -> (IpAddr, NodeDescriptor) {
+    let ip_addr = make_ip(nonce);
+    let node_descriptor = make_node_descriptor(ip_addr);
+
+    (ip_addr, node_descriptor)
+}
+
 pub fn make_node_and_recipient() -> (IpAddr, NodeDescriptor, Recipient<NodeToUiMessage>) {
     let ip_addr = make_ip(u8::MAX);
     let node_descriptor = make_node_descriptor(ip_addr);

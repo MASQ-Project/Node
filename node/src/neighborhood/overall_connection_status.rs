@@ -184,14 +184,9 @@ impl OverallConnectionStatus {
     }
 
     pub fn update_connection_stage(
-        // &mut self,
         connection_progress: &mut ConnectionProgress,
         event: ConnectionProgressEvent,
-        // node_to_ui_recipient: &Recipient<NodeToUiMessage>,
     ) {
-        eprintln!("Updated the Connection Stage with event: {:?}", event);
-        // TODO: Do Something with the error - "Cannot update stage for the peer addr: {}"
-
         let mut modify_connection_progress =
             |stage: ConnectionStage| connection_progress.update_stage(stage);
 
@@ -204,11 +199,9 @@ impl OverallConnectionStatus {
             }
             ConnectionProgressEvent::IntroductionGossipReceived(_new_node) => {
                 modify_connection_progress(ConnectionStage::NeighborshipEstablished);
-                // self.update_stage_of_overall_connection_status(node_to_ui_recipient);
             }
             ConnectionProgressEvent::StandardGossipReceived => {
                 modify_connection_progress(ConnectionStage::NeighborshipEstablished);
-                // self.update_stage_of_overall_connection_status(node_to_ui_recipient);
             }
             ConnectionProgressEvent::PassGossipReceived(new_pass_target) => {
                 connection_progress.handle_pass_gossip(new_pass_target);
@@ -236,7 +229,6 @@ impl OverallConnectionStatus {
         } else {
             self.stage = OverallConnectionStage::ConnectedToNeighbor;
         }
-        eprintln!("Updated the Overall Connection Stage: {:?}", self.stage);
         if self.stage as usize > prev_stage as usize {
             OverallConnectionStatus::send_message_to_ui(self.stage.into(), node_to_ui_recipient);
         }
@@ -254,7 +246,6 @@ impl OverallConnectionStatus {
         node_to_ui_recipient
             .try_send(message)
             .expect("UI Gateway is unbound.");
-        eprintln!("message sent");
     }
 
     pub fn is_empty(&self) -> bool {
@@ -287,7 +278,8 @@ mod tests {
     };
     use crate::neighborhood::PublicKey;
     use crate::test_utils::neighborhood_test_utils::{
-        make_ip, make_node_and_recipient, make_node_descriptor, make_node_to_ui_recipient,
+        make_ip, make_node, make_node_and_recipient, make_node_descriptor,
+        make_node_to_ui_recipient,
     };
     use actix::System;
     use masq_lib::blockchains::chains::Chain;
@@ -487,7 +479,7 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_tcp_connection_established() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
 
         OverallConnectionStatus::update_connection_stage(
@@ -511,7 +503,7 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_failed_when_tcp_connection_fails() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         let connection_progress_to_modify =
             subject.get_connection_progress_by_ip(node_ip_addr).unwrap();
@@ -538,7 +530,7 @@ mod tests {
     #[test]
     fn updates_the_connection_stage_to_neighborship_established_when_introduction_gossip_is_received(
     ) {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         let connection_progress = subject.get_connection_progress_by_ip(node_ip_addr).unwrap();
         OverallConnectionStatus::update_connection_stage(
@@ -563,7 +555,7 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_neighborship_established_when_standard_gossip_is_received() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         let connection_progress = subject.get_connection_progress_by_ip(node_ip_addr).unwrap();
         OverallConnectionStatus::update_connection_stage(
@@ -588,7 +580,7 @@ mod tests {
 
     #[test]
     fn updates_the_connection_stage_to_stage_zero_when_pass_gossip_is_received() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         let pass_target = make_ip(1);
         let connection_progress_to_modify =
@@ -619,7 +611,7 @@ mod tests {
 
     #[test]
     fn updates_connection_stage_to_failed_when_pass_loop_is_found() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         let connection_progress_to_modify =
             subject.get_connection_progress_by_ip(node_ip_addr).unwrap();
@@ -649,7 +641,7 @@ mod tests {
 
     #[test]
     fn updates_connection_stage_to_failed_when_no_gossip_response_is_received() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         let connection_progress_to_modify =
             subject.get_connection_progress_by_ip(node_ip_addr).unwrap();
@@ -697,7 +689,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Can't update the stage from StageZero to NeighborshipEstablished")]
     fn can_t_establish_neighborhsip_without_having_a_tcp_connection() {
-        let (node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
         let connection_progress_to_modify =
             subject.get_connection_progress_by_ip(node_ip_addr).unwrap();
@@ -860,8 +852,8 @@ mod tests {
         can_make_routes: bool,
         test_name: &str,
     ) -> (OverallConnectionStage, Option<NodeToUiMessage>) {
-        let (peer_addr, node_descriptor, _) = make_node_and_recipient();
-        let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
+        let mut subject =
+            OverallConnectionStatus::new(vec![make_node_descriptor(make_ip(u8::MAX))]);
         let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
         subject.stage = initial_stage;
         let system = System::new(test_name);

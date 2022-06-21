@@ -34,7 +34,7 @@ use crate::db_config::persistent_configuration::{
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
-use crate::neighborhood::overall_connection_status::{ConnectionProgress, OverallConnectionStatus};
+use crate::neighborhood::overall_connection_status::OverallConnectionStatus;
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PublicKey;
@@ -259,7 +259,6 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ConnectionProgressMessage, ctx: &mut Self::Context) -> Self::Result {
-        eprintln!("Handling the Connection Progress Message");
         if let Ok(connection_progress) = self
             .overall_connection_status
             .get_connection_progress_by_ip(msg.peer_addr)
@@ -268,15 +267,12 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                 connection_progress,
                 msg.event.clone(),
             );
-
-            eprintln!("Entering match statement");
             match msg.event {
                 ConnectionProgressEvent::TcpConnectionSuccessful => {
                     self.send_ask_about_debut_gossip_message(ctx, msg.peer_addr);
                 }
                 ConnectionProgressEvent::IntroductionGossipReceived(_)
                 | ConnectionProgressEvent::StandardGossipReceived => {
-                    eprintln!("Yes, I was called");
                     self.overall_connection_status
                         .update_ocs_stage_and_send_message_to_ui(
                             self.node_to_ui_recipient_opt
@@ -1351,7 +1347,6 @@ pub fn regenerate_signed_gossip(
 mod tests {
     use std::any::TypeId;
     use std::cell::RefCell;
-    use std::collections::HashMap;
     use std::convert::TryInto;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
@@ -1363,7 +1358,7 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use itertools::Itertools;
-    use openssl::init;
+
     use serde_cbor;
     use std::time::Duration;
     use tokio::prelude::Future;
@@ -1408,7 +1403,6 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::unshared_test_utils::{
         prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, NotifyLaterHandleMock,
-        SystemKillerActor,
     };
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
@@ -1665,7 +1659,7 @@ mod tests {
         let known_peer = make_ip(1);
         let unknown_peer = make_ip(2);
         let node_descriptor = make_node_descriptor(known_peer);
-        let mut subject = make_subject_from_node_descriptor(
+        let subject = make_subject_from_node_descriptor(
             &node_descriptor,
             "neighborhood_doesn_t_do_anything_if_it_receives_a_cpm_with_an_unknown_peer_addr",
         );
@@ -5097,8 +5091,8 @@ mod tests {
 
         let mut neighborhood = Neighborhood::new(main_cryptde(), &bootstrap_config);
 
-        // let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
-        // neighborhood.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
+        let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
+        neighborhood.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         neighborhood
     }
 
