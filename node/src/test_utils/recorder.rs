@@ -54,6 +54,7 @@ use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::Any;
 use std::any::TypeId;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -64,7 +65,7 @@ pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
-    stop_condition_opt: Option<TypeId>,
+    expected_count_by_msg_type_opt: Option<HashMap<TypeId, usize>>,
 }
 
 #[derive(Default)]
@@ -87,9 +88,18 @@ macro_rules! recorder_message_handler {
 
             fn handle(&mut self, msg: $message_type, _ctx: &mut Self::Context) {
                 self.record(msg);
-                if let Some(expected_type_id) = self.stop_condition_opt {
-                    if expected_type_id == TypeId::of::<$message_type>() {
-                        System::current().stop()
+                if let Some(expected_count_by_msg_type) = &mut self.expected_count_by_msg_type_opt {
+                    let type_id = TypeId::of::<$message_type>();
+                    let count = expected_count_by_msg_type.entry(type_id).or_insert(0);
+                    if *count == 0 {
+                        panic!(
+                            "Received a message, which we were not supposed to receive. {:?}",
+                            stringify!($message_type)
+                        );
+                    };
+                    *count -= 1;
+                    if !expected_count_by_msg_type.values().any(|&x| x > 0) {
+                        System::current().stop();
                     }
                 }
             }
@@ -227,7 +237,15 @@ impl Recorder {
     }
 
     pub fn stop_condition(mut self, message_type_id: TypeId) -> Recorder {
-        self.stop_condition_opt = Some(message_type_id);
+        // self.stop_condition_opt = Some(message_type_id);
+        self
+    }
+
+    pub fn stop_after_messages(
+        mut self,
+        expected_count_by_messages: HashMap<TypeId, usize>,
+    ) -> Recorder {
+        self.expected_count_by_msg_type_opt = Some(expected_count_by_messages);
         self
     }
 }

@@ -1351,6 +1351,7 @@ pub fn regenerate_signed_gossip(
 mod tests {
     use std::any::TypeId;
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::convert::TryInto;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
@@ -1697,7 +1698,8 @@ mod tests {
             "neighborhood_handles_connection_progress_message_with_tcp_connection_established",
         );
         let notify_later_ask_about_gossip_params_arc = Arc::new(Mutex::new(vec![]));
-        let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
+        let (node_to_ui_recipient, node_to_ui_recording_arc) =
+            make_recipient_and_recording_arc(Some(TypeId::of::<ConnectionProgressMessage>()));
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.tools.notify_later_ask_about_gossip = Box::new(
             NotifyLaterHandleMock::default()
@@ -1727,7 +1729,6 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        System::current().stop();
         assert_eq!(system.run(), 0);
         let notify_later_ask_about_gossip_params =
             notify_later_ask_about_gossip_params_arc.lock().unwrap();
@@ -1754,7 +1755,8 @@ mod tests {
             &node_descriptor,
             "ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received",
         );
-        let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
+        let (node_to_ui_recipient, node_to_ui_recording_arc) =
+            make_recipient_and_recording_arc(Some(TypeId::of::<NodeToUiMessage>()));
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
@@ -1956,10 +1958,9 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        System::current().stop();
+        assert_eq!(system.run(), 0);
         let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
         let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
-        assert_eq!(system.run(), 0);
         assert_eq!(node_to_ui_message_opt, None);
     }
 
@@ -1972,8 +1973,14 @@ mod tests {
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received",
         );
-        let (node_to_ui_recipient, node_to_ui_recording_arc) =
-            make_recipient_and_recording_arc(Some(TypeId::of::<NodeToUiMessage>()));
+        let (ui_gateway_recorder, awaiter, node_to_ui_recording_arc) = make_recorder();
+        let mut expected_count_by_messages: HashMap<TypeId, usize> = HashMap::new();
+        // expected_count_by_messages.insert(TypeId::of::<ConnectionProgressMessage>(), 1);
+        expected_count_by_messages.insert(TypeId::of::<NodeToUiMessage>(), 1);
+        let ui_gateway_recorder =
+            ui_gateway_recorder.stop_after_messages(expected_count_by_messages);
+        let addr = ui_gateway_recorder.start();
+        let node_to_ui_recipient = addr.recipient();
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
