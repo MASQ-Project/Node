@@ -45,6 +45,7 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::test_utils::to_millis;
+use crate::test_utils::unshared_test_utils::SystemKillerActor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -239,13 +240,15 @@ impl Recorder {
     pub fn stop_condition(self, message_type_id: TypeId) -> Recorder {
         let mut expected_count_by_messages: HashMap<TypeId, usize> = HashMap::new();
         expected_count_by_messages.insert(message_type_id, 1);
-        self.stop_after_messages(expected_count_by_messages)
+        self.stop_after_messages_and_start_system_killer(expected_count_by_messages)
     }
 
-    pub fn stop_after_messages(
+    pub fn stop_after_messages_and_start_system_killer(
         mut self,
         expected_count_by_messages: HashMap<TypeId, usize>,
     ) -> Recorder {
+        let system_killer = SystemKillerActor::new(Duration::from_secs(60));
+        system_killer.start();
         self.expected_count_by_msg_type_opt = Some(expected_count_by_messages);
         self
     }

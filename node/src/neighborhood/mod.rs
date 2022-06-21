@@ -1391,7 +1391,7 @@ mod tests {
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{
-        db_from_node, make_global_cryptde_node_record, make_ip, make_node_descriptor,
+        db_from_node, make_global_cryptde_node_record, make_ip, make_node, make_node_descriptor,
         make_node_record, make_node_record_f, make_node_to_ui_recipient,
         make_recipient_and_recording_arc, neighborhood_from_nodes,
     };
@@ -1685,16 +1685,12 @@ mod tests {
     #[test]
     pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_established() {
         init_test_logging();
-        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor(node_ip_addr);
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
             "neighborhood_handles_connection_progress_message_with_tcp_connection_established",
         );
         let notify_later_ask_about_gossip_params_arc = Arc::new(Mutex::new(vec![]));
-        let (node_to_ui_recipient, node_to_ui_recording_arc) =
-            make_recipient_and_recording_arc(Some(TypeId::of::<NodeToUiMessage>()));
-        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.tools.notify_later_ask_about_gossip = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_ask_about_gossip_params_arc),
@@ -1723,11 +1719,10 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
+        System::current().stop();
         assert_eq!(system.run(), 0);
         let notify_later_ask_about_gossip_params =
             notify_later_ask_about_gossip_params_arc.lock().unwrap();
-        let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
-        let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(
             *notify_later_ask_about_gossip_params,
             vec![(
@@ -1737,14 +1732,12 @@ mod tests {
                 Duration::from_millis(10)
             )]
         );
-        assert_eq!(node_to_ui_message_opt, None);
     }
 
     #[test]
     fn ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received() {
         init_test_logging();
-        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor(node_ip_addr);
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
             "ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received",
@@ -1795,10 +1788,8 @@ mod tests {
     #[test]
     pub fn it_doesn_t_cause_a_panic_if_neighborhood_receives_ask_about_debut_message_from_unknown_descriptor(
     ) {
-        let known_ip = make_ip(1);
-        let known_desc = make_node_descriptor(known_ip);
-        let unknown_ip = make_ip(2);
-        let unknown_desc = make_node_descriptor(unknown_ip);
+        let (_known_ip, known_desc) = make_node(1);
+        let (unknown_ip, unknown_desc) = make_node(2);
         let subject = make_subject_from_node_descriptor(&known_desc, "it_doesn_t_cause_a_panic_if_neighborhood_receives_ask_about_debut_message_from_unknown_descriptor");
         let initial_ocs = subject.overall_connection_status.clone();
         let addr = subject.start();
@@ -1825,8 +1816,7 @@ mod tests {
     #[test]
     pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_failed() {
         init_test_logging();
-        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor(node_ip_addr);
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
             "neighborhood_handles_connection_progress_message_with_tcp_connection_failed",
@@ -1864,14 +1854,11 @@ mod tests {
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_pass_gossip_received() {
         init_test_logging();
-        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor(node_ip_addr);
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_pass_gossip_received",
         );
-        let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
-        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
             .get_connection_progress_by_ip(node_ip_addr)
@@ -1883,7 +1870,7 @@ mod tests {
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
-        let new_pass_target = IpAddr::from_str("10.20.30.40").unwrap();
+        let new_pass_target = make_ip(2);
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::PassGossipReceived(new_pass_target),
@@ -1903,26 +1890,17 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
-        let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(system.run(), 0);
-        assert_eq!(node_to_ui_message_opt, None);
     }
 
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_pass_loop_found() {
         init_test_logging();
-        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor(node_ip_addr);
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_pass_loop_found",
         );
-        let (recorder, _awaiter, node_to_ui_recording_arc) = make_recorder();
-        let recorder = recorder.stop_condition(TypeId::of::<NodeToUiMessage>());
-        let addr = recorder.start();
-        let node_to_ui_recipient = addr.recipient::<NodeToUiMessage>();
-        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
             .get_connection_progress_by_ip(node_ip_addr)
@@ -1952,17 +1930,14 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
+        System::current().stop();
         assert_eq!(system.run(), 0);
-        let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
-        let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
-        assert_eq!(node_to_ui_message_opt, None);
     }
 
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received() {
         init_test_logging();
-        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor(node_ip_addr);
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received",
@@ -1981,10 +1956,9 @@ mod tests {
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
-        let new_node = IpAddr::from_str("10.20.30.40").unwrap();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
-            event: ConnectionProgressEvent::IntroductionGossipReceived(new_node),
+            event: ConnectionProgressEvent::IntroductionGossipReceived(make_ip(2)),
         };
 
         cpm_recipient.try_send(connection_progress_message).unwrap();
@@ -2019,8 +1993,7 @@ mod tests {
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_standard_gossip_received() {
         init_test_logging();
-        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor(node_ip_addr);
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_standard_gossip_received",
@@ -2076,8 +2049,7 @@ mod tests {
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received() {
         init_test_logging();
-        let node_ip_addr = IpAddr::from_str("5.4.3.2").unwrap();
-        let node_descriptor = make_node_descriptor(node_ip_addr);
+        let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
             "neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received",

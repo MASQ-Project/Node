@@ -762,7 +762,7 @@ mod tests {
         let can_make_routes = true;
 
         let (stage, message_opt) =
-            stage_and_ui_message_by_initial_stage_and_can_make_routes(
+            assert_stage_and_node_to_ui_message(
                 initial_stage,
                 can_make_routes,
                 "updates_the_stage_to_three_hops_route_found_in_case_introduction_or_standard_gossip_is_received_and_flag_is_true"
@@ -788,7 +788,7 @@ mod tests {
         let can_make_routes = false;
 
         let (stage, message_opt) =
-            stage_and_ui_message_by_initial_stage_and_can_make_routes(
+            assert_stage_and_node_to_ui_message(
                 initial_stage,
                 can_make_routes,
                 "updates_the_stage_to_connected_to_neighbor_in_case_introduction_or_standard_gossip_is_received_and_flag_is_false"
@@ -813,7 +813,7 @@ mod tests {
         let initial_stage = OverallConnectionStage::ConnectedToNeighbor;
         let can_make_routes = false;
 
-        let (stage, message_opt) = stage_and_ui_message_by_initial_stage_and_can_make_routes(
+        let (stage, message_opt) = assert_stage_and_node_to_ui_message(
             initial_stage,
             can_make_routes,
             "doesn_t_send_message_to_the_ui_in_case_introduction_or_standard_gossip_is_received_but_stage_hasn_t_updated",
@@ -830,7 +830,7 @@ mod tests {
         let can_make_routes = false;
 
         let (stage, message_opt) =
-            stage_and_ui_message_by_initial_stage_and_can_make_routes(
+            assert_stage_and_node_to_ui_message(
                 initial_stage,
                 can_make_routes,
                 "doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor"
@@ -846,7 +846,7 @@ mod tests {
         assert_eq!(subject.stage(), OverallConnectionStage::NotConnected);
     }
 
-    fn stage_and_ui_message_by_initial_stage_and_can_make_routes(
+    fn assert_stage_and_node_to_ui_message(
         initial_stage: OverallConnectionStage,
         can_make_routes: bool,
         test_name: &str,
