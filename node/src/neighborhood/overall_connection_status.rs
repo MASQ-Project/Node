@@ -222,7 +222,7 @@ impl OverallConnectionStatus {
         }
     }
 
-    pub fn update_stage_of_overall_connection_status(
+    pub fn update_ocs_stage_and_send_message_to_ui(
         &mut self,
         node_to_ui_recipient: &Recipient<NodeToUiMessage>,
     ) {
@@ -765,40 +765,16 @@ mod tests {
     }
 
     #[test]
-    fn updates_from_not_connected_to_connected_to_neighbor_in_case_flag_is_false() {
-        let (_node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
-        let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
-        subject.update_can_make_routes(false);
-
-        subject.update_stage_of_overall_connection_status(&recipient);
-
-        assert_eq!(subject.stage, OverallConnectionStage::ConnectedToNeighbor);
-    }
-
-    #[test]
-    fn updates_from_not_connected_to_three_hops_route_found_in_case_flag_is_true() {
-        let (_node_ip_addr, node_descriptor, recipient) = make_node_and_recipient();
-        let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
-        subject.update_can_make_routes(true);
-
-        subject.update_stage_of_overall_connection_status(&recipient);
-
-        assert_eq!(subject.stage, OverallConnectionStage::ThreeHopsRouteFound);
-    }
-
-    #[test]
-    fn updates_the_stage_to_three_hops_route_found_in_case_introduction_gossip_is_received_and_flag_is_true(
+    fn updates_the_stage_to_three_hops_route_found_in_case_introduction_or_standard_gossip_is_received_and_flag_is_true(
     ) {
         let initial_stage = OverallConnectionStage::NotConnected;
-        let event = ConnectionProgressEvent::IntroductionGossipReceived(make_ip(1));
         let can_make_routes = true;
 
         let (stage, message_opt) =
-            stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
+            stage_and_ui_message_by_initial_stage_and_can_make_routes(
                 initial_stage,
-                event,
                 can_make_routes,
-                "updates_the_stage_to_three_hops_route_found_in_case_introduction_gossip_is_received_and_flag_is_true"
+                "updates_the_stage_to_three_hops_route_found_in_case_introduction_or_standard_gossip_is_received_and_flag_is_true"
             );
 
         assert_eq!(stage, OverallConnectionStage::ThreeHopsRouteFound);
@@ -815,18 +791,16 @@ mod tests {
     }
 
     #[test]
-    fn updates_the_stage_to_connected_to_neighbor_in_case_introduction_gossip_is_received_and_flag_is_false(
+    fn updates_the_stage_to_connected_to_neighbor_in_case_introduction_or_standard_gossip_is_received_and_flag_is_false(
     ) {
         let initial_stage = OverallConnectionStage::NotConnected;
-        let event = ConnectionProgressEvent::IntroductionGossipReceived(make_ip(1));
         let can_make_routes = false;
 
         let (stage, message_opt) =
-            stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
+            stage_and_ui_message_by_initial_stage_and_can_make_routes(
                 initial_stage,
-                event,
                 can_make_routes,
-                "updates_the_stage_to_connected_to_neighbor_in_case_introduction_gossip_is_received_and_flag_is_false"
+                "updates_the_stage_to_connected_to_neighbor_in_case_introduction_or_standard_gossip_is_received_and_flag_is_false"
             );
 
         assert_eq!(stage, OverallConnectionStage::ConnectedToNeighbor);
@@ -843,74 +817,16 @@ mod tests {
     }
 
     #[test]
-    fn updates_the_stage_to_three_hops_route_found_in_case_standard_gossip_is_received_and_flag_is_true(
+    fn doesn_t_send_message_to_the_ui_in_case_introduction_or_standard_gossip_is_received_but_stage_hasn_t_updated(
     ) {
-        let initial_stage = OverallConnectionStage::NotConnected;
-        let event = ConnectionProgressEvent::StandardGossipReceived;
-        let can_make_routes = true;
-
-        let (stage, message_opt) =
-            stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
-                initial_stage,
-                event,
-                can_make_routes,
-                "updates_the_stage_to_three_hops_route_found_in_case_standard_gossip_is_received_and_flag_is_true"
-            );
-
-        assert_eq!(stage, OverallConnectionStage::ThreeHopsRouteFound);
-        assert_eq!(
-            message_opt,
-            Some(NodeToUiMessage {
-                target: MessageTarget::AllClients,
-                body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionChangeStage::ThreeHopsRouteFound
-                }
-                .tmb(0)
-            })
-        );
-    }
-
-    #[test]
-    fn updates_the_stage_to_connected_to_neighbor_in_case_standard_gossip_is_received_and_flag_is_false(
-    ) {
-        let initial_stage = OverallConnectionStage::NotConnected;
-        let event = ConnectionProgressEvent::StandardGossipReceived;
-        let can_make_routes = false;
-
-        let (stage, message_opt) =
-            stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
-                initial_stage,
-                event,
-                can_make_routes,
-                "updates_the_stage_to_connected_to_neighbor_in_case_standard_gossip_is_received_and_flag_is_false"
-            );
-
-        assert_eq!(stage, OverallConnectionStage::ConnectedToNeighbor);
-        assert_eq!(
-            message_opt,
-            Some(NodeToUiMessage {
-                target: MessageTarget::AllClients,
-                body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionChangeStage::ConnectedToNeighbor
-                }
-                .tmb(0)
-            })
-        );
-    }
-
-    #[test]
-    fn doesn_t_send_message_to_the_ui_in_case_gossip_is_received_but_stage_hasn_t_updated() {
         let initial_stage = OverallConnectionStage::ConnectedToNeighbor;
-        let event = ConnectionProgressEvent::StandardGossipReceived;
         let can_make_routes = false;
 
-        let (stage, message_opt) =
-            stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
-                initial_stage,
-                event,
-                can_make_routes,
-                "doesn_t_send_message_to_the_ui_in_case_gossip_is_received_but_stage_hasn_t_updated"
-            );
+        let (stage, message_opt) = stage_and_ui_message_by_initial_stage_and_can_make_routes(
+            initial_stage,
+            can_make_routes,
+            "doesn_t_send_message_to_the_ui_in_case_introduction_or_standard_gossip_is_received_but_stage_hasn_t_updated",
+        );
 
         assert_eq!(stage, initial_stage);
         assert_eq!(message_opt, None);
@@ -920,13 +836,11 @@ mod tests {
     fn doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor(
     ) {
         let initial_stage = OverallConnectionStage::ThreeHopsRouteFound;
-        let event = ConnectionProgressEvent::StandardGossipReceived;
         let can_make_routes = false;
 
         let (stage, message_opt) =
-            stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
+            stage_and_ui_message_by_initial_stage_and_can_make_routes(
                 initial_stage,
-                event,
                 can_make_routes,
                 "doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor"
             );
@@ -941,42 +855,8 @@ mod tests {
         assert_eq!(subject.stage(), OverallConnectionStage::NotConnected);
     }
 
-    // #[test]
-    // fn progress_done_by_one_connection_progress_can_not_be_overridden_by_other_in_overall_connection_progress(
-    // ) {
-    //     let ip_addr_1 = make_ip(1);
-    //     let ip_addr_2 = make_ip(2);
-    //     let mut subject = OverallConnectionStatus::new(vec![
-    //         make_node_descriptor(ip_addr_1),
-    //         make_node_descriptor(ip_addr_2),
-    //     ]);
-    //     let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
-    //     let connection_progress_1 = subject.get_connection_progress_by_ip(ip_addr_1).unwrap();
-    //     OverallConnectionStatus::update_connection_stage(
-    //         connection_progress_1,
-    //         ConnectionProgressEvent::TcpConnectionSuccessful,
-    //     );
-    //     OverallConnectionStatus::update_connection_stage(
-    //         connection_progress_1,
-    //         ConnectionProgressEvent::IntroductionGossipReceived(make_ip(3)),
-    //     );
-    //     let connection_progress_2 = subject.get_connection_progress_by_ip(ip_addr_2).unwrap();
-    //     OverallConnectionStatus::update_connection_stage(
-    //         connection_progress_2,
-    //         ConnectionProgressEvent::TcpConnectionSuccessful,
-    //     );
-    //
-    //     OverallConnectionStatus::update_connection_stage(
-    //         connection_progress_2,
-    //         ConnectionProgressEvent::PassGossipReceived(make_ip(4)),
-    //     );
-    //
-    //     assert_eq!(subject.stage, OverallConnectionStage::ConnectedToNeighbor);
-    // }
-
-    fn stage_and_ui_message_by_connection_progress_event_and_can_make_routes(
+    fn stage_and_ui_message_by_initial_stage_and_can_make_routes(
         initial_stage: OverallConnectionStage,
-        event: ConnectionProgressEvent,
         can_make_routes: bool,
         test_name: &str,
     ) -> (OverallConnectionStage, Option<NodeToUiMessage>) {
@@ -984,27 +864,10 @@ mod tests {
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
         let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
         subject.stage = initial_stage;
-        OverallConnectionStatus::update_connection_stage(
-            subject.get_connection_progress_by_ip(peer_addr).unwrap(),
-            ConnectionProgressEvent::TcpConnectionSuccessful,
-        );
         let system = System::new(test_name);
 
         subject.update_can_make_routes(can_make_routes);
-        match event {
-            ConnectionProgressEvent::StandardGossipReceived
-            | ConnectionProgressEvent::IntroductionGossipReceived(_) => {
-                OverallConnectionStatus::update_connection_stage(
-                    subject.get_connection_progress_by_ip(peer_addr).unwrap(),
-                    event,
-                );
-                subject.update_stage_of_overall_connection_status(&node_to_ui_recipient);
-            }
-            _ => panic!(
-                "Can't update to event {:?} because it doesn't leads to Neighborship Established",
-                event
-            ),
-        }
+        subject.update_ocs_stage_and_send_message_to_ui(&node_to_ui_recipient);
 
         System::current().stop();
         assert_eq!(system.run(), 0);

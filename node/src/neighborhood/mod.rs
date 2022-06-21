@@ -278,7 +278,7 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                 | ConnectionProgressEvent::StandardGossipReceived => {
                     eprintln!("Yes, I was called");
                     self.overall_connection_status
-                        .update_stage_of_overall_connection_status(
+                        .update_ocs_stage_and_send_message_to_ui(
                             self.node_to_ui_recipient_opt
                                 .as_ref()
                                 .expect("UI Gateway is unbound"),
@@ -1699,7 +1699,7 @@ mod tests {
         );
         let notify_later_ask_about_gossip_params_arc = Arc::new(Mutex::new(vec![]));
         let (node_to_ui_recipient, node_to_ui_recording_arc) =
-            make_recipient_and_recording_arc(Some(TypeId::of::<ConnectionProgressMessage>()));
+            make_recipient_and_recording_arc(Some(TypeId::of::<NodeToUiMessage>()));
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.tools.notify_later_ask_about_gossip = Box::new(
             NotifyLaterHandleMock::default()
