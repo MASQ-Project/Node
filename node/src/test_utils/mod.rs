@@ -57,7 +57,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use actix::Actor;
 use web3::types::{Address, U256};
+use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use crate::daemon::DaemonBindMessage;
+use crate::test_utils::recorder::{make_recorder, Recorder};
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
@@ -488,6 +492,20 @@ pub fn make_paying_wallet(secret: &[u8]) -> Wallet {
 //must stay without cfg(test) -- used in another crate
 pub fn make_wallet(address: &str) -> Wallet {
     Wallet::from_str(&dummy_address_to_hex(address)).unwrap()
+}
+
+pub fn make_daemon_bind_message(ui_gateway: Recorder) -> DaemonBindMessage {
+    let (stub, _, _) = make_recorder();
+    let stub_sub = stub.start().recipient::<NodeFromUiMessage>();
+    let (daemon, _, _) = make_recorder();
+    let crash_notification_recipient = daemon.start().recipient();
+    let ui_gateway_sub = ui_gateway.start().recipient::<NodeToUiMessage>();
+    DaemonBindMessage {
+        to_ui_message_recipient: ui_gateway_sub,
+        from_ui_message_recipient: stub_sub,
+        from_ui_message_recipients: vec![],
+        crash_notification_recipient,
+    }
 }
 
 pub fn assert_eq_debug<T: Debug>(a: T, b: T) {

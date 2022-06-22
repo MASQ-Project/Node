@@ -433,7 +433,7 @@ mod tests {
     use crate::daemon::mocks::VerifierToolsMock;
     use crate::daemon::setup_reporter::{setup_cluster_from, SetupCluster};
     use crate::daemon::LaunchSuccess;
-    use crate::test_utils::recorder::{make_recorder, Recorder};
+    use crate::test_utils::recorder::{make_recorder};
     use actix::System;
     use masq_lib::constants::{
         NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
@@ -453,6 +453,7 @@ mod tests {
     use std::collections::HashSet;
     use std::iter::FromIterator;
     use std::sync::{Arc, Mutex};
+    use crate::test_utils::make_daemon_bind_message;
 
     #[test]
     fn constants_have_correct_values() {
@@ -554,20 +555,6 @@ mod tests {
         }
     }
 
-    fn make_bind_message(ui_gateway: Recorder) -> DaemonBindMessage {
-        let (stub, _, _) = make_recorder();
-        let stub_sub = stub.start().recipient::<NodeFromUiMessage>();
-        let (daemon, _, _) = make_recorder();
-        let crash_notification_recipient = daemon.start().recipient();
-        let ui_gateway_sub = ui_gateway.start().recipient::<NodeToUiMessage>();
-        DaemonBindMessage {
-            to_ui_message_recipient: ui_gateway_sub,
-            from_ui_message_recipient: stub_sub,
-            from_ui_message_recipients: vec![],
-            crash_notification_recipient,
-        }
-    }
-
     fn make_setup_cluster(items: Vec<(&str, &str, UiSetupResponseValueStatus)>) -> SetupCluster {
         items
             .into_iter()
@@ -625,7 +612,7 @@ mod tests {
         subject.node_ui_port = Some(54321);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -689,7 +676,7 @@ mod tests {
         subject.node_ui_port = None;
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -753,7 +740,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -822,7 +809,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
         let msg = NodeFromUiMessage {
             client_id: 1234,
@@ -1091,7 +1078,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -1146,7 +1133,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -1204,7 +1191,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -1264,7 +1251,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -1302,7 +1289,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -1406,7 +1393,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
         let body: MessageBody = UiShutdownRequest {}.tmb(4321); // Context ID is irrelevant
 
@@ -1467,7 +1454,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
         let shutdown_body: MessageBody = UiShutdownRequest {}.tmb(4321);
 
@@ -1508,7 +1495,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
         let body = MessageBody {
             opcode: "uninventedMessage".to_string(),
@@ -1553,7 +1540,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
         let body: MessageBody = UiFinancialsRequest {}.tmb(4321);
 
@@ -1591,7 +1578,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
         let message = CrashNotification {
             process_id: 54321,
