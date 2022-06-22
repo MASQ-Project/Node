@@ -436,7 +436,7 @@ impl StreamHandlerPool {
                             peer_addr,
                             e
                         );
-                        // TODO: If we get here because we couldn't send a packet to the browser
+                        // TODO GH-608: If we get here because we couldn't send a packet to the browser
                         // because it shut down its stream, we should send a last_data: true message
                         // back to the exit Node to shut down the server stream too. This will be a
                         // small message that we have to pay for, but it will prevent paying for

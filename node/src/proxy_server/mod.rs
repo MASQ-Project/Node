@@ -185,7 +185,7 @@ impl Handler<ExpiredCoresPackage<ClientResponsePayload_0v1>> for ProxyServer {
         msg: ExpiredCoresPackage<ClientResponsePayload_0v1>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.handle_client_response_payload(&msg)
+        self.handle_client_response_payload(msg)
     }
 }
 
@@ -320,7 +320,7 @@ impl ProxyServer {
 
     fn handle_client_response_payload(
         &mut self,
-        msg: &ExpiredCoresPackage<ClientResponsePayload_0v1>,
+        msg: ExpiredCoresPackage<ClientResponsePayload_0v1>,
     ) {
         debug!(
             self.logger,
@@ -329,7 +329,7 @@ impl ProxyServer {
                 .to_string(vec![self.main_cryptde, self.main_cryptde])
         );
         let payload_data_len = msg.payload_len;
-        let response = &msg.payload;
+        let response = msg.payload;
         debug!(
             self.logger,
             "Relaying ClientResponsePayload (stream key {}, sequence {}, length {}) from Hopper to Dispatcher for client",
@@ -347,6 +347,8 @@ impl ProxyServer {
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
                 let last_data = response.sequenced_packet.last_data;
+                // clone this now, and we don't have to clone sequenced_packet.data later
+                let stream_key = response.stream_key.clone();
                 let sequence_number = Some(
                     response.sequenced_packet.sequence_number
                         + self.browser_proxy_sequence_offset as u64,
@@ -360,17 +362,16 @@ impl ProxyServer {
                         endpoint: Endpoint::Socket(socket_addr),
                         last_data,
                         sequence_number,
-                        // TODO: See if we can get rid of this clone(): it will impact performance
-                        data: response.sequenced_packet.data.clone(),
+                        data: response.sequenced_packet.data,
                     })
                     .expect("Dispatcher is dead");
                 if last_data {
-                    debug!(self.logger, "Retiring stream key {}: no more data", &response.stream_key);
-                    self.purge_stream_key(&response.stream_key);
+                    debug!(self.logger, "Retiring stream key {}: no more data", &stream_key);
+                    self.purge_stream_key(&stream_key);
                 }
             }
             None => {
-                // TODO: It would be really nice to be able to send an InboundClientData with last_data: true
+                // TODO GH-608: It would be really nice to be able to send an InboundClientData with last_data: true
                 // back to the ProxyClient (and the distant server) so that the server could shut down
                 // its stream, since the browser has shut down _its_ stream and no more data will
                 // ever be accepted from the server on that stream; but we don't have enough information
@@ -3236,7 +3237,7 @@ mod tests {
                 0,
             );
 
-        subject.handle_client_response_payload(&expired_cores_package);
+        subject.handle_client_response_payload(expired_cores_package);
 
         assert!(subject.keys_and_addrs.is_empty());
         assert!(subject.stream_key_routes.is_empty());
