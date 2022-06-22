@@ -12,6 +12,7 @@ use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{HopperConfig, NoLookupIncipientCoresPackage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use actix::dev::AsyncContextParts;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;

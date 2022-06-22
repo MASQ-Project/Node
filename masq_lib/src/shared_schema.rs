@@ -564,12 +564,35 @@ pub mod common_validators {
         }
     }
 
+    pub fn validate_non_zero_usize(str: String) -> Result<(), String> {
+        match str::parse::<usize>(&str) {
+            Ok(num) if num > 0 => Ok(()),
+            _ => Err(str),
+        }
+    }
+
+    pub fn validate_u64_range(double: String) -> Result<(), String> {
+        let divided = double.split("-").collect::<Vec<&str>>();
+        if divided.len() != 2 {
+            return Err(format!("Incorrect or missing delimiter in {}", double));
+        }
+        let test_num =
+            |index: usize| str::parse::<u64>(&divided[index]).map_err(|_| double.clone());
+        let min = test_num(0)?;
+        let max = test_num(1)?;
+        if min < max {
+            Ok(())
+        } else {
+            Err(format!("Range must be ascending, not {}", double))
+        }
+    }
+
     pub fn validate_separate_u64_values(values_with_delimiters: String) -> Result<(), String> {
         values_with_delimiters.split('|').try_for_each(|segment| {
             segment
                 .parse::<u64>()
                 .map_err(|_| {
-                    "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                    "Supply positive numeric values separated by vertical bars like 111|222|333|..."
                         .to_string()
                 })
                 .map(|_| ())
@@ -631,6 +654,7 @@ mod tests {
 
     use super::*;
     use crate::blockchains::chains::Chain;
+    use crate::shared_schema::common_validators::{validate_non_zero_usize, validate_u64_range};
     use crate::shared_schema::{common_validators, official_chain_names};
 
     #[test]
@@ -966,15 +990,8 @@ mod tests {
     }
 
     #[test]
-    fn validate_gas_price_normal_ropsten() {
+    fn validate_gas_price_normal() {
         let result = common_validators::validate_gas_price("2".to_string());
-
-        assert_eq!(result, Ok(()));
-    }
-
-    #[test]
-    fn validate_gas_price_normal_mainnet() {
-        let result = common_validators::validate_gas_price("20".to_string());
 
         assert_eq!(result, Ok(()));
     }
@@ -1015,7 +1032,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1027,7 +1044,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1039,9 +1056,71 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
+    }
+
+    #[test]
+    fn validate_non_zero_usize_happy_path() {
+        let result = validate_non_zero_usize("456".to_string());
+
+        assert_eq!(result, Ok(()))
+    }
+
+    #[test]
+    fn validate_non_zero_usize_sad_path_with_zero() {
+        let result = validate_non_zero_usize("0".to_string());
+
+        assert_eq!(result, Err("0".to_string()))
+    }
+
+    #[test]
+    fn validate_non_zero_usize_sad_path_with_negative() {
+        let result = validate_non_zero_usize("-123".to_string());
+
+        assert_eq!(result, Err("-123".to_string()))
+    }
+
+    #[test]
+    fn validate_non_zero_usize_sad_path_just_garbage() {
+        let result = validate_non_zero_usize("garbage".to_string());
+
+        assert_eq!(result, Err("garbage".to_string()))
+    }
+
+    #[test]
+    fn validate_usize_range_happy_path() {
+        let result = validate_u64_range("454-5000".to_string());
+
+        assert_eq!(result, Ok(()))
+    }
+
+    #[test]
+    fn validate_usize_range_misused_delimiter() {
+        let result = validate_u64_range("4545000".to_string());
+
+        assert_eq!(
+            result,
+            Err("Incorrect or missing delimiter in 4545000".to_string())
+        )
+    }
+
+    #[test]
+    fn validate_usize_range_second_value_smaller_than_the_first() {
+        let result = validate_u64_range("4545-2000".to_string());
+
+        assert_eq!(
+            result,
+            Err("Range must be ascending, not 4545-2000".to_string())
+        )
+    }
+
+    #[test]
+    fn validate_usize_range_non_numeric_value_error() {
+        let result = validate_u64_range("blah-1234".to_string());
+
+        assert_eq!(result, Err("blah-1234".to_string()))
     }
 
     #[test]

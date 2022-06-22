@@ -50,7 +50,10 @@ impl CommandFactory for CommandFactoryReal {
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "descriptor" => Box::new(DescriptorCommand::new()),
-            "financials" => Box::new(FinancialsCommand::new()),
+            "financials" => match FinancialsCommand::new(pieces) {
+                Ok(command) => todo!(),
+                Err(e) => todo!(),
+            },
             "generate-wallets" => match GenerateWalletsCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),

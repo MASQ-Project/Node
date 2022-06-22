@@ -559,27 +559,48 @@ pub struct UiDescriptorResponse {
 conversation_message!(UiDescriptorResponse, "descriptor");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct UiPayableAccount {
-    pub wallet: String,
-    pub age: u64,
-    pub amount: u64,
-    #[serde(rename = "pendingPayableHashOpt")]
-    pub pending_payable_hash_opt: Option<String>,
+pub struct UiFinancialsRequest {
+    pub stats: bool,
+    #[serde(rename = "topRecordsOpt")]
+    pub top_records_opt: Option<usize>,
+    #[serde(rename = "customQueriesOpt")]
+    pub custom_queries_opt: Option<CustomQueries>,
 }
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct UiReceivableAccount {
-    pub wallet: String,
-    pub age: u64,
-    pub amount: u64,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct UiFinancialsRequest {}
 conversation_message!(UiFinancialsRequest, "financials");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct CustomQueries {
+    #[serde(rename = "payableOpt")]
+    pub payable_opt: Option<RangeQuery<u128>>,
+    #[serde(rename = "receivableOpt")]
+    pub receivable_opt: Option<RangeQuery<i128>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct RangeQuery<T> {
+    #[serde(rename = "minAge")]
+    pub min_age: u64,
+    #[serde(rename = "maxAge")]
+    pub max_age: u64,
+    #[serde(rename = "minAmount")]
+    pub min_amount: T,
+    #[serde(rename = "maxAmount")]
+    pub max_amount: T,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiFinancialsResponse {
+    #[serde(rename = "statsOpt")]
+    pub stats_opt: Option<FinancialStatistics>,
+    #[serde(rename = "topRecordsOpt")]
+    pub top_records_opt: Option<FirmQueryResult>,
+    #[serde(rename = "customQueryRecordsOpt")]
+    pub custom_query_records_opt: Option<CustomQueryResult>,
+}
+conversation_message!(UiFinancialsResponse, "financials");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct FinancialStatistics {
     #[serde(rename = "totalUnpaidAndPendingPayable")]
     pub total_unpaid_and_pending_payable: u128,
     #[serde(rename = "totalPaidPayable")]
@@ -589,7 +610,36 @@ pub struct UiFinancialsResponse {
     #[serde(rename = "totalPaidReceivable")]
     pub total_paid_receivable: u128,
 }
-conversation_message!(UiFinancialsResponse, "financials");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct FirmQueryResult {
+    pub payable: Vec<UiPayableAccount>,
+    pub receivable: Vec<UiReceivableAccount>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct CustomQueryResult {
+    #[serde(rename = "payableOpt")]
+    pub payable_opt: Option<Vec<UiPayableAccount>>,
+    #[serde(rename = "receivableOpt")]
+    pub receivable_opt: Option<Vec<UiReceivableAccount>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct UiPayableAccount {
+    pub wallet: String,
+    pub age: u64,
+    pub amount: u128,
+    #[serde(rename = "pendingPayableRowidOpt")]
+    pub pending_payable_rowid_opt: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct UiReceivableAccount {
+    pub wallet: String,
+    pub age: u64,
+    pub amount: i128,
+}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiGenerateSeedSpec {

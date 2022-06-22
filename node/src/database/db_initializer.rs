@@ -417,11 +417,11 @@ impl DbInitializerReal {
         let conn = Connection::open_with_flags(db_file_path, opening_flags)
             .unwrap_or_else(|e| panic!("The database undoubtedly exists, but: {}", e));
         let config_table_content = self.extract_configurations(&conn);
-        let schema_version_entry = config_table_content.get("schema_version");
+        let (schema_version, _) = config_table_content
+            .get("schema_version")
+            .expect("Db migration failed; cannot find a row with the schema version");
         let found_schema = Self::validate_schema_version(
-            schema_version_entry
-                .expect("Db migration failed; cannot find a row with the schema version")
-                .0
+            schema_version
                 .as_ref()
                 .expect("Db migration failed; the value for the schema version is missing"),
         );
