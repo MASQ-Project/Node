@@ -22,6 +22,7 @@ use std::io;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
+use time::OffsetDateTime;
 use tokio::prelude::{Async, Future};
 
 pub struct ServerInitializerReal {
@@ -265,10 +266,14 @@ fn panic_hook(panic_info: AltPanicInfo) {
 // DeferredNow can't be constructed in a test; therefore this function is untestable.
 fn format_function(
     write: &mut dyn io::Write,
-    now: &mut DeferredNow,
+    _now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), io::Error> {
-    real_format_function(write, now.now(), record)
+    real_format_function(
+        write,
+        OffsetDateTime::now_local().expect("Unable to retrieve the present time."),
+        record,
+    )
 }
 
 #[cfg(test)]

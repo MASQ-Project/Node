@@ -1,3 +1,4 @@
+#![cfg(test)]
 use std::any::TypeId;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::bootstrapper::BootstrapperConfig;

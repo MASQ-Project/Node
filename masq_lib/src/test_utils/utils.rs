@@ -1,11 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchains::chains::Chain;
-use chrono::{DateTime, Local};
+// use chrono::{DateTime, Local};
 use log::Record;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{fs, io, thread};
+use time::format_description::parse;
+use time::OffsetDateTime;
+// use time::macros::format_description;
 
 pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
@@ -37,12 +40,19 @@ pub fn is_running_under_github_actions() -> bool {
     }
 }
 
+// TODO: This function is used in production code, please migrate it to somewhere else
 pub fn real_format_function(
     write: &mut dyn io::Write,
-    timestamp: &DateTime<Local>,
+    timestamp: OffsetDateTime,
     record: &Record,
 ) -> Result<(), io::Error> {
-    let timestamp = timestamp.naive_local().format("%Y-%m-%dT%H:%M:%S%.3f");
+    // let timestamp = timestamp.naive_local().format("%Y-%m-%dT%H:%M:%S%.3f");
+    let timestamp = timestamp
+        .format(
+            &parse("[year]-[month]-[day] [hour]:[minute]:[second].[millisecond]")
+                .expect("Unable to parse the formatting type."),
+        )
+        .expect("Unable to format date and time.");
     let thread_id_str = format!("{:?}", thread::current().id());
     let thread_id = &thread_id_str[9..(thread_id_str.len() - 1)];
     let level = record.level();

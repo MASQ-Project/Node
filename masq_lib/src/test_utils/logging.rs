@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::test_utils::fake_stream_holder::ByteArrayWriter;
 use crate::test_utils::utils::{real_format_function, to_millis};
-use chrono::DateTime;
+// use chrono::DateTime;
 use lazy_static::lazy_static;
 use log::set_logger;
 use log::Log;
@@ -11,8 +11,9 @@ use regex::Regex;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
+use std::time::Duration;
 use std::time::Instant;
-use std::time::{Duration, SystemTime};
+use time::OffsetDateTime;
 
 lazy_static! {
     static ref TEST_LOGS_ARC: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
@@ -246,8 +247,8 @@ impl Log for TestLogger {
 
     fn log(&self, record: &Record<'_>) {
         let mut buffer = ByteArrayWriter::new();
-        let now = DateTime::from(SystemTime::now());
-        real_format_function(&mut buffer, &now, record).unwrap();
+        let now = OffsetDateTime::now_local().unwrap();
+        real_format_function(&mut buffer, now, record).unwrap();
         TestLogHandler::new().add_log(buffer.get_string());
     }
 
