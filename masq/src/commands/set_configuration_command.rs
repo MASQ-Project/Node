@@ -18,7 +18,7 @@ pub struct SetConfigurationCommand {
 
 impl SetConfigurationCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        let parameter_opt = pieces.get(1).map(|s| &s[1..]);
+        let parameter_opt = pieces.get(1).map(|s| &s[2..]);
         match set_configuration_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => {
                 let parameter = parameter_opt.expectv("required param");

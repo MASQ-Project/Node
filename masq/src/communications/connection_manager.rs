@@ -1193,7 +1193,7 @@ mod tests {
             }.tmb(0));
         let daemon_stop_handle = daemon_server.start();
         let request = UiFinancialsRequest {
-            stats: true,
+            stats_required: true,
             top_records_opt: None,
             custom_queries_opt: None,
         }

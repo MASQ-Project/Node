@@ -449,6 +449,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
 
 pub mod common_validators {
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
+    use crate::utils::plus;
     use regex::Regex;
     use std::net::IpAddr;
     use std::str::FromStr;
@@ -571,19 +572,42 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_u64_range(double: String) -> Result<(), String> {
-        let divided = double.split("-").collect::<Vec<&str>>();
-        if divided.len() != 2 {
-            return Err(format!("Incorrect or missing delimiter in {}", double));
+    pub fn validate_two_ranges<D: FromStr + PartialOrd>(double: String) -> Result<(), String> {
+        fn parse<N: FromStr>(str_num: &str) -> Result<N, String> {
+            str::parse::<N>(str_num)
+                .map_err(|_| "Non numeric value; all values must be numbers".to_string())
         }
-        let test_num =
-            |index: usize| str::parse::<u64>(&divided[index]).map_err(|_| double.clone());
-        let min = test_num(0)?;
-        let max = test_num(1)?;
-        if min < max {
-            Ok(())
+        let separate_classes = double.split("|").collect::<Vec<&str>>();
+        if separate_classes.len() != 2 {
+            return Err("Missing central pipe delimiter".to_string());
+        }
+        let two_fragments_by_two_opt =
+            separate_classes
+                .into_iter()
+                .fold(Some(vec![]), |acc, half| {
+                    if let Some(acc_vec) = acc {
+                        let nums = half.split("-").collect::<Vec<&str>>();
+                        if nums.len() != 2 {
+                            None
+                        } else {
+                            Some(plus(acc_vec, (nums[0].to_string(), nums[1].to_string())))
+                        }
+                    } else {
+                        None
+                    }
+                });
+        if let Some(two_fragments_by_two) = two_fragments_by_two_opt {
+            let min_age = parse::<u64>(&two_fragments_by_two[0].0)?;
+            let max_age = parse::<u64>(&two_fragments_by_two[0].1)?;
+            let min_amount = parse::<D>(&two_fragments_by_two[1].0)?;
+            let max_amount = parse::<D>(&two_fragments_by_two[1].1)?;
+            if min_age > max_age || min_amount > max_amount {
+                Err("Range must be ascending".to_string())
+            } else {
+                Ok(())
+            }
         } else {
-            Err(format!("Range must be ascending, not {}", double))
+            Err("Misused delimiter in the range".to_string())
         }
     }
 
@@ -654,7 +678,7 @@ mod tests {
 
     use super::*;
     use crate::blockchains::chains::Chain;
-    use crate::shared_schema::common_validators::{validate_non_zero_usize, validate_u64_range};
+    use crate::shared_schema::common_validators::{validate_non_zero_usize, validate_two_ranges};
     use crate::shared_schema::{common_validators, official_chain_names};
 
     #[test]
@@ -1090,37 +1114,41 @@ mod tests {
     }
 
     #[test]
-    fn validate_usize_range_happy_path() {
-        let result = validate_u64_range("454-5000".to_string());
+    fn validate_two_ranges_happy_path() {
+        let result = validate_two_ranges::<u128>("454-5000|130000-55500000".to_string());
 
         assert_eq!(result, Ok(()))
     }
 
     #[test]
-    fn validate_usize_range_misused_delimiter() {
-        let result = validate_u64_range("4545000".to_string());
+    fn validate_two_ranges_misused_central_delimiter() {
+        let result = validate_two_ranges::<i128>("45-500545-006".to_string());
 
-        assert_eq!(
-            result,
-            Err("Incorrect or missing delimiter in 4545000".to_string())
-        )
+        assert_eq!(result, Err("Missing central pipe delimiter".to_string()))
     }
 
     #[test]
-    fn validate_usize_range_second_value_smaller_than_the_first() {
-        let result = validate_u64_range("4545-2000".to_string());
+    fn validate_two_ranges_misused_range_delimiter() {
+        let result = validate_two_ranges::<i128>("45+500|545+006".to_string());
 
-        assert_eq!(
-            result,
-            Err("Range must be ascending, not 4545-2000".to_string())
-        )
+        assert_eq!(result, Err("Misused delimiter in the range".to_string()))
     }
 
     #[test]
-    fn validate_usize_range_non_numeric_value_error() {
-        let result = validate_u64_range("blah-1234".to_string());
+    fn validate_two_ranges_second_value_smaller_than_the_first() {
+        let result = validate_two_ranges::<i128>("4545-2000|20000-30000".to_string());
 
-        assert_eq!(result, Err("blah-1234".to_string()))
+        assert_eq!(result, Err("Range must be ascending".to_string()))
+    }
+
+    #[test]
+    fn validate_two_ranges_non_numeric_value_error() {
+        let result = validate_two_ranges::<i128>("blah-1234|899-999".to_string());
+
+        assert_eq!(
+            result,
+            Err("Non numeric value; all values must be numbers".to_string())
+        )
     }
 
     #[test]

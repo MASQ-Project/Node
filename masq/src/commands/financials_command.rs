@@ -4,27 +4,30 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg, ArgMatches, SubCommand};
 use masq_lib::messages::{CustomQueries, RangeQuery, UiFinancialsRequest, UiFinancialsResponse};
-use masq_lib::shared_schema::common_validators::{validate_non_zero_usize, validate_u64_range};
+use masq_lib::shared_schema::common_validators::{validate_non_zero_usize, validate_two_ranges};
 use masq_lib::short_writeln;
+use masq_lib::utils::plus;
 use std::cell::RefCell;
 use std::fmt::Debug;
+use std::str::FromStr;
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";
 
-const TOP_ARG_HELP: &str = unimplemented!();
+//TODO don't forget to return back here
+const TOP_ARG_HELP: &str = "blah";
 
-const PAYABLE_ARG_HELP: &str = unimplemented!();
+const PAYABLE_ARG_HELP: &str = "blah";
 
-const RECEIVABLE_ARG_HELP: &str = unimplemented!();
+const RECEIVABLE_ARG_HELP: &str = "blah";
 
-const NO_STATS_ARG_HELP: &str = unimplemented!();
+const NO_STATS_ARG_HELP: &str = "blah";
 
 #[derive(Debug)]
 pub struct FinancialsCommand {
-    stats: bool,
+    stats_required: bool,
     top_records_opt: Option<usize>,
     custom_queries_opt: RefCell<Option<CustomQueries>>,
 }
@@ -36,6 +39,7 @@ pub fn financials_subcommand() -> App<'static, 'static> {
             Arg::with_name("top")
                 .help(TOP_ARG_HELP)
                 .value_name("TOP")
+                .long("top")
                 .required(false)
                 .case_insensitive(false)
                 .takes_value(true)
@@ -45,28 +49,27 @@ pub fn financials_subcommand() -> App<'static, 'static> {
             Arg::with_name("payable")
                 .help(PAYABLE_ARG_HELP)
                 .value_name("PAYABLE")
+                .long("payable")
                 .required(false)
                 .case_insensitive(false)
                 .takes_value(true)
-                .value_delimiter(" ")
-                .number_of_values(2)
-                .validator(validate_u64_range),
+                .validator(validate_two_ranges::<u128>),
         )
         .arg(
             Arg::with_name("receivable")
                 .help(RECEIVABLE_ARG_HELP)
                 .value_name("PAYABLE")
+                .long("receivable")
                 .required(false)
                 .case_insensitive(false)
                 .takes_value(true)
-                .value_delimiter(" ")
-                .number_of_values(2)
-                .validator(validate_u64_range),
+                .validator(validate_two_ranges::<i128>),
         )
         .arg(
             Arg::with_name("no-stats")
                 .help(NO_STATS_ARG_HELP)
                 .value_name("NO-STATS")
+                .long("no-stats")
                 .required(false)
                 .case_insensitive(false)
                 .takes_value(false),
@@ -76,7 +79,7 @@ pub fn financials_subcommand() -> App<'static, 'static> {
 impl Command for FinancialsCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiFinancialsRequest {
-            stats: self.stats,
+            stats_required: self.stats_required,
             top_records_opt: self.top_records_opt,
             custom_queries_opt: self.custom_queries_opt.take(),
         };
@@ -124,19 +127,14 @@ impl FinancialsCommand {
             Ok(matches) => matches,
             Err(e) => return Err(e.to_string()),
         };
-        let stats = matches.is_present("no-stats");
-        let top_records_opt = matches.value_of("top").map(|str| {
-            str.parse::<usize>()
+        let stats_required = !matches.is_present("no-stats");
+        let top_records_opt = matches.value_of("top").map(|str| {str.parse::<usize>()
                 .expect("top records count not properly required")
         });
-        let custom_payable_opt = matches
-            .values_of_lossy("payable")
-            .map(|vals| Self::parse_range_query(&vals[0]));
-        let custom_receivable_opt = matches
-            .values_of_lossy("receivable")
-            .map(|vals| Self::parse_range_query(&vals[1]));
+        let custom_payable_opt = Self::parse_range_query(&matches,"payable");
+        let custom_receivable_opt = Self::parse_range_query(&matches,"receivable");
         Ok(Self {
-            stats,
+            stats_required,
             top_records_opt,
             custom_queries_opt: RefCell::new(match (&custom_payable_opt, &custom_receivable_opt) {
                 (None, None) => None,
@@ -148,18 +146,23 @@ impl FinancialsCommand {
         })
     }
 
-    fn parse<N: std::str::FromStr>(str_val: &str, name: &str) -> N {
+    fn parse<N: FromStr>(str_val: &str, name: &str) -> N {
         str::parse::<N>(str_val).unwrap_or_else(|_| panic!("{} non properly required", name))
     }
 
-    fn parse_range_query<T>(double: &str) -> RangeQuery<T> {
-        let params = double.split("-").collect::<Vec<&str>>();
-        RangeQuery {
-            min_age: Self::parse(params[0][0], "min_age"),
-            max_age: Self::parse(params[0][1], "max_age"),
-            min_amount: Self::parse(params[1][0], "min_amount"),
-            max_amount: Self::parse(params[1][1], "max_amount"),
-        }
+    fn parse_range_query<T: FromStr>(matches: &ArgMatches, parameter_name: &str) -> Option<RangeQuery<T>> {
+        matches.value_of(parameter_name).map(|double| {
+            let params = double
+                .split("|")
+                .map(|half| half.rsplit_once("-").expect("blah"))
+                .fold(vec![], |acc, current| plus(plus(acc, current.0), current.1));
+            RangeQuery {
+                min_age: Self::parse(params[0], "min_age"),
+                max_age: Self::parse(params[1], "max_age"),
+                min_amount: Self::parse::<T>(params[2], "min_amount"),
+                max_amount: Self::parse::<T>(params[3], "max_amount"),
+            }
+        })
     }
 }
 
@@ -219,7 +222,7 @@ mod tests {
         }
         .tmb(0)));
         let subject = factory
-            .make(&["financials top 20 no-stats".to_string()])
+            .make(&array_of_borrows_to_vec(&["financials","--top","20","--no-stats"]))
             .unwrap();
 
         let result = subject.execute(&mut context);
@@ -250,11 +253,10 @@ mod tests {
         let subject = factory
             .make(&array_of_borrows_to_vec(&[
                 "financials",
-                "top",
+                "--top",
                 "10",
-                "payable",
-                "200-450",
-                "48000000111-158000008000",
+                "--payable",
+                "200-450|48000000111-158000008000",
             ]))
             .unwrap();
 
@@ -282,7 +284,7 @@ mod tests {
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let args = &["financials".to_string()];
-        let subject = FinancialsCommand::new(args);
+        let subject = FinancialsCommand::new(args).unwrap();
 
         let result = subject.execute(&mut context);
 
@@ -292,7 +294,7 @@ mod tests {
             *transact_params,
             vec![(
                 UiFinancialsRequest {
-                    stats: true,
+                    stats_required: true,
                     top_records_opt: None,
                     custom_queries_opt: None
                 }
@@ -322,7 +324,7 @@ mod tests {
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let args = &["financials".to_string()];
-        let subject = FinancialsCommand::new(args);
+        let subject = FinancialsCommand::new(args).unwrap();
 
         let result = subject.execute(&mut context);
 
@@ -332,7 +334,7 @@ mod tests {
             *transact_params,
             vec![(
                 UiFinancialsRequest {
-                    stats: true,
+                    stats_required: true,
                     top_records_opt: None,
                     custom_queries_opt: None
                 }

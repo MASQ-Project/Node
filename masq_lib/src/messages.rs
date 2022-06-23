@@ -560,7 +560,7 @@ conversation_message!(UiDescriptorResponse, "descriptor");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiFinancialsRequest {
-    pub stats: bool,
+    pub stats_required: bool,
     #[serde(rename = "topRecordsOpt")]
     pub top_records_opt: Option<usize>,
     #[serde(rename = "customQueriesOpt")]
