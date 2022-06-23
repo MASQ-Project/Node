@@ -3371,7 +3371,7 @@ mod tests {
             .try_send(second_expired_cores_package.clone())
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -3485,25 +3485,21 @@ mod tests {
                 0,
             );
         let routing_size = expired_cores_package.payload_len;
-
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .dispatcher(dispatcher_mock)
             .accountant(accountant)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
             .try_send(expired_cores_package.clone())
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
-
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
         assert_eq!(dispatcher_recording.len(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-
         check_exit_report(
             &accountant_recording,
             0,
@@ -3577,7 +3573,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -3665,7 +3661,7 @@ mod tests {
             .try_send(expired_cores_package.clone())
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -3830,7 +3826,7 @@ mod tests {
             .try_send(already_used_expired_cores_package)
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
         TestLogHandler::new().exists_log_containing(
@@ -3905,7 +3901,7 @@ mod tests {
             .try_send(already_used_expired_cores_package)
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
         TestLogHandler::new().exists_log_containing(
@@ -4024,7 +4020,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
     }
 
@@ -4048,7 +4044,7 @@ mod tests {
 
         subject_addr.try_send(msg_from_dispatcher).unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
     }
 
@@ -4096,7 +4092,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring");
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
@@ -4149,7 +4145,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: ProxyServer: Can't report services consumed: DecryptionError(InvalidKey(\"Could not decrypt with",
@@ -4347,7 +4343,7 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
@@ -4464,7 +4460,7 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
@@ -4579,7 +4575,7 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
     }
 

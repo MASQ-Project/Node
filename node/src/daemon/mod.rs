@@ -433,8 +433,8 @@ mod tests {
     use crate::daemon::mocks::VerifierToolsMock;
     use crate::daemon::setup_reporter::{setup_cluster_from, SetupCluster};
     use crate::daemon::LaunchSuccess;
-    use crate::test_utils::make_daemon_bind_message;
     use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::unshared_test_utils::make_daemon_bind_message;
     use actix::System;
     use masq_lib::constants::{
         NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,

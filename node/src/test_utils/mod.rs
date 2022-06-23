@@ -17,7 +17,6 @@ pub mod tokio_wrapper_mocks;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::bootstrapper::CryptDEPair;
-use crate::daemon::DaemonBindMessage;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
@@ -35,14 +34,11 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::recorder::{make_recorder, Recorder};
-use actix::Actor;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use regex::Regex;
 use rustc_hex::ToHex;
 use serde_derive::{Deserialize, Serialize};
@@ -494,20 +490,6 @@ pub fn make_wallet(address: &str) -> Wallet {
     Wallet::from_str(&dummy_address_to_hex(address)).unwrap()
 }
 
-pub fn make_daemon_bind_message(ui_gateway: Recorder) -> DaemonBindMessage {
-    let (stub, _, _) = make_recorder();
-    let stub_sub = stub.start().recipient::<NodeFromUiMessage>();
-    let (daemon, _, _) = make_recorder();
-    let crash_notification_recipient = daemon.start().recipient();
-    let ui_gateway_sub = ui_gateway.start().recipient::<NodeToUiMessage>();
-    DaemonBindMessage {
-        to_ui_message_recipient: ui_gateway_sub,
-        from_ui_message_recipient: stub_sub,
-        from_ui_message_recipients: vec![],
-        crash_notification_recipient,
-    }
-}
-
 pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
     let a_str = format!("{:?}", a);
     let b_str = format!("{:?}", b);
@@ -531,7 +513,7 @@ pub struct TestRawTransaction {
 pub mod unshared_test_utils {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::apps::app_node;
-    use crate::daemon::ChannelFactory;
+    use crate::daemon::{ChannelFactory, DaemonBindMessage};
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
@@ -543,6 +525,7 @@ pub mod unshared_test_utils {
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::{Actor, Addr, AsyncContext, Context, Handler, System};
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -551,7 +534,7 @@ pub mod unshared_test_utils {
     use masq_lib::multi_config::MultiConfig;
     #[cfg(not(feature = "no_test_share"))]
     use masq_lib::test_utils::utils::MutexIncrementInset;
-    use masq_lib::ui_gateway::NodeFromUiMessage;
+    use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -632,6 +615,20 @@ pub mod unshared_test_utils {
             payment_thresholds: Default::default(),
             when_pending_too_long_sec: Default::default(),
             suppress_initial_scans: false,
+        }
+    }
+
+    pub fn make_daemon_bind_message(ui_gateway: Recorder) -> DaemonBindMessage {
+        let (stub, _, _) = make_recorder();
+        let stub_sub = stub.start().recipient::<NodeFromUiMessage>();
+        let (daemon, _, _) = make_recorder();
+        let crash_notification_recipient = daemon.start().recipient();
+        let ui_gateway_sub = ui_gateway.start().recipient::<NodeToUiMessage>();
+        DaemonBindMessage {
+            to_ui_message_recipient: ui_gateway_sub,
+            from_ui_message_recipient: stub_sub,
+            from_ui_message_recipients: vec![],
+            crash_notification_recipient,
         }
     }
 

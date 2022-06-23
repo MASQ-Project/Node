@@ -119,7 +119,7 @@ impl Handler<BindMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
-        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY); // don't know how to test this
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.incoming_message_recipients = vec![
             msg.peer_actors.accountant.ui_message_sub.clone(),
             msg.peer_actors.neighborhood.from_ui_message_sub.clone(),
@@ -136,7 +136,7 @@ impl Handler<DaemonBindMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: DaemonBindMessage, ctx: &mut Self::Context) -> Self::Result {
-        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY); // don't know how to test this
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.incoming_message_recipients = msg.from_ui_message_recipients;
         self.initiate_websocket_supervisor(msg.from_ui_message_recipient);
         debug!(self.logger, "UIGateway bound");
@@ -189,9 +189,9 @@ impl Handler<NodeFromUiMessage> for UiGateway {
 mod tests {
     use super::*;
     use crate::dispatcher;
-    use crate::test_utils::make_daemon_bind_message;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::{make_recorder, Recording};
+    use crate::test_utils::unshared_test_utils::make_daemon_bind_message;
     use crate::ui_gateway::websocket_supervisor::WebSocketSupervisorFactory;
     use crate::ui_gateway::websocket_supervisor_mocks::{
         WebSocketSupervisorMock, WebsocketSupervisorFactoryMock,
