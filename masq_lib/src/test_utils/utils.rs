@@ -49,7 +49,7 @@ pub fn real_format_function(
     // let timestamp = timestamp.naive_local().format("%Y-%m-%dT%H:%M:%S%.3f");
     let timestamp = timestamp
         .format(
-            &parse("[year]-[month]-[day] [hour]:[minute]:[second].[millisecond]")
+            &parse("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]")
                 .expect("Unable to parse the formatting type."),
         )
         .expect("Unable to format date and time.");
