@@ -347,14 +347,12 @@ impl ProxyServer {
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
                 let last_data = response.sequenced_packet.last_data;
-                // clone this now, and we don't have to clone sequenced_packet.data later
-                let stream_key = response.stream_key.clone();
+                let stream_key = response.stream_key;
                 let sequence_number = Some(
                     response.sequenced_packet.sequence_number
                         + self.browser_proxy_sequence_offset as u64,
                 );
-                self
-                    .subs
+                self.subs
                     .as_ref()
                     .expect("Dispatcher unbound in ProxyServer")
                     .dispatcher
@@ -366,7 +364,10 @@ impl ProxyServer {
                     })
                     .expect("Dispatcher is dead");
                 if last_data {
-                    debug!(self.logger, "Retiring stream key {}: no more data", &stream_key);
+                    debug!(
+                        self.logger,
+                        "Retiring stream key {}: no more data", &stream_key
+                    );
                     self.purge_stream_key(&stream_key);
                 }
             }
@@ -383,7 +384,7 @@ impl ProxyServer {
                     response.sequenced_packet.sequence_number,
                     response.stream_key,
                 )
-            },
+            }
         }
     }
 
@@ -984,7 +985,7 @@ mod tests {
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::{main_cryptde};
+    use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
@@ -3160,9 +3161,7 @@ mod tests {
             0,
         );
         let second_expired_cores_package = first_expired_cores_package.clone();
-        let mut peer_actors = peer_actors_builder()
-            .dispatcher(dispatcher)
-            .build();
+        let mut peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -3430,7 +3429,8 @@ mod tests {
 
     #[test]
     fn proxy_server_records_services_consumed_even_after_browser_stream_is_gone() {
-        let system = System::new("proxy_server_records_services_consumed_even_after_browser_stream_is_gone");
+        let system =
+            System::new("proxy_server_records_services_consumed_even_after_browser_stream_is_gone");
         let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let cryptde = main_cryptde();
@@ -3501,7 +3501,7 @@ mod tests {
         system.run();
 
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
-        assert_eq! (dispatcher_recording.len(), 0);
+        assert_eq!(dispatcher_recording.len(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
 
         check_exit_report(

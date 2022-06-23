@@ -189,23 +189,23 @@ impl Handler<NodeFromUiMessage> for UiGateway {
 mod tests {
     use super::*;
     use crate::dispatcher;
+    use crate::test_utils::make_daemon_bind_message;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::{make_recorder, Recording};
     use crate::ui_gateway::websocket_supervisor::WebSocketSupervisorFactory;
     use crate::ui_gateway::websocket_supervisor_mocks::{
         WebSocketSupervisorMock, WebsocketSupervisorFactoryMock,
     };
+    use actix::dev::AsyncContextParts;
+    use actix::Message;
     use actix::System;
+    use crossbeam_channel::{unbounded, Sender};
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
     use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use masq_lib::utils::find_free_port;
     use std::sync::{Arc, Mutex};
-    use actix::dev::AsyncContextParts;
-    use crossbeam_channel::{Sender, unbounded};
-    use crate::test_utils::make_daemon_bind_message;
-    use actix::Message;
 
     #[test]
     fn constants_have_correct_values() {
@@ -222,7 +222,7 @@ mod tests {
 
         fn handle(&mut self, msg: MailboxCapacityCheck, ctx: &mut Self::Context) -> Self::Result {
             let capacity = ctx.parts().capacity();
-            msg.tx.send (capacity).unwrap();
+            msg.tx.send(capacity).unwrap();
         }
     }
 
@@ -239,14 +239,14 @@ mod tests {
         let subject_addr = subject.start();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let (tx, rx) = unbounded();
-        let check = MailboxCapacityCheck{tx};
+        let check = MailboxCapacityCheck { tx };
 
         subject_addr.try_send(check).unwrap();
 
         System::current().stop();
         system.run();
         let capacity = rx.recv().unwrap();
-        assert_eq! (capacity, 0);
+        assert_eq!(capacity, 0);
     }
 
     #[test]
@@ -263,14 +263,14 @@ mod tests {
         let subject_addr = subject.start();
         subject_addr.try_send(daemon_bind_message).unwrap();
         let (tx, rx) = unbounded();
-        let check = MailboxCapacityCheck{tx};
+        let check = MailboxCapacityCheck { tx };
 
         subject_addr.try_send(check).unwrap();
 
         System::current().stop();
         system.run();
         let capacity = rx.recv().unwrap();
-        assert_eq! (capacity, 0);
+        assert_eq!(capacity, 0);
     }
 
     #[test]

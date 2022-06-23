@@ -433,7 +433,8 @@ mod tests {
     use crate::daemon::mocks::VerifierToolsMock;
     use crate::daemon::setup_reporter::{setup_cluster_from, SetupCluster};
     use crate::daemon::LaunchSuccess;
-    use crate::test_utils::recorder::{make_recorder};
+    use crate::test_utils::make_daemon_bind_message;
+    use crate::test_utils::recorder::make_recorder;
     use actix::System;
     use masq_lib::constants::{
         NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
@@ -453,7 +454,6 @@ mod tests {
     use std::collections::HashSet;
     use std::iter::FromIterator;
     use std::sync::{Arc, Mutex};
-    use crate::test_utils::make_daemon_bind_message;
 
     #[test]
     fn constants_have_correct_values() {
