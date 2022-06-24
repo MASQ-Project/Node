@@ -277,9 +277,8 @@ mod tests {
         PassLoopFound, TcpConnectionFailed,
     };
     use crate::neighborhood::PublicKey;
-    use crate::test_utils::neighborhood_test_utils::{
-        make_ip, make_node, make_node_descriptor, make_node_to_ui_recipient,
-    };
+    use crate::test_utils::neighborhood_test_utils::{make_ip, make_node, make_node_descriptor};
+    use crate::test_utils::unshared_test_utils::make_node_to_ui_recipient;
     use actix::System;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};

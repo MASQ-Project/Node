@@ -1234,9 +1234,10 @@ mod tests {
     use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::neighborhood_test_utils::{
-        db_from_node, make_cpm_recipient, make_meaningless_db, make_node_record, make_node_record_f,
+        db_from_node, make_meaningless_db, make_node_record, make_node_record_f,
     };
     use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::{Actor, System};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;

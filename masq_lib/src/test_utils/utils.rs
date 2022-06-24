@@ -46,7 +46,6 @@ pub fn real_format_function(
     timestamp: OffsetDateTime,
     record: &Record,
 ) -> Result<(), io::Error> {
-    // let timestamp = timestamp.naive_local().format("%Y-%m-%dT%H:%M:%S%.3f");
     let timestamp = timestamp
         .format(
             &parse("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]")

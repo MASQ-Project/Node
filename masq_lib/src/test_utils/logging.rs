@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::test_utils::fake_stream_holder::ByteArrayWriter;
 use crate::test_utils::utils::{real_format_function, to_millis};
-// use chrono::DateTime;
 use lazy_static::lazy_static;
 use log::set_logger;
 use log::Log;

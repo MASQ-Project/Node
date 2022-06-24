@@ -257,14 +257,14 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use actix::{Actor, AsyncContext, Context, Handler, Message, System};
-    use chrono::format::StrftimeItems;
-    use chrono::{DateTime, Local};
     use crossbeam_channel::{unbounded, Sender};
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Barrier, Mutex, MutexGuard};
     use std::thread;
     use std::thread::{JoinHandle, ThreadId};
     use std::time::{Duration, SystemTime};
+    use time::format_description::parse;
+    use time::OffsetDateTime;
 
     struct TestUiGateway {
         received_messages: Arc<Mutex<Vec<NodeToUiMessage>>>,
@@ -662,13 +662,13 @@ mod tests {
         let one_logger = Logger::new("logger_format_is_correct_one");
         let another_logger = Logger::new("logger_format_is_correct_another");
 
-        let before = SystemTime::now();
+        let before = OffsetDateTime::now_utc();
         error!(one_logger, "one log");
         error!(another_logger, "another log");
-        let after = SystemTime::now();
+        let after = OffsetDateTime::now_utc();
 
         let tlh = TestLogHandler::new();
-        let prefix_len = "0000-00-00T00:00:00.000".len();
+        let prefix_len = "0000-00-00T00:00:00.000000".len();
         let thread_id = thread::current().id();
         let one_log = tlh.get_log_at(tlh.exists_log_containing(&format!(
             " Thd{}: ERROR: logger_format_is_correct_one: one log",
@@ -678,8 +678,8 @@ mod tests {
             " Thd{}: ERROR: logger_format_is_correct_another: another log",
             thread_id_as_string(thread_id)
         )));
-        let before_str = timestamp_as_string(&before);
-        let after_str = timestamp_as_string(&after);
+        let before_str = timestamp_as_string(before);
+        let after_str = timestamp_as_string(after);
         assert_between(&one_log[..prefix_len], &before_str, &after_str);
         assert_between(&another_log[..prefix_len], &before_str, &after_str);
     }
@@ -848,10 +848,10 @@ mod tests {
         tlh.exists_log_containing("error! 42");
     }
 
-    fn timestamp_as_string(timestamp: &SystemTime) -> String {
-        let date_time: DateTime<Local> = DateTime::from(timestamp.clone());
-        let fmt = StrftimeItems::new("%Y-%m-%dT%H:%M:%S%.3f");
-        date_time.format_with_items(fmt).to_string()
+    fn timestamp_as_string(timestamp: OffsetDateTime) -> String {
+        timestamp
+            .format(&parse("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]").unwrap())
+            .unwrap()
     }
 
     fn thread_id_as_string(thread_id: ThreadId) -> String {

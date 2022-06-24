@@ -520,12 +520,13 @@ pub mod unshared_test_utils {
     use crate::sub_lib::accountant::{
         AccountantConfig, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
     };
-    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+    use crate::sub_lib::neighborhood::{ConnectionProgressMessage, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::{
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use actix::{Actor, Addr, AsyncContext, Context, Handler, System};
+    use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
+    use actix::{Actor, Addr, AsyncContext, Context, Handler, Recipient, System};
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{unbounded, Receiver, Sender};
     use lazy_static::lazy_static;
@@ -533,8 +534,9 @@ pub mod unshared_test_utils {
     use masq_lib::multi_config::MultiConfig;
     #[cfg(not(feature = "no_test_share"))]
     use masq_lib::test_utils::utils::MutexIncrementInset;
-    use masq_lib::ui_gateway::NodeFromUiMessage;
+    use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::array_of_borrows_to_vec;
+    use std::any::TypeId;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::num::ParseIntError;
@@ -620,6 +622,33 @@ pub mod unshared_test_utils {
             when_pending_too_long_sec: Default::default(),
             suppress_initial_scans: false,
         }
+    }
+
+    pub fn make_recipient_and_recording_arc<M: 'static>(
+        stopping_message: Option<TypeId>,
+    ) -> (Recipient<M>, Arc<Mutex<Recording>>)
+    where
+        M: Message + Send,
+        <M as Message>::Result: Send,
+        Recorder: Handler<M>,
+    {
+        let (recorder, _, recording_arc) = make_recorder();
+        let recorder = match stopping_message {
+            Some(type_id) => recorder.stop_condition(type_id), // No need to write stop message after this
+            None => recorder,
+        };
+        let addr = recorder.start();
+        let recipient = addr.recipient::<M>();
+
+        (recipient, recording_arc)
+    }
+
+    pub fn make_cpm_recipient() -> (Recipient<ConnectionProgressMessage>, Arc<Mutex<Recording>>) {
+        make_recipient_and_recording_arc(None)
+    }
+
+    pub fn make_node_to_ui_recipient() -> (Recipient<NodeToUiMessage>, Arc<Mutex<Recording>>) {
+        make_recipient_and_recording_arc(None)
     }
 
     pub struct ChannelFactoryMock {

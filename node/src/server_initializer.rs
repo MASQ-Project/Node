@@ -269,11 +269,7 @@ fn format_function(
     _now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), io::Error> {
-    real_format_function(
-        write,
-        OffsetDateTime::now_local().expect("Unable to retrieve the present time."),
-        record,
-    )
+    real_format_function(write, OffsetDateTime::now_utc(), record)
 }
 
 #[cfg(test)]

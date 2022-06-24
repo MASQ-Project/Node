@@ -1,5 +1,3 @@
-#![cfg(test)]
-use std::any::TypeId;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
@@ -9,18 +7,13 @@ use crate::neighborhood::{AccessibleGossipRecord, Neighborhood};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
-use crate::sub_lib::neighborhood::{
-    ConnectionProgressMessage, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor,
-};
+use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
 use crate::test_utils::*;
-use actix::{Actor, Handler, Message, Recipient};
 use ethereum_types::H160;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-use masq_lib::ui_gateway::NodeToUiMessage;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -299,31 +292,4 @@ pub fn make_node(nonce: u8) -> (IpAddr, NodeDescriptor) {
     let node_descriptor = make_node_descriptor(ip_addr);
 
     (ip_addr, node_descriptor)
-}
-
-pub fn make_recipient_and_recording_arc<M: 'static>(
-    stopping_message: Option<TypeId>,
-) -> (Recipient<M>, Arc<Mutex<Recording>>)
-where
-    M: Message + Send,
-    <M as Message>::Result: Send,
-    Recorder: Handler<M>,
-{
-    let (recorder, _, recording_arc) = make_recorder();
-    let recorder = match stopping_message {
-        Some(type_id) => recorder.stop_condition(type_id), // No need to write stop message after this
-        None => recorder,
-    };
-    let addr = recorder.start();
-    let recipient = addr.recipient::<M>();
-
-    (recipient, recording_arc)
-}
-
-pub fn make_cpm_recipient() -> (Recipient<ConnectionProgressMessage>, Arc<Mutex<Recording>>) {
-    make_recipient_and_recording_arc(None)
-}
-
-pub fn make_node_to_ui_recipient() -> (Recipient<NodeToUiMessage>, Arc<Mutex<Recording>>) {
-    make_recipient_and_recording_arc(None)
 }
