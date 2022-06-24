@@ -749,7 +749,7 @@ parm2 - msg2\n"
     fn daemon_and_node_modes_version_call() {
         use time::macros::datetime;
         //this line here makes us aware that this issue is still unresolved; you may want to set this date more forward if we still cannot answer this
-        if OffsetDateTime::now_local().unwrap().date() >= datetime!(2022-03-31 0:00 UTC).date() {
+        if OffsetDateTime::now_utc().date() >= datetime!(2022-03-31 0:00 UTC).date() {
             let subject = RunModes::new();
             let mut daemon_v_holder = FakeStreamHolder::new();
             let mut node_v_holder = FakeStreamHolder::new();

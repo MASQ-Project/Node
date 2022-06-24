@@ -2,18 +2,19 @@
 
 use crate::utils::DaemonProcess;
 use crate::utils::MasqProcess;
-use chrono::DateTime;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::find_free_port;
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
+use time::macros::datetime;
+use time::OffsetDateTime;
 
 mod utils;
 
 #[test]
 fn setup_results_are_broadcast_to_all_uis_integration() {
-    let deadline = DateTime::parse_from_rfc3339("2022-06-01T00:00:00-00:00").unwrap();
-    if SystemTime::now().le(&SystemTime::from(deadline)) {
+    let deadline = datetime!(2022-09-01 0:00 UTC);
+    if OffsetDateTime::now_utc().le(&deadline) {
         eprintln!("This test should be ignored until GH-438 has been played");
         return;
     }
