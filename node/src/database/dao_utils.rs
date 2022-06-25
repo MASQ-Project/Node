@@ -9,8 +9,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::SystemTime;
 
-//TODO move these few into the other, bigger file blob_utils in accountant
-
 pub fn to_time_t(system_time: SystemTime) -> i64 {
     match system_time.duration_since(SystemTime::UNIX_EPOCH) {
         Err(e) => unimplemented!("{}", e),

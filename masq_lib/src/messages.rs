@@ -568,7 +568,7 @@ pub struct UiFinancialsRequest {
 }
 conversation_message!(UiFinancialsRequest, "financials");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct CustomQueries {
     #[serde(rename = "payableOpt")]
     pub payable_opt: Option<RangeQuery<u128>>,
@@ -576,7 +576,7 @@ pub struct CustomQueries {
     pub receivable_opt: Option<RangeQuery<i128>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct RangeQuery<T> {
     #[serde(rename = "minAge")]
     pub min_age: u64,

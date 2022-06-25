@@ -32,11 +32,11 @@ const NO_STATS_ARG_HELP: &str = "blah";
 
 const WALLET_ADDRESS_LENGTH: usize = 42;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FinancialsCommand {
     stats_required: bool,
     top_records_opt: Option<usize>,
-    custom_queries_opt: RefCell<Option<CustomQueries>>,
+    custom_queries_opt: Option<CustomQueries>,
 }
 
 pub fn financials_subcommand() -> App<'static, 'static> {
@@ -88,7 +88,7 @@ impl Command for FinancialsCommand {
         let input = UiFinancialsRequest {
             stats_required: self.stats_required,
             top_records_opt: self.top_records_opt,
-            custom_queries_opt: self.custom_queries_opt.take(),
+            custom_queries_opt: self.custom_queries_opt.clone(),
         };
         let output: Result<UiFinancialsResponse, CommandError> =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
@@ -96,8 +96,7 @@ impl Command for FinancialsCommand {
             Ok(response) => {
                 let stdout = context.stdout();
                 if let Some(stats) = response.stats_opt {
-                    short_writeln!(stdout, "Financial status totals in Wei");
-                    short_writeln!(stdout, "------------------------------");
+                    Self::financial_status_totals_header(stdout);
                     dump_parameter_line(
                         stdout,
                         "Unpaid and pending payable:",
@@ -120,8 +119,42 @@ impl Command for FinancialsCommand {
                     );
                 }
                 if let Some(top_records) = response.top_records_opt {
-                    Self::blank_line(stdout);
-                    self.render_top_payable(stdout, top_records.payable);
+                    Self::double_blank_line(stdout);
+                    self.main_header_to_tops(stdout, "payable");
+                    self.render_payable(stdout, top_records.payable);
+                    Self::double_blank_line(stdout);
+                    self.main_header_to_tops(stdout, "receivable");
+                    self.render_receivable(stdout, top_records.receivable)
+                }
+                if let Some(custom_query) = response.custom_query_records_opt {
+                    if let Some(payable_accounts) = custom_query.payable_opt {
+                        Self::double_blank_line(stdout);
+                        Self::custom_query_header(
+                            stdout,
+                            "Payable",
+                            self.custom_queries_opt
+                                .as_ref()
+                                .expectv("custom query")
+                                .payable_opt
+                                .as_ref()
+                                .expectv("payable custom query"),
+                        );
+                        self.render_payable(stdout, payable_accounts)
+                    }
+                    if let Some(receivable_accounts) = custom_query.receivable_opt {
+                        Self::double_blank_line(stdout);
+                        Self::custom_query_header(
+                            stdout,
+                            "Receivable",
+                            self.custom_queries_opt
+                                .as_ref()
+                                .expectv("custom query")
+                                .receivable_opt
+                                .as_ref()
+                                .expectv("receivable custom query"),
+                        );
+                        self.render_receivable(stdout, receivable_accounts)
+                    }
                 }
                 Ok(())
             }
@@ -149,13 +182,13 @@ impl FinancialsCommand {
         Ok(Self {
             stats_required,
             top_records_opt,
-            custom_queries_opt: RefCell::new(match (&custom_payable_opt, &custom_receivable_opt) {
+            custom_queries_opt: match (&custom_payable_opt, &custom_receivable_opt) {
                 (None, None) => None,
                 _ => Some(CustomQueries {
                     payable_opt: custom_payable_opt,
                     receivable_opt: custom_receivable_opt,
                 }),
-            }),
+            },
         })
     }
 
@@ -181,30 +214,49 @@ impl FinancialsCommand {
         })
     }
 
-    fn render_top_payable(&self, stdout: &mut dyn Write, accounts: Vec<UiPayableAccount>) {
+    fn financial_status_totals_header(stdout: &mut dyn Write){
+        short_writeln!(stdout, "Financial status totals in Wei");
+        short_writeln!(stdout, "{}","=".repeat(30));
+    }
+
+    fn main_header_to_tops(&self, stdout: &mut dyn Write, distinguished: &str) {
         let requested_count = self.top_records_opt.expectv("requested count");
         short_writeln!(
             stdout,
-            "Top {} accounts in payable\n{}",
+            "Top {} accounts in {}\n{}",
             requested_count,
-            "-".repeat(24 + requested_count.to_string().len())
-        );
-        let headers = &["Wallet", "Age [s]", "Balance [Wei]", "Tx rowid"];
+            distinguished,
+            "=".repeat(17 + distinguished.len() + requested_count.to_string().len())
+        )
+    }
+
+    fn width_precise_calculation(headers: &[&str], accounts: &[&dyn WidthInfo]) -> Vec<usize> {
         let headers_widths = headers
             .iter()
             .skip(1)
             .map(|word| word.len() + 2)
             .collect::<Vec<usize>>();
-        let values_widths = Self::figure_out_max_widths(
+        let values_widths = Self::figure_out_max_widths(accounts);
+        Self::yield_bigger_values_from_vecs(headers_widths.len(), headers_widths, values_widths)
+    }
+
+    fn headers_underscore(optimal_widths: &[usize]) -> String {
+        "-".repeat(
+            optimal_widths.iter().fold(0, |acc, width| acc + width)
+                + WALLET_ADDRESS_LENGTH
+                + optimal_widths.len()
+                + 2,
+        )
+    }
+
+    fn render_payable(&self, stdout: &mut dyn Write, accounts: Vec<UiPayableAccount>) {
+        let headers = &["Wallet", "Age [s]", "Balance [Wei]", "Tx rowid"];
+        let optimal_widths = Self::width_precise_calculation(
+            headers,
             &accounts
                 .iter()
                 .map(|each| each as &dyn WidthInfo)
                 .collect::<Vec<&dyn WidthInfo>>(),
-        );
-        let final_decision = Self::yield_bigger_values_from_vecs(
-            headers_widths.len(),
-            headers_widths,
-            values_widths,
         );
         short_writeln!(
             stdout,
@@ -213,19 +265,15 @@ impl FinancialsCommand {
             headers[1],
             headers[2],
             headers[3],
-            "-".repeat(
-                final_decision.iter().fold(0, |acc, width| { acc + width })
-                    + WALLET_ADDRESS_LENGTH
-                    + 5
-            ),
+            Self::headers_underscore(&optimal_widths),
             wallet_width = WALLET_ADDRESS_LENGTH,
-            age_width = final_decision[0],
-            balance_width = final_decision[1],
-            rowid_width = final_decision[2]
+            age_width = optimal_widths[0],
+            balance_width = optimal_widths[1],
+            rowid_width = optimal_widths[2]
         );
         accounts
             .iter()
-            .for_each(|account| Self::render_single_payable(stdout, account, &final_decision));
+            .for_each(|account| Self::render_single_payable(stdout, account, &optimal_widths));
     }
 
     fn render_single_payable(
@@ -251,10 +299,75 @@ impl FinancialsCommand {
         )
     }
 
-    fn figure_out_max_widths(batch_of_records: &[&dyn WidthInfo]) -> Vec<usize> {
-        let cell_count = batch_of_records[0].widths().len();
+    fn render_receivable(&self, stdout: &mut dyn Write, accounts: Vec<UiReceivableAccount>) {
+        let headers = &["Wallet", "Age [s]", "Balance [Wei]"];
+        let optimal_widths = Self::width_precise_calculation(
+            headers,
+            &accounts
+                .iter()
+                .map(|each| each as &dyn WidthInfo)
+                .collect::<Vec<&dyn WidthInfo>>(),
+        );
+        short_writeln!(
+            stdout,
+            "|{:^wallet_width$}|{:^age_width$}|{:^balance_width$}|\n{}",
+            headers[0],
+            headers[1],
+            headers[2],
+            Self::headers_underscore(&optimal_widths),
+            wallet_width = WALLET_ADDRESS_LENGTH,
+            age_width = optimal_widths[0],
+            balance_width = optimal_widths[1],
+        );
+        accounts
+            .iter()
+            .for_each(|account| Self::render_single_receivable(stdout, account, &optimal_widths));
+    }
+
+    fn render_single_receivable(
+        stdout: &mut dyn Write,
+        account: &UiReceivableAccount,
+        width_config: &[usize],
+    ) {
+        short_writeln!(
+            stdout,
+            "|{:wallet_width$}|{:>age_width$}|{:>balance_width$}|",
+            account.wallet,
+            account.age.separate_with_commas(),
+            account.amount.separate_with_commas(),
+            wallet_width = WALLET_ADDRESS_LENGTH,
+            age_width = width_config[0],
+            balance_width = width_config[1],
+        )
+    }
+
+    fn custom_query_header<N: Display>(
+        stdout: &mut dyn Write,
+        distinguished: &str,
+        range_query: &RangeQuery<N>,
+    ) {
+        short_writeln!(
+            stdout,
+            "{} query with parameters: {}-{} s and {}-{} Wei\n{}",
+            distinguished,
+            range_query.min_age,
+            range_query.max_age,
+            range_query.min_amount,
+            range_query.max_amount,
+            "=".repeat(
+                37 + distinguished.len()
+                    + range_query.min_age.to_string().len()
+                    + range_query.max_age.to_string().len()
+                    + range_query.min_amount.to_string().len()
+                    + range_query.max_amount.to_string().len()
+            )
+        )
+    }
+
+    fn figure_out_max_widths(records: &[&dyn WidthInfo]) -> Vec<usize> {
+        let cell_count = records[0].widths().len();
         let init = vec![0_usize; cell_count];
-        batch_of_records.iter().fold(init, |acc, record| {
+        records.iter().fold(init, |acc, record| {
             let cells = record.widths();
             Self::yield_bigger_values_from_vecs(cell_count, acc, cells)
         })
@@ -288,8 +401,8 @@ impl FinancialsCommand {
         }
     }
 
-    fn blank_line(stdout: &mut dyn Write) {
-        short_writeln!(stdout, "")
+    fn double_blank_line(stdout: &mut dyn Write) {
+        short_writeln!(stdout, "\n")
     }
 }
 
@@ -315,7 +428,10 @@ impl WidthInfo for UiPayableAccount {
 
 impl WidthInfo for UiReceivableAccount {
     fn widths(&self) -> Vec<usize> {
-        todo!()
+        vec![
+            FinancialsCommand::count_length_with_comma_separators(self.age),
+            FinancialsCommand::count_length_with_comma_separators(self.amount),
+        ]
     }
 }
 
@@ -467,7 +583,7 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
             "\
                 Financial status totals in Wei\n\
-                ------------------------------\n\
+                ==============================\n\
                 Unpaid and pending payable:       116688\n\
                 Paid payable:                     55555\n\
                 Unpaid receivable:                221144\n\
@@ -561,7 +677,7 @@ mod tests {
                     amount: 8456582898,
                     pending_payable_rowid_opt: Some(5),
                 }]),
-                receivable_opt: Some(vec![]),
+                receivable_opt: None,
             }),
         };
         let args = array_of_borrows_to_vec(&[
@@ -613,33 +729,37 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
             indoc!("
                 Financial status totals in Wei
-                ------------------------------
+                ==============================
                 Unpaid and pending payable:       116688
                 Paid payable:                     55555
                 Unpaid receivable:                221144
                 Paid receivable:                  66555
 
+
                 Top 123 accounts in payable
-                ---------------------------
+                ===========================
                 |                  Wallet                  |   Age [s]   | Balance [Wei] | Tx rowid |
                 -------------------------------------------------------------------------------------
                 |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|      150,000|  8,456,582,898|         5|
                 |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|5,645,405,400|    884,332,566|      None|
 
-                Top 5 accounts in receivable
-                ----------------------------
+
+                Top 123 accounts in receivable
+                ==============================
                 |                  Wallet                  | Age [s] | Balance [Wei] |
                 ----------------------------------------------------------------------
                 |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|   22,000| 12,444,551,012|
 
+
                 Payable query with parameters: 0-350000 s and 5000000-9000000000 Wei
-                --------------------------------------------------------------------
-                |                  Wallet                  |    Age [s]  | Balance [Wei] | Tx rowid |
-                -------------------------------------------------------------------------------------
-                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|      150,000|  8,456,582,898|        5 |
+                ====================================================================
+                |                  Wallet                  | Age [s] | Balance [Wei] | Tx rowid |
+                ---------------------------------------------------------------------------------
+                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|  150,000|  8,456,582,898|         5|
+
 
                 Receivable query with parameters: 5000-10000 s and 3000000-5600070000 Wei
-                -------------------------------------------------------------------------
+                =========================================================================
                 |                  Wallet                  |    Age [s]  | Balance [Wei] | Tx rowid |
                 -------------------------------------------------------------------------------------
                                                    No result
