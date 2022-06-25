@@ -288,6 +288,7 @@ impl PcpTransactor {
         let mut last_remapped = Instant::now();
         let mut mapping_config_opt: Option<MappingConfig> = None;
         let mut buffer = [0u8; 64];
+eprintln! ("Creating announce listen socket at {:?}", router_multicast_info);
         let announce_socket = match router_multicast_info.create_polite_socket() {
             Ok (socket) => socket,
             Err (e) => {
@@ -300,6 +301,7 @@ impl PcpTransactor {
             }
         };
         announce_socket.set_read_timeout(Some (Duration::from_millis (read_timeout_millis))).expect("Couldn't set read timeout for announce socket");
+        announce_socket.set_nonblocking(true).expect ("Couldn't set announce socket to nonblocking");
         loop {
             match rx.try_recv() {
                 Ok(HousekeepingThreadCommand::Stop) => {
@@ -332,21 +334,30 @@ impl PcpTransactor {
             match announce_socket.recv(&mut buffer[..]) {
                 Ok (_len) => {
                     match PcpPacket::try_from (&buffer[..]) {
-                        Ok (packet) => if packet.opcode == Opcode::Announce {
-                            // TODO: This is almost certainly wrong. Do more investigation.
-                            match packet.client_ip_opt {
-                                Some (ip) => change_handler (AutomapChange::NewIp(ip)),
-                                None => todo! ("Complete me!"),
+                        Ok (packet) => if packet.opcode == Opcode::Map {
+                            match MappingTransactorReal::compute_mapping_result(packet, router_server_addr, &logger)
+                                // .map(
+                                // |(approved_lifetime, opcode_data)| {
+                                //     mapping_config.next_lifetime = Duration::from_secs(approved_lifetime as u64);
+                                //     mapping_config.remap_interval = Duration::from_secs((approved_lifetime / 2) as u64);
+                                //     (approved_lifetime, opcode_data)
+                                // },)
+                            {
+                                Ok ((approved_lifetime, opcode_data)) => {
+                                    change_handler(AutomapChange::NewIp(opcode_data.external_ip_address))
+                                    // TODO: More stuff here: finish the remap
+                                },
+                                Err (e) => todo! ("Complete me: {:?}", e),
                             }
                         }
                         else {
-                            todo! ("Complete me!");
+                            todo! ("Complete me: {:?}", packet.opcode);
                         },
-                        Err (_e) => todo! ("Complete me!"),
+                        Err (e) => todo! ("Complete me: {:?}", e),
                     }
                 },
                 Err (e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => (),
-                Err (_e) => todo! ("Complete me"),
+                Err (e) => todo! ("Complete me: {:?}", e),
             };
             let since_last_remapped = last_remapped.elapsed();
             match &mut mapping_config_opt {
@@ -609,7 +620,7 @@ mod tests {
     use std::{io, thread};
 
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::utils::{localhost};
+    use masq_lib::utils::{find_free_port, localhost};
 
     use crate::comm_layer::pcp_pmp_common::ROUTER_SERVER_PORT;
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder, MulticastInfo};
@@ -1361,16 +1372,21 @@ mod tests {
         let multicast_info = MulticastInfo::for_test (4);
         subject.multicast_info = multicast_info.clone();
         let commander = subject.start_housekeeping_thread(Box::new (change_handler),
-            IpAddr::from_str("1.2.3.4").unwrap(), &MulticastInfo::for_test(5)).unwrap();
-        let mut announce = PcpPacket::default();
-        announce.opcode = Opcode::Announce;
-        announce.direction = Direction::Response;
-        announce.client_ip_opt = Some (IpAddr::from_str ("4.3.2.1").unwrap());
-        let mut announce_buffer = [0u8; 64];
-        let announce_len = announce.marshal (&mut announce_buffer).unwrap();
+            IpAddr::from_str("1.2.3.4").unwrap(), &multicast_info).unwrap();
+        let mut map_response = PcpPacket::default();
+        map_response.opcode = Opcode::Map;
+        map_response.direction = Direction::Response;
+        map_response.result_code_opt = Some(ResultCode::Success);
+        let mut opcode_data = MapOpcodeData::default();
+        opcode_data.protocol = Protocol::Udp;
+        opcode_data.external_ip_address = IpAddr::from_str("4.3.2.1").unwrap();
+        map_response.opcode_data = Box::new (opcode_data);
+        let mut map_buffer = [0u8; 64];
+        let announce_len = map_response.marshal (&mut map_buffer).unwrap();
+eprintln! ("Creating announce talk   socket at {:?}", multicast_info);
         let router_socket = &multicast_info.create_polite_socket().unwrap();
 
-        router_socket.send_to (&announce_buffer[0..announce_len], multicast_info.multicast_addr()).unwrap();
+        router_socket.send_to (&map_buffer[0..announce_len], multicast_info.multicast_addr()).unwrap();
 
         let change = await_value(None, || {
             match received_new_ip.lock().unwrap().take() {

@@ -18,6 +18,10 @@ pub mod pcp;
 pub mod pcp_pmp_common;
 pub mod pmp;
 
+//TEMPORARY
+pub mod multicast_spike;
+//TEMPORARY
+
 pub const DEFAULT_MAPPING_LIFETIME_SECONDS: u32 = 600; // ten minutes
 
 #[derive(Clone, PartialEq, Debug)]
@@ -227,7 +231,7 @@ use masq_lib::utils::{localhost, find_free_port};
 #[cfg(test)]
 impl MulticastInfo {
     pub fn for_test(multicast_group: u8) -> Self {
-        Self::new (localhost(), multicast_group, find_free_port())
+        Self::new (IpAddr::V4(Ipv4Addr::UNSPECIFIED), multicast_group, find_free_port())
     }
 }
 
