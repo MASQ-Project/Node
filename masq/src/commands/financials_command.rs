@@ -12,7 +12,6 @@ use masq_lib::messages::{
 use masq_lib::shared_schema::common_validators::{validate_non_zero_usize, validate_two_ranges};
 use masq_lib::short_writeln;
 use masq_lib::utils::{plus, ExpectValue};
-use std::cell::RefCell;
 use std::fmt::Display;
 use std::io::Write;
 use std::str::FromStr;
@@ -31,6 +30,8 @@ const RECEIVABLE_ARG_HELP: &str = "blah";
 const NO_STATS_ARG_HELP: &str = "blah";
 
 const WALLET_ADDRESS_LENGTH: usize = 42;
+
+const PAYABLE_HEADERS: &[&str] = &["Wallet", "Age [s]", "Balance [Wei]", "Tx rowid"];
 
 #[derive(Debug, Clone)]
 pub struct FinancialsCommand {
@@ -119,13 +120,27 @@ impl Command for FinancialsCommand {
                     );
                 }
                 if let Some(top_records) = response.top_records_opt {
-                    Self::double_blank_line(stdout);
-                    self.main_header_to_tops(stdout, "payable");
-                    self.render_payable(stdout, top_records.payable);
-                    Self::double_blank_line(stdout);
-                    self.main_header_to_tops(stdout, "receivable");
-                    self.render_receivable(stdout, top_records.receivable)
+                    if let Some(payable) = top_records.payable_opt {
+                        Self::double_blank_line(stdout);
+                        self.main_header_to_tops(stdout, "payable");
+                        self.render_payable(stdout, payable);
+                    } else {
+                        todo!("no records")
+                    }
+                    if let Some(receivable) = top_records.receivable_opt {
+                        Self::double_blank_line(stdout);
+                        self.main_header_to_tops(stdout, "receivable");
+                        self.render_receivable(stdout, receivable)
+                    } else {
+                        todo!("no records")
+                    }
                 }
+                // Self::double_blank_line(stdout);
+                // self.main_header_to_tops(stdout, "payable");
+                // Self::no_records_found()
+                //Self::double_blank_line(stdout);
+                //self.main_header_to_tops(stdout, "receivable");
+                // Self::no_records_found()
                 if let Some(custom_query) = response.custom_query_records_opt {
                     if let Some(payable_accounts) = custom_query.payable_opt {
                         Self::double_blank_line(stdout);
@@ -140,6 +155,14 @@ impl Command for FinancialsCommand {
                                 .expectv("payable custom query"),
                         );
                         self.render_payable(stdout, payable_accounts)
+                    } else if self
+                        .custom_queries_opt
+                        .as_ref()
+                        .expectv("custom query input")
+                        .payable_opt
+                        .is_some()
+                    {
+                        todo!("no records")
                     }
                     if let Some(receivable_accounts) = custom_query.receivable_opt {
                         Self::double_blank_line(stdout);
@@ -154,6 +177,25 @@ impl Command for FinancialsCommand {
                                 .expectv("receivable custom query"),
                         );
                         self.render_receivable(stdout, receivable_accounts)
+                    } else if self
+                        .custom_queries_opt
+                        .as_ref()
+                        .expectv("custom query input")
+                        .payable_opt
+                        .is_some()
+                    {
+                        Self::double_blank_line(stdout);
+                        Self::custom_query_header(
+                            stdout,
+                            "Receivable",
+                            self.custom_queries_opt
+                                .as_ref()
+                                .expectv("custom query")
+                                .receivable_opt
+                                .as_ref()
+                                .expectv("receivable custom query"),
+                        );
+                        Self::no_records_found(stdout, PAYABLE_HEADERS, Self::write_payable_headers)
                     }
                 }
                 Ok(())
@@ -214,9 +256,9 @@ impl FinancialsCommand {
         })
     }
 
-    fn financial_status_totals_header(stdout: &mut dyn Write){
+    fn financial_status_totals_header(stdout: &mut dyn Write) {
         short_writeln!(stdout, "Financial status totals in Wei");
-        short_writeln!(stdout, "{}","=".repeat(30));
+        short_writeln!(stdout, "{}", "=".repeat(30));
     }
 
     fn main_header_to_tops(&self, stdout: &mut dyn Write, distinguished: &str) {
@@ -240,17 +282,19 @@ impl FinancialsCommand {
         Self::yield_bigger_values_from_vecs(headers_widths.len(), headers_widths, values_widths)
     }
 
+    fn full_length(optimal_widths: &[usize]) -> usize {
+        optimal_widths.iter().fold(0, |acc, width| acc + width)
+            + WALLET_ADDRESS_LENGTH
+            + optimal_widths.len()
+            + 2
+    }
+
     fn headers_underscore(optimal_widths: &[usize]) -> String {
-        "-".repeat(
-            optimal_widths.iter().fold(0, |acc, width| acc + width)
-                + WALLET_ADDRESS_LENGTH
-                + optimal_widths.len()
-                + 2,
-        )
+        "-".repeat(Self::full_length(optimal_widths))
     }
 
     fn render_payable(&self, stdout: &mut dyn Write, accounts: Vec<UiPayableAccount>) {
-        let headers = &["Wallet", "Age [s]", "Balance [Wei]", "Tx rowid"];
+        let headers = PAYABLE_HEADERS;
         let optimal_widths = Self::width_precise_calculation(
             headers,
             &accounts
@@ -258,6 +302,13 @@ impl FinancialsCommand {
                 .map(|each| each as &dyn WidthInfo)
                 .collect::<Vec<&dyn WidthInfo>>(),
         );
+        Self::write_payable_headers(stdout, headers, &optimal_widths);
+        accounts
+            .iter()
+            .for_each(|account| Self::render_single_payable(stdout, account, &optimal_widths));
+    }
+
+    fn write_payable_headers(stdout: &mut dyn Write, headers: &[&str], optimal_widths: &[usize]) {
         short_writeln!(
             stdout,
             "|{:^wallet_width$}|{:^age_width$}|{:^balance_width$}|{:^rowid_width$}|\n{}",
@@ -270,10 +321,7 @@ impl FinancialsCommand {
             age_width = optimal_widths[0],
             balance_width = optimal_widths[1],
             rowid_width = optimal_widths[2]
-        );
-        accounts
-            .iter()
-            .for_each(|account| Self::render_single_payable(stdout, account, &optimal_widths));
+        )
     }
 
     fn render_single_payable(
@@ -364,6 +412,25 @@ impl FinancialsCommand {
         )
     }
 
+    fn no_records_found<F>(stdout: &mut dyn Write, headers: &[&str], write_headers: F)
+    where
+        F: Fn(&mut dyn Write, &[&str], &[usize]),
+    {
+        let headers_widths = headers
+            .iter()
+            .skip(1)
+            .map(|word| word.len() + 2)
+            .collect::<Vec<usize>>();
+        let full_length = Self::full_length(&headers_widths);
+        write_headers(stdout, headers, &headers_widths);
+        short_writeln!(
+            stdout,
+            "{:^width$}",
+            "No records found",
+            width = full_length
+        )
+    }
+
     fn figure_out_max_widths(records: &[&dyn WidthInfo]) -> Vec<usize> {
         let cell_count = records[0].widths().len();
         let init = vec![0_usize; cell_count];
@@ -447,8 +514,6 @@ mod tests {
         CustomQueryResult, FinancialStatistics, FirmQueryResult, ToMessageBody,
         UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
     };
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayWriterInner;
-    use masq_lib::ui_gateway::MessageBody;
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::sync::{Arc, Mutex};
 
@@ -487,8 +552,8 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Ok(UiFinancialsResponse {
             stats_opt: None,
             top_records_opt: Some(FirmQueryResult {
-                payable: vec![],
-                receivable: vec![],
+                payable_opt: None,
+                receivable_opt: None,
             }),
             custom_query_records_opt: None,
         }
@@ -518,11 +583,11 @@ mod tests {
                 total_paid_receivable: 3333,
             }),
             top_records_opt: Some(FirmQueryResult {
-                payable: vec![],
-                receivable: vec![],
+                payable_opt: None,
+                receivable_opt: None,
             }),
             custom_query_records_opt: Some(CustomQueryResult {
-                payable_opt: Some(vec![]),
+                payable_opt: None,
                 receivable_opt: None,
             }),
         }
@@ -650,7 +715,7 @@ mod tests {
                 total_paid_receivable: 66555,
             }),
             top_records_opt: Some(FirmQueryResult {
-                payable: vec![
+                payable_opt: Some(vec![
                     UiPayableAccount {
                         wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                         age: 150000,
@@ -663,12 +728,12 @@ mod tests {
                         amount: 884332566,
                         pending_payable_rowid_opt: None,
                     },
-                ],
-                receivable: vec![UiReceivableAccount {
+                ]),
+                receivable_opt: Some(vec![UiReceivableAccount {
                     wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                     age: 22000,
                     amount: 12444551012,
-                }],
+                }]),
             }),
             custom_query_records_opt: Some(CustomQueryResult {
                 payable_opt: Some(vec![UiPayableAccount {
@@ -725,9 +790,8 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
-            indoc!("
+        assert_eq!(stdout_arc.lock().unwrap().get_string(), {
+            let main_text_block: &str = indoc!("
                 Financial status totals in Wei
                 ==============================
                 Unpaid and pending payable:       116688
@@ -760,13 +824,11 @@ mod tests {
 
                 Receivable query with parameters: 5000-10000 s and 3000000-5600070000 Wei
                 =========================================================================
-                |                  Wallet                  |    Age [s]  | Balance [Wei] | Tx rowid |
-                -------------------------------------------------------------------------------------
-                                                   No result
-            "
-        ));
+                |                  Wallet                  | Age [s] | Balance [Wei] | Tx rowid |
+                ---------------------------------------------------------------------------------");
+            format!("{}\n                                No records found                                 \n", main_text_block)
+        });
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
-        todo!("rewrite and finish the test")
     }
 
     #[test]

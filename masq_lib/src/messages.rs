@@ -613,8 +613,8 @@ pub struct FinancialStatistics {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct FirmQueryResult {
-    pub payable: Vec<UiPayableAccount>,
-    pub receivable: Vec<UiReceivableAccount>,
+    pub payable_opt: Option<Vec<UiPayableAccount>>,
+    pub receivable_opt: Option<Vec<UiReceivableAccount>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
